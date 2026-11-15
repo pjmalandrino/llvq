@@ -1,0 +1,236 @@
+R6, attack by the literature on the R5 conjecture (noise shaped by the residual stream's principal basis), 2026-11-15
+
+VERDICT. Standing in its exact form, but weakened on its premise and partly known in its principle.
+Exact form ("rotate the stream to its PCA basis so per-row noise follows signal") not found in any paper I could read.
+The principle (price output directions by downstream sensitivity) is published as YAQA; the premise (cost set by
+relative noise) has one direct contrary measurement (uniform absolute sensitivity, GPT-2) and no supporting one.
+
+Scope. Web search and paper reading only. No code, no model, no job. "Opened" means the HTML full text was read
+through a fetch tool, sometimes partially; "abstract only" means only the abstract or a search snippet was seen.
+Every number below is *reported* by the cited paper unless marked *inference* (mine) or *computed* (mine).
+
+----------------------------------------------------------------------------------------------------------------------
+0. One reduction that frames everything below (inference)
+----------------------------------------------------------------------------------------------------------------------
+
+A fixed-rate quantizer with one scale per output row writes, at high resolution, an error energy per row proportional
+to that row's energy. The total error energy is then proportional to the Frobenius norm of the writer. That norm is
+invariant under any orthogonal change of the output basis.
+So a change of the stream's basis cannot lower the writer's total output-noise energy. It only moves that energy
+between directions. Its gain exists only through a weighting: if the cost of direction k is w_k times its noise
+energy, the PCA layout beats a flat layout iff w_k falls with the signal variance s_k^2 strongly enough.
+The R5 layout (equal relative noise in every direction) is the optimum of a weighted reverse water-filling exactly
+when w_k is proportional to 1/s_k^2 (a whitened, Mahalanobis output metric). With w_k constant, the optimum is equal
+absolute noise per direction, which is what a random or Hadamard output rotation already gives.
+The conjecture is therefore equivalent to one empirical claim: downstream sensitivity per unit absolute noise falls
+roughly as 1/variance across the stream's principal directions. Section C is the test of that claim.
+
+A second caveat (inference). The noise in direction k after the rotation follows the writer's own energy in k, not
+the stream's variance in k. The stream at depth 12 sums the embedding and all earlier writers, and its top
+directions in Qwen-class models are dominated by massive activations on a few tokens (Sun et al., below). A writer
+row aligned with such a direction carries weight noise to every token, while the signal there is large only on the
+few tokens that carry the massive activation. Pooled PCA variance can thus overstate what an ordinary token can
+bear in the top directions.
+
+----------------------------------------------------------------------------------------------------------------------
+A. Basis changes of the stream chosen for quantization
+----------------------------------------------------------------------------------------------------------------------
+
+A1. SliceGPT, arXiv 2401.15024, 2024. Abstract opened.
+Measured: PCA rotation of the residual stream folded into weights (computational invariance under RMSNorm), then
+deletion of the lowest-variance directions, up to 25% of parameters; 99% zero-shot retained on LLaMA2-70B and OPT-66B,
+90% on Phi-2. Not a quantization method.
+Bearing: the exact folding machinery R5 proposes exists and is cheap. It was used to delete quiet directions, the
+opposite of protecting them. Its success at 25% says the quietest quarter carries little at 70B scale; the R5 patch
+band is 80% of directions, so the two are not in contradiction (inference).
+
+A2. QuaRot, arXiv 2404.00456, 2024. Abstract and snippets only.
+Random Hadamard rotation of the stream, inherited from SliceGPT's invariance. W4A4 headline; GPTQ weights. Random,
+for incoherence. No PCA arm.
+
+A3. SpinQuant, arXiv 2405.16406, 2024. Opened.
+Measured: LLaMA-2 7B, W4A4, RTN, 100 random rotations spread 13 points of zero-shot accuracy (Fig. 4); random
+float rotation 49.4 +- 2.8, random Hadamard 59.0 +- 1.0, learned (Cayley) 61.6 to 61.8 (Table 4).
+Weight-only W4A16 (Table 17): SpinQuant 65.9 avg / 5.6 ppl against GPTQ 64.5 / 11.3 on 7B; 72.6 / 3.5 against
+71.9 / 3.9 on 70B. No W3A16 or W2A16; no PCA arm.
+Bearing: the basis of the stream matters a lot under activation quantization, much less and unisolated under
+weight-only. Learned rotations stay close to their Hadamard start (a 2026 snippet, not opened).
+
+A4. DFRot, arXiv 2412.00648, 2024. Abstract and snippet only.
+Reported: the gap between random Hadamard and random orthogonal in QuaRot vanishes once the tokens with massive
+activations are kept in FP16. W4A4. Bearing: the stream's few massive-activation tokens drive basis effects. This is
+the token-sparse structure that caveat 2 of section 0 raises.
+
+A5. ResQ, arXiv 2412.14363, ICML 2025. Abstract and HTML summary only.
+PCA of activations picks a subspace of about 1/8 of the hidden size kept at 8 bits, the rest at 4 bits, with random
+rotations inside each subspace. Weights, activations and KV cache. Reported up to 33% lower WikiText ppl than
+SpinQuant on Llama and Qwen2.5.
+Bearing: the closest published use of the stream's PCA basis for quantization. It spends more bits on loud
+directions and then still randomizes inside each band. It never lets noise follow signal at equal rate.
+
+A6. ROSAQ, arXiv 2506.13472, 2025. Abstract only.
+PCA of a layer's input activations; top-eigenvalue directions kept in FP16, the rest INT3/INT4; weight-only. Input
+side, salience by variance, mixed precision. Not the output side, not the stream.
+
+A7. OSTQuant (2501.13987), FlatQuant (2410.09426), KurTail (2503.01483), DartQuant (2511.04063), 2024-2025.
+Abstract level only. All learned or calibrated transforms aimed at flattening distributions, W4A4 headline. None is
+a PCA basis for weight-only coding. BASE-Q (2506.15689, abstract only) keeps rotations fixed and adds bias
+correction; reported gap closures of 50.5% vs QuaRot, 42.9% vs SpinQuant, 29.2% vs OSTQuant, W4A4.
+
+A8. CAT, Federici, van Breugel, Whatmough, Nagel, arXiv 2603.04359, ICML 2026. Opened.
+Measured: SQNR splits into a concentration term and an alignment term between weight and activation dominant
+directions; no orthogonal transform changes alignment. CAT uses (Sigma_w # Sigma_x^-1)^(1/2) per input block,
+then a Hadamard. W4A4 RTN, Qwen3-8B: CAT block 10.82 ppl / 66.64 avg untrained, 10.50 / 66.93 trained, against QuaRot
+13.69 / 59.82 (Table 1). Input side, per layer, not the stream; no PCA arm.
+Bearing: the data-driven basis that wins is not the PCA basis; it is a geometric mean with an inverse covariance,
+then incoherence on top.
+
+A9. "Transforms for LLM Quantization: The Great Inversion and Format Co-Design", arXiv 2608.25188, 2026. Opened
+in part (three of four chunks).
+Claims (theory): the KLT (PCA) is optimal for allocation-flexible coding and concentrates energy; a shared-scale,
+equal-rate kernel wants the opposite, flattening. Quote: "Where the KLT concentrates, the deployed kernel wants a
+transform that spreads."
+Measured: one TinyLlama-1.1B q_proj, G=128, shared-scale cost over the flat floor: Hadamard 3.1x, identity 1.3x, KLT
+1.05x (Fig. 3; the authors call it an illustration). It also relays Ordentlich and Polyanskiy (2026) on
+Llama-3-8B covariances: GPTQ with a random rotation lands within about 0.1 bit of WaterSIC.
+Bearing: the theory is about the axis inside a scale group (the input axis here, which R5 leaves incoherent). R5
+rotates the output axis, where each row has its own scale and its own 48-bit blocks; the concentration argument
+does not transfer directly (inference). The survey's 43-method taxonomy contains no output-axis PCA method that I saw.
+
+A10. Influence-inspired spectral rotations (BBT), arXiv 2605.25203, 2026. Opened.
+Fixed Walsh-Hadamard plus per-input-channel scaling by a spectral energy proxy, weight-only W2A16 g64 with
+AutoRound. Qwen3-0.6B ppl 136.76 to 88.99 with a per-head PCA variant; Qwen2.5-1.5B 36.93 to 28.16. No comparison
+against QuaRot, SpinQuant or a plain PCA basis; W4A16 shows no gain (9.65 vs 9.71).
+
+Answer to A's key question. No paper I found compares a residual-stream PCA basis against a random or learned basis
+for weight-only coding at 2 to 3 bits. The established weight-only low-bit practice (QuIP, QuIP#, QTIP, the
+project's own LLVQ basis) randomizes both axes of every matrix. I found no paper reporting that a PCA basis hurt in
+weight-only coding, and none reporting that it helped.
+
+----------------------------------------------------------------------------------------------------------------------
+B. Output-side and two-sided objectives
+----------------------------------------------------------------------------------------------------------------------
+
+B1. YAQA, Tseng, Sun, De Sa, arXiv 2505.22988, ICML 2026. Opened.
+Measured: Kronecker Hessian H_O x H_I of the end-to-end KL; H_O is an output-side factor from gradients at the
+layer's output. QTIP quantizer, incoherence processing, no finetuning (Table 1). KL Llama-3.1-8B-Instruct at 2 bits:
+LDLQ 0.356, YAQA-A 0.284, YAQA-B 0.241; at 3 bits 0.069 / 0.050 / 0.044. 70B at 2 bits 0.497 / 0.378 / 0.335.
+Zero-shot average, 8B at 2 bits: 62.51 / 64.06 / 64.32. No MMLU, no generation task.
+Reported: real H_O has strong spectral decay and is close to low rank (Fig. 3); no quantitative spectrum and no
+relation to the stream's principal directions.
+Bearing: this is the principled form of the R5 premise (stop pricing every output direction alike) and it is
+published, with about -30% KL and +1.8 zero-shot points at 2 bits on 8B. It uses the measured sensitivity H_O, not
+1/variance. Whether H_O's top eigenvectors sit in the stream's quiet or loud directions is not reported.
+
+B2. OAC, arXiv 2405.15025, AAAI 2025. Abstract only.
+Output cross-entropy Hessian per layer instead of the layer-wise l2; reported best at 2 bits and binary over SpQR
+and BiLLM. No per-direction analysis seen.
+
+B3. GuidedQuant, arXiv 2505.07004, 2025. Abstract only.
+End-loss gradients on layer outputs weight the layer objective, plug-in for scalar, vector and W+A quantizers;
+reported consistent gains on Llama-2-7B. Numbers at 2 bits not retrieved.
+
+B4. Output-aware residual stream pruning, arXiv 2609.35579, 2026. Abstract only.
+Selects the kept residual subspace by eigendecomposition of a sensitivity-weighted covariance (second-order output
+KL), instead of activation covariance alone; reports lower KL and better perplexity than activation-only pruning.
+Bearing: the literature's move is from "variance" to "variance times sensitivity", not to "relative to variance".
+
+B5. WaterSIC, Lifar, Savkin, Ordentlich, Polyanskiy, arXiv 2603.04956, ICML 2026. Abstract only.
+Water-filling rate allocation across input columns; within 0.255 bit of the information-theoretic limit for any
+input covariance; reported state of the art from 1 to 4 bits on Llama and Qwen. Input-side, layer-wise MSE.
+
+No paper found that weights a layer's output error by the inverse of the output's own variance.
+
+----------------------------------------------------------------------------------------------------------------------
+C. The premise: sensitivity per unit relative noise across principal directions
+----------------------------------------------------------------------------------------------------------------------
+
+C1. "Variance Is Not Importance", Salfati, arXiv 2604.20682, 2026. Opened (HTML).
+Measured: Gaussian noise along each PCA direction of (apparently) the residual stream, with the SAME absolute size
+in every direction (sigma = 1% of the token's l2 norm); sensitivity "approximately uniform across all 768
+dimensions" of GPT-2, stated qualitatively, no statistic. PCA projection of GPT-2 blocks 3 to 8: 256 of 768
+directions (99.9% of variance) give ppl 145 against 47.
+Bearing: this is the only direct measurement found, and it contradicts the premise. Uniform sensitivity per unit
+ABSOLUTE noise means cost follows noise energy (w_k constant), which makes the layer-wise objective right and the
+flat layout optimal (section 0). Weak points: GPT-2 only, one layer unstated, single author, no number given for
+the uniformity.
+
+C2. Geometric and behavioral stratification of residual streams, arXiv 2608.12447, 2026. Opened in part.
+Measured on 18 models, 7B to 120B: permuting and sign-flipping the low-variance complement F (norm kept) costs 2.8
+nats mean KL; scaling F by 0.5 costs 0.047 nats, about the same as rotating the top-variance strata (0.005 to 0.052).
+Reported: the top strata have higher causal weight per dimension; F dominates in aggregate by its dimension count.
+Bearing: mixed. The quiet complement is load-bearing in direction, tolerant in magnitude. Higher per-dimension weight
+in the loud strata runs against w_k proportional to 1/s_k^2 (inference; the paper does not normalise per unit noise).
+
+C3. Massive activations, Sun et al., arXiv 2402.17762, 2024; rogue dimensions, Timkey and van Schijndel, arXiv
+2109.04404, 2021. Abstract level, from prior knowledge, not reopened.
+A few dimensions carry huge values on a few tokens and act as biases; a few dimensions dominate variance without
+driving behaviour. Bearing: the top principal directions are token-sparse and partly bias-like, which supports
+"loud directions tolerate noise" for ordinary tokens only if their noise is also token-sparse; weight noise is not.
+
+C4. Sensitive directions, Heimersheim and Mendel 2024, and Lee and Heimersheim, arXiv 2410.12555, 2024. Secondary
+sources only. Real activations sit on plateaus; directions toward other real activations are more sensitive than
+random ones, and the original random baseline was flawed. Nothing per principal direction.
+
+C5. The R5 patch result read against C1 (inference, computed). If the stream noise at depth 12 is nearly flat over
+directions, the band 513 to 2,560 (2,048 of 2,560 directions) holds about 80% of the noise energy. A cost set by
+noise energy (C1) predicts about 80% recovery from patching that band. A cost set by relative noise predicts about
+98% if the R5 ratios are amplitude ratios (2,048 x 0.64^2 against 448 x 0.15^2), about 95% if they are power ratios.
+Measured: 86%. The point sits between the two hypotheses, closer to the energy one, and patching is not additive.
+The patch map does not discriminate the conjecture from its null; this matches the authors' own caution.
+
+----------------------------------------------------------------------------------------------------------------------
+D. Noise shaping and weighted rate-distortion
+----------------------------------------------------------------------------------------------------------------------
+
+D1. Weighted reverse water-filling (textbook, Cover and Thomas ch. 10; perceptual transform coding). For independent
+Gaussian components with variances s_k^2 and distortion weights w_k, the optimal per-component distortion is
+min(theta / w_k, s_k^2). Equal relative noise is optimal only for w_k proportional to 1/s_k^2. Fixed equal rate per
+row cannot water-fill; it forces D_k proportional to s_k^2 in whatever basis the rows live (section 0).
+
+D2. GPFQ, Lybrand and Saab, arXiv 2010.15979, 2021; SPFQ, Zhang and Saab, arXiv 2309.10975, 2023. Abstract level.
+Greedy path-following quantization with error feedback, a sigma-delta-like dynamical system along the input axis.
+GPTQ's feedback is the same mechanism. Neither shapes noise across output directions.
+
+D3. Survey 2608.25188 (A9) treats error feedback but no output-direction noise shaping. No paper found that applies
+classical spectral noise shaping across the output directions of a weight matrix by a downstream masking model.
+
+----------------------------------------------------------------------------------------------------------------------
+E. The decisive question
+----------------------------------------------------------------------------------------------------------------------
+
+E1. Published in this or an equivalent form? NOT FOUND for the exact form: an orthogonal PCA basis of the residual
+stream folded into writers and readers so that a per-row fixed-rate quantizer writes noise that follows signal.
+The machinery is published (SliceGPT folding). The principle of non-uniform output pricing is published (YAQA,
+OAC, GuidedQuant, output-aware pruning), each using measured output sensitivity, not inverse variance. ResQ and
+ROSAQ use a PCA basis to give loud directions MORE precision, the reverse of letting noise grow with signal.
+
+E2. Is the opposite the established practice? Yes. QuIP, QuIP#, QTIP and the LLVQ baseline randomize both axes of
+every matrix at 2 bits; QuIP# Algorithm 3 rotates the output dimension m and the input dimension n
+(arXiv 2402.04396, opened). Reported 2-bit Llama-2 WikiText ppl at ctx 4096 with RHT: 6.19 / 5.35 / 3.91 (7B / 13B /
+70B, with finetuning), 8.22 / 6.06 / 4.16 without. No paper I found ablates the output-side half of that rotation.
+
+E3. Does that practice's success count against the conjecture? Weakly. Incoherence on the output axis is justified
+by bounds on rounding (LDLQ's proof) and by layer MSE, which section 0 shows is basis-invariant for a per-row
+scaled quantizer anyway. Its success says nothing about the weighting w_k, which is the only thing the conjecture
+bets on. The evidence that does bear on w_k is C1 (against, GPT-2, qualitative), C2 (mixed, per-dimension weight
+higher in loud strata), YAQA's low-rank H_O (sensitivity is anisotropic, direction unreported), and C5 (the
+project's own patch point, non-discriminating).
+
+Where I am unsure. C1 is one small-model preprint with no statistic. I could not read YAQA's H_O spectrum against
+the stream basis, which would settle the matter cheaply for anyone holding a YAQA run. Chunk four of A9 (348 KB)
+was not read; an output-axis method could hide there. The 2026 preprint space is large and moves fast.
+
+----------------------------------------------------------------------------------------------------------------------
+NOT FOUND (queries run with no result for the target)
+----------------------------------------------------------------------------------------------------------------------
+
+- "PCA basis versus Hadamard rotation weight-only quantization residual stream LLM 2-bit comparison"
+- "residual stream PCA rotation computational invariance quantization instead of Hadamard eigenvector rotation"
+- "SliceGPT PCA rotation without slicing combined with GPTQ quantization ablation versus Hadamard QuaRot"
+- "quantization principal component residual stream rotation hurts outliers concentrates energy ... PCA rotation"
+- "LLM weight quantization output error whitened by inverse output covariance Mahalanobis output metric"
+- "quantization noise residual stream low-variance directions sensitivity relative noise ... principal components"
+- "noise shaping neural network weight quantization error feedback sigma-delta GPFQ noise shaping LLM"
+- "closed-form PCA rotation LLM quantization salient directions" (found ROSAQ, input side only)
+- No ablation of the output-side half of two-sided incoherence processing (QuIP#, QTIP) was found.
