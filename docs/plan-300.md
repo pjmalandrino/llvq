@@ -253,7 +253,12 @@ faster Tetra row decode, which five arms of step 1 did not find.
 At 8,192 positions v6 takes 6.58 ms, where 300 asks 3.33 ms. The six exact leads at their high bound reach 221
 tok/s; low, 171. K8 adds the cache: int8 gives 272 high and 181 low; int4 gives 307 high and 187 low (*estimated*,
 1.208 GB of f16 cache read at η 0.80 after K3a). With Q1, 322 high. 300 at 8,192 therefore needs K8 in int4 at its
-full arithmetic. K8 changes stored values and moves the 8k cache from 1.21 GB to about 0.34 GB. The product
+full arithmetic. K8 in int8 was then measured in 4E: x1.0109 of v9 at 8,192, 164.4 against 162.6 tok/s, and x0.9668 at
+5 tokens, the attention phase losing 1.8 % for 46.9 % fewer bytes (*measured*,
+[recherche-debit-kv8-local](mesures/recherche-debit-kv8-local-2026-11-15.txt)). The K8 estimates of this section do
+not hold, and int4 keys fail the tolerance
+([kv-ladder](mesures/recherche-debit-kv-ladder-2026-11-14.txt)). K8 changes stored values and moves the 8k cache from
+1.21 GB to about 0.34 GB. The product
 triplet's b_max already counts a q8 cache at 8k that the engine does not store, so K8 touches the class too. It moves
 quality, GB, class, and the noise floor it is read against.
 

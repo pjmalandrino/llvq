@@ -1,0 +1,48 @@
+Decode-speed research phase at long context (CERVEAU O13), step R0: what the repository and the literature hold on
+reading part of the KV cache at decode, 2026-11-14
+
+Nothing was measured. Two read-only agents, $0. Figures are quoted with the label of their source.
+
+1. WHAT 4E DOES TODAY (code read, llvq-cuda/kernels/llvq_pers.cuh section 10, pers_4e.cu 333-351)
+  K and V are separate binary16 buffers a layer, [n_kv][cap][128], contiguous by position, grown by 256 positions.
+  K is stored after RoPE; nothing is rotated at read time. A job is one (split of 256 positions, KV head); a split
+  is 4 units of 64; a step stages 32 positions, K then V. One staged tile serves the 4 query heads of its KV head
+  (5 at 14B). The softmax is one pass, online: running max, running sum, f32. Splits are folded left to right.
+  Every key and value of the context is read by every token.
+
+2. THE NUMBERS ON RECORD (sealed 4B, 4E v9, L40S)
+  Attention wall a token (*measured*, large-4e-hors-poids-etude): 599 us at 5 tokens, 1,108 at 1,024, 1,562 at
+  4,096, 2,646 at 8,192, of a timed token of 4,227 / 4,611 / 5,080 / 6,211 us.
+  KV read: 147,456 B a cached position; 151 / 604 / 1,208 MB at 1,024 / 4,096 / 8,192 (*computed*).
+  P3 (conjecture): from 1,024 up the phase sits at the DRAM time of its bytes plus the prefetch.
+  KV levers on record: int8 KV fails the +-0.12 % band (P4); the grouped and kernel forms are served under it;
+  v9ft, the prefetch arms and the v8 ring are closed. Reading part of the cache: never proposed, studied or
+  measured here.
+
+3. THE TOOLS THAT EXIST
+  LLVQ_GQA_PPL scores an attention form against the served one, paired window by window, teacher-forced, on
+  WikiText-2, and accepts 8,192 (6 windows in 940 s, *measured*, attn-t8-r2). It runs the eager kernel form, which
+  4E equals bit for bit. No tool dumps the decode query, the scores or the weights; the cheapest place is a
+  capture hook in model.rs::attention_ctx, with the weights recomputed on the host by attn_ref.
+
+4. THE LITERATURE (primary sources read by the agent; its own list of unverified claims is kept in the session)
+  Quest (2406.10774): per-page min and max of the keys a channel, U = sum_i max(q_i min_i, q_i max_i), a true upper
+  bound on every score of the page in exact arithmetic; keys and query after RoPE in its code; used for a top-K of
+  pages, no rule on mass. 512 B a page a KV head at head dim 128: 6.25 % of the KV bytes at a page of 16.
+  BLASST (2512.12087): a deterministic bound on skipped mass, from the exact block max, so every K is still read.
+  Certified Sparse Attention (2610.24991): the only perplexity loss under 0.1 % found (-0.02 to +0.07 % on PG-19,
+  32K to 128K), probabilistic, a 4-bit scan of every key, CPU only.
+  Twilight, Loki, Double Sparsity, SparQ, RocketKV: +0.19 % to several percent of perplexity, or no perplexity.
+  Mass statistics are thin: the top 1 % of keys holds 89 % of the mass at 100K on Llama-3-8B (RetrievalAttention);
+  the first two layers are broad (Quest, InfiniGen). SparQ and Sparse Frontier report little gain at batch 1 on GPU.
+  Not found as published: a page bound, the exact softmax on the pages that can matter, and a skip under a bound
+  on total skipped mass. Not found is not proof that it is new.
+
+5. WHAT R0 LEAVES FOR R1 AND R2
+  The closed problem: the fraction of KV bytes a token must read at 8,192 so that the skipped mass stays under a
+  budget, head by head, on the sealed 4B. Its first experiment is the one that can kill the phase: with the exact
+  page maxima (the best case of any summary), if the bytes to read at a skipped mass of 1e-3 stay above about half,
+  no summary can do better and the idea is dead. Unknown and unpublished: how a mass budget a layer becomes
+  perplexity over 36 layers.
+  Constraint to settle with the operator: a page index is 38 MB (page 32) to 76 MB (page 16) at 4B (*computed*);
+  the served peak at 8k is reached in the prefill, and the only tolerance on record for it is 0.02 GB.

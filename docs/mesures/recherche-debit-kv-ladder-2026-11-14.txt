@@ -1,0 +1,74 @@
+KV LADDER AT 8,192 (O13, R3): WHICH QUANTIZED KV CACHE HOLDS THE SERVED TOLERANCE ON THE SEALED 4B
+==================================================================================================
+Date: 2026-11-14. Card: L40S (l40sx1, $1.80/h). Image 2990f36c, commit eb54ac5. Branch recherche/debit-kv-2026-11-14.
+Prereg: proofs/preregistration-recherche-debit-kv-ladder-2026-11-14.md (sha256 8913d843, stamped before the first
+job), with two deviation notes, -ECARTS.md and -ECARTS-2.md, each stamped before the attempt it covers.
+Raw: recherche-debit-kv-ladder-2026-11-14-brut/ (<arm>-ladder.txt, <arm>-smoke.txt, <arm>-gpu.txt).
+
+RESULT
+------
+int8 keys and values hold the tolerance at 8,192. int8 keys with int4 values are not decided. The two int4-key arms
+fail. All figures *measured*: WikiText-2 test (Salesforce/wikitext b08601e0), windows 0 to 11 of 8,192 tokens, token
+fingerprint cd55decc744bb2b4 on the four arms, sealed 4B (sha256 886391a8), decode path, each window fed one true
+token at a time through the f16 cache and the arm's cache in lockstep, both on grow(256)+kernel on every decode row.
+Each arm is a round trip: the cache stores f16, so no byte is saved and no speed is read.
+
+  arm     keys / values (b a value)   B a position   ppl f16   ppl arm   arm / f16 - 1, paired 95 % t, 12 windows   verdict (prereg §5)
+  k8v8    8.5 / 8.5                   78,336         12.0463   12.0479   +0.0126 % [-0.0485 ; +0.0737]              PASSES
+  k8v4    8.5 / 4.5                   59,904         12.0463   12.0488   +0.0206 % [-0.1359 ; +0.1774]              UNDECIDED
+  k4v4h   4.5 / 4.5 (Hadamard)        41,472         12.0463   12.1988   +1.2659 % [+0.8238 ; +1.7100]              FAILS
+  k4v4c   4 / 4.5 (static pair step)  39,168         12.0463   29.0016   +140.75 % [+125.61 ; +156.91]              FAILS
+
+The f16 cache is 147,456 B a position (*computed*). The format kept by the rule is k8v8, 0.531 of f16.
+
+Printed and not read as a result: top-1 agreement with the f16 arm 99.143 % (k8v8), 97.004 % (k8v4), 92.698 %
+(k4v4h), 58.293 % (k4v4c); max |dlogit| 26.2, 31.1, 32.2, 29.5.
+
+WHAT IT CHANGES
+---------------
+- CERVEAU P4 said an int8 cache does not pass the tolerance at long context, from a 12-window interval at 4,096 on
+  Metal whose upper bound was +0.1703 %. At 8,192 on the sealed file the whole interval is inside ±0.12 %. P4 is
+  rewritten in this commit.
+- k8v4's point is +0.02 % and its half width 0.157 %: the int4 values widen the window-to-window spread by 2.6 against
+  k8v8 (0.157 against 0.061). The prereg allows one extension to windows 12 to 35, under its own note and go.
+- k4v4c at +141 % is 14 times above the top of its predicted range. A static symmetric step a RoPE pair, clipped at
+  the 0.999 quantile of 4,096 dclm-edu tokens (dclm-edu dbad8ad7; steps 7.25e-3 to 40.4, median 0.62), does not
+  describe Qwen3's keys. Whether the scheme or its code is at fault was not looked at. The arm is closed as run.
+
+NOT ESTABLISHED
+---------------
+- Any tok/s, any VRAM. The computed ceiling for k8v8 at 8,192, if the attention time follows its bytes at 1.66 ms a
+  GB, is 6,211 to about 5,190 µs a token (*computed*, large-4e-hors-poids-etude cut C3); no kernel reads int8.
+- The prefill path, any size but the 4B, any text but WikiText-2, any context but 8,192.
+- The 47 near-tie texts and GSM8K-200, which the prereg asks before any kernel.
+
+PREDICTIONS (prereg §7)
+-----------------------
+  1 k8v8 +0.03 % [-0.02, +0.09], PASSES at 55 %: +0.0126, in; passes.
+  2 k8v4 +0.12 % [+0.03, +0.40], UNDECIDED at 45 %: +0.0206, out, below; undecided.
+  3 k4v4h +0.6 % [+0.15, +2.5], FAILS at 80 %: +1.27, in; fails.
+  4 k4v4c +2 % [+0.4, +10], FAILS at 93 %: +140.75, out by a factor of 14; fails.
+  5 k4v4h below k4v4c at 85 %: yes.
+  6 k8v8 half width 0.06 % [0.03, 0.12]: 0.061, in.
+  7 at least one void job at 30 %: five, none from a CUDA op; all from dataset pins written by the main session.
+  8 a window 185 s [150, 240]: 206, 203, 223 and 187 s, in.
+
+THE VOID JOBS
+-------------
+- First attempt, four jobs (6af8a005, 6af8a007, 6af8a009, 6af8a00b), 60, 51, 57 and 56 s: the script pinned WikiText-2
+  at openai/gsm8k's commit 740312ad; each load check died on a 404. ops/jobs/recherche-debit-kv-capture.sh carries
+  the same pin and was never run.
+- Second attempt, k4v4c (6af8a0c3), 64 s: LLVQ_DATASET_REV also covered dclm-edu, a 404 in the calibration. The third
+  attempt reads both corpora at main and checks the token fingerprint.
+The load check stopped each within a minute: $0.15 for the five.
+
+COST
+----
+  job        id                         running s   cost
+  k8v8-r2    6af8a0bd29dd05ff0367985f   2,558       $1.28
+  k8v4-r2    6af8a0bf23985fb9cd825e23   2,521       $1.26
+  k4v4h-r2   6af8a0c129dd05ff03679869   2,759       $1.38
+  k4v4c-r3   6af8a29c23985fb9cd825ffd   2,489       $1.24
+  five void jobs                        288         $0.15
+Cost: $5.31 (*computed*, 10,615 s at $1.80/h, as the nine rows of jobs.csv round it), against $4.0 to $5.3 estimated
+and a $7.20 cap. Phase O13: $5.31 of $10. Registry: $346.95.
