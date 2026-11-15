@@ -504,8 +504,13 @@ mod tests {
 
         // The own key, where a tiny model can show it: three positions. Its
         // random weights give near-uniform attention and near-equal V rows, so
-        // dropping the own key moves the output by 3x the rounding only, and
-        // the query moves nothing (printed, not asserted). The query is checked
+        // dropping the own key moves the output by about the binary16 rounding,
+        // and the query moves nothing (printed, not asserted). A ratio of two
+        // worst-case errors therefore moves with the host: 1.5 on the CI's x86
+        // where the Mac read above 2. The engine's output is projected instead
+        // on the change the own key makes: rounding is uncorrelated with that
+        // direction over the 1,024 values, so the coefficient reads 1 with the
+        // own key in the engine's sum and 0 without it. The query is checked
         // where attention is peaked: the scorer's self-check on the card's
         // `out-check.bin` (`ops/kv_mass_score.py`).
         let short = capture(&m, &window[..3], 1, 2, |_| ()).unwrap();
@@ -517,7 +522,17 @@ mod tests {
         let wrong_q = rel_err(&recompute(q3(0), &k3, &v3, nh, nkv, hd, 3, 3), &short.check_out);
         println!("self-check, 3 positions: rel err {good:e} over 0..=p, {no_own:e} over 0..p, {wrong_q:e} with the previous token's query");
         assert!(good < 4e-3, "three positions: {good:e}");
-        assert!(no_own > 2.0 * good, "own key not distinguishable: {no_own:e} vs {good:e}");
+        let with = recompute(q3(1), &k3, &v3, nh, nkv, hd, 3, 3);
+        let without = recompute(q3(1), &k3, &v3, nh, nkv, hd, 3, 2);
+        let (mut num, mut den) = (0.0f64, 0.0f64);
+        for ((a, b), &o) in with.iter().zip(&without).zip(&short.check_out) {
+            num += (f(o) - b) * (a - b);
+            den += (a - b) * (a - b);
+        }
+        assert!(den > 0.0, "the own key changes nothing in the recomputed output");
+        let own = num / den;
+        println!("self-check, 3 positions: the engine's output holds {own:.4} of the own key's change");
+        assert!((own - 1.0).abs() < 0.5, "own key not in the engine's sum: coefficient {own:.4}, nearer 0 than 1");
         // V norms are the norms of the stored rows.
         for g in 0..nkv {
             for j in 0..span {
