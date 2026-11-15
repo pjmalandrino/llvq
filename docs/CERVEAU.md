@@ -196,7 +196,9 @@ attention (5.583) by +1.14 [+0.43, +1.85]. Attention is worth +0.73 [+0.16, +1.2
 **Q11.** Spending bits on int4 records pays at 4B. `v_proj` at int4 g128 gives +3.47 [+1.42, +5.57] for +0.0493
 b/param; `o_proj` +1.55 [+0.91, +2.20] and `down_proj` +4.05 [+3.28, +4.83] on held-out questions.
 - Standing: supported. Scope: 4B Tetra on C4, before row scales; v_proj on 2,280 q, o and down on the 11,762
-  questions outside the selection. The served 4B carries v, o and down at layers 12 to 23 at int4.
+  questions outside the selection. The served 4B carries at int4 `v_proj` and `o_proj` at
+  all 36 layers and `down_proj` at layers 12 to 23, 84 records
+  ([layer-vs-output-4b](mesures/layer-vs-output-4b-2026-11-13.txt) line 184).
 - Evidence: [q5-tetra](mesures/q5-tetra-2026-09-06.txt), [oproj-int4-full](mesures/oproj-int4-full-2026-09-17.txt),
   [downproj-int4-full](mesures/downproj-int4-full-2026-09-18.txt).
   On the sealed 4B, restoring the 36 int4 g128 records of `o_proj` to f16 gains −0.13 [−0.46, +0.19] (*measured*,
@@ -372,7 +374,10 @@ write against 2.42 before it. Read through FP16's final readout on 570 questions
 66.5 %, and the sealed stream's ratio of contrast to noise is 1.60 at depth 25 and 1.68 at depth 36. The output
 slope of 0.61 is 0.81 at depth 25 and falls across the last block by a rescale. At the answer position the band of
 FP16 directions 513 to 2,560 keeps a slope of 0.47 at depth 12 under a noise of 2.5 times its energy, while
-directions 1 to 64 keep 0.92 to 1.13 through depth 32.
+directions 1 to 64 keep 0.92 to 1.13 through depth 32. That band's slope comes back to 0.71 at depth 24, under a noise
+of 1.29. The bands are ranked on the second moment over all positions, where direction 1 holds 0.57 to 0.97 of the
+energy: at the answer position, at depths 8 to 24, the band 513 to 2,560 holds 2.9 to 6.3 % of the energy, against
+0.6 to 1.4 % over all positions. "Quiet" is a property of the average position.
 - Standing: established for the split of the loss by depth, read by two instruments under two stamped preregs, a
   lens on hidden states and restores on the full split; supported for the readings by direction. Scope: sealed 4B,
   one calibration draw, MMLU. The restore window was the one the lens pointed at. The lens is blind before depth 25,
@@ -991,7 +996,7 @@ route (O10). Its mandate:
 | field | content |
 |---|---|
 | Axis | Quality of the served object at its b/param: MMLU on the full split and GSM8K, paired against FP16. Whole-model b/param, VRAM, decode speed, time to first token and the cost of producing an object are constraints. |
-| Starting point | The anomalies N6 and N7, as O14 left them. N6: the sealed 4B keeps 0.58 of FP16's answer-logit contrast, and at the answer position the quiet directions have lost half their signal by depth 12 (Q25). N7: the blocks after the MMLU write carry +0.43 of the MMLU loss and +4.32 of the GSM8K loss (Q25, Q27). |
+| Starting point | The anomalies N6 and N7, as O14 left them. N6: the sealed 4B keeps 0.58 of FP16's answer-logit contrast, and at the answer position the band of quiet directions keeps a slope of 0.47 at depth 12 and 0.71 at depth 24 (Q25). N7: the blocks after the MMLU write carry +0.43 of the MMLU loss and +4.32 of the GSM8K loss (Q25, Q27). |
 | Untouchable | The three sealed files as published. Whole-model b/param at 2.73. VRAM at the served peaks. A per-model or per-type setting is not a result (operator, 2026-11-12), a restore to f16 is a probe, not a mechanism (Q20), and a mechanism is judged on MMLU and on GSM8K (O14). No heavy job on the work machine without the operator's word. No edit under `llvq-cuda/` or `llvq-runtime/`, or to a served config: a development agent works there on branch `dev/trois-gains-2026-11-15`. |
 | Budget | Not signed. The lead proposes five days, to 2026-11-20, and $10 of card, each paid run under a stamped prereg and the operator's go. Until the operator signs a figure the phase runs only what costs nothing and loads no model. |
 
@@ -1058,5 +1063,14 @@ operator on 2026-11-14 as tinkering.
 - [`ROADMAP-QUALITY.md`](ROADMAP-QUALITY.md) row L38 says seeded draws exist only for `Planes14`. A seeded encode of
   the DCLM recipe exists, `dclm-rnd1`, scored on the full split (`docs/data/jobs.csv` line 173,
   `mesures/dclm-rnd1-2026-09-19-brut/`). It has no journal and no paired interval, and Q2 and O3 do not cite it.
+- [depth-restore-4b](mesures/depth-restore-4b-2026-11-14.txt) lines 62 to 63 put the int4 records of `o_proj` at
+  layers 12 to 23 only. They sit at all 36 layers ([embed-q4-swap](mesures/embed-q4-swap-2026-09-23.txt) line 19,
+  [ablation-qualite-4b](mesures/ablation-qualite-4b-2026-11-12.txt) line 86, o: 0 lattice and 36 int4). The late
+  window of Q25 and Q27 therefore restores 22 int4 records, eleven `v_proj` and eleven `o_proj`, not eleven
+  ([recherche-qualite3-r0-depot](mesures/recherche-qualite3-r0-depot-2026-11-15.txt) section 8, point 1).
+- The even-rate figures of Q27's prereg, +2.94 and +6.69, are built on the served-kernel gap, 9.63. The arms are
+  paired against the vLLM control, whose gap to FP16 is 10.09 (same note, point 2).
+- [downproj-slices](mesures/downproj-slices-2026-09-18.txt) lines 42 to 45 read in September that `down_proj` at
+  layers 24 to 35 changes 3.9 % of MMLU answers. Q25 and Q27 do not cite it (same note, point 6).
 - No claim covers the machine an encode runs on. `docs/data/jobs.csv` line 120 reads the same tokens on a card and on
   Metal at 52.31 against 53.49 on 2,280 q, and the card re-encode of the DCLM base differs from the Mac file (Q15).

@@ -61,3 +61,8 @@ WHAT THE RUN DOES NOT SAY
 - The window was not chosen blind. It is the one the contrast map pointed at, on 570 of these questions.
 - One model, one calibration draw, one instrument. The sealed file's int4 records sit at every layer for v_proj and
   at layers 12 to 23 for o_proj and down_proj, all inside the early window but for eleven v_proj.
+
+ERRATUM, 2026-11-15. The line above on the int4 records is wrong for o_proj. The sealed 4B carries int4 records for
+v_proj and o_proj at all 36 layers and for down_proj at layers 12 to 23, 84 in all (embed-q4-swap line 19;
+ablation-qualite-4b line 86; layer-vs-output-4b line 184). The late window restores 22 int4 records, eleven v_proj
+and eleven o_proj. No figure of this journal moves (recherche-qualite3-r0-depot-2026-11-15.txt, section 8, point 1).

@@ -1,0 +1,401 @@
+QUALITY PHASE 3, R0, REPOSITORY HALF: WHAT THE REPOSITORY HOLDS ON N6 AND N7, AND WHAT WOULD KILL EACH RIVAL, 2026-11-15. $0.
+==============================================================================================================================
+The repository places the sealed 4B's MMLU loss before block 25 and its GSM8K loss over the whole depth, and it reads
+neither cause. On MMLU, layers 25 to 35 restored to f16 gain +0.43 [+0.11, +0.77] and layers 0 to 24 gain +6.12
+[+5.41, +6.84] (*measured*, depth-restore-4b lines 27-28). On GSM8K the same windows gain +4.32 [+2.46, +6.18] and
++7.20 [+5.19, +9.22] (*measured*, gsm8k-depth-restore-4b lines 40-41), and both intervals contain the even-rate
+figures the prereg wrote, +2.94 and +6.69 (journal lines 4-6). So on GSM8K the even rate per weight is not rejected
+for either window. At the answer position the FP16 band [513, 2560] keeps a slope of 0.47 at depth 12 under noise 2.46
+times its energy (*measured*, contrast-map report.txt line 73), and recovers to 0.71 at depth 24 (line 76). That this
+band carries the answer, and where before depth 25 the MMLU deficit forms, are not measured (contrast-map lines
+157-160). The encoder's layer objective weights the error in an input direction by that direction's calibration energy
+plus a floor of 1 % of the mean, with every token weighted 1/N: nothing in it protects a direction that is quiet on
+average and used at one kind of position (section 4, fact from the code; the consequence is inference). Five rivals
+for N6 and four for N7 are written below with a killing experiment each; three of the killing experiments cost $0 on
+files in the repository, and one card job of the contrast-map kind, *estimated* at about $0.5, would carry four of the
+N6 kills at once. Section 8 lists six mismatches; the sharpest is which int4 records sit in the late window.
+
+Nature: read only. No build, no test, no model load, no job, no network, no download. Sources: docs/MODES.md,
+docs/CERVEAU.md, docs/HISTORIQUE.md 2026-11-14 entry, docs/ROADMAP-QUALITY.md, the journals and raw folders named on
+each line, llvq-quant/src/{gptq,linalg,rotation,quantizer}.rs, llvq-llm/src/calib.rs, llvq-llm/src/bin/smoke.rs,
+ops/contrast_map.py, ops/hybrid_checkpoint.py, ops/jobs/gsm8k-depth-restore-4b.sh, at a3a9d81 of
+recherche/qualite-n6-n7-2026-11-15. Line numbers are the files' own. Values copied from a raw .tsv are cited by file
+and row. Every number is copied; none is new arithmetic. Labels: *measured* in a paid job, *computed* in a journal
+from measured dumps, *estimated* where a journal or this note says so.
+Mandate: CERVEAU O15 (lines 988-1000). This note proposes no encoder change and projects no gain in MMLU points.
+
+0. VOCABULARY
+-------------
+- Answer position: the last prompt token of an MMLU 5-shot prompt, where the four letter logits are read
+  (ops/contrast_map.py docstring, lines 19-22).
+- Band [a, b]: eigendirections a to b of FP16's uncentred second moment of the residual stream, ranked by energy,
+  computed over ALL positions of the 570 prompts, 345,007 tokens (contrast-map report.txt line 55). "Quiet band" is
+  [513, 2560]. Quiet is a property of the all-position statistics; see section 8, point 5.
+- Slope and noise of a band: energy-weighted regression slope of the sealed coordinate on the FP16 coordinate, and the
+  residual energy over FP16's energy in that band (report.txt line 55 header; stream_bands.tsv columns).
+- Late window: layers 25 to 35, 77 matrices, 1,110,179,840 weights; early window: layers 0 to 24, 175 matrices,
+  2,523,136,000 weights (depth-restore-4b lines 27-28).
+- Int4 records of the sealed 4B: v_proj and o_proj at all 36 layers, down_proj at layers 12 to 23, 84 in all
+  (embed-q4-swap line 19; ablation-qualite-4b line 86, o "0 / 36"; layer-vs-output line 184). See section 8, point 1.
+
+1. KNOWN
+--------
+1a. The two anomalies as CERVEAU states them.
+- N6: slope 0.58 of the sealed 4B's four answer logits on FP16's, AWQ 4B 0.96; 17 full-split 4B files with every
+  projection quantized run 0.22 to 0.58 in slope and 1.20 to 1.77 in noise (CERVEAU line 782; r0-contraste lines 3-6,
+  *computed* on *measured* dumps). Sealed 4B beta 0.5817, noise 1.4205 (r0-contraste line 30); AWQ 4B beta 0.9604,
+  sd_res 0.8741 (recherche-qualite-n1 line 68).
+- N7: late window +0.43 MMLU, +4.32 GSM8K (CERVEAU line 783).
+- Only the ratio decides an argmax: in September attenuation alone cost no point, 70.27 for every arm, and noise alone
+  carried the loss (logit-snr-4b lines 164-168, *computed*).
+- Across sizes the sealed slope rises: 0.5817 at 4B, 0.6663 at 8B, 0.7666 at 14B (r0-contraste line 30;
+  recherche-qualite-n1 lines 76-77, *computed*). On the older 2,280-q objects it read 0.466, 0.748, 0.812 against AWQ
+  0.960, 0.971, 0.956 (logit-snr-4b lines 170-176).
+
+1b. Where the MMLU loss sits by depth (Q25, established).
+- Lens on FP16's readout, 570 questions: FP16 28.3 % at depth 24 to 72.3 % at 25, sealed 29.5 % to 63.9 %; at the
+  output 73.7 % and 66.5 % (contrast-map lines 63-68, *measured*). Slope times sd over noise 1.60 at depth 25 and 1.68
+  at 36 (line 64, 68, *computed*). The lens reads chance before depth 25 (line 70).
+- The output slope falls from 0.81 at depth 25 to 0.61 across the last block, where the sealed stream's norm at the
+  answer position rises to 1.25 times FP16's (lines 9-11). Dropped belief: the slope is not the loss (CERVEAU line
+  1028).
+- Restores: late +0.43 [+0.11, +0.77], McNemar 315 won 254 lost, p 0.012; early +6.12 [+5.41, +6.84], 1,745 won 886
+  lost; sum +6.55 beside +6.72 [+6.00, +7.45] for all (depth-restore-4b lines 6-7, 27-28, *measured*). The late arm
+  changes 4.1 % of picks, the early 18.7 % (line 30). Rates 0.39 against 2.42 points per billion restored weights
+  (line 9, *computed*). The window was the one the lens pointed at, not chosen blind (line 61).
+- A September precursor, on the C4 Q5 base, before row scales: down_proj at int4 by twelve-layer slice gained +0.48
+  [-0.17, +1.10] for layers 0-11, +2.41 [+1.79, +3.00] for 12-23, +0.63 [+0.31, +0.96] for 24-35, and the late slice
+  changed 3.9 % of answers against 14.6 % and 13.5 % (downproj-slices-2026-09-18 lines 19-23, 42-45, *measured*). Q25
+  does not cite it.
+- The originals write the MMLU answer in one block: 8B at depth 25 of 36, 14B at 29 of 40 (lens-write-depth lines
+  3-13, *measured*). The 14B carries 7.3 and 7.9 points in the two blocks before (line 51-52).
+
+1c. Where the GSM8K loss sits (Q27, supported).
+- Control (f16 export in vLLM) 82.03 %, late 86.35 %, early 89.23 %, FP16 92.12 %; served 82.49 %
+  (gsm8k-depth-restore-4b lines 32-36, *measured*). Late minus control +4.32 [+2.46, +6.18], 108 against 51, p 7.2e-6;
+  early +7.20 [+5.19, +9.22], 143 against 48; early minus FP16 -2.88 [-4.34, -1.42] (lines 40-43).
+- The two gains sum to +11.52 against +10.09 from control to FP16: the windows repair some of the same problems (line
+  45-46). On MMLU they sum to +6.55 against +6.72 (depth-restore-4b line 6-7).
+- Mean generated tokens: control 318.9, late 325.6, early 289.4, FP16 297.5 (lines 33-36); at the cap of 1,024:
+  control 15, late 9, early 3, FP16 1 (brut pair-late-vs-control.txt, pair-early-vs-control.txt,
+  pair-early-vs-f16vllm.txt).
+- Rates 3.89 late against 2.85 early per billion weights (line 8, *computed*). The prereg's even-rate figures, +2.94
+  and +6.69, sit inside both intervals (lines 4-6, 48).
+- Generation reads more of the error than MMLU: Tetra makes 2.22 times FP16's errors on GSM8K and 1.23 times on MMLU;
+  the GSM8K gaps are 1.37 to 1.55 times the MMLU gaps (gsm8k-wave1 lines 63-67, *computed*). In the literature YAQA on
+  Qwen3-8B at 2 bits gains +2.81 MMLU and +9.76 GSM8K over LDLQ (r0-litterature-2026-11-13 line 153, *reported*).
+
+1d. The stream by band at the answer position (contrast-map, supported).
+- Quiet band [513, 2560]: slope 0.86, 0.64, 0.47, 0.54, 0.68, 0.71, 0.67, 0.63, 0.60 at depths 4, 8, 12, 16, 20, 24,
+  28, 32, 36; noise ratio 1.64, 2.69, 2.46, 2.07, 1.51, 1.29, 1.21, 1.24, 1.41 (report.txt lines 71-79, *measured*).
+  Band [65, 512]: slope 0.85, 0.72, 0.64 at depths 4, 8, 12, back to 0.89 at 24 (same lines).
+- Loud bands [1] to [9, 64]: slope 0.92 to 1.13 through depth 32, noise at most 3 % (contrast-map lines 15-16).
+- Over all positions the quiet band reads 0.84 at depth 12 under noise 0.64; the answer position is hit "about four
+  times harder" (lines 16-17).
+- Energy at the answer position: band [513, 2560] holds 1.6 to 6.3 % at depths 4 to 36 (line 85). At depths 8 to 16
+  the bands [2, 8] and [9, 64] hold 0.55 to 0.63 and 0.25 to 0.30 of it, direction 1 only 0.007 to 0.05 (report.txt
+  lines 72-74). Over all positions direction 1 holds 0.57 to 0.97 of the energy and is mis-scaled, 1.19 at depths 8 to
+  16 and 0.74 at depths 20 to 28 (contrast-map lines 87-88; report.txt lines 60-65).
+- Linear predictability of the quiet band, all positions: best linear map 0.73 and diagonal 0.53 at depth 12, 0.69 and
+  0.52 at depth 36 (contrast-map lines 90-93). "Coherent or noise" is not decided (line 126-127).
+
+1e. The matrices on MMLU prompts (contrast-map R4, FP16 inputs, pooled over all positions).
+- Coherent gain by type: q 0.9980, k 0.9816, v 1.0007, o 1.0008, gate 0.9982, up 0.9804, down 0.9806; relative error
+  0.0137, 0.0165, 0.0212, 0.0078, 0.0050, 0.0371, 0.0161 (contrast-map lines 99-105, *measured*). (1 - gain) regresses
+  on the relative error with slope 0.575 across matrices (line 108).
+- By layer (matrices.tsv, column rel_fp16): up_proj 0.039 to 0.073 at layers 4 to 21 (rows layer 4 to 21); down_proj
+  0.055 to 0.074 at layers 4, 5, 7 to 11 and 24 to 33, 0.0065 to 0.0112 at layers 12 to 23 (the int4 records; line 94
+  reads 0.0093 at layer 12, line 87 reads 0.0730 at layer 11). Three matrices read a pooled error near 0.001:
+  gate_proj layer 1 0.0012 (line 15), down_proj layer 6 0.0013 (line 52), gate_proj layers 2 and 3 0.0017 and 0.0013.
+  The lowest gain is up_proj layer 11, 0.956 (line 86). The int4 types (v, o, and down at 12 to 23) read gains 0.999
+  to 1.003.
+- On WikiText-2, per type, the layer error rates up_proj highest, 0.0337, and gate_proj lowest, 0.0046; gate_proj
+  reads 0.0019 over layers 0 to 11 and 0.0173 over 12 to 35 (layer-vs-output lines 228-236, *computed*).
+
+1f. Attention at the answer position (contrast-map R5).
+- Aggregate entropy +0.018 nats, 51.0 % of heads higher: Hc dead by its rule (lines 112-113, 125).
+- Single heads move far more: layer 8 head 4 top weight 0.78 to 0.33, layer 7 head 23 0.82 to 0.49, layer 8 head 7,
+  layer 13 head 14, layer 10 head 20, layer 21 head 28 (lines 113-116). Layer means: layer 7 entropy 1.02 to 1.25 and
+  layer 8 1.48 to 1.86, 25 of 32 heads higher in each (report.txt lines 121-122); layer 21 27 of 32 (line 135); layer
+  32 entropy 1.19 to 0.91, 5 of 32 higher (line 146).
+
+1g. Slopes of restored arms, full split (r0-contraste lines 23-30, *computed*). all 1.0003 / 0.3334; mlp 0.8441 /
+  1.0848; gateup 0.7230 / 1.2150; attn 0.7092 / 1.4430; qkv 0.6994 / 1.4597; down 0.6858 / 1.4285; o 0.5869 / 1.3923;
+  control 0.5817 / 1.4205. Restoring q, k and v raises the slope and not the ratio's noise, for +0.55 MMLU (lines
+  63-64). The depth arms are not in that table: their dumps postdate it.
+
+1h. What the restores say about group and size (for scope). The MLP carries +4.86, attention +0.73, all +6.72
+  (ablation-qualite-4b lines 85-91). The ablation's int4 column: qkv 72 / 36, o 0 / 36, down 24 / 12 (lines 85, 86,
+  88).
+
+2. REFUTED OR EXCLUDED
+----------------------
+- Ha, uniform shrink of all directions (slope and noise one variable): NOT SUPPORTED, s_loud - s_quiet = 0.436
+  (contrast-map line 122). Scope: sealed 4B, 570 questions.
+- Hb, a local shrink on quiet input directions that compounds with depth: NOT SUPPORTED, s_quiet at depth 36, 0.603,
+  is above its value at depth 12, 0.470 (line 123-124). Its third condition held by a hair, a_med 0.9792 (line 124).
+- Hc, attention dilution in aggregate: DEAD by its rule, dH +0.0178 under 0.02 (line 125). Single heads not excluded.
+- The low output contrast is the loss: dropped, it is a late rescale (CERVEAU line 1028). Gains chosen for a coherent
+  gain of 1 along the depth: excluded (O14, CERVEAU lines 960-961). Scope: 4B, one draw.
+- Bits allocated by the MMLU write depth: excluded by GSM8K (CERVEAU lines 961-964, 1029). Scope: 4B, one draw,
+  greedy.
+- Coding up_proj rows from the gate_proj row of the same neuron: killed at $0, mean |cos| 0.109, 97.8 % of the energy
+  left (r0-contraste lines 99-102).
+- Gradient-weighted input Hessians for gate/up (one-sided output-aware objective): no gain, -1.51 [-2.30, -0.70]
+  unclipped, -0.68 [-1.47, +0.14] clipped (Q24, CERVEAU lines 348-352). Scope: 4B, one draw, bases before row scales.
+- A global output temperature: buys no MMLU by construction (Q6, CERVEAU lines 118-126).
+- Trained row scales: work on the noise, not the slope; a second pass gains +0.02 [-0.31, +0.36] (r0-contraste lines
+  57-58; Q12).
+- The error-map correction and fourfold calibration volume lowered the slope more than the noise and cost MMLU
+  (r0-contraste lines 59-62, 65-66).
+- Refused by the operator as tinkering on 2026-11-14 (HISTORIQUE lines 1581-1582): the calibration draw, probes of
+  gate/up, a fast verifier. Not starting points here (O15, CERVEAU lines 998-1000).
+- Older closed leads that touch an input-direction weighting: spherical feedback +31.89 % ppl (Q18), design C and
+  group_scales (ETAT §6, as listed in recherche-qualite-r0-depot section 6). None was scored on GSM8K.
+
+3. NOT READ
+-----------
+- The depth at which the MMLU deficit forms before block 25. The lens is blind there (contrast-map line 159; CERVEAU
+  line 378). The stream dumps of depths 12 and 24 (answer position, both models) sit in the bucket folder
+  contrast-map-4b-2026-11-14/, not in the repository (contrast-map lines 38-40).
+- Whether the quiet band carries the answer (contrast-map lines 157-158; CERVEAU line 379). No patch, probe or
+  ablation of a band was run.
+- Why the quiet band's slope recovers from 0.47 at depth 12 to 0.71 at depth 24 (report.txt lines 73-76). The journal
+  says the loss "does not grow with depth after block 12" (lines 22-23) and stops there. The recovery spans layers 12
+  to 23, where down_proj is int4 with a pooled error 0.0065 to 0.0112 against 0.055 to 0.074 on the lattice layers
+  around it (matrices.tsv); the coincidence is not tested.
+- The per-matrix error at the answer position. R4 pools all positions (contrast-map line 95 header; report.txt R4).
+  The 4-times-harder hit is read on the stream, not on any matrix.
+- The share of each H's trace held by one token or one direction. The pooled errors near 0.001 of gate_proj layers 1
+  to 3 and down_proj layer 6 (matrices.tsv lines 15, 52) beside 0.04 to 0.07 on their neighbours are not explained.
+  ROADMAP-QUALITY row E, massive activations in H, never ran (line 122).
+- Which sublayer writes the quiet-band noise at depths 4 to 12, attention or MLP. Not decomposed.
+- The answer-position attention of single heads at layers 7 to 13 against the band loss: not related by any run.
+- The slope and noise of the two depth arms (mmlu-4b-depth-late-FULL.csv, mmlu-4b-depth-early-FULL.csv): never fitted.
+  So whether the late restore moves the slope (the rescale of the last block) without the ratio is not read.
+- What the late blocks do for a generated token (gsm8k-depth-restore-4b line 76; CERVEAU lines 395-396, 783). A lens
+  on generated tokens of the original was proposed and not run (CERVEAU line 973).
+- Whether GSM8K's loss per weight is flat over depth at finer grain. Two windows only, both inside their even rates
+  (section 1c). Whether MMLU's late blindness, not GSM8K, is the odd one is therefore open.
+- Running-text KL or NLL by depth window: layer-vs-output ran at group grain only (its lines 64-76). No third
+  instrument places the late blocks between MMLU and GSM8K.
+- The GSM8K error types: no journal classifies the 108 problems the late window repairs or the 143 the early window
+  repairs (gsm8k-depth-restore-4b line 76: "a guess").
+- Any GSM8K logit or margin: the GSM8K dumps carry completions, not logits (brut .jsonl field list), so the contrast
+  of N6 has no generation analogue on disk.
+- N7 at 8B and 14B, and on a second draw. Restores by depth exist for the 4B only (lens-write-depth line 80-81).
+- Whether the late window's gain includes its 22 int4 records (v and o of layers 25 to 35). The arm restores them with
+  the lattice records; Q11 reads o's int4 records at -0.13 [-0.46, +0.19] over all layers (CERVEAU lines 202-203).
+
+4. THE ENCODER AND QUIET DIRECTIONS
+-----------------------------------
+Facts from the code.
+- The layer objective is the H-weighted output error. `proxy_loss` docstring: "Tr(ΔW H ΔWᵀ), the expected output MSE
+  of the layer under the calibration distribution" (llvq-quant/src/gptq.rs lines 554-559).
+- H is the uncentred second moment of the layer input, AᵀA/N, every calibration row weighted 1/N, no mask, no clip, no
+  position weight (llvq-llm/src/calib.rs lines 17-22; `accumulate`, lines 89-92, `* self.scale` with scale = 1/N at
+  line 64). The sealed recipe draws 64 windows of 2,048 DCLM-edu tokens, 131,072 rows (CERVEAU Q24 line 357; smoke.rs
+  lines 630-631 for the positionals).
+- The inputs of block t come from the already quantized prefix; inside a block every activation is captured with the
+  original weights on the published path (calib.rs lines 1-13; lines 1180-1186 comment; `sequential_block` false,
+  lines 607-621).
+- Damping adds 1e-2 times mean(diag H) to every diagonal entry (llvq-quant/src/linalg.rs lines 51-63; default 1e-2,
+  smoke.rs lines 735-754). It is applied to the rotated H (calib.rs lines 1290-1294). The trace, hence mean(diag H),
+  is the same in either basis.
+- The off-diagonal shrink is skipped on the published path (calib.rs lines 547-566).
+- The input rotation is orthogonal, built from a Walsh-Hadamard factor, a small dense factor and random signs, one per
+  (block, activation) (llvq-quant/src/rotation.rs lines 1-32; calib.rs lines 600-606). H moves as Q H Qᵀ (calib.rs
+  lines 1286-1292).
+- The block quantizer sees only the 24 weights of a row block, `quant.quantize(v, ...)` (gptq.rs line 318). H enters
+  only through the error feedback onto later columns, by the Cholesky factor of H⁻¹ (gptq.rs lines 375-393).
+- Gain levels are fitted per matrix by Lloyd-Max on relative block gains (quantizer.rs lines 890-896), the row scale
+  is fixed before the loop (gptq.rs lines 283-291), and the published `gain_scale` is 1 (calib.rs line 583 doc).
+- int4 types skip GPTQ, the rotation and H entirely: group-affine RTN of W (calib.rs lines 1336-1350 comment and
+  branch).
+- Row scales trained afterwards act per output row (dclm-rowscales lines 20-24: 1,069,056 row_scales change, nothing
+  else). They cannot reweight an input direction.
+
+Inference, not measured.
+- In the eigenbasis of H, the objective prices error along input direction u at lambda_u plus 1 % of the mean
+  eigenvalue. A direction whose calibration energy is under that floor is priced at the floor; one above it at its own
+  energy. Nothing else in the objective raises the price of a direction that is quiet on average.
+- GPTQ's feedback moves error toward cheap directions; the literature states the same property for LDLQ (ExLlamaV3,
+  r0-litterature-2026-11-14 lines 79-81). So the encoder is expected to leave its largest relative output error on
+  inputs that live in quiet directions of H. The rotation does not change H's eigenvalues, so it does not protect
+  them.
+- H averages all calibration positions of running text. A position whose input has a distribution unlike the average
+  token, such as the end of a structured prompt, is priced by the average. The answer position's stream is hit about
+  four times harder than the average position (contrast-map line 17); the code is consistent with this and does not
+  prove it.
+- down_proj has 9,728 inputs for 131,072 rows, 13.5 rows a dimension (calib.rs line 554 comment). Its small
+  eigenvalues are estimated from few effective samples; the 1 % floor is then the only thing that sets their price.
+- Where one token or a few directions hold most of the trace, the floor (1 % of the mean) rises with them, and every
+  other direction is priced more evenly. The pooled errors near 0.001 of gate_proj layers 1 to 3 and down_proj layer 6
+  (section 1e) are what a trace held by a few outputs would look like; they are not shown to be that.
+- The int4 records see no H at all and read coherent gains near 1 (section 1e); the lattice records read 0.96 to 0.99.
+  That the shrink comes from the gain code or the feedback, not from H's weighting, is not separated.
+
+5. RIVAL HYPOTHESES FOR N6
+--------------------------
+Common target: why, at the answer position, the sealed 4B keeps 0.58 of FP16's answer contrast (0.81 at the write,
+then a rescale), with the quiet band at slope 0.47 by depth 12. One card run of the contrast-map kind can carry the
+kills of
+H6-A to H6-D at once; its cost is *estimated* from contrast-map-4b (job 6af86d01, l40sx1, 918 s billed, $0.46, loop
+705 s for 570 questions with both models resident; lines 31-33). Patching and per-position pools need new code in
+ops/contrast_map.py, which has `stream_hook` and `proj_hook` taps that read but do not write (lines 302-342).
+
+H6-A, the dull one: the quiet-band loss is a symptom. The layer objective leaves noise in quiet directions at every
+position, it is larger at the answer position only because that position's band signal differs, and the band does not
+carry the answer. The MMLU deficit sits in the louder bands and at the write block.
+- Predicts, alone: replacing the sealed answer-position stream's band [513, 2560] by FP16's at depth 12, then running
+  the sealed blocks on, recovers little of the gap at the output; the same patch on band [9, 64] or at depth 24
+  recovers more.
+- Kill: the depth-12 quiet-band patch recovers at least half of the output gap on the 570 questions (73.51 against
+  66.32 in the script, contrast-map line 48-49). Card, *estimated* $0.5 as above.
+- $0 hint already on disk, not a kill: down_proj at int4 on layers 0 to 11 of the C4 base, where the band loss forms,
+  moved MMLU +0.48 [-0.17, +1.10] (downproj-slices line 20). Older base, int4 not f16, one draw.
+
+H6-B, a position mismatch of the calibration statistics: the encoder prices directions by their energy in running text
+(section 4), and the answer position uses directions that running text leaves quiet, so the matrices themselves commit
+their largest relative error on answer-position inputs, mostly in layers 0 to 11.
+- Predicts, alone: the relative error of the 252 matrices measured on answer-position inputs is several times the
+  all-position value of matrices.tsv, with the excess in the layers before depth 12; the question-text positions of
+  the same prompts read like the pool.
+- Kill: the answer-position relative error of every type is within a factor 1.5 of its all-position value
+  (contrast-map lines 99-105). Then the 4-times-harder hit is made by propagation, not by the matrices. Same card run.
+
+H6-C, massive activations in H: in some matrices the trace of H is held by one token or a few directions (the sink),
+the encoder fits those, and ordinary tokens, the answer position among them, see a relative error far above the pooled
+figure.
+- Predicts, alone: in the matrices with pooled errors near 0.001 (gate_proj layers 1 to 3, down_proj layer 6;
+  matrices.tsv lines 15, 52) the error pooled without the first token, or without tokens above a norm threshold, is
+  many times larger; the quiet band starts to fall between depth 4 and 8, where the all-position direction-1 slope
+  jumps to 1.188 (report.txt lines 59-60).
+- Kill: excluding those tokens changes the pooled error of those matrices by less than a factor 2. Same card run, or
+  the Mac capture tool `hcapture` with `hstats` (ROADMAP-QUALITY row L36, line 151), which loads the model on the work
+  machine and needs the operator's word.
+
+H6-D, single attention heads lose their focus: aggregate dilution is dead, but heads at layers 7 to 13 lose most of
+their top weight at the answer position (section 1f), in the depths where the band falls.
+- Predicts, alone: writing FP16's attention probabilities into the sealed run at layers 7 to 13, answer position only,
+  restores the band slope at depth 12 and the lens accuracy at depth 25.
+- Kill: that patch recovers under a fifth of the band deficit at depth 12 (0.47 to 1). Same card run. The forward
+  calls scaled_dot_product_attention (ops/contrast_map.py line 332), so writing probabilities needs an explicit path.
+- Against it on disk: restoring q, k and v raises the output slope to 0.6994 and not the noise, for +0.55 MMLU
+  (r0-contraste lines 63-64).
+
+H6-E, the lattice MLP writes the band noise: up_proj (0.039 to 0.073) and lattice down_proj (0.055 to 0.074) at layers
+4 to 11 inject it, and the int4 down_proj of layers 12 to 23 (0.0065 to 0.0112) lets it recover (section 1e, 1d).
+- Predicts, alone: on the C4 base, down_proj at int4 on layers 0 to 11 raises the output slope more than on layers 24
+  to 35; on the card, the MLP-output part of the stream difference at the answer position dominates the quiet band at
+  depths 4 to 12.
+- Kill, $0: fit slope and noise of docs/data/mmlu-dumps/mmlu-q5-down-0-11.csv and mmlu-q5-down-24-35.csv against
+  mmlu-4b-f16-FULL.csv with recherche-qualite2-r0-contraste-2026-11-14-brut/beta_table.py, beside
+  mmlu-q5-shipped-FULL.csv (0.4415 / 1.4567, r0-contraste line 42). If the 0-11 slice raises the slope no more than
+  the 24-35 slice, H6-E dies on that base. Caveat: older base, before row scales; int4 shrinks down's error, it does
+  not remove it.
+
+6. RIVAL HYPOTHESES FOR N7
+--------------------------
+Common target: the late window gains +0.43 on MMLU and +4.32 on GSM8K. Card costs below are *estimated* from
+gsm8k-depth-restore-4b (job 6af89e7b, l40sx1, 620 s billed, $0.31 for three vLLM arms, generation 2.1 to 2.7 min an
+arm; lines 20-22) and lens-write-depth (8B job, 239 s billed, $0.12; line 23). New windows need an edit of ARMS and
+EXPECTED in ops/hybrid_checkpoint.py (lines 64, 67), which pins the two windows.
+
+H7-A, the dull one: GSM8K loses per weight about evenly over depth and reads more of any error, everywhere; MMLU's
+late-block blindness is the anomaly, not GSM8K.
+- Already consistent with it: both GSM8K intervals contain their even-rate figures (section 1c); GSM8K reads 1.37 to
+  1.55 times the MMLU gaps (gsm8k-wave1 line 64); YAQA moves GSM8K 3.5 times more than MMLU in the literature
+  (r0-litterature-2026-11-13 line 153; the ratio is that note's figures, not recomputed here).
+- Predicts, alone: three or four finer windows restored one at a time on GSM8K each gain in proportion to their
+  weights; MMLU stays flat after the write.
+- Kill: one GSM8K window whose interval excludes its even-rate figure. Card, three vLLM arms, *estimated* $0.3 to
+  $0.5.
+- A residue it must also explain: the GSM8K windows are sub-additive, 11.52 against 10.09 (line 45), where MMLU's are
+  additive.
+
+H7-B, compounding over a chain: a worked answer fails when one of about 300 generated tokens goes wrong, so a small
+per-token error in the late blocks compounds; MMLU reads one token. A variant: next-token decisions over the
+vocabulary have smaller margins than the four-letter decision, so the same late noise flips them.
+- Predicts, alone: the late window's GSM8K gain grows with chain length; teacher-forced on FP16's completions, the
+  sealed late blocks change few tokens.
+- Kill, $0: bin the 1,319 problems by FP16's generated length (n_gen in docs/mesures/gsm8k-wave1-2026-09-26-brut/
+  run5-vllm/gsm8k-4b-f16-vllm.jsonl) and pair late against control by bin
+  (docs/mesures/gsm8k-depth-restore-4b-2026-11-14-brut/ gsm8k-4b-depth-{late,control}.jsonl). A gain flat across
+  length bins, or largest on short chains, kills it. Power is low: 108 and 51 discordant problems in all.
+
+H7-C, generated tokens are written late: in the original, the identity of a generated token, digits above all, enters
+the readout after depth 25, where the MMLU letter enters at 25.
+- Predicts, alone: on the original 4B alone, a lens on GSM8K tokens teacher-forced from the FP16 completions on disk
+  writes most tokens after depth 25.
+- Kill: the median write depth of generated tokens is at or before 25. Card, original alone, lens-only mode extended
+  to teacher-forced completions; *estimated* $0.1 to $0.3 from the 8B lens job. Proposed and not run in O14 (CERVEAU
+  line 973).
+
+H7-D, arithmetic lives late: the late blocks carry digit-level computation, the early blocks the setup of a problem.
+- Predicts, alone: among the problems the late window repairs (108), the control's completion holds a false "a op b =
+  c" step more often than among those the early window repairs (143) or the control's failures overall.
+- Kill, $0: an equation checker over the completions of docs/mesures/gsm8k-depth-restore-4b-2026-11-14-brut/
+  gsm8k-4b-depth-{control,late,early}.jsonl; equal false-step rates in the two repaired sets kill it. A checker is a
+  heuristic: words and units in the chains will leave steps unparsed, and that share must be read first.
+
+7. WHAT IS READABLE AT $0
+-------------------------
+Every item reads committed files with a script and loads no model. None is run in this note.
+1. Slope and noise of the two depth arms, and their Gaussian-replay gap.
+   docs/data/mmlu-dumps/mmlu-4b-depth-late-FULL.csv, mmlu-4b-depth-early-FULL.csv against mmlu-4b-f16-FULL.csv and
+   mmlu-4b-abl-control-FULL.csv, with recherche-qualite2-r0-contraste-2026-11-14-brut/beta_table.py and
+   ops/logit_n1_replay.py. Reads whether the late restore moves the slope (the last-block rescale) without the ratio,
+   and whether the early restore carries the N1 excess.
+2. Overlap of the questions each depth arm repairs on MMLU, and the FP16 margin of the late arm's 315 won and 254 lost
+   (same dumps). Says whether the late flips are low-margin noise.
+3. H6-E's kill: slope and noise of docs/data/mmlu-dumps/mmlu-q5-down-{0-11,12-23,24-35}.csv against the FP16 dump,
+   beside mmlu-q5-shipped-FULL.csv.
+4. Letter bias of each arm: picks by letter in the depth dumps against FP16 (ROADMAP-QUALITY row F, line 123, read a
+   question-dependent bias on older files).
+5. H7-B's kill: GSM8K gain by length bin, from the three depth dumps and run5-vllm/gsm8k-4b-f16-vllm.jsonl; also the
+   cap counts already printed (section 1c).
+6. H7-D's kill: false equations by arm and on the repaired sets, same files; the AWQ dump
+   (run5-vllm/gsm8k-4b-awq-vllm.jsonl) and the served dump (run1-served/gsm8k-4b-served.jsonl) as references.
+7. Overlap of the late-repaired (108) and early-repaired (143) GSM8K problems, and the character offset where each
+   arm's greedy completion first parts from FP16's (same files). Descriptive: places the divergence, kills nothing
+   alone.
+8. At the other sizes: docs/mesures/gsm8k-wave2-2026-09-26-brut/run{2,3}-served-*/ and run{6,7}-vllm-*/ for items 5
+   and 6; the sealed 8B and 14B MMLU dumps named in proofs/preregistration-recherche-qualite-n1-2026-11-13.md lines
+   53-56.
+9. Already-computed raw of the contrast map, not yet read for these questions: attention.tsv per head (which heads,
+   which layers, against the band depths), matrices.tsv per layer and per row (row_p10, row_p90 columns), linear.tsv
+   by depth (contrast-map-4b-2026-11-14-brut/).
+10. Not in the repository but free of card: the six answer-position stream dumps (depths 12, 24, 36, both models, 570
+    x 2,560 f16) in the bucket folder contrast-map-4b-2026-11-14/ (contrast-map lines 38-40). Copying them is a bucket
+    read, not a job; it is a download, so it waits for the operator. They would give the absolute band energies at the
+    answer position (H6-A, H6-B) and a cross-validated linear probe of the answer from the FP16 quiet band at depth 24
+    (H6-A), weak at 570 questions.
+
+8. MISMATCHES
+-------------
+1. Which int4 records sit where. depth-restore-4b lines 62-63: "int4 records sit at every layer for v_proj and at
+   layers 12 to 23 for o_proj and down_proj, all inside the early window but for eleven v_proj". Against it:
+   embed-q4-swap line 19 ("o_proj + down_proj@12-23 int4"), ablation-qualite-4b line 86 (o: 0 lattice, 36 int4) and
+   layer-vs-output line 184 (84 int4 records = 36 v + 36 o + 12 down). contrast-map matrices.tsv agrees with the
+   latter: o_proj reads coherent gains of 1.000 to 1.002 at every layer, as v does. So the late window holds 22 int4
+   records, eleven v and eleven o, not eleven. CERVEAU Q11 line 198-199, "The served 4B carries v, o and down at
+   layers 12 to 23 at int4", reads the same wrong way unless parsed as "v, o, and down at 12 to 23".
+2. The GSM8K even rate's base. The prereg builds +2.94 and +6.69 on 9.63, the served-kernel gap
+   (proofs/preregistration-gsm8k-depth-restore-4b-2026-11-14.md lines 27-29). The arms are paired against the vLLM
+   control, whose gap to FP16 is 10.09 (journal line 45), and control minus served is -0.45 [-1.30, +0.39] (line 42).
+   The decision rule compared an interval against the other base's figure.
+3. Phase numbering. HISTORIQUE lines 1582 and 1618-1619 call the second quality phase "O13 of CERVEAU.md"; CERVEAU
+   numbers it O14 (line 949), and its numbering note covers the journals and preregs of 2026-11-14 only (lines
+   984-986), not HISTORIQUE. contrast-map line 34 and gsm8k-depth-restore-4b line 23 also say O13.
+4. An omission, not a contradiction. CERVEAU Q25 (lines 374-375) and the O15 mandate (line 994, "lost half their
+   signal by depth 12") state the quiet band at depth 12 and not its recovery to 0.71 at depth 24 (report.txt line
+   76), which the journal's table shows (contrast-map line 81).
+5. A scope word. CERVEAU N6 (line 782), Q25 (line 374) and O15 (line 994) speak of the "quiet directions" of the
+   residual stream. The bands are ranked on the all-position second moment (report.txt line 55), where direction 1
+   holds 0.57 to 0.97 of the energy (contrast-map line 87). At the answer position, at depths 8 to 24, band [513,
+   2560] holds 2.9 to 6.3 % of the energy (report.txt lines 72-76) against 0.6 to 1.4 % over all positions (lines
+   60-64). The band is quieter on average than where the answer is read.
+6. A prior reading not cited. downproj-slices-2026-09-18 lines 42-45 read in September that down_proj at depth 24 and
+   beyond is "nearly inert on this exam" (3.9 % of answers changed). Q25 and Q27 do not cite it, and GSM8K was never
+   scored on those slices.

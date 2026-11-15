@@ -1579,7 +1579,8 @@ the layer objective on the 4B. The bullets below are in the order things happene
 ## 2026-11-14. A second research phase on quality opens on the lost contrast of the answer logits and closes on a dead hypothesis; nothing served changes, $2.48
 
 The operator refused the lead's first three starting points for a new quality cycle, the calibration draw, probes of
-gate/up and a fast verifier, as tinkering and not ideas. He then signed a mandate, O13 of [`CERVEAU.md`](CERVEAU.md),
+gate/up and a fast verifier, as tinkering and not ideas. He then signed a mandate, O14 of [`CERVEAU.md`](CERVEAU.md)
+(numbered O13 on its branch, before the long-context speed phase took that number on main),
 on an anomaly read the same day from the dumps the repository holds: $10 of card, five days.
 
 - The anomaly, N6: the sealed 4B's four answer logits regress on FP16's with slope 0.58, where AWQ 4B keeps 0.96
@@ -1616,7 +1617,7 @@ on an anomaly read the same day from the dumps the repository holds: $10 of card
   and no allocation of bits by depth is proposed. The lead had predicted +1.2. Spend of the phase: $2.48 of $10; the
   rows of `docs/data/jobs.csv` sum to $344.12 (*computed*).
 - The operator closed the phase the same evening ("Dead on l'écrit"). Outcome: a dead hypothesis, recorded in
-  `CERVEAU.md` O13, with two beliefs dropped and the anomaly N7. No idea sheet. A lens reading of generated tokens
+  `CERVEAU.md` O14, with two beliefs dropped and the anomaly N7. No idea sheet. A lens reading of generated tokens
   was proposed and not run.
 - Nothing served changes.
 
