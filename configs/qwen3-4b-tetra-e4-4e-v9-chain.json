@@ -1,0 +1,12 @@
+{
+  "layout": "tetra48",
+  "embed": "q4",
+  "rot_share": "1",
+  "fuse": "0",
+  "kv": "f16",
+  "attention": "kernel",
+  "decode": "persistent",
+  "rows": "v9",
+  "prefill": "chain",
+  "note": "NOT SERVED BY DEFAULT: written 2026-11-15 for the chain prefill's card gate (proofs/preregistration-chain-prefill-served-2026-11-15-DRAFT.md), loaded by llvq under LLVQ_PROFILE=chain and by fusedrun, gsm8k and prefillbench under LLVQ_CONFIG. The qwen3-4b-tetra-e4 object (qwen3-4b-sealed.bin, sha256 886391a8), the v9 config with \"prefill\": \"chain\" and nothing else different: a prompt goes through the tree verify pass as chains of known tokens, arm a12ipg32ft@8.10.8.20.6 at 32 rows a launch on the words 4E and the eager path hold, read in place, then a one-row hand-over launch and 4E v9 decodes, its module unchanged. The tree modules are compiled once and cached on disk (LLVQ_MODULE_CACHE), keyed by the kernel text's sha256, the NVRTC target and version, the driver version and the card's sm. The file and its 2.7320 b/param do not move. In the bench, the first token after 1,024 / 4,096 / 8,191 tokens took 0.420 / 2.393 / 6.485 s against 3.951 / 17.641 / 37.037 s for the eager prefill, at a phase peak of 3.560 GB against 5.946 at 8,191 (measured, L40S, large-prefill-ft-2026-11-11, large-prefill-2026-11-11). Not bit for bit with the eager prefill: the 16-row form read +0.0007 % of paired perplexity, 41 of 47 texts identical. Every tree module holds local memory (720 to 744 B at 128 to 168 registers in that job); whether a served module may is the operator's decision. Not yet read at a door, no GSM8K pairing. Refused on Metal, beside a batch, and on any object but the 4B."
+}

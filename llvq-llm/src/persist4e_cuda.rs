@@ -114,6 +114,9 @@ pub struct Runtime4e {
     tree: Option<Tree4e>,
     /// Arm v9k8's int8 caches (`pers::p4e_e1_k8`), or none.
     k8: Option<Kv8>,
+    /// How the tree modules load ([`Runtime4e::set_tree_modules`]): PTX at
+    /// every start, as the benches ran, unless set.
+    tree_modules: TreeModules,
 }
 
 /// Arm v9k8's int8 KV caches (`kernels/pers_4e_k8.cuh`, `kv8_ref.rs`): one K
@@ -1152,7 +1155,47 @@ fn install_inner(
         verify: None,
         tree: None,
         k8,
+        tree_modules: TreeModules::Ptx,
     })
+}
+
+/// How the tree modules are loaded.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum TreeModules {
+    /// NVRTC and the driver's PTX load at every start: every bench of the
+    /// tree pass ran so, and `bin/prefillbench` still does.
+    Ptx,
+    /// The driver's cubin (`gpu::Cuda::on_stream_cached`): read from the
+    /// directory when a file of the exact key is there, else compiled and
+    /// written to it; `None` compiles the same cubin at every start and
+    /// writes it nowhere. The served chain prefill's form.
+    Cubin(Option<llvq_cuda::modcache::Dir>),
+}
+
+/// One tree module, loaded as `how` says; a cubin load appends its line.
+fn tree_module(
+    stream: &std::sync::Arc<candle_core::cuda_backend::cudarc::driver::CudaStream>,
+    src: &llvq_cuda::gpu::KernelSource,
+    how: &TreeModules,
+    lines: &mut Vec<String>,
+) -> anyhow::Result<llvq_cuda::gpu::Cuda> {
+    match how {
+        TreeModules::Ptx => llvq_cuda::gpu::Cuda::on_stream(stream.clone(), src).map_err(anyhow::Error::msg),
+        TreeModules::Cubin(dir) => {
+            let (cuda, line) = llvq_cuda::gpu::Cuda::on_stream_cached(stream.clone(), src, dir.as_ref()).map_err(anyhow::Error::msg)?;
+            lines.push(format!("4E tree: {line}"));
+            Ok(cuda)
+        }
+    }
+}
+
+/// What a chain prefill leaves ([`Runtime4e::chain_prefill`]).
+pub struct ChainPrefill {
+    /// The first answer token: the last prompt row's argmax.
+    pub first: u32,
+    /// Seconds to the first token, and to the end of the hand-over launch.
+    pub ttft: f64,
+    pub prefill: f64,
 }
 
 impl Runtime4e {
@@ -1576,7 +1619,8 @@ impl Runtime4e {
         let text = pers::p4t_unit_text(&self.tile_define);
         let src = llvq_cuda::gpu::KernelSource::new(&[text.as_str()]);
         self.lines.push(format!("4E tree: module {} bytes, sha256 {}, row form 7 and pers_4et.cu, its own module", src.text.len(), src.sha256));
-        let cuda = llvq_cuda::gpu::Cuda::on_stream(stream.clone(), &src).map_err(anyhow::Error::msg)?;
+        let how = self.tree_modules.clone();
+        let cuda = tree_module(&stream, &src, &how, &mut self.lines)?;
         let dev = cuda.device().map_err(anyhow::Error::msg)?;
         let (hidden, n_heads, n_kv, groups, vocab) =
             (self.args_host.hidden, self.args_host.n_heads, self.args_host.n_kv, self.args_host.groups, self.args_host.vocab);
@@ -1815,6 +1859,7 @@ impl Runtime4e {
             anyhow::bail!("4E tree: the tiled and stream arms do not copy a Tetra o_proj; this model carries one");
         }
         let stream = self.cuda.stream().clone();
+        let how = self.tree_modules.clone();
         let mut cudas = Vec::new();
         let mut fns: [Option<CudaFunction>; 28] = Default::default();
         // the a12ip module's place in `cudas`: its load check lives there
@@ -1892,7 +1937,7 @@ impl Runtime4e {
             self.lines.push(format!("4E tree {tag}: module {} bytes, sha256 {}, {def}, its own module", src.text.len(), src.sha256));
             // a module that fails to build or to fit voids its arm only
             let built = (|| -> anyhow::Result<(llvq_cuda::gpu::Cuda, CudaFunction)> {
-                let cuda = llvq_cuda::gpu::Cuda::on_stream(stream.clone(), &src).map_err(anyhow::Error::msg)?;
+                let cuda = tree_module(&stream, &src, &how, &mut self.lines)?;
                 let f = cuda.func_dynamic_shared(sym, smem).map_err(anyhow::Error::msg)?;
                 let r = cuda.report(sym).map_err(anyhow::Error::msg)?;
                 let occ = f
@@ -2126,6 +2171,41 @@ impl Runtime4e {
         let depth: Vec<u32> = (0..n as u32).collect();
         let path: Vec<[u8; 32]> = (0..n).map(llvq_cuda::spec_loop::chain_path).collect();
         self.tree_launch(arm, caches, pos0, toks, &depth, &path, mv, move_pos0, logits, stamped, false, head)
+    }
+
+    /// How [`Self::install_tree`] loads the tree modules: set before it.
+    /// [`TreeModules::Cubin`] with a directory reads each module from a file
+    /// of its exact key ([`llvq_cuda::modcache`]) or compiles and writes it.
+    pub fn set_tree_modules(&mut self, how: TreeModules) {
+        self.tree_modules = how;
+    }
+
+    /// The chain prefill of `ids` after the `pos0` positions the caches hold
+    /// (their Grow buffers made, no move pending), through tree arm `arm` at
+    /// `r` rows a launch (`llvq_cuda::spec_loop::chain_launches`): the head on
+    /// the last launch only, then the one-row hand-over launch that moves the
+    /// last chunk into the caches. The caches then hold `pos0 + ids.len()`
+    /// positions and 4E decodes `first` at that position. The launch loop of
+    /// `bin/prefillbench --form chain`, which measured it.
+    pub fn chain_prefill(&mut self, arm: usize, caches: &mut [KvCache], pos0: usize, ids: &[u32], r: usize) -> anyhow::Result<ChainPrefill> {
+        use llvq_cuda::spec_loop::{chain_handover, chain_launches, ChainFault};
+        let t0 = std::time::Instant::now();
+        let (ls, mv, mp) = chain_launches(ids, pos0, r, ChainFault::None).map_err(anyhow::Error::msg)?;
+        let n = ls.len();
+        let mut first = None;
+        for (i, l) in ls.iter().enumerate() {
+            let head = i + 1 == n;
+            let o = self.tree_chain(arm, caches, l.pos0, &l.toks, &l.mv, l.move_pos0, head, false, false)?;
+            if head {
+                first = o.ring.last().copied();
+            }
+        }
+        let first = first.ok_or_else(|| anyhow::anyhow!("4E chain prefill: the last launch wrote no token"))?;
+        let ttft = t0.elapsed().as_secs_f64();
+        let h = chain_handover(first, &mv, mp);
+        self.tree_chain(arm, caches, h.pos0, &h.toks, &h.mv, h.move_pos0, false, false, false)?;
+        self.sync()?;
+        Ok(ChainPrefill { first, ttft, prefill: t0.elapsed().as_secs_f64() })
     }
 
     #[allow(clippy::too_many_arguments)]

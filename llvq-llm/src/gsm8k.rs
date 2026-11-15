@@ -354,6 +354,10 @@ pub fn served_header(cfg: &crate::served::Served) -> Vec<(&'static str, String)>
     if cfg.decode == Decode::Persistent {
         keys.push(("rows", cfg.rows.label().to_string()));
     }
+    // Only under the chain, so every header an earlier config wrote reads as it did.
+    if cfg.prefill_form == crate::served::Prefill::Chain {
+        keys.push(("prefill", cfg.prefill_form.label().to_string()));
+    }
     keys
 }
 
@@ -573,6 +577,7 @@ mod tests {
             decode: decode.map(str::to_string),
             rows: rows.map(str::to_string),
             prefill_attention: None,
+            prefill: None,
             batch: None,
             note: None,
         };

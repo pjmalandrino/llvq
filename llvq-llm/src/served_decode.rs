@@ -3,7 +3,9 @@
 //!
 //! The prefill is the eager path's under both engines, in chunks of at most
 //! [`crate::model::MAX_PREFILL_ROWS`] rows, as `Qwen3::generate_timed` sends
-//! it. Under `Persistent` the decode then runs in 4E launches of at most
+//! it, unless the config names `"prefill": "chain"`: the prompt then goes
+//! through 4E's tree verify pass ([`Decoder::chain_prefill`]), and the
+//! decode that follows is 4E's unchanged. Under `Persistent` the decode then runs in 4E launches of at most
 //! [`Decoder::launch_tokens`] tokens, each starting where the last stopped.
 //! The config sends every decode row to the attention kernel from position 0,
 //! on both engines ([`crate::served::Served::apply`]), so 4E owes the eager
@@ -39,6 +41,9 @@ pub struct Decoder {
     /// A position cap on the eager path, for the tests of a caller that must
     /// hand a sequence over before 4E's cap ([`Decoder::eager_capped`]).
     cap: Option<usize>,
+    /// The chain prefill's rows a launch, when the config names
+    /// `"prefill": "chain"`: the tree arm is the runtime's arm 0.
+    chain: Option<usize>,
 }
 
 impl Decoder {
@@ -49,7 +54,62 @@ impl Decoder {
             rt: None,
             lines: Vec::new(),
             cap: None,
+            chain: None,
         }
+    }
+
+    /// Whether a prompt is prefilled through the tree pass
+    /// ([`crate::served::Prefill::Chain`]) instead of the eager path.
+    pub fn has_chain(&self) -> bool {
+        self.chain.is_some()
+    }
+
+    /// The chain prefill of `ids` after the `pos0` positions `caches` hold,
+    /// then the hand-over: the caches hold `pos0 + ids.len()` positions and
+    /// the first answer token is returned, not yet in them, as
+    /// [`Self::continue_greedy`] takes it. A fresh cache gets its Grow buffers
+    /// first (the tree pass and 4E write in place). Refused on a decoder whose
+    /// config does not name the chain.
+    pub fn chain_prefill(&mut self, model: &Qwen3, caches: &mut [KvCache], pos0: usize, ids: &[u32]) -> anyhow::Result<u32> {
+        let rows = self.chain.ok_or_else(|| anyhow::anyhow!("chain prefill: this engine's config names the eager prefill"))?;
+        anyhow::ensure!(!ids.is_empty(), "chain prefill: nothing to feed");
+        make_grow_buffers(model, caches)?;
+        #[cfg(all(target_os = "linux", feature = "cuda"))]
+        if let Some(rt) = self.rt.as_mut() {
+            return Ok(rt.chain_prefill(0, caches, pos0, ids, rows)?.first);
+        }
+        let _ = (rows, pos0);
+        anyhow::bail!("chain prefill: the tree pass is a cooperative CUDA launch, and this engine holds no 4E runtime")
+    }
+
+    /// The prompt through this engine's prefill into fresh caches: the chain
+    /// when the config names it, else the eager path in chunks of `chunk`.
+    /// Returns the caches, the first answer token and the prefill's seconds.
+    pub fn prefill_fresh(&mut self, model: &Qwen3, tokens: &[u32], chunk: usize) -> anyhow::Result<(Vec<KvCache>, u32, f64)> {
+        let mut caches = model.fresh_caches();
+        let t0 = std::time::Instant::now();
+        let first = match self.has_chain() {
+            true => self.chain_prefill(model, &mut caches, 0, tokens)?,
+            false => model.prefill_next_in(tokens, chunk, &mut caches)?,
+        };
+        // Both branches end on a host read of the token (the chain syncs the
+        // stream after its hand-over), so the clock reads a finished prefill.
+        Ok((caches, first, t0.elapsed().as_secs_f64()))
+    }
+
+    /// The reference of a chain config's door: this engine's prefill, then
+    /// the EAGER decode on the caches it left, one step a token. 4E owes these
+    /// tokens bit for bit: the decode after the chain is 4E v9 unchanged.
+    pub fn generate_eager_decode(&mut self, model: &Qwen3, tokens: &[u32], max_new: usize, chunk: usize) -> anyhow::Result<Vec<u32>> {
+        anyhow::ensure!(!tokens.is_empty() && max_new > 0, "generate_eager_decode: nothing to generate");
+        let (mut caches, first, _) = self.prefill_fresh(model, tokens, chunk)?;
+        let (rest, _) = chunked_greedy(first, tokens.len(), max_new - 1, &[], 1, |pos, tok, _| {
+            let logits = model.step_logits(tok, pos, &mut caches)?;
+            Ok(vec![logits.flatten_all()?.argmax(0)?.to_scalar::<u32>()?])
+        })?;
+        let mut out = vec![first];
+        out.extend(rest);
+        Ok(out)
     }
 
     /// The eager path, reporting `positions` as its cap the way 4E reports
@@ -265,10 +325,9 @@ impl Decoder {
             return Ok(model.generate_timed(tokens, max_new, chunk)?);
         }
         anyhow::ensure!(!tokens.is_empty() && max_new > 0 && chunk > 0, "generate_timed: nothing to time");
-        let mut caches = model.fresh_caches();
-        let t0 = std::time::Instant::now();
-        let first = model.prefill_next_in(tokens, chunk, &mut caches)?;
-        let prompt_s = t0.elapsed().as_secs_f64();
+        // The chain prefill when the config names it; the eager one otherwise,
+        // the same call as before the field existed.
+        let (mut caches, first, prompt_s) = self.prefill_fresh(model, tokens, chunk)?;
         let t1 = std::time::Instant::now();
         let (rest, _) = self.continue_greedy(model, &mut caches, first, tokens.len(), max_new - 1, &[])?;
         let decode_s = t1.elapsed().as_secs_f64();
@@ -316,8 +375,15 @@ impl Served {
                         self.rows.form(),
                     )?;
                     rt.set_served_kernel_from(0);
+                    let chain = match self.prefill_form {
+                        crate::served::Prefill::Eager => None,
+                        crate::served::Prefill::Chain => {
+                            install_chain(&mut rt)?;
+                            Some(crate::served::CHAIN_ROWS)
+                        }
+                    };
                     let lines = std::mem::take(&mut rt.lines);
-                    Ok(Decoder { rt: Some(Box::new(rt)), lines, cap: None })
+                    Ok(Decoder { rt: Some(Box::new(rt)), lines, cap: None, chain })
                 }
                 #[cfg(not(all(target_os = "linux", feature = "cuda")))]
                 {
@@ -330,6 +396,64 @@ impl Served {
             }
         }
     }
+}
+
+/// The chain prefill's tree arm on a 4E runtime: the compiled-module cache
+/// from `LLVQ_MODULE_CACHE` (`llvq_cuda::modcache::dir_from`), then
+/// [`crate::served::CHAIN_ARM`] as the runtime's only tree arm, refused when
+/// its module did not build.
+#[cfg(all(target_os = "linux", feature = "cuda"))]
+fn install_chain(rt: &mut crate::persist4e_cuda::Runtime4e) -> anyhow::Result<()> {
+    use crate::persist4e_cuda::{TreeForm, TreePlan};
+    let dir = llvq_cuda::modcache::dir_from(|v| std::env::var(v).ok()).map_err(anyhow::Error::msg)?;
+    rt.lines.push(match &dir {
+        Some(d) => format!("chain prefill: compiled-module cache {}", d.0.display()),
+        None => format!("chain prefill: compiled-module cache off ({}=off), the cubin compiled at every start", llvq_cuda::modcache::ENV),
+    });
+    rt.set_tree_modules(crate::persist4e_cuda::TreeModules::Cubin(dir));
+    rt.install_tree(&[(crate::served::CHAIN_ARM, TreePlan::Explicit(crate::served::CHAIN_PLAN), TreeForm::A12ipg32Ft)])?;
+    let arms = rt.tree_arms();
+    let a = arms.first().ok_or_else(|| anyhow::anyhow!("chain prefill: no tree arm installed"))?;
+    anyhow::ensure!(a.void.is_none(), "chain prefill: arm {} is void: {:?}", a.name, a.void);
+    anyhow::ensure!(
+        a.form.rmax() as usize >= crate::served::CHAIN_ROWS,
+        "chain prefill: arm {} carries {} rows a launch, the config's chain {}",
+        a.name,
+        a.form.rmax(),
+        crate::served::CHAIN_ROWS
+    );
+    rt.lines.push(format!(
+        "chain prefill: arm {} ({:?}, slices {:?}, {} threads, {} B shared), {} rows a launch",
+        a.name,
+        a.form,
+        a.splits,
+        a.threads,
+        a.smem,
+        crate::served::CHAIN_ROWS
+    ));
+    Ok(())
+}
+
+/// Grow buffers on every cache that has none (a fresh cache, `len` 0): one
+/// zero position appended through the store, then the length set back to 0.
+/// The tree pass and 4E write the buffers in place and cannot make them.
+fn make_grow_buffers(model: &Qwen3, caches: &mut [KvCache]) -> anyhow::Result<()> {
+    let cfg = model.config();
+    for c in caches.iter_mut() {
+        anyhow::ensure!(
+            matches!(c.store(), crate::kvq::KvStore::Grow(_)),
+            "chain prefill: a cache on the {} store, not Grow: the tree pass and 4E write the Grow buffers in place",
+            c.store().label()
+        );
+        if c.grow_buffers().is_some() {
+            continue;
+        }
+        anyhow::ensure!(c.is_empty(), "chain prefill: a cache holds {} positions and no Grow buffer", c.len());
+        let z = candle_core::Tensor::zeros((1, cfg.num_key_value_heads, 1, cfg.head_dim), model.dtype(), model.device())?;
+        c.restore(&z, &z)?;
+        c.set_len(0)?;
+    }
+    Ok(())
 }
 
 /// The launch loop of [`Decoder::continue_greedy`], pure. `launch(pos, tok,
@@ -432,5 +556,33 @@ mod tests {
         assert!(e.to_string().contains("on no stop token"), "{e}");
         let e = chunked_greedy(1, 0, 10, &[], 4, |_, _, _| Ok(Vec::new())).unwrap_err();
         assert!(e.to_string().contains("made 0"), "{e}");
+    }
+
+    /// The chain prefill's caches: a fresh Grow cache gets its two buffers
+    /// and holds 0 positions, a cache that has them is left alone, and a
+    /// cache that holds positions with no Grow buffer is refused.
+    #[test]
+    fn fresh_caches_get_their_grow_buffers_and_hold_nothing() {
+        let mut m = crate::model::tests_support::tiny_model_kernel();
+        m.set_kv_store(crate::kvq::KvStore::Grow(256));
+        let mut caches = m.fresh_caches();
+        assert!(caches.iter().all(|c| c.grow_buffers().is_none()));
+        make_grow_buffers(&m, &mut caches).unwrap();
+        for c in &caches {
+            let (k, v) = c.grow_buffers().expect("buffers made");
+            assert_eq!(k.dims4().unwrap(), (1, 2, 256, 128));
+            assert_eq!(v.dims4().unwrap(), (1, 2, 256, 128));
+            assert_eq!(c.len(), 0, "the zero position is not held");
+        }
+        // a second call keeps the same buffers and the positions held
+        caches[0].set_len(3).unwrap();
+        let before = caches[0].grow_buffers().unwrap().0.dims4().unwrap();
+        make_grow_buffers(&m, &mut caches).unwrap();
+        assert_eq!((caches[0].len(), caches[0].grow_buffers().unwrap().0.dims4().unwrap()), (3, before));
+        // a Grow cache holding positions with no buffer cannot exist through the
+        // store's own writes; the Cat store has no buffer to write in place
+        let mut cat = vec![crate::model::KvCache::new(crate::kvq::KvMode::F16)];
+        let e = make_grow_buffers(&m, &mut cat).unwrap_err();
+        assert!(e.to_string().contains("not Grow"), "{e}");
     }
 }

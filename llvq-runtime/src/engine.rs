@@ -90,20 +90,9 @@ impl Loader for DeviceLoader {
         let backend = Backend::of_build();
         let configs = crate::library::served_configs(&m.configs, &m.sha256);
         let batch = batch_from_env(std::env::var("LLVQ_BATCH").ok())?;
-        let config = match (batch, backend) {
-            (None, _) => backend.config(&configs).map_err(|e| anyhow::anyhow!("{name}: {e}"))?,
-            (Some(_), Backend::Cuda) => Some(
-                configs
-                    .cuda_batch
-                    .as_deref()
-                    .ok_or_else(|| anyhow::anyhow!("{name}: LLVQ_BATCH is set and this model has no batch config"))?,
-            ),
-            (Some(_), b) => anyhow::bail!(
-                "LLVQ_BATCH is set on {}: the batched decode's kernels are CUDA. Unset it to serve one request at a time.",
-                b.label()
-            ),
-        };
-        let config = config.ok_or_else(|| anyhow::anyhow!("{name}: no served config on {}", backend.label()))?;
+        let profile = std::env::var(crate::library::PROFILE_ENV).ok();
+        let config = crate::library::config_for(&configs, backend, batch.is_some(), profile.as_deref())
+            .map_err(|e| anyhow::anyhow!("{name}: {e}"))?;
         let text = crate::library::config_text(config)
             .ok_or_else(|| anyhow::anyhow!("{name}: config {config} is not compiled into this binary"))?;
         let file: llvq_llm::served::ServedFile =
@@ -659,7 +648,9 @@ impl Worker {
         self.memo = segments;
 
         let t_prompt = Instant::now();
-        let h = self.session.feed(&self.loaded.qwen, &prompt[cached..])?;
+        // The prefill the config names: the eager path, or the chain through
+        // the tree pass under a chain config (`LLVQ_PROFILE=chain`).
+        let fed = self.session.feed_with(&self.loaded.qwen, &mut self.loaded.decoder, &prompt[cached..])?;
         let prompt_eval = t_prompt.elapsed();
 
         let seed = o.seed.unwrap_or_else(|| {
@@ -675,10 +666,10 @@ impl Worker {
         let mut gone = false;
         let mut failure: Option<anyhow::Error> = None;
         let t_eval = Instant::now();
-        let answer = self.session.answer(
+        let answer = self.session.answer_fed(
             &self.loaded.qwen,
             &mut self.loaded.decoder,
-            h,
+            fed,
             Generate { sampler: &mut sampler, max_new, stops: &stops },
             &mut |said| match router.step(said, tok, think, &o.stop) {
                 Err(e) => {
@@ -1554,7 +1545,7 @@ mod tests {
                 family: String::new(),
                 parameter_size: String::new(),
                 bits_per_param: String::new(),
-                configs: crate::library::Configs { cuda: None, metal: None, cpu: None, cuda_batch: None },
+                configs: crate::library::Configs { cuda: None, metal: None, cpu: None, cuda_batch: None, cuda_chain: None },
                 modified_at: 0,
             },
             state: Mutex::new(State::Loading),

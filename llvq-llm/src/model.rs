@@ -4884,6 +4884,7 @@ mod tests {
             decode: None,
             rows: None,
             prefill_attention: None,
+            prefill: None,
             batch: None,
             note: None,
         };
@@ -4978,6 +4979,7 @@ mod tests {
             decode: None,
             rows: None,
             prefill_attention: None,
+            prefill: None,
             batch: None,
             note: None,
         };

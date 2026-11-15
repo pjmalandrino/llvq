@@ -305,3 +305,53 @@ fn zero_tokens_asked_answers_nothing_and_feeds_nothing() {
     assert!(a.said.is_empty());
     assert_eq!(session.len(), 2);
 }
+
+/// Under a config that names no chain, `feed_with` is `feed`: the same
+/// hidden states, the same ids held, and `answer_fed` the same answer as
+/// `answer`, on both stores.
+#[test]
+fn feed_with_the_eager_prefill_is_feed() {
+    use llvq_llm::session::Fed;
+    for store in STORES {
+        let (qwen, _map) = model(store);
+        let ids: Vec<u32> = vec![3, 9, 27, 17, 51, 41];
+        let (mut a, mut b) = (Session::new(&qwen), Session::new(&qwen));
+        let ha = a.feed(&qwen, &ids).unwrap();
+        let fed = b.feed_with(&qwen, &mut Decoder::eager(), &ids).unwrap();
+        let Fed::Hidden(hb) = fed else { panic!("store {store:?}: an eager config fed a first token") };
+        let va = ha.flatten_all().unwrap().to_vec1::<f32>().unwrap();
+        let vb = hb.flatten_all().unwrap().to_vec1::<f32>().unwrap();
+        assert_eq!(va, vb, "store {store:?}: the same hidden states");
+        assert_eq!(a.ids(), b.ids());
+        let (mut sa, mut sb) = (sampler(0.0, 1), sampler(0.0, 1));
+        let ga = Generate { sampler: &mut sa, max_new: 9, stops: &[] };
+        let ans_a = a.answer(&qwen, &mut Decoder::eager(), ha, ga, &mut |_| Flow::Continue).unwrap();
+        let gb = Generate { sampler: &mut sb, max_new: 9, stops: &[] };
+        let ans_b = b.answer_fed(&qwen, &mut Decoder::eager(), Fed::Hidden(hb), gb, &mut |_| Flow::Continue).unwrap();
+        assert_eq!(ans_a, ans_b, "store {store:?}");
+        assert_eq!(a.ids(), b.ids(), "store {store:?}: the same cache after the answer");
+    }
+}
+
+/// A first token from the chain is greedy and hands over to 4E: beside the
+/// eager decode it is refused by name, and nothing is said. A decoder whose
+/// config names no chain refuses the chain prefill itself.
+#[test]
+fn a_chain_first_token_needs_the_persistent_decode() {
+    use llvq_llm::session::Fed;
+    let (qwen, _map) = model(KvStore::Grow(16));
+    let mut session = Session::new(&qwen);
+    session.feed(&qwen, &[1, 2, 3]).unwrap();
+    let mut s = sampler(0.0, 0);
+    let e = session
+        .answer_fed(&qwen, &mut Decoder::eager(), Fed::First(5), Generate { sampler: &mut s, max_new: 4, stops: &[] }, &mut |_| {
+            panic!("refused before any token")
+        })
+        .unwrap_err();
+    assert!(e.to_string().contains("hands over to 4E"), "{e}");
+    assert_eq!(session.len(), 3, "nothing fed");
+    let mut caches = qwen.fresh_caches();
+    let e = Decoder::eager().chain_prefill(&qwen, &mut caches, 0, &[1, 2]).unwrap_err();
+    assert!(e.to_string().contains("names the eager prefill"), "{e}");
+    assert!(!Decoder::eager().has_chain());
+}

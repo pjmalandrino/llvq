@@ -55,6 +55,14 @@ pub struct Generate<'a> {
     pub stops: &'a [u32],
 }
 
+/// What a prefill leaves for [`Session::answer_fed`]: the eager path's hidden
+/// states, from which the first token is sampled, or the first token the
+/// chain prefill already chose.
+pub enum Fed {
+    Hidden(Tensor),
+    First(u32),
+}
+
 /// The callback's verdict after each step or launch.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Flow {
@@ -157,6 +165,20 @@ impl Session {
         Ok(h.expect("ids is not empty"))
     }
 
+    /// Feed `ids` after what is held through the prefill `dec`'s config
+    /// names: the chain prefill ([`Decoder::chain_prefill`]) returns the first
+    /// answer token, the eager one ([`Self::feed`]) the hidden states it is
+    /// read from. Either goes to [`Self::answer_fed`].
+    pub fn feed_with(&mut self, qwen: &Qwen3, dec: &mut Decoder, ids: &[u32]) -> anyhow::Result<Fed> {
+        if !dec.has_chain() {
+            return Ok(Fed::Hidden(self.feed(qwen, ids)?));
+        }
+        anyhow::ensure!(!ids.is_empty(), "Session feed: nothing to feed");
+        let first = dec.chain_prefill(qwen, &mut self.caches, self.ids.len(), ids)?;
+        self.ids.extend_from_slice(ids);
+        Ok(Fed::First(first))
+    }
+
     /// The answer after a prefill whose hidden states are `h`.
     ///
     /// `on_tokens` receives the whole answer so far after each eager step and
@@ -170,10 +192,30 @@ impl Session {
         gen: Generate<'_>,
         on_tokens: &mut dyn FnMut(&[u32]) -> Flow,
     ) -> anyhow::Result<Answer> {
+        self.answer_fed(qwen, dec, Fed::Hidden(h), gen, on_tokens)
+    }
+
+    /// [`Self::answer`] after either prefill ([`Self::feed_with`]). A first
+    /// token from the chain is the pass's greedy pick, so it is refused beside
+    /// the eager decode and beside a sampler above temperature 0.
+    pub fn answer_fed(
+        &mut self,
+        qwen: &Qwen3,
+        dec: &mut Decoder,
+        fed: Fed,
+        gen: Generate<'_>,
+        on_tokens: &mut dyn FnMut(&[u32]) -> Flow,
+    ) -> anyhow::Result<Answer> {
         let Generate { sampler, max_new, stops } = gen;
         anyhow::ensure!(
             !dec.is_persistent() || sampler.temp <= 0.0,
             "the persistent decode is greedy: it runs at temperature 0, not {}",
+            sampler.temp
+        );
+        anyhow::ensure!(
+            matches!(fed, Fed::Hidden(_)) || (dec.is_persistent() && sampler.temp <= 0.0),
+            "a first token from the chain prefill is greedy and hands over to 4E: this engine is the eager decode or \
+             samples at temperature {}",
             sampler.temp
         );
         let mut said: Vec<u32> = Vec::new();
@@ -181,7 +223,10 @@ impl Session {
             return Ok(Answer { said, finish: Finish::Length });
         }
         if dec.is_persistent() {
-            let first = sampler.pick(&qwen.logits_last(&h)?.i((0, 0))?)?;
+            let first = match fed {
+                Fed::Hidden(h) => sampler.pick(&qwen.logits_last(&h)?.i((0, 0))?)?,
+                Fed::First(t) => t,
+            };
             if stops.contains(&first) {
                 return Ok(Answer { said, finish: Finish::Stop });
             }
@@ -225,7 +270,9 @@ impl Session {
             }
             return Ok(Answer { said, finish: Finish::Length });
         }
-        let mut h = h;
+        let Fed::Hidden(mut h) = fed else {
+            anyhow::bail!("a first token from the chain prefill beside the eager decode");
+        };
         loop {
             let next = sampler.pick(&qwen.logits_last(&h)?.i((0, 0))?)?;
             if stops.contains(&next) {

@@ -60,6 +60,43 @@ pub struct Configs {
     /// existed; [`served_configs`] fills it from the library.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub cuda_batch: Option<String>,
+    /// The config `llvq serve` and `llvq run` take on CUDA under
+    /// `LLVQ_PROFILE=chain`: the v9 config with the chain prefill. Absent for
+    /// a size the pass does not carry, and in manifests written before it
+    /// existed; [`served_configs`] fills it from the library.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cuda_chain: Option<String>,
+}
+
+/// `LLVQ_PROFILE`: which of an entry's CUDA configs a load takes beside the
+/// default one. Unset is the default config; `chain` is the chain prefill.
+pub const PROFILE_ENV: &str = "LLVQ_PROFILE";
+
+/// The config a load serves: the backend's own, the batch config under
+/// `LLVQ_BATCH`, or the chain config under `LLVQ_PROFILE=chain`. Pure, the
+/// two variables handed in. Refused by name: an unknown profile, a profile
+/// beside the batch, a profile off CUDA, and a model with no such config.
+pub fn config_for<'a>(c: &'a Configs, backend: Backend, batch: bool, profile: Option<&str>) -> Result<&'a str, String> {
+    match (profile, batch) {
+        (None, false) => backend.config(c)?.ok_or_else(|| format!("this model has no served config on {}", backend.label())),
+        (None, true) => match backend {
+            Backend::Cuda => c.cuda_batch.as_deref().ok_or_else(|| "LLVQ_BATCH is set and this model has no batch config".into()),
+            b => Err(format!(
+                "LLVQ_BATCH is set on {}: the batched decode's kernels are CUDA. Unset it to serve one request at a time.",
+                b.label()
+            )),
+        },
+        (Some(p), true) => Err(format!(
+            "{PROFILE_ENV}={p:?} beside LLVQ_BATCH: the batch pool prefills through the eager path. Unset one of the two."
+        )),
+        (Some("chain"), false) => match backend {
+            Backend::Cuda => c.cuda_chain.as_deref().ok_or_else(|| {
+                format!("{PROFILE_ENV}=chain: this model has no chain config; the chain prefill carries the 4B only")
+            }),
+            b => Err(format!("{PROFILE_ENV}=chain on {}: the tree verify pass is a CUDA launch", b.label())),
+        },
+        (Some(p), false) => Err(format!("{PROFILE_ENV}={p:?}: unset for the default config, or chain")),
+    }
 }
 
 /// One model of `library.json`.
@@ -165,6 +202,10 @@ const CONFIGS: &[(&str, &str)] = &[
         "qwen3-14b-tetra-e4-4e-v9-batch.json",
         include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../configs/qwen3-14b-tetra-e4-4e-v9-batch.json")),
     ),
+    (
+        "qwen3-4b-tetra-e4-4e-v9-chain.json",
+        include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../configs/qwen3-4b-tetra-e4-4e-v9-chain.json")),
+    ),
 ];
 
 /// The text of a compiled-in config.
@@ -249,7 +290,10 @@ mod tests {
             assert!(m.sha256.chars().all(|c| c.is_ascii_hexdigit() && !c.is_ascii_uppercase()));
             assert_eq!(m.revision.len(), 40, "{}: a pinned commit, not a branch", m.model_name());
             assert!(ModelName::parse(&m.model_name().to_string()).is_ok());
-            for c in [&m.configs.cuda, &m.configs.metal, &m.configs.cpu, &m.configs.cuda_batch].into_iter().flatten() {
+            for c in [&m.configs.cuda, &m.configs.metal, &m.configs.cpu, &m.configs.cuda_batch, &m.configs.cuda_chain]
+                .into_iter()
+                .flatten()
+            {
                 let text = config_text(c).unwrap_or_else(|| panic!("{c} is named and not compiled in"));
                 let f: ServedFile = serde_json::from_str(text).unwrap();
                 Served::of(f, c.into()).unwrap_or_else(|e| panic!("{c}: {e}"));
@@ -305,11 +349,46 @@ mod tests {
         }
     }
 
+    /// The profile picks a config by name and refuses what it cannot serve;
+    /// unset, the load takes the config it took before the variable existed.
+    #[test]
+    fn the_profile_picks_the_chain_config_and_refuses_the_rest() {
+        let four = find(&ModelName::parse("qwen3:4b").unwrap()).unwrap();
+        let c = &four.configs;
+        assert_eq!(config_for(c, Backend::Cuda, false, None), Ok("qwen3-4b-tetra-e4-4e-v9.json"));
+        assert_eq!(config_for(c, Backend::Cuda, true, None), Ok("qwen3-4b-tetra-e4-4e-v9-batch.json"));
+        assert_eq!(config_for(c, Backend::Cuda, false, Some("chain")), Ok("qwen3-4b-tetra-e4-4e-v9-chain.json"));
+        assert_eq!(config_for(c, Backend::Metal, false, None), Ok("qwen3-4b-tetra-e4.json"));
+        let refused = [
+            (config_for(c, Backend::Cuda, true, Some("chain")), "LLVQ_BATCH"),
+            (config_for(c, Backend::Metal, false, Some("chain")), "CUDA"),
+            (config_for(c, Backend::Cpu, false, Some("chain")), "CUDA"),
+            (config_for(c, Backend::Cuda, false, Some("fast")), "\"fast\""),
+            (config_for(c, Backend::Cuda, false, Some("")), "\"\""),
+            (config_for(c, Backend::Metal, true, None), "CUDA"),
+        ];
+        for (r, word) in refused {
+            let e = r.unwrap_err();
+            assert!(e.contains(word), "{e}");
+        }
+        // the 8B and the 14B carry no chain config, and say why
+        for tag in ["8b", "14b"] {
+            let m = find(&ModelName::parse(&format!("qwen3:{tag}")).unwrap()).unwrap();
+            assert_eq!(m.configs.cuda_chain, None, "{tag}");
+            let e = config_for(&m.configs, Backend::Cuda, false, Some("chain")).unwrap_err();
+            assert!(e.contains("4B only"), "{e}");
+        }
+        // the chain config is the default CUDA config with the chain prefill
+        let chain: ServedFile = serde_json::from_str(config_text("qwen3-4b-tetra-e4-4e-v9-chain.json").unwrap()).unwrap();
+        let v9: ServedFile = serde_json::from_str(config_text("qwen3-4b-tetra-e4-4e-v9.json").unwrap()).unwrap();
+        assert_eq!(ServedFile { prefill: None, note: None, ..chain }, ServedFile { note: None, ..v9 });
+    }
+
     #[test]
     fn a_manifest_is_served_by_the_library_configs_of_its_file() {
         for e in entries() {
             // Pulled before the CPU backend existed: no CPU config.
-            let old = Configs { cuda: e.configs.cuda.clone(), metal: e.configs.metal.clone(), cpu: None, cuda_batch: None };
+            let old = Configs { cuda: e.configs.cuda.clone(), metal: e.configs.metal.clone(), cpu: None, cuda_batch: None, cuda_chain: None };
             assert_eq!(served_configs(&old, &e.sha256), e.configs, "{}: the CPU and batch configs filled", e.model_name());
             // Pulled on 2026-11-06: the CUDA config of that day, no longer
             // compiled in, and a stale one that still is.
@@ -322,7 +401,7 @@ mod tests {
             }
         }
         // A file the library does not know keeps its own.
-        let own = Configs { cuda: Some("x.json".into()), metal: None, cpu: None, cuda_batch: None };
+        let own = Configs { cuda: Some("x.json".into()), metal: None, cpu: None, cuda_batch: None, cuda_chain: None };
         assert_eq!(served_configs(&own, &"0".repeat(64)), own);
         // A manifest written before the CPU field parses.
         let parsed: Configs = serde_json::from_str(r#"{"cuda": null, "metal": "m.json"}"#).unwrap();

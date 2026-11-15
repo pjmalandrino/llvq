@@ -89,6 +89,10 @@ pub mod wide;
 
 // Portable so the Mac host test and the card hash with the same code.
 pub mod sha256;
+// Portable for the reason `tile` is: the compiled-module cache's key, file
+// format and refusals. A stale cubin that loaded would run another kernel
+// than the text names, and only a billed job would notice.
+pub mod modcache;
 // Portable: the speculative decode loop around the tree verify pass, run
 // on the card by `llvq_llm` and on the Mac by the host twin.
 pub mod spec_loop;
