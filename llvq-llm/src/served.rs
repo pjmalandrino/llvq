@@ -130,6 +130,13 @@ pub struct ServedFile {
     /// verify pass as chains of known tokens ([`CHAIN_ARM`]). See [`Prefill`].
     #[serde(default)]
     pub prefill: Option<String>,
+    /// The cache 4E's decode holds, beside `"decode": "persistent"` and
+    /// `"rows": "v9"` only: absent is binary16, what every config before
+    /// 2026-11-15 served; `"int8"` is the NOT SERVED form of research arm
+    /// v9k8 with the binary16 caches released at the hand-over. See
+    /// [`DecodeCache`].
+    #[serde(default)]
+    pub decode_cache: Option<String>,
     /// The batched decode (`crate::batch`): how many sequences one step
     /// carries at most, and how many positions a sequence holds. Absent, the
     /// object is served one sequence at a time, as every config before it.
@@ -214,6 +221,8 @@ pub struct Served {
     /// How a prompt is prefilled: the eager path, or chains through the tree
     /// verify pass.
     pub prefill_form: Prefill,
+    /// The cache 4E's decode holds: binary16, or int8 alone (NOT SERVED).
+    pub decode_cache: DecodeCache,
     /// The batched decode, when the config names one.
     pub batch: Option<BatchServe>,
     pub path: PathBuf,
@@ -454,6 +463,51 @@ pub fn check_chain_object(cfg: &candle_transformers::models::qwen3::Config) -> R
     }
 }
 
+/// The cache 4E's decode holds.
+///
+/// `Int8` is research arm v9k8 (`llvq-cuda/kernels/pers_4e_k8.cuh`): a
+/// group-affine int8 cache filled from the prefill's binary16 caches at the
+/// hand-over, each layer's binary16 cache then released, so the int8 caches
+/// are the only copy the decode holds (`Runtime4e::set_k8_release`). The
+/// round trip held the +-0.12 % tolerance at 8,192 on the 4B, +0.0126 %
+/// [-0.0485, +0.0737] (*measured*,
+/// `docs/mesures/recherche-debit-kv-ladder-2026-11-14.txt`). Its token symbol
+/// holds 8 B of local memory at 128 registers on the L40S, and 4E's load rule
+/// (`llvq_cuda::pers::p4e_token_symbol_loads`) refuses that: whether a served
+/// module may hold local memory is the operator's decision. So every served
+/// door refuses it ([`Served::decoder`]), and only
+/// [`Served::decoder_measurement`] builds it, waiving that rule as the
+/// `+local` measurement mode does. Refused beside anything but 4E v9.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DecodeCache {
+    /// Binary16, the served cache.
+    F16,
+    /// Int8 alone, the binary16 caches released at the hand-over. NOT SERVED.
+    Int8,
+}
+
+impl DecodeCache {
+    /// Absent is `F16`. Read as written; the empty string and any other word
+    /// are refused.
+    pub fn parse(v: Option<&str>) -> Result<Self, String> {
+        match v {
+            None | Some("f16") => Ok(Self::F16),
+            Some("int8") => Ok(Self::Int8),
+            Some(s) if s.trim().is_empty() => {
+                Err("decode_cache is empty. Write \"int8\", or delete the key for the binary16 cache.".into())
+            }
+            Some(o) => Err(format!("decode_cache {o:?}: the caches are \"f16\" (or the key absent) and \"int8\"")),
+        }
+    }
+
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::F16 => "f16",
+            Self::Int8 => "int8",
+        }
+    }
+}
+
 /// The measurement modes of the binaries that read a served config: each turns
 /// a run into a bench of something. Beside a config that names the persistent
 /// engine each is refused by name ([`check_env`]); `LLVQ_CONTEXTS` and
@@ -680,6 +734,18 @@ impl Served {
                 rows.label()
             ));
         }
+        let decode_cache = DecodeCache::parse(f.decode_cache.as_deref())?;
+        if decode_cache == DecodeCache::Int8 && (decode != Decode::Persistent || rows != Rows4e::V9) {
+            return Err(format!(
+                "decode_cache \"int8\" beside decode {:?} rows {:?}: the int8 cache is 4E v9's research arm v9k8. Write \
+                 \"decode\": \"persistent\" and \"rows\": \"v9\", or delete the decode_cache key.",
+                decode.label(),
+                rows.label()
+            ));
+        }
+        if decode_cache == DecodeCache::Int8 && f.batch.is_some() {
+            return Err("decode_cache \"int8\" beside batch: the batch pool holds binary16 caches.".into());
+        }
         let prefill_form = Prefill::parse(f.prefill.as_deref())?;
         if prefill_form == Prefill::Chain {
             if decode != Decode::Persistent || rows != Rows4e::V9 {
@@ -762,6 +828,7 @@ impl Served {
             rows,
             prefill,
             prefill_form,
+            decode_cache,
             batch,
             path,
             note: f.note,
@@ -811,6 +878,10 @@ impl Served {
         let decode = match self.batch {
             None => decode,
             Some(b) => format!("{decode}, batch of up to {} sequences of {} positions (gemm)", b.max, b.context),
+        };
+        let decode = match self.decode_cache {
+            DecodeCache::F16 => decode,
+            DecodeCache::Int8 => format!("{decode}, decode cache int8 alone (arm v9k8, NOT SERVED)"),
         };
         // Named only under the chain, so every line an earlier config printed
         // reads as it did.

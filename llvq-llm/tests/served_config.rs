@@ -29,6 +29,7 @@ fn served() -> ServedFile {
         rows: None,
         prefill_attention: None,
         prefill: None,
+        decode_cache: None,
         batch: None,
         note: Some("Qwen3-4B, Tetra + 36 v_proj int4 g128".into()),
     }
@@ -567,6 +568,7 @@ fn four_e() -> ServedFile {
         rows: None,
         prefill_attention: None,
         prefill: None,
+        decode_cache: None,
         batch: None,
         note: None,
     }
@@ -1214,4 +1216,86 @@ fn a_chain_dump_names_its_prefill() {
     assert!(c.contains(&("prefill", "chain".to_string())), "{c:?}");
     let v9 = keys(ServedFile { prefill: None, ..chain() });
     assert!(v9.iter().all(|(k, _)| *k != "prefill"), "{v9:?}");
+}
+
+// ---- The int8 decode cache, NOT SERVED (2026-11-15) ---------------------------
+
+fn kv8() -> ServedFile {
+    ServedFile { rows: Some("v9".into()), decode_cache: Some("int8".into()), ..four_e() }
+}
+
+/// The NOT SERVED int8 config is the 4B v9 config with `"decode_cache":
+/// "int8"`, line for line beside the note, and says it is not served.
+#[test]
+fn the_kv8_config_is_the_v9_config_with_the_int8_cache_and_not_served() {
+    use llvq_llm::served::DecodeCache;
+    let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../configs");
+    let read = |name: &str| {
+        let path = dir.join(name);
+        let f = Served::read_file(&path).unwrap_or_else(|e| panic!("{name}: {e}"));
+        Served::of(f, path).unwrap_or_else(|e| panic!("{name}: {e}"))
+    };
+    let v9 = read("qwen3-4b-tetra-e4-4e-v9.json");
+    let k = read("qwen3-4b-tetra-e4-4e-v9-kv8-NOT-SERVED.json");
+    assert_eq!((k.decode_cache, v9.decode_cache), (DecodeCache::Int8, DecodeCache::F16));
+    assert_eq!(
+        (k.layout, k.embed, k.rot_share, k.fuse, k.kv, k.attention, k.store, k.decode, k.rows, k.prefill, k.prefill_form, k.batch),
+        (v9.layout, v9.embed, v9.rot_share, v9.fuse, v9.kv, v9.attention, v9.store, v9.decode, v9.rows, v9.prefill, v9.prefill_form, v9.batch),
+        "only the decode cache may differ from the v9 config"
+    );
+    assert!(k.provenance().contains("decode cache int8 alone (arm v9k8, NOT SERVED)"), "{}", k.provenance());
+    assert!(!v9.provenance().contains("int8"), "{}", v9.provenance());
+    let raw = |name: &str| -> Vec<String> {
+        std::fs::read_to_string(dir.join(name))
+            .unwrap_or_else(|e| panic!("{name}: {e}"))
+            .lines()
+            .filter(|l| !l.trim_start().starts_with("\"note\""))
+            .map(str::to_string)
+            .collect()
+    };
+    let (a, b) = (raw("qwen3-4b-tetra-e4-4e-v9.json"), raw("qwen3-4b-tetra-e4-4e-v9-kv8-NOT-SERVED.json"));
+    let added: Vec<&String> = b.iter().filter(|l| !a.contains(l)).collect();
+    assert_eq!(added, vec![&"  \"decode_cache\": \"int8\",".to_string()]);
+    assert_eq!(b.len(), a.len() + 1);
+    let note = k.note.as_deref().expect("a note");
+    assert!(note.starts_with("NOT SERVED.") && note.contains("886391a8") && note.contains("local memory"), "{note}");
+}
+
+/// The field: absent and "f16" are the binary16 cache, "int8" the arm's;
+/// anything else is refused, and so is int8 beside anything but 4E v9 or
+/// beside a batch. The chain prefill composes with it.
+#[test]
+fn the_decode_cache_field_rides_4e_v9_only() {
+    use llvq_llm::served::{DecodeCache, Prefill};
+    assert_eq!(of(kv8()).expect("int8").decode_cache, DecodeCache::Int8);
+    assert_eq!(of(ServedFile { decode_cache: None, ..kv8() }).unwrap().decode_cache, DecodeCache::F16);
+    assert_eq!(of(ServedFile { decode_cache: Some("f16".into()), ..kv8() }).unwrap().decode_cache, DecodeCache::F16);
+    for bad in ["", " ", "INT8", "q8", "int4"] {
+        let e = of(ServedFile { decode_cache: Some(bad.into()), ..kv8() }).expect_err(bad);
+        assert!(e.contains("decode_cache"), "{bad:?}: {e}");
+    }
+    type Edit = (&'static str, fn(&mut ServedFile));
+    let edits: [Edit; 3] = [
+        ("eager decode", |f| {
+            f.decode = None;
+            f.rows = None;
+        }),
+        ("rows v6", |f| f.rows = Some("v6".into())),
+        ("batch", |f| f.batch = Some(llvq_llm::served::BatchFile { max: 8, context: 2048 })),
+    ];
+    for (what, edit) in edits {
+        let mut f = kv8();
+        edit(&mut f);
+        let e = of(f).expect_err(what);
+        assert!(e.contains("decode_cache \"int8\""), "{what}: {e}");
+    }
+    let both = of(ServedFile { prefill: Some("chain".into()), ..kv8() }).expect("the chain composes");
+    assert_eq!((both.prefill_form, both.decode_cache), (Prefill::Chain, DecodeCache::Int8));
+    let e = of(kv8()).unwrap().check_device(true).expect_err("Metal");
+    assert!(e.contains("Metal"), "{e}");
+    let h = llvq_llm::gsm8k::served_header(&of(kv8()).unwrap());
+    assert!(h.contains(&("decode_cache", "int8".to_string())), "{h:?}");
+    assert!(llvq_llm::gsm8k::served_header(&of(ServedFile { decode_cache: None, ..kv8() }).unwrap())
+        .iter()
+        .all(|(k, _)| *k != "decode_cache"));
 }

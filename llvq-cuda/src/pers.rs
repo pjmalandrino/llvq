@@ -1016,6 +1016,44 @@ pub fn p4e_k8_step(st: K8State, moved: bool, len16: usize, pos0: usize, n: usize
     Ok(K8Step { grow, copy_old: grow && st.cap > 0 && st.own.max(hand) > 0, fill, next: K8State { cap, hand, own: st.own } })
 }
 
+/// The rule of a v9k8 launch when the binary16 caches are released at each
+/// hand-over (the NOT SERVED `decode_cache: int8` form): after the fill, each
+/// layer's binary16 cache is freed, and the int8 caches are the only copy.
+/// `has_f16`: every layer's binary16 cache holds its buffers (a prefill just
+/// wrote them), `len16` positions. Two launches are allowed: a hand-over
+/// (`has_f16` and `len16 == pos0`: positions `[0, pos0)` are quantized, from
+/// 0 since nothing quantized before survives a new prefill, the capacity
+/// kept when it holds the launch), after which the runtime releases the
+/// binary16 caches; or the arm continuing its own decode (`!has_f16`, `pos0`
+/// where its last launch ended). Anything else is refused: a continuation
+/// beside binary16 buffers would leave two copies that disagree, and a
+/// hand-over with a gap would quantize positions nobody wrote.
+pub fn p4e_k8_step_release(st: K8State, has_f16: bool, len16: usize, pos0: usize, n: usize, max_cap: usize) -> Result<K8Step, String> {
+    let need = (pos0 + n).div_ceil(256) * 256;
+    if need > max_cap {
+        return Err(format!("4E v9k8: {} positions, the attention scratch holds {max_cap}", pos0 + n));
+    }
+    match has_f16 {
+        true if len16 == pos0 && pos0 > 0 => {
+            let cap = st.cap.max(need);
+            Ok(K8Step { grow: cap != st.cap, copy_old: false, fill: Some((0, pos0)), next: K8State { cap, hand: pos0, own: 0 } })
+        }
+        true => Err(format!(
+            "4E v9k8 (binary16 released at hand-over): a launch at position {pos0} beside binary16 caches holding {len16}: \
+             a hand-over starts where a prefill ended, past position 0"
+        )),
+        false if st.own > 0 && pos0 == st.own => {
+            let cap = st.cap.max(need);
+            Ok(K8Step { grow: cap != st.cap, copy_old: cap != st.cap, fill: None, next: K8State { cap, hand: st.hand, own: st.own } })
+        }
+        false => Err(format!(
+            "4E v9k8 (binary16 released at hand-over): a launch at position {pos0} with no binary16 cache, the arm's own \
+             decode ending at {}: only a continuation from there",
+            st.own
+        )),
+    }
+}
+
 /// The edits of arm v9k8: the int8 cache's text before `struct Pers4eOT`,
 /// then v9's append and attention calls on the int8 caches, whose addresses
 /// the layer's `kc` and `vc` carry (no struct moves). Nothing else.
@@ -5872,6 +5910,33 @@ mod tests {
         assert!(p4e_k8_step(after, true, 8192, 8256, 8, m).is_err());
         assert!(p4e_k8_step(s0, true, 8192, 8192, 600, m).is_err());
         assert!(p4e_k8_step(s0, false, 0, 7, 1, m).is_err(), "no continuation before a first launch");
+    }
+
+    #[test]
+    fn the_k8_release_rule() {
+        let m = 8704;
+        let s0 = K8State::default();
+        // the hand-over after an 8,192-token prefill: everything filled, the buffers made
+        let a = p4e_k8_step_release(s0, true, 8192, 8192, 64, m).unwrap();
+        assert_eq!(a, K8Step { grow: true, copy_old: false, fill: Some((0, 8192)), next: K8State { cap: 8448, hand: 8192, own: 0 } });
+        let after = K8State { own: 8192 + 64, ..a.next };
+        // the arm continues with no binary16 cache: no fill, the capacity kept
+        let b = p4e_k8_step_release(after, false, 0, 8256, 64, m).unwrap();
+        assert_eq!(b, K8Step { grow: false, copy_old: false, fill: None, next: after });
+        // past the capacity: grown, what the arm wrote copied
+        let c = p4e_k8_step_release(after, false, 0, 8256, 300, m).unwrap();
+        assert_eq!((c.grow, c.copy_old, c.fill, c.next.cap, c.next.own), (true, true, None, 8704, 8256));
+        // a new prompt prefilled into fresh caches: refilled from 0, the capacity kept
+        let d = p4e_k8_step_release(after, true, 5, 5, 64, m).unwrap();
+        assert_eq!(d, K8Step { grow: false, copy_old: false, fill: Some((0, 5)), next: K8State { cap: 8448, hand: 5, own: 0 } });
+        // refused: a gap at hand-over, an empty prefill, a continuation beside binary16 buffers,
+        // a continuation from elsewhere, no launch before, past the scratch
+        assert!(p4e_k8_step_release(s0, true, 8100, 8192, 8, m).is_err());
+        assert!(p4e_k8_step_release(s0, true, 0, 0, 8, m).is_err());
+        assert!(p4e_k8_step_release(after, true, 8192, 8256, 8, m).is_err());
+        assert!(p4e_k8_step_release(after, false, 0, 8300, 8, m).is_err());
+        assert!(p4e_k8_step_release(s0, false, 0, 0, 8, m).is_err());
+        assert!(p4e_k8_step_release(s0, true, 8192, 8192, 600, m).is_err());
     }
 
     /// The code lines (comments and blank lines dropped, each trimmed) of the

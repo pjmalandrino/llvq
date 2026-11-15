@@ -355,6 +355,35 @@ impl Served {
     /// ran (the driver's ptxas spills the 768-thread symbol), and checks RoPE
     /// against candle on the card ([`crate::persist4e_cuda::install`]).
     pub fn decoder(&self, model: &Qwen3, device: &candle_core::Device) -> anyhow::Result<Decoder> {
+        if self.decode_cache == crate::served::DecodeCache::Int8 {
+            anyhow::bail!(
+                "{}: decode_cache \"int8\" at a served door. Its token symbol (arm v9k8) holds 8 B of local memory \
+                 at 128 registers on the L40S, which 4E's load rule refuses (pers::p4e_token_symbol_loads); whether a \
+                 served module may hold local memory is the operator's decision. This config is NOT SERVED: \
+                 bin/prefillbench and bin/gsm8k measure it through Served::decoder_measurement.",
+                self.path.display()
+            );
+        }
+        self.build_decoder(model, device)
+    }
+
+    /// [`Self::decoder`] for a measurement binary (`bin/prefillbench`,
+    /// `bin/gsm8k`): the same engine, and under `decode_cache: int8` arm v9k8
+    /// installed with the local-memory half of 4E's load rule waived
+    /// (`persist4e_cuda::install_e1_local`, the `+local` measurement mode),
+    /// the binary16 caches released at each hand-over. No served door calls
+    /// it; its install lines say MEASUREMENT ONLY.
+    pub fn decoder_measurement(&self, model: &Qwen3, device: &candle_core::Device) -> anyhow::Result<Decoder> {
+        self.build_decoder(model, device)
+    }
+
+    /// [`Self::serve`] through [`Self::decoder_measurement`].
+    pub fn serve_measurement(&self, model: &mut Qwen3, device: &candle_core::Device) -> anyhow::Result<Decoder> {
+        self.apply(model, device).map_err(anyhow::Error::msg)?;
+        self.decoder_measurement(model, device)
+    }
+
+    fn build_decoder(&self, model: &Qwen3, device: &candle_core::Device) -> anyhow::Result<Decoder> {
         match self.decode {
             Decode::Eager => Ok(Decoder::eager()),
             Decode::Persistent => {
@@ -367,13 +396,26 @@ impl Served {
                 );
                 #[cfg(all(target_os = "linux", feature = "cuda"))]
                 {
-                    let mut rt = crate::persist4e_cuda::install_rows(
-                        model,
-                        device,
-                        LAUNCH_TOKENS,
-                        Some(512),
-                        self.rows.form(),
-                    )?;
+                    let mut rt = match self.decode_cache {
+                        crate::served::DecodeCache::F16 => crate::persist4e_cuda::install_rows(
+                            model,
+                            device,
+                            LAUNCH_TOKENS,
+                            Some(512),
+                            self.rows.form(),
+                        )?,
+                        crate::served::DecodeCache::Int8 => {
+                            let mut rt = crate::persist4e_cuda::install_e1_local(model, device, LAUNCH_TOKENS, "v9k8")?;
+                            rt.set_k8_release(true)?;
+                            rt.lines.push(format!(
+                                "MEASUREMENT ONLY ({}): decode cache int8 alone, arm v9k8 with {} B of local memory in its token \
+                                 symbol, the binary16 caches released at each hand-over",
+                                self.path.display(),
+                                rt.local_bytes
+                            ));
+                            rt
+                        }
+                    };
                     rt.set_served_kernel_from(0);
                     let chain = match self.prefill_form {
                         crate::served::Prefill::Eager => None,
@@ -558,6 +600,32 @@ mod tests {
         assert!(e.to_string().contains("made 0"), "{e}");
     }
 
+    /// Every served door refuses the int8 decode cache by name, before it
+    /// looks at the model or the build: the local-memory rule is the
+    /// operator's. The binary16 config goes on to its own checks.
+    #[test]
+    fn the_served_door_refuses_the_int8_cache() {
+        let m = crate::model::tests_support::tiny_model_kernel();
+        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../configs");
+        let read = |name: &str| {
+            let path = dir.join(name);
+            crate::served::Served::of(crate::served::Served::read_file(&path).unwrap(), path).unwrap()
+        };
+        let k = read("qwen3-4b-tetra-e4-4e-v9-kv8-NOT-SERVED.json");
+        let e = k.decoder(&m, &candle_core::Device::Cpu).err().expect("refused at the door").to_string();
+        assert!(e.contains("decode_cache \"int8\" at a served door") && e.contains("local memory"), "{e}");
+        // the measurement door and the binary16 config pass the int8 check and stop
+        // later, at the threshold (the toy was never applied)
+        for (cfg, name) in [(&k, "measurement"), (&read("qwen3-4b-tetra-e4-4e-v9.json"), "v9")] {
+            let r = match name {
+                "measurement" => cfg.decoder_measurement(&m, &candle_core::Device::Cpu),
+                _ => cfg.decoder(&m, &candle_core::Device::Cpu),
+            };
+            let e = r.err().expect("the toy is not applied").to_string();
+            assert!(e.contains("Served::apply first"), "{name}: {e}");
+        }
+    }
+
     /// The chain prefill's caches: a fresh Grow cache gets its two buffers
     /// and holds 0 positions, a cache that has them is left alone, and a
     /// cache that holds positions with no Grow buffer is refused.
@@ -579,6 +647,13 @@ mod tests {
         let before = caches[0].grow_buffers().unwrap().0.dims4().unwrap();
         make_grow_buffers(&m, &mut caches).unwrap();
         assert_eq!((caches[0].len(), caches[0].grow_buffers().unwrap().0.dims4().unwrap()), (3, before));
+        // a released cache (the int8 form's hand-over) holds nothing, keeps its
+        // store, and takes new buffers for the next prompt
+        caches[0].release();
+        assert!(caches[0].grow_buffers().is_none() && caches[0].is_empty());
+        assert_eq!(caches[0].store(), crate::kvq::KvStore::Grow(256));
+        make_grow_buffers(&m, &mut caches).unwrap();
+        assert_eq!((caches[0].len(), caches[0].grow_buffers().map(|b| b.0.dim(2).unwrap())), (0, Some(256)));
         // a Grow cache holding positions with no buffer cannot exist through the
         // store's own writes; the Cat store has no buffer to write in place
         let mut cat = vec![crate::model::KvCache::new(crate::kvq::KvMode::F16)];

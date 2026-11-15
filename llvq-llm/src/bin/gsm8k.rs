@@ -181,7 +181,10 @@ fn main() -> anyhow::Result<()> {
     // eager without the field (the loop below, unchanged), 4E under
     // "decode": "persistent", installed after the form and its threshold.
     // Bench: the store comes from the variable, and the engine is eager.
+    // The NOT SERVED int8 decode cache through the measurement door, which no
+    // served door calls; its install lines say MEASUREMENT ONLY.
     let mut dec = match &served {
+        Some(cfg) if cfg.decode_cache == llvq_llm::served::DecodeCache::Int8 => cfg.serve_measurement(&mut model, &device)?,
         Some(cfg) => cfg.serve(&mut model, &device)?,
         None => {
             model.set_kv_store(kv_store);

@@ -613,6 +613,16 @@ impl KvCache {
         Ok(())
     }
 
+    /// Drop the buffers and hold nothing, the store and mode kept: the next
+    /// append starts a new history. 4E's NOT SERVED int8 form calls it on
+    /// each layer once that layer's positions are quantized into its int8
+    /// cache, so the binary16 copy no longer holds card memory.
+    pub fn release(&mut self) {
+        self.k = None;
+        self.v = None;
+        self.len = 0;
+    }
+
     pub fn set_write_index(&mut self, idx: Tensor) {
         self.write_idx = Some(idx);
     }
@@ -4885,6 +4895,7 @@ mod tests {
             rows: None,
             prefill_attention: None,
             prefill: None,
+            decode_cache: None,
             batch: None,
             note: None,
         };
@@ -4980,6 +4991,7 @@ mod tests {
             rows: None,
             prefill_attention: None,
             prefill: None,
+            decode_cache: None,
             batch: None,
             note: None,
         };

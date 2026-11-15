@@ -358,6 +358,9 @@ pub fn served_header(cfg: &crate::served::Served) -> Vec<(&'static str, String)>
     if cfg.prefill_form == crate::served::Prefill::Chain {
         keys.push(("prefill", cfg.prefill_form.label().to_string()));
     }
+    if cfg.decode_cache == crate::served::DecodeCache::Int8 {
+        keys.push(("decode_cache", cfg.decode_cache.label().to_string()));
+    }
     keys
 }
 
@@ -578,6 +581,7 @@ mod tests {
             rows: rows.map(str::to_string),
             prefill_attention: None,
             prefill: None,
+            decode_cache: None,
             batch: None,
             note: None,
         };
