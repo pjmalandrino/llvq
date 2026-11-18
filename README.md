@@ -46,9 +46,28 @@ measured under the expanded attention form of paper 2. The served form returns t
 attention stays within ±0.12 % of the expanded form's perplexity. Paper 2 reports 113.8, 95.0 and 57.2 tok/s, the
 speeds of that earlier form. Throughput falls with context: at 8,192 tokens of prompt the 4B decodes 161.5 tok/s.
 
-Against 4-bit AWQ on the same questions, our files score 4.76, 4.21 and 2.46 MMLU points lower, at 45 to 52 % of its
-bits per parameter. At 4B we score 23.6 points above llama.cpp's IQ2_XXS for 0.25 more bits per parameter. The speed
-is an L40S result: on an A100 our files decode slower than FP16 in vLLM ([`docs/ETAT.md`](docs/ETAT.md) §3 and §4).
+### Against AWQ and llama.cpp, on two tasks
+
+Paired gaps on the same questions, our file minus the baseline, in points with 95 % intervals:
+
+| model | MMLU vs AWQ 4-bit | GSM8K vs AWQ 4-bit | MMLU vs IQ2_S | GSM8K vs IQ2_S |
+|---|---|---|---|---|
+| Qwen3-4B | -4.76 [-5.49, -4.02] | -6.52 [-8.65, -4.39] | +9.08 [+8.19, +9.97] | +14.25 [+11.65, +16.86] |
+| Qwen3-8B | -4.21 [-4.86, -3.54] | -4.32 [-5.81, -2.83] | +4.13 [+3.37, +4.88] | +3.03 [+1.10, +4.96] |
+| Qwen3-14B | -2.46 [-3.00, -1.92] | -3.34 [-4.55, -2.12] | +2.89 [+2.26, +3.52] | +0.15 [-1.27, +1.58] |
+
+Against 4-bit AWQ in vLLM we lose on both tasks, at 45 to 52 % of its bits per parameter, and both losses shrink with
+size. Against llama.cpp's IQ2_S we win MMLU at every size and GSM8K at 4B and 8B; the 14B GSM8K is not separated.
+IQ2_S is the nearest llama.cpp rung to our bits: 2.82, 2.80 and 2.69 b/param by file bytes, where our files read 2.82,
+2.75 and 2.76. It decodes 60.1, 63.9 and 33.5 tok/s faster than our files on the same card.
+
+GSM8K is zero-shot and greedy on all 1,319 test problems, and each pair crosses two engines. The MMLU gaps against AWQ
+are *computed* from the paired answers (`docs/data/paper2-gaps.csv`). The others are *measured*
+(`docs/data/paper2-gsm8k-gaps.csv`, [duel-iq2](docs/mesures/duel-iq2-2026-11-08.txt)). The baselines' own scores are
+in [`docs/ETAT.md`](docs/ETAT.md) §3.
+
+At 4B we score 23.6 MMLU points above llama.cpp's IQ2_XXS for 0.25 more bits per parameter. The speed is an L40S
+result: on an A100 our files decode slower than FP16 in vLLM ([`docs/ETAT.md`](docs/ETAT.md) §3 and §4).
 
 ## Run it
 
