@@ -26,14 +26,25 @@ Three Qwen3 models, sealed at about 2.7 bits per parameter and served on one NVI
 | Qwen3-8B | 2.70 | 69.58 | 88.63 | 9.71 | 142.5 | 2.76 |
 | Qwen3-14B | 2.73 | 75.66 | 92.04 | 8.44 | 86.3 | 5.04 |
 
-**Quality for the memory.** At about the same size, our 8B scores above AWQ's 4B, and our 14B above AWQ's 8B. At
-the same size, our files score above llama.cpp's IQ2_S by 9.08, 4.13 and 2.89 MMLU points. They stay 2.46 to 4.76
-points below 4-bit AWQ, which needs about twice the bits.
+**Quality for the memory.** At about the same size, our 8B scores above AWQ's 4B, and our 14B above AWQ's 8B.
+Model for model, we lose to 4-bit AWQ, which needs about twice the bits, and we beat llama.cpp's IQ2_S, which needs
+the same.
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/figures/frontier-dark.svg">
   <img src="docs/figures/frontier-light.svg" width="800" alt="MMLU against file size for Qwen3 4B, 8B and 14B, four arms: Tetra, AWQ 4-bit, llama.cpp IQ2_S and FP16. At about the same size, Tetra's 8B scores above AWQ's 4B, and its 14B above AWQ's 8B.">
 </picture>
+
+Paired gaps on the same questions, our file minus the baseline, in points with 95 % intervals:
+
+| model | MMLU vs AWQ 4-bit | GSM8K vs AWQ 4-bit | MMLU vs IQ2_S | GSM8K vs IQ2_S |
+|---|---|---|---|---|
+| Qwen3-4B | -4.76 [-5.49, -4.02] | -6.52 [-8.65, -4.39] | +9.08 [+8.19, +9.97] | +14.25 [+11.65, +16.86] |
+| Qwen3-8B | -4.21 [-4.86, -3.54] | -4.32 [-5.81, -2.83] | +4.13 [+3.37, +4.88] | +3.03 [+1.10, +4.96] |
+| Qwen3-14B | -2.46 [-3.00, -1.92] | -3.34 [-4.55, -2.12] | +2.89 [+2.26, +3.52] | +0.15 [-1.27, +1.58] |
+
+Both losses to AWQ shrink with size. Against IQ2_S the 14B GSM8K is not separated. Each GSM8K pair crosses two
+engines.
 
 **Speed.** One CUDA launch a token decodes the 4B at 221.5 tokens per second, 1.72 times the speed of one launch
 per matrix, with the same tokens. That is above AWQ in vLLM and below llama.cpp.
@@ -57,6 +68,8 @@ What the numbers are:
   point's journal is in the CSV its figure names; `uv run ops/readme_figure.py` redraws the three figures.
 - MMLU is 5-shot on all 14,042 test questions, GSM8K zero-shot on its 1,319. Speed is batch 1, greedy, 256 tokens
   after a 5-token prompt, median of five rounds.
+- The MMLU gaps against AWQ are *computed* from the paired answers (`docs/data/paper2-gaps.csv`); the other gaps are
+  *measured* (`docs/data/paper2-gsm8k-gaps.csv`, [duel-iq2](docs/mesures/duel-iq2-2026-11-08.txt)).
 - The first figure counts the whole file, 1.42, 2.82 and 5.09 GB, where the table counts the weights on the card.
 - The scores were measured under an earlier attention form. The served form returns the same tokens as one launch
   per matrix and stays within ±0.12 % of that form's perplexity.
