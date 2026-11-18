@@ -5,12 +5,17 @@ The GPU can read a Leech-lattice code without expanding it, if the codebook
 bounds each third of a block separately. Three more changes, which leave the
 lattice codes untouched, make complete Qwen3 files at about 2.7 bits per
 parameter. They stay below 4-bit AWQ on MMLU and GSM8K, and perplexity ranks
-them differently. Their speed gain depends on the card. On an A100, where
-cuBLAS reads f16 weights faster than our kernel reads \Tetra{}, it comes only
-from the 4-bit tables.
+them differently. At the same bits they score above llama.cpp's IQ2\_S on
+MMLU and perplexity at every size, by a margin that shrinks from 9.08 points
+at 4B to 2.89 at 14B.
 
-Next, in this order, we would test \texttt{down\_proj} instead of
-\texttt{o\_proj} in int4 at 4B and 14B, as at 8B, add a second calibration
-draw, and measure the served path on a consumer GPU. Qwen3-32B first needs new
-kernels on the L40S: its widest activation takes 102{,}400~B of shared memory,
-1{,}024~B over the card's limit.
+Running a token in one launch makes the 4B 1.72 times faster on the L40S and
+leaves its tokens unchanged. llama.cpp still decodes faster and holds less
+memory after a long prompt, and the kernel's gain depends on the card: on an
+A100, cuBLAS reads f16 weights faster than our kernel reads \Tetra{}.
+
+Next, in this order, we would carry the chain prefill to the 8B and the 14B,
+score MMLU and GSM8K in full through the served engine, add a second
+calibration draw, and measure a consumer GPU. The ablation of
+\S\ref{sec:ablation} places the remaining loss at 4B in the MLP. Qwen3-32B
+has not been encoded.

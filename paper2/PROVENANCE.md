@@ -22,13 +22,13 @@ log. The CSVs are in `docs/data/`. `paper2/scripts/make_figures.py` draws every 
 | G(E₈)/G(Λ₂₄) = 1.0899 | cited, computed | Conway and Sloane 1999, Table 2.3 |
 | ten-arm benchmark: the kernel benchmark table of section 5.2, and Appendix A, every arm on the same 252 matrices | measured | echelle-formats.csv; banc-252-10-06 (raw output); QTIP row: f2-p3-qtip-banc-08-21 |
 | tile sweep, section 5.2 (the activation tile) | measured | tuile-l40s.csv; banc-252-10-06 (sweep-128, -64, -32 in the raw output) |
-| A100: kernel benchmark over 252 matrices, cuBLAS row included, Table 8 and section 6.6 | measured | a100-bench.csv; a100-10-06, raw output a100-bench-2026-10-06-brut |
+| A100: kernel benchmark over 252 matrices, cuBLAS row included, Table 12 and section 6.9 | measured | a100-bench.csv; a100-10-06, raw output a100-bench-2026-10-06-brut |
 | A100: tile sweep, Tetra 6.183 / 6.361 / 6.517 ms, range 5.4 % | measured | a100-10-06 (sweep-128, -64, -32 in the raw output) |
 | A100: decode of the sealed files, our dense path, same-head 0.92 / 0.91 / 0.95 | measured | a100-served.csv; a100-10-06, raw output a100-served-2026-10-06-brut |
 | A100: FP16 and AWQ in vLLM | measured | a100-served.csv; a100-10-06, raw output a100-vllm-2026-10-06-brut |
 | sealed files, table of section 4: bytes, bits per parameter | measured, computed | `rtbits`; sealed-4b-09-23 (raw output), sealed-rownorms-09-23, sealed-8b-27-09-24, sealed-8b-14b-09-23 |
 | MMLU of the sealed files; at 4B, of the same weights with the int4 matrices rebuilt at load | measured | embed-q4-swap-09-23, sealed-8b-27-09-24, sealed-8b-14b-09-23; question fingerprint `a74a6d62`; the 4B file gives the same answers and logits on 57 of 57 questions, sealed-4b-09-23 (raw output, `metal-smoke/`), control 1 of its preregistration |
-| steps of the build, table of section 6.5 | measured, computed | paper2-chain.csv; dclm-rowscales-09-20 (4B interval: paper2-audit-09-28, raw output), dclm-8b-rowscales-09-21, dclm-14b-rowscales-09-22, census-8b-09-21, census-14b-base-09-22, embed-q4-swap-09-23, sealed-8b-27-09-24, sealed-8b-14b-09-23 |
+| steps of the build, table of section 6.7 | measured, computed | paper2-chain.csv; dclm-rowscales-09-20 (4B interval: paper2-audit-09-28, raw output), dclm-8b-rowscales-09-21, dclm-14b-rowscales-09-22, census-8b-09-21, census-14b-base-09-22, embed-q4-swap-09-23, sealed-8b-27-09-24, sealed-8b-14b-09-23 |
 | int4 `v_proj` at 4B, +1.73 on the full test set, for 0.05 bits per parameter | measured, computed | tetra-nu-full-09-18; references-comptabilite-09-18 |
 | FP16 and AWQ MMLU, 8B and 14B | measured | census-8b-09-21; census-14b-ref-09-22 |
 | FP16 MMLU 4B | measured | f16-full-09-18 |
@@ -38,10 +38,10 @@ log. The CSVs are in `docs/data/`. `paper2/scripts/make_figures.py` draws every 
 | IQ2_XXS tok/s | measured | m4-iq2-cuda-08-30; the `llama-bench` flags, `-p 0 -n 128 -r 5`, read back by `hf jobs inspect` in paper2-audit-09-28 (raw output) |
 | IQ2_XXS bits per parameter and GB | computed | 1,246,620,832 B in m3-iq2-metal-08-30; the same GGUF, sha256 `19a8ed49`, in m4-iq2-cuda-08-30 and paper-table-09-25 |
 | f16 dense path tok/s, our engine | measured | paper-table-09-25, dense arm of each served run |
-| served tok/s and GB of the sealed files | measured | paper-table-09-25 |
+| tok/s of the sealed files on the per-matrix path with the expanded attention (113.8 / 95.0 / 57.2), and their GB | measured | paper-table-09-25 |
 | 14B tokens against the dense reconstruction: first divergence at 78, at 137 with f16 tables; prefill gate, largest logit difference 0.095, 1.35 and 0.79 for logits up to 30.4, 36.6 and 27.5 | measured | paper-table-09-25 and its raw output (`prefill-203.txt`, `fused-q4-256.txt`, `fused-f16-256.txt`); the gate is in `llvq-llm/src/bin/fusedrun.rs` |
-| 8B choice, `o_proj` against `down_proj`, section 6.5 | measured, computed | sealed-8b-27-09-24 |
-| selection on the MMLU test set, section 6.5: the 8B better of two files; the 4B window 12 to 23, best of three on the full test set; the int4 types ranked on 2,280-question samples; the 14B window rule | measured, cited from the preregistration | sealed-8b-27-09-24; downproj-slices-09-18; m2-attribution-4b-09-02, q5-alloc-int4-09-16; `proofs/preregistration-sealed-8b-14b-2026-09-23.md` |
+| 8B choice, `o_proj` against `down_proj`, section 6.7 | measured, computed | sealed-8b-27-09-24 |
+| selection on the MMLU test set, section 6.7: the 8B better of two files; the 4B window 12 to 23, best of three on the full test set; the int4 types ranked on 2,280-question samples; the 14B window rule | measured, cited from the preregistration | sealed-8b-27-09-24; downproj-slices-09-18; m2-attribution-4b-09-02, q5-alloc-int4-09-16; `proofs/preregistration-sealed-8b-14b-2026-09-23.md` |
 | `o_proj` gain +3.12 on the 2,280 questions that selected it, +1.55 on the other 11,762 | measured | oproj-int4-full-09-17 |
 | second training (row scales and RMSNorm), 4B, in the predictions table of Appendix B | measured | sealed-rownorms-09-23 |
 | three calibration draws, Planes14 4B, 2,280 questions: MMLU range 5.83, s.d. 2.92 | computed | bruit-mmlu-graines-4b-08-25 |
@@ -59,8 +59,8 @@ log. The CSVs are in `docs/data/`. `paper2/scripts/make_figures.py` draws every 
 | the three files on the Hugging Face Hub | measured | LFS SHA-256 read from the Hub on 2026-10-06; 4B uploaded from the Mac on 2026-10-02 (Hub commit 565082a9), 8B and 14B by job 6ac4c283 on 2026-10-06 (docs/data/jobs.csv) |
 | GSM8K of FP16 and AWQ, the engine check, the same-engine gap of 9.02 | measured | paper2-gsm8k.csv, paper2-gsm8k-gaps.csv; the logs of the row above |
 | GSM8K paired gaps, section 6.3 | measured | paper2-gsm8k-gaps.csv; the same logs |
-| gaps one size apart, section 6.4 | measured | paper2-sizeup.csv; sizeup-09-28; not preregistered |
-| KV cache and memory budgets, section 6.4 | computed | paper2-sizeup-budget.csv; sizeup-09-28 |
+| gaps one size apart, section 6.6 | measured | paper2-sizeup.csv; sizeup-09-28; not preregistered |
+| KV cache and memory budgets, section 6.6 | computed | paper2-sizeup-budget.csv; sizeup-09-28 |
 | our files at 64 to 65 % of AWQ's bits per parameter if AWQ stored its tables in 4 bits, section 6.2 | computed | card bytes and AWQ bytes with 4.5-bit tables in sizeup-09-28 |
 | bare Tetra against Planes14, and the encoder drift | measured | tetra-4b-09-06, and deviation É3 of its preregistration in `proofs/`; paired interval in paper2-audit-09-28 |
 | sm_120 tile sweep, 0.82 to 1.03 times Planes14, in Limitations | measured | f1d-09-10 |
@@ -71,3 +71,17 @@ log. The CSVs are in `docs/data/`. `paper2/scripts/make_figures.py` draws every 
 | z = 1.1 for the fall of the AWQ gap from 4B to 8B | computed | standard errors of the paired MMLU gaps, from the logs of the paired-gaps row |
 | AWQ bits per parameter | computed | echelle-4b-8b.csv; rtbits-planes-8b-08-09, rtbits-14b-08-17 |
 | MMLU of LLVQ, QTIP and QuIP# | cited | van der Ouderaa et al. 2026, Table 6 |
+| served tok/s of the sealed files under the persistent kernel, 221.5 / 142.5 / 86.3; the per-matrix path under the same configuration, 129.0 / 103.0 / 62.8; the round-by-round ratios; card memory after load, 1.98 / 3.36 / 5.64 GB | measured | paper2-results.csv; served-v9-11-07, served-v9-8b-11-07, served-v9-14b-11-07 |
+| the persistent kernel, section 5.3: 142 blocks of 512 threads, 218 barriers a token at 4B, rows as on the per-matrix path, int4 words tiled at load | computed | `llvq-cuda/kernels/llvq_pers.cuh`; `docs/how-it-works.md` section 10 |
+| same 256 tokens as the per-matrix path at three sizes and four prompt lengths | measured | served-v9-11-07, served-v9-8b-11-07, served-v9-14b-11-07 |
+| attention tolerance of 0.12 %, and the paired perplexity of the two attention forms | measured | kvq8-4b-08-15 (the band); gqa-ppl-11-01, gqa-8b-11-04, gqa-14b-11-04; attn-t8-below-4b-11-05, served-v9-8b-11-07, served-v9-14b-11-07 |
+| chain prefill within +0.0007 % of paired perplexity | measured | large-prefill-11-11 |
+| the 50-problem GSM8K pilot per size under the persistent kernel, 40 / 46 / 46 | measured | served-v9-11-07, served-v9-8b-11-07, served-v9-14b-11-07 |
+| IQ2_S and UD-IQ2_XXS against our files, Tables 7 and 8 and section 6.4: bits per parameter from file bytes, perplexity, MMLU, GSM8K, decode speed, GB/s, card memory after 5 tokens, the paired gaps | measured, computed | paper2-duel.csv, paper2-duel-gaps.csv; duel-iq2-11-08 and its raw output; `proofs/preregistration-duel-iq2-2026-11-08.md` |
+| IQ2_S rows of the main table and of the frontier figure | measured, computed | paper2-results.csv, paper2-ppl.csv, paper2-gsm8k.csv; duel-iq2-11-08 |
+| decode speed and time to the first token after prompts of 5 to 8,192 tokens, section 6.5 | measured | paper2-context.csv; served-v9-11-07, served-v9-8b-11-07, served-v9-14b-11-07 |
+| chain prefill at 4B: first token 0.45 / 2.47 / 6.74 s against 3.96 / 17.79 / 37.22, same tokens, GSM8K-200 165 right in both, peak 3.63 GB | measured | paper2-context.csv, paper2-peak.csv; chain-prefill-served-11-15 |
+| peak card memory after 8,192 tokens: 11.48 / 12.66 / 17.09 on the day of the comparison, 5.95 / 7.39 / 10.54 with one score tensor, IQ2_S 3.52 / 4.71 / 6.90 | measured | paper2-peak.csv; duel-iq2-11-08, pic-vram-8k-11-08 |
+| several requests at 4B: 221.9 / 757.8 / 1,976.5 / 3,067.5 tok/s in aggregate, AWQ in vLLM 203.0 / 1,524.8 / 5,133.8 / 10,146.2; the KV pool of 19.3 GB | measured, computed | paper2-batch.csv; batch-l40s-v4-11-08, batch-l40s-11-08; `docs/ETAT.md` section 4 |
+| where the 4B loses its MMLU points, section 6.8 and its figure | measured, computed | paper2-ablation.csv; ablation-qualite-4b-11-12 |
+| the predictions added to Appendix B on 2026-11-17 | cited from the preregistrations | served-v9-11-07, served-v9-8b-11-07, served-v9-14b-11-07, duel-iq2-11-08, ablation-qualite-4b-11-12, chain-prefill-served-11-15 |

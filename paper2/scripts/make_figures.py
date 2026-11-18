@@ -13,6 +13,11 @@ fails with the row named.
 
   fig_gap.pdf     bits carried vs bits read in VRAM     echelle-formats.csv
   fig_word.pdf    two records to bit scale, one zoom    (layout constants)
+  fig_frontier.pdf  MMLU and GSM8K against weight GB    paper2-results.csv, paper2-gsm8k.csv
+  fig_speed.pdf     decode speed at batch 1             paper2-results.csv
+  fig_context.pdf   decode speed and first token        paper2-context.csv, paper2-duel.csv
+  fig_peak.pdf      peak card memory, 5 and 8,192       paper2-peak.csv
+  fig_ablation.pdf  where the 4B loses its MMLU points  paper2-ablation.csv, paper2-gaps.csv
 """
 
 import csv
@@ -265,11 +270,283 @@ def fig_word() -> None:
     plt.close(fig)
 
 
+# ---------------------------------------------------------------------------
+# The files against the baselines, speed, long prompts
+# ---------------------------------------------------------------------------
+
+SIZES = ["Qwen3-4B", "Qwen3-8B", "Qwen3-14B"]
+SHORT = {"Qwen3-4B": "4B", "Qwen3-8B": "8B", "Qwen3-14B": "14B"}
+# One colour and one marker per arm, in every figure below. Circles are ours.
+ARM_STYLE = {
+    "fp16": (GRAY, "s", "FP16, vLLM"),
+    "awq": (ORANGE, "s", "AWQ 4-bit, vLLM"),
+    "iq2s": (VERMILLION, "s", "IQ2_S, llama.cpp"),
+    "tetra": (BLUE, "o", "Tetra (this paper)"),
+}
+
+
+def fig_frontier() -> None:
+    """Quality against weight memory, one line per format through its three
+    sizes. The x axis is logarithmic: the formats span 1.4 to 29.5 GB."""
+    res = read_csv("paper2-results.csv")
+    gsm = {(r["model"], r["arm"]): float(r["gsm8k"])
+           for r in read_csv("paper2-gsm8k.csv") if "dense" not in r["engine"]}
+    fig, axes = plt.subplots(1, 2, figsize=(TEXTWIDTH_IN, 2.35),
+                             layout="constrained")
+    plotted = set()
+    for ax, metric in zip(axes, ("MMLU", "GSM8K")):
+        for arm, (color, marker, label) in ARM_STYLE.items():
+            xs, ys = [], []
+            for m in SIZES:
+                row = next(r for r in res if r["model"] == m and r["arm"] == arm
+                           and r["engine"] != "ours dense")
+                xs.append(float(row["gb"]))
+                ys.append(float(row["mmlu"]) if metric == "MMLU"
+                          else gsm[(m, arm)])
+                plotted.add((m, arm))
+            ours = arm == "tetra"
+            ax.plot(xs, ys, color=color, marker=marker, markersize=5.5 if ours else 4.5,
+                    linewidth=1.8 if ours else 1.1, label=label,
+                    zorder=4 if ours else 3)
+            if ours:
+                for x, y, m in zip(xs, ys, SIZES):
+                    ax.annotate(SHORT[m], xy=(x, y), xytext=(0, 6),
+                                textcoords="offset points", ha="center",
+                                va="bottom", fontsize=7, color=BLUE,
+                                fontweight="bold")
+        ax.set_xscale("log")
+        ax.set_xticks([1.5, 3, 6, 12, 24], ["1.5", "3", "6", "12", "24"])
+        ax.set_xticks([], minor=True)
+        ax.set_xlim(1.15, 36)
+        ax.set_xlabel("weights, GB (log scale)")
+        ax.set_ylabel(f"{metric}, %")
+        ax.grid(zorder=0)
+    axes[0].legend(loc="lower right", frameon=False, handlelength=1.6)
+    expected = {(r["model"], r["arm"]) for r in res}
+    require_plotted(
+        "fig_frontier", "paper2-results.csv", expected, plotted,
+        {**{(m, "fp16"): "drawn once, from the vLLM row" for m in ()},
+         ("Qwen3-4B", "iq2xxs"): "39.78 MMLU, below the axis; in the table",
+         **{(m, "tetra_permatrix"): "a speed row, same file" for m in SIZES}},
+    )
+    fig.savefig(OUT / "fig_frontier.pdf")
+    plt.close(fig)
+
+
+def fig_speed() -> None:
+    """Decode speed at batch 1 after a short prompt, one group of bars a size."""
+    res = read_csv("paper2-results.csv")
+    arms = [("fp16", "vLLM 0.26.0", GRAY, "FP16, vLLM"),
+            ("awq", "vLLM 0.26.0", ORANGE, "AWQ 4-bit, vLLM"),
+            ("iq2s", None, VERMILLION, "IQ2_S, llama.cpp"),
+            ("tetra_permatrix", None, SKY, "Tetra, one launch per matrix"),
+            ("tetra", None, BLUE, "Tetra, one launch per token (served)")]
+    fig, ax = plt.subplots(figsize=(TEXTWIDTH_IN, 2.9), layout="constrained")
+    h, gap = 0.8, 1.3
+    y, yticks, plotted = 0.0, [], set()
+    for m in SIZES:
+        top = y
+        for arm, engine, color, _ in arms:
+            row = next(r for r in res if r["model"] == m and r["arm"] == arm
+                       and (engine is None or r["engine"] == engine))
+            v = float(row["toks"])
+            ax.barh(y, v, height=h, color=color, zorder=3)
+            ax.text(v + 3, y, f"{v:.1f}", ha="left", va="center", fontsize=7,
+                    color=INK, fontweight="bold" if arm == "tetra" else "normal")
+            plotted.add((m, arm, row["engine"]))
+            y -= 1.0
+        yticks.append(((top + y + 1.0) / 2, SHORT[m]))
+        y -= gap
+    for arm, _, color, label in arms:
+        ax.barh(0, 0, color=color, label=label)
+    expected = {(r["model"], r["arm"], r["engine"]) for r in res}
+    require_plotted(
+        "fig_speed", "paper2-results.csv", expected, plotted,
+        {**{(m, "fp16", "ours dense"): "the dense reconstruction; in the table"
+            for m in SIZES},
+         ("Qwen3-4B", "iq2xxs", "llama.cpp"): "a lower rate; in the table"},
+    )
+    ax.set_yticks([t for t, _ in yticks], [s for _, s in yticks])
+    ax.tick_params(axis="y", length=0)
+    ax.set_xlabel("tokens per second, batch 1, one L40S")
+    ax.set_xlim(0, 335)
+    ax.grid(axis="x", zorder=0)
+    ax.legend(loc="lower right", frameon=False, handlelength=1.2)
+    fig.savefig(OUT / "fig_speed.pdf")
+    plt.close(fig)
+
+
+def fig_context() -> None:
+    """Left: decode speed after a prompt of 5 to 8,192 tokens. Right: seconds
+    to the first token, the eager prefill against the chain prefill at 4B."""
+    ctx = read_csv("paper2-context.csv")
+    duel = read_csv("paper2-duel.csv")
+    shade = {"Qwen3-4B": BLUE, "Qwen3-8B": "#3F93C6", "Qwen3-14B": SKY}
+    fig, (a, b) = plt.subplots(1, 2, figsize=(TEXTWIDTH_IN, 2.75),
+                               layout="constrained")
+    plotted = set()
+    for m in SIZES:
+        rows = [r for r in ctx if r["model"] == m and r["config"] == "v9"]
+        xs = [int(r["prompt"]) for r in rows]
+        a.plot(xs, [float(r["toks"]) for r in rows], color=shade[m],
+               marker="o", markersize=4.5, linewidth=1.5, zorder=4)
+        a.annotate(f"Tetra {SHORT[m]}", xy=(xs[-1], float(rows[-1]["toks"])),
+                   xytext=(4, {"Qwen3-4B": 6, "Qwen3-8B": 6, "Qwen3-14B": 0}[m]),
+                   textcoords="offset points", ha="left",
+                   va="center", fontsize=7, color=shade[m], fontweight="bold")
+        d = next(r for r in duel if r["model"] == m and r["arm"] == "iq2s")
+        a.plot([5, 8192], [float(d["toks5"]), float(d["toks8192"])],
+               color=VERMILLION, marker="s", markersize=4, linewidth=1.0,
+               linestyle=(0, (3, 2)), zorder=3)
+        a.annotate(f"IQ2_S {SHORT[m]}", xy=(8192, float(d["toks8192"])),
+                   xytext=(4, {"Qwen3-4B": 2, "Qwen3-8B": -6, "Qwen3-14B": -6}[m]),
+                   textcoords="offset points", ha="left",
+                   va="center", fontsize=7, color=VERMILLION)
+        b.plot(xs[1:], [float(r["first_token_s"]) for r in rows[1:]],
+               color=shade[m], marker="o", markersize=4.5, linewidth=1.5,
+               zorder=3)
+        b.annotate(SHORT[m],
+                   xy=(xs[-1], float(rows[-1]["first_token_s"])),
+                   xytext=(5, {"Qwen3-4B": -3, "Qwen3-8B": 2, "Qwen3-14B": 0}[m]),
+                   textcoords="offset points", ha="left",
+                   va="center", fontsize=7, color=shade[m], fontweight="bold")
+        plotted |= {(m, "v9", r["prompt"]) for r in rows}
+    ch = [r for r in ctx if r["config"] == "chain" and r["prompt"] != "5"]
+    b.plot([int(r["prompt"]) for r in ch], [float(r["first_token_s"]) for r in ch],
+           color=GREEN, marker="o", markersize=4.5, linewidth=1.8, zorder=4)
+    b.annotate("4B", xy=(8192, float(ch[-1]["first_token_s"])),
+               xytext=(5, 0), textcoords="offset points", ha="left",
+               va="center", fontsize=7, color=GREEN, fontweight="bold")
+    b.text(1100, 60, "per-matrix prefill", ha="left", va="center", fontsize=7,
+           color=BLUE)
+    b.text(2300, 0.5, "chain prefill", ha="left", va="center", fontsize=7,
+           color=GREEN)
+    plotted |= {(r["model"], "chain", r["prompt"]) for r in ch}
+    expected = {(r["model"], r["config"], r["prompt"]) for r in ctx}
+    require_plotted(
+        "fig_context", "paper2-context.csv", expected, plotted,
+        {**{k: "the v9 arm of the chain job; quoted in the text"
+            for k in expected if k[1] == "v9_same_job"},
+         ("Qwen3-4B", "chain", "5"): "0.02 s, as the eager prefill"},
+    )
+    a.set_xlim(-300, 11400)
+    a.set_ylim(0, 310)
+    a.set_xticks([5, 2048, 4096, 8192], ["5", "2,048", "4,096", "8,192"])
+    a.set_xlabel("prompt length, tokens")
+    a.set_ylabel("decode speed, tokens per second")
+    a.grid(zorder=0)
+    b.set_yscale("log")
+    b.set_yticks([0.5, 1, 2, 5, 10, 20, 50, 100],
+                 ["0.5", "1", "2", "5", "10", "20", "50", "100"])
+    b.set_yticks([], minor=True)
+    b.set_ylim(0.3, 130)
+    b.set_xscale("log", base=2)
+    b.set_xlim(850, 12500)
+    b.set_xticks([1024, 2048, 4096, 8192], ["1,024", "2,048", "4,096", "8,192"])
+    b.set_xticks([], minor=True)
+    b.set_xlabel("prompt length, tokens")
+    b.set_ylabel("seconds to the first token (log scale)")
+    b.grid(zorder=0)
+    fig.savefig(OUT / "fig_context.pdf")
+    plt.close(fig)
+
+
+def fig_peak() -> None:
+    """Peak card memory after a prompt of 5 and of 8,192 tokens."""
+    rows = read_csv("paper2-peak.csv")
+    val = {(r["model"], r["arm"], r["prompt"]): float(r["peak_gb"]) for r in rows}
+    series = [("iq2s", "5", VERMILLION, 0.45, "IQ2_S, after 5 tokens"),
+              ("iq2s", "8192", VERMILLION, 1.0, "IQ2_S, after 8,192"),
+              ("tetra", "5", BLUE, 0.45, "Tetra, after 5 tokens"),
+              ("tetra", "8192", BLUE, 1.0, "Tetra, after 8,192"),
+              ("tetra_chain", "8192", GREEN, 1.0, "Tetra, chain prefill, after 8,192")]
+    fig, ax = plt.subplots(figsize=(TEXTWIDTH_IN, 2.1), layout="constrained")
+    w, plotted = 0.17, set()
+    for i, m in enumerate(SIZES):
+        present = [s for s in series if (m, s[0], s[1]) in val]
+        x0 = i - w * (len(present) - 1) / 2
+        for j, (arm, prompt, color, alpha, _) in enumerate(present):
+            v = val[(m, arm, prompt)]
+            x = x0 + j * w
+            ax.bar(x, v, width=w * 0.9, color=color, alpha=alpha, zorder=3)
+            ax.text(x, v + 0.25, f"{v:.2f}", ha="center", va="bottom",
+                    fontsize=6.5, color=INK)
+            plotted.add((m, arm, prompt))
+            if arm == "tetra" and prompt == "8192":
+                before = val[(m, "tetra_before", "8192")]
+                ax.bar(x, before, width=w * 0.9, facecolor="none",
+                       edgecolor=BLUE, linewidth=0.8, linestyle=(0, (2, 2)),
+                       zorder=2)
+                ax.text(x, before + 0.25, f"{before:.2f}", ha="center",
+                        va="bottom", fontsize=6.5, color=GRAY)
+                plotted.add((m, "tetra_before", "8192"))
+    for arm, prompt, color, alpha, label in series:
+        ax.bar(0, 0, color=color, alpha=alpha, label=label)
+    ax.bar(0, 0, facecolor="none", edgecolor=BLUE, linewidth=0.8,
+           linestyle=(0, (2, 2)), label="Tetra, after 8,192, before the fix")
+    require_plotted("fig_peak", "paper2-peak.csv", set(val), plotted, {})
+    ax.set_xticks(range(len(SIZES)), [SHORT[m] for m in SIZES])
+    ax.tick_params(axis="x", length=0)
+    ax.set_ylabel("peak card memory, GB")
+    ax.set_ylim(0, 21.5)
+    ax.grid(axis="y", zorder=0)
+    ax.legend(loc="upper left", frameon=False, ncols=2, handlelength=1.2,
+              columnspacing=1.2)
+    fig.savefig(OUT / "fig_peak.pdf")
+    plt.close(fig)
+
+
+def fig_ablation() -> None:
+    """MMLU points the sealed 4B recovers when one group of projections is
+    restored to f16, with 95 % intervals, against its whole gap to FP16."""
+    rows = read_csv("paper2-ablation.csv")
+    gap = next(float(r["delta_pp"]) for r in read_csv("paper2-gaps.csv")
+               if r["model"] == "Qwen3-4B" and r["pair"] == "f16_minus_tetra")
+    order = ["qkv", "o", "attn", "gateup", "down", "mlp", "all"]
+    color = {"qkv": SKY, "o": SKY, "attn": SKY, "gateup": BLUE, "down": BLUE,
+             "mlp": BLUE, "all": INK}
+    by = {r["group"]: r for r in rows}
+    fig, ax = plt.subplots(figsize=(TEXTWIDTH_IN, 2.0), layout="constrained")
+    plotted = set()
+    for i, g in enumerate(order):
+        r = by[g]
+        y = len(order) - 1 - i
+        d, lo, hi = (float(r[k]) for k in ("delta_pp", "ci_lo_pp", "ci_hi_pp"))
+        ax.barh(y, d, height=0.62, color=color[g], zorder=3)
+        ax.plot([lo, hi], [y, y], color=INK if g != "all" else GRAY,
+                linewidth=1.0, zorder=4)
+        for e in (lo, hi):
+            ax.plot([e, e], [y - 0.16, y + 0.16],
+                    color=INK if g != "all" else GRAY, linewidth=1.0, zorder=4)
+        ax.text(max(hi, 0) + 0.12, y, f"{d:+.2f}  [{lo:.2f}, {hi:.2f}]",
+                ha="left", va="center", fontsize=7, color=INK)
+        plotted.add(g)
+    require_plotted("fig_ablation", "paper2-ablation.csv", set(by), plotted, {})
+    ax.axvline(gap, color=VERMILLION, linewidth=1.0, linestyle=(0, (3, 2)),
+               zorder=2)
+    ax.text(gap + 0.08, len(order) - 1.0, f"gap to FP16, {gap:.2f}", ha="left",
+            va="center", fontsize=7, color=VERMILLION)
+    ax.axvline(0, color=GRAY, linewidth=0.7, zorder=2)
+    ax.set_yticks([len(order) - 1 - i for i in range(len(order))],
+                  [by[g]["label"] for g in order])
+    ax.tick_params(axis="y", length=0)
+    ax.set_xlabel("MMLU points recovered when the group is restored to f16")
+    ax.set_xlim(-0.8, 9.6)
+    ax.grid(axis="x", zorder=0)
+    fig.savefig(OUT / "fig_ablation.pdf")
+    plt.close(fig)
+
+
 def main() -> None:
     OUT.mkdir(parents=True, exist_ok=True)
     fig_gap()
     fig_word()
-    print(f"wrote 2 figures to {OUT}")
+    fig_frontier()
+    fig_speed()
+    fig_context()
+    fig_peak()
+    fig_ablation()
+    print(f"wrote 7 figures to {OUT}")
     print("numbers not read from a CSV:")
     for what, where in HARDCODED:
         print(f"  {what}  <-  {where}")

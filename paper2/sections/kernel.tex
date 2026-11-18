@@ -48,9 +48,11 @@ $10^{-3}$ for AWQ and cuBLAS, which write f16. The worst \Tetra{} row is off by
 $2.0\times10^{-8}\cdot\sum|w\cdot x|$. The decoder's CUDA source, compiled for
 the CPU, gives the same 24 lattice coordinates as an independent Rust decoder,
 bit for bit, on 4{,}000 test words: the origin and the all-ones word, each
-with and without the gain bit, and random words. End to end, on one prompt and in one
-process, the kernel and the dense reconstruction of each sealed file generate
-the same 256 greedy tokens at 4B and 8B. At both sizes the text falls into a
+with and without the gain bit, and random words.
+
+End to end, the kernel and the dense reconstruction agree until two logits
+nearly tie. On one prompt and in one process, they generate the same 256
+greedy tokens at 4B and 8B for each sealed file. At both sizes the text falls into a
 one-sentence loop. At 14B they first differ at token 78, and at token 137 when
 both run with f16 embedding tables. A second check runs 203 prompt tokens
 through the kernel, in one call and in 203 single-token calls. Both give the
@@ -66,16 +68,6 @@ defect.
 
 \begin{table}[t]
 \centering\small\setlength{\tabcolsep}{5pt}
-\begin{tabular}{lrrrrr}
-\toprule
- & FP16 & AWQ w4g128 & \Planes{} & \Tetra{} & no weights\\
-\midrule
-median ms & 11.022 & 3.263 & 5.004 & 3.734 & 2.294\\
-GB read per pass & 7.27 & 1.90 & 2.18 & 0.98 & 0.07\\
-\bw{} in VRAM & 16.000 & 4.179 & 4.804 & \textbf{2.150} & 0.159\\
-GB/s, fastest round & 660 & 582 & 436 & 262 & 32\\
-\bottomrule
-\end{tabular}
 \caption{Kernel benchmark on the 4B shapes at tile $T=64$: one process, one
 L40S, seven rounds with the first two dropped. Every arm times the same 252
 matrices, and the \Tetra{} arm reads a 4B file with no int4 projection. ``No
@@ -88,14 +80,25 @@ serves. Its row includes 10.1~MB of padding in that kernel's scale and zero
 buffers, 0.022~\bw{}. Without it, w4g128 costs 4.156~\bw{}. Ten arms:
 Appendix~\ref{app:bench}. Data: echelle-formats.csv.}
 \label{tab:bench}
+\begin{tabular}{lrrrrr}
+\toprule
+ & FP16 & AWQ w4g128 & \Planes{} & \Tetra{} & no weights\\
+\midrule
+median ms & 11.022 & 3.263 & 5.004 & 3.734 & 2.294\\
+GB read per pass & 7.27 & 1.90 & 2.18 & 0.98 & 0.07\\
+\bw{} in VRAM & 16.000 & 4.179 & 4.804 & \textbf{2.150} & 0.159\\
+GB/s, fastest round & 660 & 582 & 436 & 262 & 32\\
+\bottomrule
+\end{tabular}
 \end{table}
 
 Per weight, \Tetra{} reads about half the bits of 4-bit AWQ and of \Planes{},
-yet its time is still above AWQ's (Table~\ref{tab:bench}). Reading half the
+yet its time is still above AWQ's (Table~\ref{tab:bench}): reading half the
 bytes does not halve the time.
 
-\paragraph{The activation tile.}\label{sec:tile} The tile $T$ changes no output
-bit and costs no storage. On an Ada GPU (sm\_89), it sets how much of each
+\paragraph{The activation tile.}\label{sec:tile} The size of the activation
+tile matters to \Tetra{} and hardly to the other arms. The tile $T$ changes
+no output bit and costs no storage. On an Ada GPU (sm\_89), it sets how much of each
 SM's 128~KiB pool of L1 and shared memory is left to cache the decoder
 tables~\citep{cudaguide}. Occupancy does not move. Six 256-thread blocks fit at
 every tile, filling the 1{,}536 threads an SM holds, and shared memory never
@@ -112,3 +115,97 @@ earlier sweep over the same 252 matrices puts \Tetra{} fastest at $T=32$ and
 \Planes{} at $T=128$, with \Tetra{} at 0.82 to 1.03 times the speed of
 \Planes{} depending on the tile. On an A100 (\S\ref{sec:a100}), \Tetra{} is
 fastest at $T=128$.
+
+\subsection{One launch per token}
+\label{sec:4e}
+
+\begin{figure}[t]
+\centering
+\begin{tikzpicture}[node distance=3pt and 2.5pt]
+\node[title, anchor=west] (ta) at (0,0)
+  {Per-matrix path: one launch for each operation, back to the host each time};
+\node[box, anchor=north west] (a1) at ([yshift=-3pt]ta.south west) {norm};
+\node[box, right=of a1] (a2) {rotate};
+\node[box, right=of a2] (a3) {$q$};
+\node[box, right=of a3] (a4) {$k$};
+\node[box, right=of a4] (a5) {$v$};
+\node[box, right=of a5] (a6) {attention};
+\node[box, right=of a6] (a7) {$o$};
+\node[box, right=of a7] (a8) {norm};
+\node[box, right=of a8] (a9) {rotate};
+\node[box, right=of a9] (a10) {gate};
+\node[box, right=of a10] (a11) {up};
+\node[box, right=of a11] (a12) {down};
+\node[note, anchor=west] at ([xshift=6pt]a12.east) {$\times$ 36 layers, then the head};
+
+\node[title, anchor=north west] (tb) at ([yshift=-11pt]a1.south west)
+  {Persistent kernel: one launch for the whole token};
+\node[mem, anchor=north west] (b1) at ([yshift=-7pt,xshift=4pt]tb.south west) {norm,\\rotate};
+\node[mem, right=8pt of b1] (b2) {$q$, $k$, $v$\\rows};
+\node[mem, right=8pt of b2] (b3) {RoPE,\\KV append};
+\node[mem, right=8pt of b3] (b4) {attention};
+\node[mem, right=8pt of b4] (b5) {$o$\\rows};
+\node[mem, right=8pt of b5] (b6) {norm,\\rotate};
+\node[mem, right=8pt of b6] (b7) {gate, up\\rows};
+\node[mem, right=8pt of b7] (b8) {down\\rows};
+\foreach \a/\b in {b1/b2,b2/b3,b3/b4,b4/b5,b5/b6,b6/b7,b7/b8}
+  \draw[flow, okBlue] (\a) -- (\b);
+\begin{scope}[on background layer]
+\node[panel, draw=okBlue, fit=(b1)(b8)] (pb) {};
+\end{scope}
+\node[note, anchor=west] at ([xshift=5pt]pb.east) {$\times$ 36 layers,\\then the head\\and its argmax};
+\node[note, anchor=north west, align=left] at ([yshift=-3pt]pb.south west)
+  {Each arrow is a grid-wide barrier. 142 blocks of 512 threads, one per SM, claim rows from a shared counter.};
+\end{tikzpicture}
+\caption{One token of the 4B in the two engines. The per-matrix path returns
+to the host between operations. The persistent kernel stays on the card for
+the whole token, 218 barriers at 4B, and computes each row with the same
+products in the same order.}
+\label{fig:4e}
+\end{figure}
+
+The served engine runs a whole token, every layer and the output head, in one
+cooperative launch (Figure~\ref{fig:4e}). The kernel above is launched once
+per matrix, so it leaves the card between any two operations of a token: 252
+projections at 4B, plus the norms, the rotations and the attention. Our engine
+first served the files that way.
+
+The grid has one 512-thread block per SM, 142 on the L40S. A token is a fixed
+sequence of phases, and between two phases every block waits at a grid-wide
+barrier, 218 times a token at 4B. Inside a phase the blocks claim output rows
+from a shared counter. A \Tetra{} row is computed as in the per-matrix
+kernel: the same lanes, the same block order, the same 24
+products in the same order and the same last step. In the three places where
+a compiler could fuse a multiply with an add, the operations are written out
+by hand. The int4 rows read the same words, laid out once at load so that the
+four words a lane needs from a tile sit side by side and one 128-bit load
+fetches them. The card holds those bytes once.
+
+\paragraph{Same tokens.} The persistent kernel must return the tokens of the
+per-matrix path, and each load checks it on the card before serving. In the
+runs behind our speeds it returned the same 256 greedy tokens at 4B, 8B and
+14B, after prompts of 5, 2{,}048, 4{,}096 and 8{,}192 tokens.
+
+\paragraph{Attention.}\label{sec:attn} Qwen3 shares each key and value head
+among several query heads. The \emph{expanded} form copies each cached head
+to its query heads before the product, and every score in this paper ran
+under it. The served engine reads each cached head once, in an attention
+kernel of its own. Its sums run in another order, so its logits are not bit
+for bit those of the expanded form. We serve it under a tolerance fixed in
+advance: paired WikiText-2 perplexity within $\pm0.12\,\%$ of the reference
+form, which is what this paired test resolves on one file. Reading each head
+once moves perplexity by $+0.0095$, $-0.0048$ and $+0.0023\,\%$ at 4B, 8B and
+14B. The attention kernel moves it by a further $+0.0018$, $+0.0043$ and
+$-0.0108\,\%$, over 12 windows at 4B and 6 at 8B and 14B. Every interval lies
+inside the band.
+
+\paragraph{Prompts.} The per-matrix path prefills a prompt in chunks of
+4{,}096 positions. At 4B the served engine instead feeds the prompt through a
+multi-row pass of the persistent kernel, the \emph{chain prefill}. It reads
+the served words in place, and its paired perplexity is $+0.0007\,\%$ from the
+per-matrix prefill's. That pass does not yet carry the 8B and the 14B
+(\S\ref{sec:context}).
+
+\paragraph{Limits.} The persistent kernel decodes one request at a time, with
+greedy sampling, on the three sealed shapes. It exists for NVIDIA cards only
+and is measured on the L40S only.

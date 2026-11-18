@@ -1,0 +1,8 @@
+group,label,delta_pp,ci_lo_pp,ci_hi_pp,source
+qkv,q k v,0.55,0.01,1.11,ablation-qualite-4b-2026-11-12
+o,o,-0.13,-0.46,0.19,ablation-qualite-4b-2026-11-12
+attn,attention (q k v o),0.73,0.16,1.29,ablation-qualite-4b-2026-11-12
+gateup,gate and up,3.38,2.75,4.02,ablation-qualite-4b-2026-11-12
+down,down,2.01,1.46,2.54,ablation-qualite-4b-2026-11-12
+mlp,MLP (gate up down),4.86,4.16,5.57,ablation-qualite-4b-2026-11-12
+all,all 252 projections,6.72,6.00,7.45,ablation-qualite-4b-2026-11-12

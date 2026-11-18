@@ -1,0 +1,10 @@
+model,metric,delta,ci_lo,ci_hi,verdict,source
+Qwen3-4B,ppl_pct_below,25.0,23.0,26.9,tetra,duel-iq2-2026-11-08 (ratio 0.7500 [0.7308; 0.7697])
+Qwen3-8B,ppl_pct_below,9.7,8.3,11.1,tetra,duel-iq2-2026-11-08 (ratio 0.9029 [0.8891; 0.9170])
+Qwen3-14B,ppl_pct_below,10.8,9.5,12.2,tetra,duel-iq2-2026-11-08 (ratio 0.8917 [0.8785; 0.9051])
+Qwen3-4B,mmlu_pp,9.08,8.19,9.97,tetra,duel-iq2-2026-11-08
+Qwen3-8B,mmlu_pp,4.13,3.37,4.88,tetra,duel-iq2-2026-11-08
+Qwen3-14B,mmlu_pp,2.89,2.26,3.52,tetra,duel-iq2-2026-11-08
+Qwen3-4B,gsm8k_pp,14.25,11.65,16.86,tetra,duel-iq2-2026-11-08
+Qwen3-8B,gsm8k_pp,3.03,1.10,4.96,tetra,duel-iq2-2026-11-08
+Qwen3-14B,gsm8k_pp,0.15,-1.27,1.58,not separated,duel-iq2-2026-11-08

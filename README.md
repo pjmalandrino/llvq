@@ -20,35 +20,51 @@ How it works, from the Golay code to the one-launch CUDA token: [`docs/how-it-wo
 
 Three Qwen3 models, sealed at about 2.7 bits per parameter and served on one NVIDIA L40S.
 
+| model | b/param | MMLU | GSM8K | WikiText-2 ppl | tok/s | GB weights on card |
+|---|---|---|---|---|---|---|
+| Qwen3-4B | 2.73 | 63.37 | 82.49 | 12.58 | 221.5 | 1.38 |
+| Qwen3-8B | 2.70 | 69.58 | 88.63 | 9.71 | 142.5 | 2.76 |
+| Qwen3-14B | 2.73 | 75.66 | 92.04 | 8.44 | 86.3 | 5.04 |
+
+**Quality for the memory.** At about the same size, our 8B scores above AWQ's 4B, and our 14B above AWQ's 8B. At
+the same size, our files score above llama.cpp's IQ2_S by 9.08, 4.13 and 2.89 MMLU points. They stay 2.46 to 4.76
+points below 4-bit AWQ, which needs about twice the bits.
+
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/figures/frontier-dark.svg">
   <img src="docs/figures/frontier-light.svg" width="800" alt="MMLU against file size for Qwen3 4B, 8B and 14B, four arms: Tetra, AWQ 4-bit, llama.cpp IQ2_S and FP16. At about the same size, Tetra's 8B scores above AWQ's 4B, and its 14B above AWQ's 8B.">
 </picture>
 
-The figure counts the whole file: our three files weigh 1.42, 2.82 and 5.09 GB there, against the 1.38, 2.76 and
-5.04 GB of weights on the card in the table below. Its points and their journals are in
-[`docs/data/readme-frontier.csv`](docs/data/readme-frontier.csv); `uv run ops/readme_figure.py` redraws it.
+**Speed.** One CUDA launch a token decodes the 4B at 221.5 tokens per second, 1.72 times the speed of one launch
+per matrix, with the same tokens. That is above AWQ in vLLM and below llama.cpp.
 
-| model | b/param | MMLU | GSM8K | WikiText-2 ppl | tok/s | GB weights on card | GB card used after load |
-|---|---|---|---|---|---|---|---|
-| Qwen3-4B | 2.73 | 63.37 | 82.49 | 12.58 | 221.5 | 1.38 | 1.98 |
-| Qwen3-8B | 2.70 | 69.58 | 88.63 | 9.71 | 142.5 | 2.76 | 3.36 |
-| Qwen3-14B | 2.73 | 75.66 | 92.04 | 8.44 | 86.3 | 5.04 | 5.64 |
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/figures/speed-dark.svg">
+  <img src="docs/figures/speed-light.svg" width="800" alt="Decode speed in tokens per second at batch 1 on one L40S for Qwen3 4B, 8B and 14B. Tetra 221.5, 142.5 and 86.3; AWQ in vLLM 200.5, 123.2 and 77.8; IQ2_S in llama.cpp 287.5, 208.4 and 123.5; FP16 in vLLM 83.1, 46.3 and 25.8.">
+</picture>
 
-MMLU, GSM8K, perplexity, speed and the card memory used after load are *measured*. Bits per parameter and the weights
-on the card are *computed* from the files. The journals are linked from [`docs/ETAT.md`](docs/ETAT.md) §2. MMLU is
-5-shot on all 14,042 test questions. Speed is batch 1, greedy, 256 tokens after a 5-token prompt, median of five rounds.
-Bits per parameter count the whole model, embedding and tables included. The memory used after load adds the CUDA
-context and the decoder's buffers to the weights; a long prompt adds the KV cache on top.
+**Memory after a long prompt.** This is where llama.cpp is ahead. After 8,192 prompt tokens our files hold 2.4 to
+3.6 GB more card memory than IQ2_S.
 
-The speeds come from the served form: one CUDA launch a token (4E) and our split-KV attention kernel. The scores were
-measured under the expanded attention form of paper 2. The served form returns the eager engine's tokens, and its
-attention stays within ±0.12 % of the expanded form's perplexity. Paper 2 reports 113.8, 95.0 and 57.2 tok/s, the
-speeds of that earlier form. Throughput falls with context: at 8,192 tokens of prompt the 4B decodes 161.5 tok/s.
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/figures/memory-dark.svg">
+  <img src="docs/figures/memory-light.svg" width="800" alt="Peak card memory in GB after a prompt of 5 and of 8,192 tokens. After 5 tokens Tetra holds 2.01, 3.42 and 5.71 and IQ2_S 2.17, 3.35 and 5.40. After 8,192 tokens Tetra holds 5.95, 7.39 and 10.54 and IQ2_S 3.52, 4.71 and 6.90.">
+</picture>
 
-Against 4-bit AWQ on the same questions, our files score 4.76, 4.21 and 2.46 MMLU points lower, at 45 to 52 % of its
-bits per parameter. At 4B we score 23.6 points above llama.cpp's IQ2_XXS for 0.25 more bits per parameter. The speed
-is an L40S result: on an A100 our files decode slower than FP16 in vLLM ([`docs/ETAT.md`](docs/ETAT.md) §3 and §4).
+What the numbers are:
+
+- Every figure is *measured*, except bits per parameter and the weights on the card, *computed* from the files. Each
+  point's journal is in the CSV its figure names; `uv run ops/readme_figure.py` redraws the three figures.
+- MMLU is 5-shot on all 14,042 test questions, GSM8K zero-shot on its 1,319. Speed is batch 1, greedy, 256 tokens
+  after a 5-token prompt, median of five rounds.
+- The first figure counts the whole file, 1.42, 2.82 and 5.09 GB, where the table counts the weights on the card.
+- The scores were measured under an earlier attention form. The served form returns the same tokens as one launch
+  per matrix and stays within ±0.12 % of that form's perplexity.
+- The speed is an L40S result. On an A100, launched once per matrix, our files decode slower than FP16 in vLLM.
+
+The paper has the full comparison, the limits and the record of predictions:
+[arXiv:2609.35465](https://arxiv.org/abs/2609.35465), source in [`paper2/`](paper2/README.md). The served
+configuration and the open decisions are in [`docs/ETAT.md`](docs/ETAT.md).
 
 ## Run it
 
@@ -132,9 +148,8 @@ Every binary and switch is listed in [`CLAUDE.md`](CLAUDE.md). `cargo test` is t
 - [`docs/ETAT.md`](docs/ETAT.md): served configuration, numbers, open decisions.
 - [`docs/ROADMAP.md`](docs/ROADMAP.md): what comes next.
 - [`docs/METHODE.md`](docs/METHODE.md): the lab rules. [`docs/README.md`](docs/README.md): every other document.
-- [`paper2/`](paper2/README.md): *Tetra: Serving Leech-Lattice Quantized LLMs at 2.7 Bits per Parameter*, version 1
-  on [arXiv:2609.35465](https://arxiv.org/abs/2609.35465), version 2 attached to release
-  [`v0.0.2`](https://github.com/pjmalandrino/llvq/releases/tag/v0.0.2).
+- [`paper2/`](paper2/README.md): *Tetra: Serving Leech-Lattice Quantized LLMs at 2.7 Bits per Parameter*, on
+  [arXiv:2609.35465](https://arxiv.org/abs/2609.35465).
 - [`paper/`](paper/README.md): *Decoding the Leech Lattice at Matvec Speed: Fused Kernels and VRAM Layouts for 2-Bit
   LLM Inference*, paper 1, on Zenodo ([10.5281/zenodo.22133606](https://doi.org/10.5281/zenodo.22133606)).
 

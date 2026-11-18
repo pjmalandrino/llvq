@@ -173,6 +173,41 @@ def check_tile() -> None:
     need("kernel.tex", body, "value or range of the tile sweep")
 
 
+def check_duel() -> None:
+    """tab:duel and its prose against paper2-duel.csv and paper2-duel-gaps.csv:
+    each row of the table as one run of cells, each gap with its interval."""
+    body = []
+    for r in read_csv("paper2-duel.csv"):
+        cells = [r[c] for c in ("bparam_file", "ppl", "mmlu", "gsm8k", "toks5",
+                                "toks8192", "gbps5", "peak5_gb")]
+        wrap = {"tetra": "\\textbf{{{}}}", "iq2s": "{}",
+                "ud_iq2xxs": "\\textcolor{{okGray}}{{{}}}"}[r["arm"]]
+        body.append(" & ".join(wrap.format(c) for c in cells))
+    for r in read_csv("paper2-duel-gaps.csv"):
+        lo, hi = r["ci_lo"], r["ci_hi"]
+        body += [r["delta"], f"$[{lo}, {hi}]$"]
+    need("experiments.tex", body, "cell or gap of tab:duel")
+
+
+def check_context() -> None:
+    """tab:context and the long-prompt prose against paper2-context.csv,
+    paper2-peak.csv and paper2-batch.csv, and the ablation prose against
+    paper2-ablation.csv. The figures draw every row of these files; the text
+    keeps the numbers it argues from, and those are the ones checked here."""
+    body = []
+    for r in read_csv("paper2-context.csv"):
+        body += [r["toks"] if r["config"] == "v9" else "", r["first_token_s"]]
+    body += [r["peak_gb"] for r in read_csv("paper2-peak.csv")
+             if r["prompt"] == "8192" and r["arm"] != "tetra_before"]
+    for r in read_csv("paper2-batch.csv"):
+        if r["batch"] in ("1", "128"):
+            body += [r["tetra_serve_toks"].replace(",", "{,}"),
+                     r["awq_vllm_toks"].replace(",", "{,}")]
+    body += [r["delta_pp"] for r in read_csv("paper2-ablation.csv")
+             if r["group"] in ("gateup", "down", "mlp", "attn", "all")]
+    need("experiments.tex", body, "long prompts, batches or ablation")
+
+
 def check_shape() -> None:
     """The CSVs must be rectangular: an unescaped comma in a free-text field
     throws the rest of the row into the None key, and nothing fails on its
@@ -181,6 +216,9 @@ def check_shape() -> None:
                  "paper2-chain.csv", "paper2-gsm8k.csv", "paper2-gsm8k-gaps.csv",
                  "paper2-sizeup.csv", "paper2-sizeup-budget.csv",
                  "paper2-ppl.csv", "paper2-ppl-sealing.csv",
+                 "paper2-duel.csv", "paper2-duel-gaps.csv",
+                 "paper2-context.csv", "paper2-peak.csv", "paper2-batch.csv",
+                 "paper2-ablation.csv",
                  "a100-bench.csv", "a100-served.csv"):
         with open(DATA / name, newline="") as f:
             reader = csv.DictReader(f)
@@ -214,6 +252,8 @@ def main() -> None:
     check_gaps()
     check_gsm8k()
     check_sizeup()
+    check_duel()
+    check_context()
     check_bench()
     check_tile()
     check_pending()

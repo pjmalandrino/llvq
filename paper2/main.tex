@@ -19,7 +19,7 @@
 \usepackage{fancyhdr}
 
 % Floats sit closer to the text than the class default, which was written for a
-% paper with few of them. This one has four figures and eight tables.
+% paper with few of them. This one has ten figures and nine tables.
 \setlength{\textfloatsep}{10pt plus 2pt minus 2pt}
 \setlength{\floatsep}{10pt plus 2pt minus 2pt}
 \setlength{\intextsep}{10pt plus 2pt minus 2pt}
@@ -33,6 +33,7 @@
 \usepackage{xurl}
 \usepackage{float}
 \usepackage[font=small,labelfont=bf]{caption}
+\captionsetup[table]{position=top,skip=5pt}
 \usepackage{tikz}
 \usetikzlibrary{positioning,arrows.meta,fit,calc,decorations.pathreplacing,backgrounds}
 \usepackage[colorlinks=true,allcolors=okBlue]{hyperref}
@@ -111,7 +112,7 @@
   {Pier-Jean Malandrino\par}
   {\footnotesize Scub, Bordeaux, France \;\textperiodcentered\; \texttt{pierjean.malandrino@scub.net}\par}
   \vspace{0.5ex}
-  {\footnotesize\textsc{October 2026} \;\textperiodcentered\; preprint, not peer reviewed\par}
+  {\footnotesize\textsc{November 2026} \;\textperiodcentered\; preprint, not peer reviewed\par}
   {\footnotesize Code, measurement logs and preregistrations: \url{https://github.com/pjmalandrino/llvq}\par}
   \vspace{1.6ex}\endgroup}
 
@@ -133,12 +134,15 @@ retrain one scale per matrix row, store the matrices that lose the most as
 8B and 14B files hold 2.73, 2.70 and 2.73 bits per parameter over the whole
 model. They score 63.37, 69.58 and 75.66 on the full MMLU test set, 4.76,
 4.21 and 2.46 points below 4-bit AWQ at 5.3 to 6.0 bits per parameter, and
-their WikiText-2 perplexity is 2.8 to 8.0\,\% above FP16's. On one NVIDIA L40S
-they generate 113.8, 95.0 and 57.2 tokens per second in our engine. On GSM8K,
-through the served kernel, they lose 9.63, 4.62 and 3.26 points to FP16. At 4B
-our file scores 23.6 points above llama.cpp's IQ2\_XXS (2.48 bits per
-parameter). On an A100 our files decode slower than FP16 in vLLM. We
-preregistered the main experiments.
+their WikiText-2 perplexity is 2.8 to 8.0\,\% above FP16's. On GSM8K, through
+the kernel, they lose 9.63, 4.62 and 3.26 points to FP16. A persistent kernel
+runs each token in one launch and returns the same tokens as one launch per
+matrix. With it the files generate 221.5, 142.5 and 86.3 tokens per second on one
+NVIDIA L40S. Against llama.cpp's IQ2\_S at the same bits per parameter, on the
+same card, our files score 9.08, 4.13 and 2.89 MMLU points higher. llama.cpp
+decodes 33.5 to 63.9 tokens per second faster and holds less card memory after
+a long prompt. On an A100, launched once per matrix, our files decode slower
+than FP16 in vLLM. We preregistered the main experiments.
 \end{abstract}
 
 \input{sections/intro}

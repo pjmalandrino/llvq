@@ -6,8 +6,9 @@ background, the Tetra codebook, from codebook to served file, kernel,
 experiments, limitations, conclusion, then two appendices (the ten-arm
 kernel benchmark and the record of predictions). `PROVENANCE.md` gives the
 nature and the source of every claim, and the commands that rerun the main
-measurements are under [Reproduce](#reproduce). Version 2, of 2026-10-06, is attached as a PDF to release
-[`v0.0.2`](https://github.com/pjmalandrino/llvq/releases/tag/v0.0.2).
+measurements are under [Reproduce](#reproduce). The published PDF, of 2026-10-06, is attached to release
+[`v0.0.2`](https://github.com/pjmalandrino/llvq/releases/tag/v0.0.2). The source in this directory is ahead of
+that PDF since 2026-11-17 and is not released.
 
 ## Layout and art direction
 
@@ -25,10 +26,14 @@ measurements are under [Reproduce](#reproduce). Version 2, of 2026-10-06, is att
 
 Data in `docs/data/`: `paper2-results.csv` (main table), `paper2-gaps.csv`
 (paired MMLU gaps), `paper2-gsm8k.csv` and `paper2-gsm8k-gaps.csv` (GSM8K
-scores and paired gaps, Table 4), `paper2-sizeup.csv` and `paper2-sizeup-budget.csv`
-(the comparison one size up, Table 5, and the memory budgets), `paper2-chain.csv` (the steps and the sealed files),
+scores and paired gaps, Table 6), `paper2-sizeup.csv` and `paper2-sizeup-budget.csv`
+(the comparison one size up, Table 10, and the memory budgets), `paper2-chain.csv` (the steps and the sealed files),
 `tuile-l40s.csv` (tile sweep), and paper 1's `echelle-formats.csv` and
-`echelle-4b-8b.csv`.
+`echelle-4b-8b.csv`. The revision of 2026-11-17 adds `paper2-duel.csv` and `paper2-duel-gaps.csv`
+(llama.cpp IQ2 against our files, Tables 7 and 8), `paper2-context.csv` (decode speed
+and first token against prompt length), `paper2-peak.csv` (peak card memory),
+`paper2-batch.csv` (several requests) and `paper2-ablation.csv` (where the 4B
+loses its points). Seven data figures are drawn from these files.
 
 ```bash
 make                 # figures, then check, then latexmk
@@ -48,7 +53,22 @@ The three sealed files, with the first eight hex digits of their SHA-256:
 - `qwen3-14b-sealed.bin`, `61db37fe`
 
 Each file has a served configuration in `configs/`, named after its size and
-ending in `-tetra-e4.json`; the commands below use the 4B one. On an NVIDIA GPU:
+ending in `-tetra-e4-4e-v9.json`; the 4B also has `-4e-v9-chain.json`, its
+chain prefill. The files ending in `-tetra-e4.json` are the per-matrix
+configurations with the expanded attention, which every score ran under. On an NVIDIA GPU:
+
+```bash
+# the served door: tok/s of the persistent kernel, 256 tokens after 5
+LLVQ_CONFIG=configs/qwen3-4b-tetra-e4-4e-v9.json cargo run --release \
+  -p llvq-llm --features cuda --bin fusedrun -- <file> 256
+# the same after longer prompts: first token and decode speed
+LLVQ_CONFIG=configs/qwen3-4b-tetra-e4-4e-v9.json LLVQ_CONTEXTS=5,2048,4096,8192 \
+  cargo run --release -p llvq-llm --features cuda --bin fusedrun -- <file> 256
+```
+
+The llama.cpp side of section 6.4 is `ops/jobs/duel-iq2.sh`, and its tables
+are printed by `python3 ops/duel/analyze.py docs/mesures/duel-iq2-2026-11-08-brut`.
+The per-matrix measurements:
 
 ```bash
 # tok/s and GB at the served flags, 256 tokens, against the dense arm
@@ -71,20 +91,21 @@ cargo run --release -p llvq-bench --bin rtbits -- <file>
 compare only when their fingerprints match, and the two pairing programs refuse
 dumps whose fingerprints differ.
 
-## State (2026-09-28)
+## State (2026-11-17)
 
-Complete: 15 pages, no error, no overfull or underfull box, no undefined
-reference, and `RELEASE=1 make check` passes (no pending cell). It was cut from
-20 pages on 2026-09-28 without changing a number: the provenance table moved to
-`PROVENANCE.md`, the commands to Reproduce above, the tile and scale figures
-were dropped with their values kept in the text, and repeated caveats are
-stated once. The four review points of the same day ("not separated" for ties,
-the 14B divergence, selection on the MMLU test set, the embedding tables in the
-memory comparison) brought it back to 15. The served speeds
-of the three sealed files come from paper-table-2026-09-25. GSM8K, scored through
-the served kernel, comes from gsm8k-wave1-2026-09-26 and gsm8k-wave2-2026-09-26
-(§6.3). The comparison one size up comes from sizeup-2026-09-28 (§6.4). Every
-number and every cited source was audited on 2026-09-28
-([paper2-audit-2026-09-28](../docs/mesures/paper2-audit-2026-09-28.txt)).
+23 pages, no error, no overfull box, no undefined reference, and
+`RELEASE=1 make check` passes. The paper has one published form, the PDF of
+release `v0.0.2`; this source is its revision and says nothing of versions.
+It adds the persistent kernel (section 5.3), the served speeds under it, the
+comparison with llama.cpp's IQ2_S at three sizes (section 6.4), long prompts
+and several requests (section 6.5) and the 4B ablation (section 6.8). No
+score moved. The earlier speeds stay in the text as the per-matrix path with
+the expanded attention. Its results section follows the rules of `docs/STYLE.md` of
+2026-11-17: one message a paragraph, the numbers in the tables (Tables 5, 8
+and 9 were added for that), captions above tables. Sections 2 to 4 were only
+scanned for the listed tells. Every new number is copied from its journal in
+`docs/mesures/` and listed in `PROVENANCE.md`; the audit of 2026-09-28
+([paper2-audit-2026-09-28](../docs/mesures/paper2-audit-2026-09-28.txt)) does
+not cover them.
 
 Writing rule for every revision: short factual sentences, no em dash.

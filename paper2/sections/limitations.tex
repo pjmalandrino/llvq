@@ -4,20 +4,32 @@
 \begin{itemize}
 \item \textbf{Two data-center GPUs.} We measured speed on one NVIDIA L40S and
   one A100 (\S\ref{sec:a100}), never on a consumer GPU, the hardware this work
-  targets.
+  targets. The persistent kernel ran on the L40S only.
 \item \textbf{One calibration draw.} Every size is encoded from one draw of
   calibration text (\S\ref{sec:setup}). At 4B, with the earlier codebook, the
   spread across three draws exceeds every gain of Table~\ref{tab:chain}
-  (\S\ref{sec:kept}). Those gains compare fixed files, but our gaps to FP16
-  and AWQ do not include that spread.
-\item \textbf{MMLU and perplexity are scored on the dense reconstruction},
-  not through the kernel (\S\ref{sec:setup}).
+  (\S\ref{sec:kept}). Those gains compare fixed files, but our gaps to FP16,
+  AWQ and IQ2\_S do not include that spread.
+\item \textbf{The scores and the speeds come from two forms of the engine.}
+  MMLU and perplexity are scored on the dense reconstruction, and GSM8K on the
+  per-matrix path, all with the expanded attention. The served engine is
+  tied to them by a perplexity tolerance, by token identity and by a
+  50-problem pilot per size (\S\ref{sec:setup}), not by a full run of each
+  benchmark.
 \item \textbf{Selection on the test set.} Our int4 choices used MMLU test
   questions (\S\ref{sec:chain}).
 \item \textbf{GSM8K is an easy test for these models.} FP16 scores 92 to 95,
   and the problems have been public since 2021. We did not test Qwen3's
   thinking mode, which writes much longer chains, nor a harder math
   benchmark.
-\item \textbf{Batch 1 and short context only}: one request at a time, and no
-  long prompts.
+\item \textbf{Greedy decoding at batch 1.} The persistent kernel serves one
+  request at a time and does not sample. Several requests go through a
+  batched kernel that AWQ in vLLM outruns at every batch size
+  (\S\ref{sec:context}).
+\item \textbf{Long prompts.} After 8{,}192 prompt tokens our files hold 2.4 to
+  3.6~GB more card memory than IQ2\_S in llama.cpp, and the 8B and 14B wait
+  46 and 81~s for their first token (\S\ref{sec:context}).
+\item \textbf{One llama.cpp build, one importance matrix.} The IQ2\_S files
+  are ours, built from the calibration text of our files. Another build or
+  another matrix may score differently.
 \end{itemize}

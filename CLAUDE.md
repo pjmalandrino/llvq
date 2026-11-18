@@ -182,8 +182,9 @@ The detail and the reasons are in `docs/METHODE.md`.
 
 - Code comments and documentation in English; conversation in French.
 - Zero warnings from `cargo clippy --all-targets`.
-- `docs/STYLE.md` for every living document: fact first, one idea a sentence, no em dash, no banners. A fact that
-  changes is replaced, and the old one goes to `HISTORIQUE.md` with its date.
+- `docs/STYLE.md` for every living document and the papers: one message a paragraph, stated first, with its
+  number; sentences that connect; no em dash, no banners, none of the listed tells. A fact that changes is
+  replaced, and the old one goes to `HISTORIQUE.md` with its date.
 - The five core crates stay free of external dependencies and in `forbid(unsafe_code)`.
 - Full suite before any commit that touches a format or the indexing; any change to the index map breaks format v1
   (`codebook_fingerprint` pins it).

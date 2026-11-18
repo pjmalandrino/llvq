@@ -1,0 +1,17 @@
+model,arm,prompt,peak_gb,source
+Qwen3-4B,tetra_before,8192,11.48,duel-iq2-2026-11-08
+Qwen3-8B,tetra_before,8192,12.66,duel-iq2-2026-11-08
+Qwen3-14B,tetra_before,8192,17.09,duel-iq2-2026-11-08
+Qwen3-4B,tetra,5,2.01,duel-iq2-2026-11-08
+Qwen3-8B,tetra,5,3.42,duel-iq2-2026-11-08
+Qwen3-14B,tetra,5,5.71,duel-iq2-2026-11-08
+Qwen3-4B,tetra,8192,5.95,pic-vram-8k-2026-11-08
+Qwen3-8B,tetra,8192,7.39,pic-vram-8k-2026-11-08
+Qwen3-14B,tetra,8192,10.54,pic-vram-8k-2026-11-08
+Qwen3-4B,tetra_chain,8192,3.63,chain-prefill-served-2026-11-15 (3.633; phase peak)
+Qwen3-4B,iq2s,5,2.17,duel-iq2-2026-11-08
+Qwen3-8B,iq2s,5,3.35,duel-iq2-2026-11-08
+Qwen3-14B,iq2s,5,5.40,duel-iq2-2026-11-08
+Qwen3-4B,iq2s,8192,3.52,duel-iq2-2026-11-08
+Qwen3-8B,iq2s,8192,4.71,duel-iq2-2026-11-08
+Qwen3-14B,iq2s,8192,6.90,duel-iq2-2026-11-08

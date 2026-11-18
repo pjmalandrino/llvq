@@ -1,0 +1,5 @@
+model,batch,tetra_serve_toks,tetra_per_request,awq_vllm_toks,source
+Qwen3-4B,1,221.9,225.4,203.0,batch-l40s-v4-2026-11-08; batch-l40s-2026-11-08
+Qwen3-4B,8,757.8,99.4,"1,524.8",batch-l40s-v4-2026-11-08; batch-l40s-2026-11-08
+Qwen3-4B,32,"1,976.5",69.7,"5,133.8",batch-l40s-v4-2026-11-08; batch-l40s-2026-11-08
+Qwen3-4B,128,"3,067.5",28.9,"10,146.2",batch-l40s-v4-2026-11-08; batch-l40s-2026-11-08

@@ -1733,3 +1733,14 @@ O13, the number the long-context speed phase took on main the next day.
   decided, recorded in `CERVEAU.md` O15, with one belief dropped and the anomaly N8. No idea sheet. Spend of the
   phase: $1.49 of $10; the rows of `docs/data/jobs.csv` sum to $352.73 (*computed*).
 - Nothing served changes.
+
+## 2026-11-17. The writing rules are rebased on two public skills, and paper 2 is revised; nothing served changes, $0
+
+- `STYLE.md` rests on two MIT skills read at pinned commits: `Master-cai/Research-Paper-Writing-Skills` for
+  paragraph and section structure, `blader/humanizer` for the tells of machine-written text. The rule "one idea a
+  sentence" gives way to "one message a paragraph, sentences that connect". The project rules stay: no history, a
+  number labelled once, no banners. The operator asked for the change.
+- Paper 2's source is revised on branch `paper2/v3`: the persistent kernel and its served speeds, llama.cpp's IQ2_S
+  at three sizes, long prompts, the 4B ablation, five new data figures. Its abstract, introduction, kernel and results sections are passed through the
+  new rules; sections 2 to 4 are only scanned for the tells. Not released.
+
