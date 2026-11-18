@@ -59,9 +59,10 @@ All three sizes share one setting: layout `tetra48`, `LLVQ_EMBED=q4`, `LLVQ_ROT_
 attention form of paper 2, and MMLU and perplexity on the dense reconstruction. The served form adds the `kernel`
 attention and 4E. It returns the eager path's tokens, and its attention is served under a perplexity tolerance (§4).
 Its only task reading is a 50-problem GSM8K pilot per size: 40, 46 and 46 right at 4B, 8B and 14B, the same
-scores as the earlier configs on those problems. Paper 2 and its
-cited Hub cards report 113.8, 95.0 and 57.2 tok/s under the expanded form
-([paper-table](mesures/paper-table-2026-09-25.txt)); they do not move.
+scores as the earlier configs on those problems. The Hub cards
+paper 2 cites report 113.8, 95.0 and 57.2 tok/s under the expanded form
+([paper-table](mesures/paper-table-2026-09-25.txt)); they do not move. Paper 2's source reports the served speeds
+since 2026-11-17 and keeps those three as its per-matrix path.
 
 The Hub's moving repository `Qwen3-4B-LLVQ-Tetra-served` still carries the grouped config of 2026-11-02 at 133.3
 tok/s ([served-grouped](mesures/served-grouped-2026-11-02.txt)). The repositories paper 2 cites, and the safetensors
