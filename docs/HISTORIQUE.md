@@ -1744,3 +1744,17 @@ O13, the number the long-context speed phase took on main the next day.
   at three sizes, long prompts, the 4B ablation, five new data figures. Its abstract, introduction, kernel and results sections are passed through the
   new rules; sections 2 to 4 are only scanned for the tells. Not released.
 
+
+## 2026-11-20. The three sealed cards take a metadata pull request from the Hub; nothing served changes, $0
+
+- A Hugging Face staff member opened the same pull request on the three sealed repositories. Each one changes
+  `README.md` only: it adds `pipeline_tag: text-generation`, links paper 2 to its page
+  (`huggingface.co/papers/2609.35465`), and reorders the front matter. The operator had them merged ("Oui, fusionne"),
+  which lifts the freeze of 2026-11-02 for these three cards and for this change only.
+- The repositories moved from `58e96ba3`, `2a6c85db` and `64fd81f7` to `0bfc3c36`, `21dc9980` and `dc0d94f7`. The
+  three `.bin` files keep their sha256 (`886391a8`, `7bdb9a55`, `61db37fe`), read back from the Hub after the merge
+  (*measured*). The revisions `llvq-runtime/library.json` pins are the earlier commits and still resolve to the same
+  files. The safetensors repository (`acc5f663`) and the served one (`159afed4`) were not touched.
+- `docs/hub/qwen3-4b-sealed.md`, `qwen3-8b-sealed.md` and `qwen3-14b-sealed.md` are the merged cards byte for byte:
+  9,831, 5,625 and 5,659 bytes (*measured*). The 9,774 bytes `docs/plan-transformers.md` gives for the 4B card is its
+  size on 2026-10-20.

@@ -1,19 +1,20 @@
 ---
-license: apache-2.0
 base_model: Qwen/Qwen3-8B
-base_model_relation: quantized
 language:
-  - en
+- en
 library_name: llvq
-inference: false
+license: apache-2.0
+pipeline_tag: text-generation
 tags:
-  - qwen3
-  - quantization
-  - 2-bit
-  - leech-lattice
-  - vector-quantization
-  - llvq
-  - tetra
+- qwen3
+- quantization
+- 2-bit
+- leech-lattice
+- vector-quantization
+- llvq
+- tetra
+base_model_relation: quantized
+inference: false
 ---
 
 # Qwen3-8B at 2.70 bits per parameter, one file
@@ -107,7 +108,8 @@ fused path stops at an input width of 8,192, and `down_proj` is 12,288 wide.
 ## Citation
 
 - Paper 2, *Tetra: Serving Leech-Lattice Quantized LLMs at 2.7 Bits per
-  Parameter*, in the repository under `paper2/`.
+  Parameter*, in the repository under `paper2/`, and on
+  [Hugging Face Papers](https://huggingface.co/papers/2609.35465).
 - Paper 1, the earlier layout: DOI
   [10.5281/zenodo.22133606](https://doi.org/10.5281/zenodo.22133606).
 - The method: van der Ouderaa et al.,
