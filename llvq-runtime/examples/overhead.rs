@@ -173,7 +173,7 @@ fn chunk(content: String) -> Vec<u8> {
     let v = serde_json::to_value(ChatResponse {
         model: "qwen3:4b".into(),
         created_at: rfc3339(SystemTime::now()),
-        message: ChatMessage { role: "assistant".into(), content, thinking: None, images: None, tool_calls: None },
+        message: ChatMessage { role: "assistant".into(), content, thinking: None, images: None, tool_calls: None, tool_name: None },
         done: false,
         stats: DoneFields::default(),
     })
