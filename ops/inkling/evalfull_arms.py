@@ -21,6 +21,8 @@ Arms (D = ~/llvq-inkling-mini):
   experts24_attn   + the six attention matrices of every layer from `--attn` (B's inkwh reconstructions)
   whole            + `embed` and `unembed` from `--tables` (B's int4 g64 tables): the whole quantized text model
   attn_only        the attention matrices alone, experts and tables native: what the attention's type rule costs
+  attn_lattice_only  the two attention matrices the lattice code holds (wq_du, wk_dv) alone, the rest native
+  attn_int4_only   the four int4 attention matrices (wv_dv, wo_ud, gate_attn, wr_du) alone, the rest native
   tables_only      the two tables alone
   rival_iq2xxs     the UD-IQ2_XXS file whole: experts through ggufx, every other tensor through ggufmap
   rival_q2kxl      the UD-Q2_K_XL file whole
@@ -50,7 +52,10 @@ LAYERS = os.path.join(DATA, "layers")
 ARMS_DIR = os.path.join(DATA, "evalfull", "arms")
 GGUF = {"rival_iq2xxs": os.path.join(DATA, "gguf", "Inkling-2-Mini-UD-IQ2_XXS.gguf"),
         "rival_q2kxl": os.path.join(DATA, "gguf", "Inkling-2-Mini-UD-Q2_K_XL.gguf")}
-ARMS = ("experts24", "experts24_attn", "whole", "attn_only", "tables_only", "rival_iq2xxs", "rival_q2kxl")
+ARMS = ("experts24", "experts24_attn", "whole", "attn_only", "attn_lattice_only", "attn_int4_only", "tables_only",
+        "rival_iq2xxs", "rival_q2kxl")
+# Which attention matrices the lattice code holds in the plan's default rule; the four others are int4 g128.
+ATTN_LATTICE = ("wq_du", "wk_dv")
 
 
 def spec_of(arm, attn, tables):
@@ -66,6 +71,14 @@ def spec_of(arm, attn, tables):
         return f"{e};{a};{t}"
     if arm == "attn_only":
         return a
+    if arm in ("attn_lattice_only", "attn_int4_only"):
+        # one matrix a key, so that the other attention matrices stay native
+        import model_full
+
+        idx = model_full.attn_index(attn) if attn and os.path.isdir(attn) else {}
+        want = [n for n in model_full.ATTN_NATIVE if (n in ATTN_LATTICE) == (arm == "attn_lattice_only")]
+        return ";".join(f"model.layers.{L}.{model_full.ATTN_NATIVE[n]}=file:{idx[(L, n)]}"
+                        for L in range(24) for n in want if (L, n) in idx)
     if arm == "tables_only":
         return t
     if arm in GGUF:
@@ -84,7 +97,7 @@ def missing(arm, attn, tables):
                 for s in ("w13_hat", "w2_hat"))
             if not ok:
                 out.append(f"experts L{L:02d}")
-    if arm in ("experts24_attn", "whole", "attn_only"):
+    if arm in ("experts24_attn", "whole", "attn_only", "attn_lattice_only", "attn_int4_only"):
         import model_full
 
         if not attn or not os.path.isdir(attn):
