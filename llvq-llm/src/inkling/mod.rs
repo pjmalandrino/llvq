@@ -20,6 +20,7 @@
 //! the reference (`ops/inkling/dump_ref.py`).
 
 pub mod attn_dense;
+pub mod attn_scores;
 pub mod config;
 pub mod expert_codes;
 pub mod glue;
