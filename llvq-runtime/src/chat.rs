@@ -50,6 +50,9 @@ pub struct Msg {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Segment {
     pub msg: Option<Msg>,
+    /// The text piece it renders, in a conversation with tools
+    /// ([`render_pieces`]); `None` everywhere else.
+    pub key: Option<String>,
     pub ids: Vec<u32>,
 }
 
@@ -68,7 +71,25 @@ pub fn render(
             true => memo[i].ids.clone(),
             false => turn(tok, marks, m.role.label(), &m.content)?,
         };
-        out.push(Segment { msg: Some(m.clone()), ids });
+        out.push(Segment { msg: Some(m.clone()), key: None, ids });
+    }
+    Ok(out)
+}
+
+/// The ids of a conversation with tools, one segment a text piece of
+/// [`crate::tools::ToolFormat::render`], reusing `memo` while its pieces are
+/// the same text. Each piece is encoded alone: its markers are added tokens,
+/// which the tokenizer splits out wherever they stand.
+pub fn render_pieces(tok: &tokenizers::Tokenizer, memo: &[Segment], pieces: &[String]) -> anyhow::Result<Vec<Segment>> {
+    let mut out = Vec::with_capacity(pieces.len());
+    let mut agree = true;
+    for (i, p) in pieces.iter().enumerate() {
+        agree = agree && memo.get(i).is_some_and(|s| s.key.as_ref() == Some(p));
+        let ids = match agree {
+            true => memo[i].ids.clone(),
+            false => tok.encode(p.as_str(), false).map_err(|e| anyhow::anyhow!("{e}"))?.get_ids().to_vec(),
+        };
+        out.push(Segment { msg: None, key: Some(p.clone()), ids });
     }
     Ok(out)
 }

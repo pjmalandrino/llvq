@@ -11,8 +11,9 @@
 
 use crate::api::{accepted, events, stop_list, unix, AppState};
 use crate::chat::{Msg, Role};
-use crate::engine::{Event, Options, Prompt, Request};
+use crate::engine::{Event, Options, Prompt, Request, ToolPrompt};
 use crate::library::ModelName;
+use crate::tools::{self, Args, Calls, HistCall, OrderedJson, Piece, ToolDef, ToolFormat, ToolMsg, ToolRole};
 use axum::body::{Body, Bytes};
 use axum::extract::{Path, State};
 use axum::http::{header, StatusCode};
@@ -82,11 +83,20 @@ pub struct ModelList {
 
 #[derive(Serialize, Deserialize, ToSchema)]
 pub struct OaiMessage {
+    /// `system` (or `developer`), `user`, `assistant` or `tool`.
     pub role: String,
     /// A string, an array of `{"type": "text", "text": ...}` parts, or null.
     #[schema(value_type = Object)]
     #[serde(default)]
     pub content: Value,
+    /// An assistant message's calls, `[{"id", "type": "function", "function":
+    /// {"name", "arguments"}}]`, `arguments` a JSON string.
+    #[schema(value_type = Option<Vec<Object>>)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tool_calls: Option<Vec<OrderedJson>>,
+    /// The call a `tool` message answers: required on a `tool` message.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tool_call_id: Option<String>,
 }
 
 #[derive(Serialize, Deserialize, ToSchema)]
@@ -108,8 +118,16 @@ pub struct ChatCompletionRequest {
     #[schema(value_type = Option<Object>)]
     pub stop: Option<Value>,
     pub n: Option<u32>,
+    /// Functions the model may call, `{"type": "function", "function":
+    /// {"name", "description", "parameters"}}`. Served for the qwen3 family.
     #[schema(value_type = Option<Vec<Object>>)]
-    pub tools: Option<Vec<Value>>,
+    pub tools: Option<Vec<OrderedJson>>,
+    /// `"auto"` (the default) or `"none"`, which offers no tool. `"required"`
+    /// and a named function are refused: the decode is not constrained.
+    #[schema(value_type = Option<Object>)]
+    pub tool_choice: Option<Value>,
+    /// `false` is refused: the decode cannot be held to one call.
+    pub parallel_tool_calls: Option<bool>,
     #[schema(value_type = Option<Object>)]
     pub response_format: Option<Value>,
     /// Absent or `"none"`: no reasoning; any other level turns it on.
@@ -149,11 +167,30 @@ pub struct Usage {
 }
 
 #[derive(Serialize, Deserialize, ToSchema)]
+pub struct FunctionCall {
+    pub name: String,
+    /// The arguments object as a JSON string.
+    pub arguments: String,
+}
+
+#[derive(Serialize, Deserialize, ToSchema)]
+pub struct OaiToolCall {
+    pub id: String,
+    /// `function`.
+    #[serde(rename = "type")]
+    pub kind: String,
+    pub function: FunctionCall,
+}
+
+#[derive(Serialize, Deserialize, ToSchema)]
 pub struct AssistantMessage {
     pub role: String,
-    pub content: String,
+    /// Null when the answer is tool calls only.
+    pub content: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub reasoning: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tool_calls: Option<Vec<OaiToolCall>>,
 }
 
 #[derive(Serialize, Deserialize, ToSchema)]
@@ -224,7 +261,7 @@ fn content_text(v: &Value) -> Result<String, String> {
 
 /// Fields OpenAI clients send that llvq reads as no-ops, and so does not warn
 /// about.
-const HARMLESS: &[&str] = &["user", "metadata", "store", "parallel_tool_calls", "tool_choice", "logprobs"];
+const HARMLESS: &[&str] = &["user", "metadata", "store", "logprobs"];
 
 fn warn_extra(extra: &Map<String, Value>) -> Vec<String> {
     extra
@@ -282,6 +319,35 @@ struct Ctx {
     shape: Shape,
     include_usage: bool,
     warnings: Vec<String>,
+    /// The format whose calls the answer is read for, when tools are offered.
+    tools: Option<ToolFormat>,
+}
+
+fn tool_call(c: &tools::Call) -> OaiToolCall {
+    OaiToolCall {
+        id: new_id("call"),
+        kind: "function".into(),
+        function: FunctionCall { name: c.name.clone(), arguments: c.arguments.dumps() },
+    }
+}
+
+/// One piece of an answer with tools as a chunk's delta. A call goes out
+/// whole, in one chunk, with its `index`: the Vercel AI SDK finishes a call
+/// whose first chunk carries arguments that parse, and OpenAI's SDKs append
+/// the fragments of one `index`, here only one.
+fn piece_delta(p: Piece, index: &mut usize) -> Value {
+    match p {
+        Piece::Content(t) => json!({ "content": t }),
+        Piece::Reasoning(t) => json!({ "reasoning": t }),
+        Piece::Call(c) => {
+            let k = *index;
+            *index += 1;
+            let mut v = serde_json::to_value(tool_call(&c)).expect("a call serializes");
+            v["index"] = json!(k);
+            json!({ "tool_calls": [v] })
+        }
+        Piece::Malformed { text, .. } => json!({ "content": text }),
+    }
 }
 
 impl Ctx {
@@ -302,9 +368,10 @@ impl Ctx {
     }
 }
 
-fn finish_reason(done_reason: &str) -> &'static str {
+fn finish_reason(done_reason: &str, calls: usize) -> &'static str {
     match done_reason {
         "length" => "length",
+        _ if calls > 0 => "tool_calls",
         _ => "stop",
     }
 }
@@ -322,8 +389,14 @@ async fn complete(st: &AppState, name: ModelName, request: Request, stream: bool
             Shape::Chat => Some(data(&ctx.chunk(json!({"role": "assistant", "content": ""}), None))),
             Shape::Text => None,
         };
+        let mut calls = ctx.tools.map(Calls::new);
+        let mut index = 0usize;
         let body = events(rx).flat_map(move |e| {
             let lines: Vec<String> = match e {
+                Event::Delta { content, thinking } if calls.is_some() => {
+                    let c = calls.as_mut().expect("tools");
+                    c.delta(&content, &thinking).into_iter().map(|p| data(&ctx.chunk(piece_delta(p, &mut index), None))).collect()
+                }
                 Event::Delta { content, thinking } => {
                     let mut d = Map::new();
                     if !content.is_empty() {
@@ -335,7 +408,12 @@ async fn complete(st: &AppState, name: ModelName, request: Request, stream: bool
                     vec![data(&ctx.chunk(Value::Object(d), None))]
                 }
                 Event::Done(s) => {
-                    let mut out = vec![data(&ctx.chunk(json!({}), Some(finish_reason(&s.done_reason))))];
+                    let mut out: Vec<String> = match calls.as_mut() {
+                        Some(c) => c.finish().into_iter().map(|p| data(&ctx.chunk(piece_delta(p, &mut index), None))).collect(),
+                        None => Vec::new(),
+                    };
+                    let n = calls.as_ref().map_or(0, |c| c.count);
+                    out.push(data(&ctx.chunk(json!({}), Some(finish_reason(&s.done_reason, n)))));
                     if ctx.include_usage {
                         let u = Usage {
                             prompt_tokens: s.prompt_eval_count,
@@ -361,23 +439,42 @@ async fn complete(st: &AppState, name: ModelName, request: Request, stream: bool
         return sse(futures_util::stream::iter(first).chain(body));
     }
     let (mut content, mut thinking) = (String::new(), String::new());
+    let mut calls = ctx.tools.map(Calls::new);
+    let mut made: Vec<OaiToolCall> = Vec::new();
+    let mut take = |ps: Vec<Piece>, content: &mut String, thinking: &mut String| {
+        for p in ps {
+            match p {
+                Piece::Content(t) | Piece::Malformed { text: t, .. } => content.push_str(&t),
+                Piece::Reasoning(t) => thinking.push_str(&t),
+                Piece::Call(c) => made.push(tool_call(&c)),
+            }
+        }
+    };
     let mut ev = Box::pin(events(rx));
     while let Some(e) = ev.next().await {
         match e {
-            Event::Delta { content: c, thinking: t } => {
-                content.push_str(&c);
-                thinking.push_str(&t);
-            }
+            Event::Delta { content: c, thinking: t } => match calls.as_mut() {
+                Some(k) => take(k.delta(&c, &t), &mut content, &mut thinking),
+                None => {
+                    content.push_str(&c);
+                    thinking.push_str(&t);
+                }
+            },
             Event::Error { status, message } => return oai_error(status, message),
             Event::Accepted { .. } => {}
             Event::Done(s) => {
+                let mut warnings = ctx.warnings.clone();
+                if let Some(k) = calls.as_mut() {
+                    take(k.finish(), &mut content, &mut thinking);
+                    warnings.extend(k.warnings.iter().cloned());
+                }
                 let usage = Usage {
                     prompt_tokens: s.prompt_eval_count,
                     completion_tokens: s.eval_count,
                     total_tokens: s.prompt_eval_count + s.eval_count,
                 };
-                let warnings = (!ctx.warnings.is_empty()).then(|| ctx.warnings.clone());
-                let finish = finish_reason(&s.done_reason).to_string();
+                let warnings = (!warnings.is_empty()).then_some(warnings);
+                let finish = finish_reason(&s.done_reason, made.len()).to_string();
                 return match ctx.shape {
                     Shape::Chat => Json(ChatCompletion {
                         id: ctx.id,
@@ -389,8 +486,9 @@ async fn complete(st: &AppState, name: ModelName, request: Request, stream: bool
                             index: 0,
                             message: AssistantMessage {
                                 role: "assistant".into(),
-                                content,
+                                content: (!content.is_empty() || made.is_empty()).then_some(content),
                                 reasoning: (!thinking.is_empty()).then_some(thinking),
+                                tool_calls: (!made.is_empty()).then_some(made),
                             },
                             finish_reason: finish,
                         }],
@@ -416,6 +514,100 @@ async fn complete(st: &AppState, name: ModelName, request: Request, stream: bool
     oai_error(500, "the engine stopped before the end of the answer")
 }
 
+/// The conversation with tools a request carries, or `None` when it offers
+/// none and its history holds no tool call: that request takes the plain chat
+/// path, unchanged.
+fn tool_prompt(st: &AppState, name: &ModelName, req: &ChatCompletionRequest) -> Result<Option<ToolPrompt>, Response> {
+    let offered = req.tools.as_deref().unwrap_or_default();
+    let in_history =
+        req.messages.iter().any(|m| m.role == "tool" || m.tool_calls.as_ref().is_some_and(|c| !c.is_empty()));
+    if offered.is_empty() && !in_history {
+        return Ok(None);
+    }
+    let format = family_format(st, name).map_err(|(s, m)| oai_error(s, m))?;
+    let mut tools = Vec::with_capacity(offered.len());
+    for (i, t) in offered.iter().enumerate() {
+        tools.push(ToolDef::parse(i, t).map_err(|e| oai_error(400, e))?);
+    }
+    match &req.tool_choice {
+        None | Some(Value::Null) => {}
+        Some(Value::String(c)) if c == "auto" => {}
+        // Not offered, so not called: the model is not told of the tools.
+        Some(Value::String(c)) if c == "none" => tools.clear(),
+        Some(Value::String(c)) if c == "required" => {
+            return Err(oai_error(400, "tool_choice \"required\" is not served by llvq: the decode is not constrained, so \
+                 a call cannot be forced; send \"auto\""))
+        }
+        Some(Value::Object(_)) => {
+            return Err(oai_error(400, "tool_choice naming a function is not served by llvq: the decode is not \
+                 constrained, so a call cannot be forced; send \"auto\""))
+        }
+        Some(o) => return Err(oai_error(400, format!("tool_choice {o}: \"auto\" or \"none\""))),
+    }
+    if req.parallel_tool_calls == Some(false) && !tools.is_empty() {
+        return Err(oai_error(
+            400,
+            "parallel_tool_calls false is not served by llvq: the decode cannot be held to one call per answer",
+        ));
+    }
+    let mut msgs = Vec::with_capacity(req.messages.len());
+    let mut ids = Vec::with_capacity(req.messages.len());
+    for (i, m) in req.messages.iter().enumerate() {
+        let role = match m.role.as_str() {
+            "system" | "developer" => ToolRole::System,
+            "user" => ToolRole::User,
+            "assistant" => ToolRole::Assistant,
+            "tool" => ToolRole::Tool,
+            o => return Err(oai_error(400, format!("messages[{i}]: role {o:?}: the roles are system, user, assistant and tool"))),
+        };
+        let content = content_text(&m.content).map_err(|e| oai_error(400, format!("messages[{i}]: {e}")))?;
+        let mut calls = Vec::new();
+        for (k, c) in m.tool_calls.iter().flatten().enumerate() {
+            if role != ToolRole::Assistant {
+                return Err(oai_error(400, format!("messages[{i}]: only an assistant message carries tool_calls")));
+            }
+            calls.push(hist_call(c).map_err(|e| oai_error(400, format!("messages[{i}].tool_calls[{k}]: {e}")))?);
+        }
+        let mut name = None;
+        if role == ToolRole::Tool {
+            let Some(id) = &m.tool_call_id else {
+                return Err(oai_error(400, format!("messages[{i}]: a tool message needs the tool_call_id it answers")));
+            };
+            name = msgs[..i].iter().rev().flat_map(|p: &ToolMsg| p.calls.iter()).find(|c| c.id.as_ref() == Some(id)).map(|c| c.name.clone());
+        }
+        ids.push(m.tool_call_id.clone().filter(|_| role == ToolRole::Tool));
+        msgs.push(ToolMsg { role, content, calls, name });
+    }
+    tools::check_results(&msgs, &ids).map_err(|e| oai_error(400, e))?;
+    Ok(Some(ToolPrompt { format, tools, msgs }))
+}
+
+/// A call of an assistant message, OpenAI's shape. `arguments` is a JSON
+/// string, written into the prompt as it is; an object is read too.
+fn hist_call(c: &OrderedJson) -> Result<HistCall, String> {
+    match c.get("type").and_then(OrderedJson::as_str) {
+        None | Some("function") => {}
+        Some(t) => return Err(format!("type {t:?}: the type is \"function\"")),
+    }
+    let f = c.get("function").ok_or("a function object")?;
+    let name = f.get("name").and_then(OrderedJson::as_str).filter(|n| !n.is_empty()).ok_or("function.name, a string")?;
+    let arguments = match f.get("arguments") {
+        Some(OrderedJson::Str(s)) => Args::Text(s.clone()),
+        Some(o @ OrderedJson::Obj(_)) => Args::Object(o.clone()),
+        _ => return Err("function.arguments, a JSON string".into()),
+    };
+    Ok(HistCall { id: c.get("id").and_then(OrderedJson::as_str).map(str::to_string), name: name.to_string(), arguments })
+}
+
+/// The tool format of a model's family, from its manifest.
+pub fn family_format(st: &AppState, name: &ModelName) -> Result<ToolFormat, (u16, String)> {
+    match st.models.store.get(name) {
+        Err(e) => Err((500, format!("{e:#}"))),
+        Ok(None) => Err((404, format!("model '{name}' not found, try pulling it first"))),
+        Ok(Some(m)) => ToolFormat::of_family(&m.family).map_err(|e| (400, e)),
+    }
+}
+
 fn model_name(s: &str) -> Result<ModelName, Response> {
     ModelName::parse(s).map_err(|e| oai_error(400, e))
 }
@@ -433,27 +625,30 @@ pub async fn chat_completions(State(st): State<AppState>, body: Bytes) -> Respon
         Ok(n) => n,
         Err(r) => return r,
     };
-    if req.tools.as_ref().is_some_and(|t| !t.is_empty()) {
-        return oai_error(400, "tools: tool calls are not served by llvq");
-    }
     if let Some(f) = &req.response_format {
         if f.get("type").and_then(Value::as_str).is_some_and(|t| t != "text") {
             return oai_error(400, "response_format: structured output is not implemented by llvq");
         }
     }
-    let mut msgs = Vec::with_capacity(req.messages.len());
-    for m in &req.messages {
-        let role = match Role::parse(&m.role) {
-            Ok(r) => r,
-            Err(e) => return oai_error(400, e),
-        };
-        match content_text(&m.content) {
-            Ok(content) => msgs.push(Msg { role, content }),
-            Err(e) => return oai_error(400, e),
-        }
-    }
-    if msgs.is_empty() {
+    if req.messages.is_empty() {
         return oai_error(400, "messages: at least one");
+    }
+    let tool_prompt = match tool_prompt(&st, &name, &req) {
+        Ok(p) => p,
+        Err(r) => return r,
+    };
+    let mut msgs = Vec::with_capacity(req.messages.len());
+    if tool_prompt.is_none() {
+        for m in &req.messages {
+            let role = match Role::parse(&m.role) {
+                Ok(r) => r,
+                Err(e) => return oai_error(400, e),
+            };
+            match content_text(&m.content) {
+                Ok(content) => msgs.push(Msg { role, content }),
+                Err(e) => return oai_error(400, e),
+            }
+        }
     }
     let o = match options(
         req.temperature,
@@ -474,8 +669,13 @@ pub async fn chat_completions(State(st): State<AppState>, body: Bytes) -> Respon
         shape: Shape::Chat,
         include_usage: req.stream_options.as_ref().and_then(|s| s.include_usage).unwrap_or(false),
         warnings: warn_extra(&req.extra),
+        tools: tool_prompt.as_ref().filter(|p| !p.tools.is_empty()).map(|p| p.format),
     };
-    let request = Request { prompt: Prompt::Chat(msgs), think, options: o };
+    let prompt = match tool_prompt {
+        Some(p) => Prompt::ToolChat(p),
+        None => Prompt::Chat(msgs),
+    };
+    let request = Request { prompt, think, options: o };
     complete(&st, name, request, req.stream.unwrap_or(false), ctx).await
 }
 
@@ -515,6 +715,7 @@ pub async fn completions(State(st): State<AppState>, body: Bytes) -> Response {
         shape: Shape::Text,
         include_usage: req.stream_options.as_ref().and_then(|s| s.include_usage).unwrap_or(false),
         warnings: warn_extra(&req.extra),
+        tools: None,
     };
     let request = Request { prompt: Prompt::Templated { system: None, prompt }, think: false, options: o };
     complete(&st, name, request, req.stream.unwrap_or(false), ctx).await

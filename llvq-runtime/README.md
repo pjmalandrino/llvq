@@ -37,9 +37,20 @@ Ollama: `/api/chat`, `/api/generate`, `/api/tags`, `/api/ps`, `/api/show`, `/api
 document is at `/openapi.json` and committed as `openapi.json`. Embeddings, `create`, `push`,
 blobs and `/v1/responses` answer `501` with the reason.
 
+Tool calls are served on `/v1/chat/completions` and `/api/chat` for the qwen3 family, in its
+official template's format (`src/tools.rs`): `tools` of type `function`, `role: tool` results,
+assistant messages that carry `tool_calls`, and answers with `tool_calls` and, on the OpenAI route,
+`finish_reason: tool_calls`. A call is streamed whole in one chunk, with its `index`, once its
+closing marker has arrived. `tool_choice` `auto` and `none` are served; `none` does not show the
+tools to the model and reads nothing for calls. `tool_choice` `required` or a named function, and
+`parallel_tool_calls: false`, are refused: the decode is not constrained.
+
 ## Limits
 
 The engine decodes one sequence at a time, so requests to one model queue. On CUDA the three
 models run 4E, which decodes greedily: a temperature above 0 is refused there. A chat history is read again
 only from the first message that changed since the last request. Rates in a response are the
-runtime's own, never a measurement.
+runtime's own, never a measurement. A call block the model writes that is not a JSON object with a
+`name` comes back as content, markers included, with a warning in the unstreamed response. A tool
+result is placed by its position after the calls, as Qwen3's template places it; its
+`tool_call_id` is checked to name a call of the assistant message before it.
