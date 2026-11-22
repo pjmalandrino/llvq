@@ -4,7 +4,8 @@
 //! ```text
 //! inkrun --config D/textonly/config.json --checkpoint D/textonly/model.safetensors \
 //!        --layers D/layers --tokens prompt32.json --device cuda --out report.json \
-//!        [--n 32] [--resident verified|none] [--require-layers 24]
+//!        [--n 32] [--resident verified|none] [--require-layers 24] \
+//!        [--logits-out logits.f32] [--prompt-key ids] [--prompt-len 600]
 //! ```
 //!
 //! The dense weights (attention, router, convolutions, norms, head) come from
@@ -20,6 +21,36 @@
 //! `--tokens` is a JSON object: `prompt` (token ids) and optionally
 //! `reference` (token ids to compare the generation with). The generation is
 //! greedy through `CausalLm`: one prefill, then one step a token.
+//! `--prompt-key` names another array of the same file as the prompt (the
+//! `ids` of a WikiText window, for a longer one), and `--prompt-len` keeps its
+//! first tokens.
+//!
+//! `--phases K` splits the wall time of the first `K` steps by part
+//! (`inkling::layers::phases`): the device is drained at every boundary, so
+//! those steps run slower; the steps after them run untimed and give the
+//! total the split is read against.
+//!
+//! `--attn-chunk N` reads a prompt's attention scores `N` query rows at a
+//! time (default 512, `0` for one score tensor whatever the prompt).
+//! `--peak-probe` drains the device after every layer visit and keeps the
+//! largest allocated size it reads there (Metal only), the peak the report
+//! gives beside the four fixed points.
+//!
+//! `--rollback-gate on` runs, before the generation, the gate of the cache
+//! mark: the prompt cut in halves `a` and `b`, `x` the reversed `b`;
+//! prefill(a), mark, prefill(x), rollback, prefill(b) and two greedy steps,
+//! against prefill(a), prefill(b) and the same steps, bit for bit.
+//!
+//! `--routing-out <file>` runs the prefill through `Inkling::forward` with
+//! the visits recorded (the same operations; the record only keeps handles)
+//! and writes, per visit and prompt token, the experts chosen and the margin
+//! of the 8th over the 9th, as JSON.
+//!
+//! `--logits-out` writes the f32 logits of the prefill's last position and
+//! of every step, as read back by the greedy choice: raw little-endian f32,
+//! one row of `vocab` values a position, prefill first, no header. The
+//! report gives the row count and the vocabulary. The class A gates compare
+//! two such files byte for byte.
 //!
 //! The report carries the tokens, the prefill and per-step seconds (each step
 //! ends on reading its logits back to the host, which waits for the device),
@@ -39,6 +70,7 @@ use anyhow::{bail, Context, Result};
 use candle_core::{Device, Tensor};
 use serde_json::{json, Value};
 
+use llvq_llm::inkling::layers::phases;
 use llvq_llm::inkling::Inkling;
 use llvq_llm::lm::CausalLm;
 
@@ -52,13 +84,23 @@ struct Args {
     n: usize,
     resident: bool,
     require_layers: usize,
+    logits_out: Option<PathBuf>,
+    prompt_key: String,
+    prompt_len: Option<usize>,
+    phases: usize,
+    attn_chunk: Option<usize>,
+    peak_probe: bool,
+    rollback_gate: bool,
+    routing_out: Option<PathBuf>,
 }
 
 fn usage() -> ! {
     eprintln!(
         "usage: inkrun --config <config.json> --checkpoint <model.safetensors> --layers <D/layers> \
          --tokens <tokens.json> --device cpu|metal|cuda --out <report.json> [--n 32] \
-         [--resident verified|none] [--require-layers N]"
+         [--resident verified|none] [--require-layers N] [--logits-out <file>] [--prompt-key <key>] \
+         [--prompt-len N] [--phases K] [--attn-chunk N] [--peak-probe on] \
+         [--rollback-gate on]"
     );
     std::process::exit(2)
 }
@@ -89,6 +131,22 @@ fn parse() -> Result<Args> {
             Some(o) => bail!("--resident {o}: verified or none"),
         },
         require_layers: take("require-layers").map(|v| v.parse()).transpose().context("--require-layers")?.unwrap_or(0),
+        logits_out: take("logits-out").map(PathBuf::from),
+        prompt_key: take("prompt-key").unwrap_or_else(|| "prompt".into()),
+        prompt_len: take("prompt-len").map(|v| v.parse()).transpose().context("--prompt-len")?,
+        phases: take("phases").map(|v| v.parse()).transpose().context("--phases")?.unwrap_or(0),
+        attn_chunk: take("attn-chunk").map(|v| v.parse()).transpose().context("--attn-chunk")?,
+        peak_probe: match take("peak-probe").as_deref() {
+            None | Some("off") => false,
+            Some("on") => true,
+            Some(o) => bail!("--peak-probe {o}: on or off"),
+        },
+        routing_out: take("routing-out").map(PathBuf::from),
+        rollback_gate: match take("rollback-gate").as_deref() {
+            None | Some("off") => false,
+            Some("on") => true,
+            Some(o) => bail!("--rollback-gate {o}: on or off"),
+        },
     };
     if let Some(k) = a.keys().next() {
         bail!("unknown option --{k}");
@@ -133,9 +191,23 @@ fn memory(dev: &Device) -> Value {
     }
 }
 
-/// Greedy argmax (first maximum) and the margin to the runner-up.
-fn top2(logits: &Tensor) -> Result<(u32, f32)> {
+/// Bytes the device has allocated, where the backend says (Metal).
+#[allow(unused_variables)]
+fn allocated(dev: &Device) -> Option<u64> {
+    match dev {
+        #[cfg(all(target_os = "macos", feature = "metal"))]
+        Device::Metal(m) => Some(m.device().current_allocated_size() as u64),
+        _ => None,
+    }
+}
+
+/// Greedy argmax (first maximum) and the margin to the runner-up. When
+/// `sink` is given, the row read back is appended to it as little-endian f32.
+fn top2(logits: &Tensor, sink: Option<&mut Vec<u8>>) -> Result<(u32, f32)> {
     let v = logits.flatten_all()?.to_dtype(candle_core::DType::F32)?.to_vec1::<f32>()?;
+    if let Some(buf) = sink {
+        buf.extend(v.iter().flat_map(|x| x.to_le_bytes()));
+    }
     let (mut i1, mut b1, mut b2) = (0usize, f32::NEG_INFINITY, f32::NEG_INFINITY);
     for (i, &x) in v.iter().enumerate() {
         if x > b1 {
@@ -150,6 +222,31 @@ fn top2(logits: &Tensor) -> Result<(u32, f32)> {
         bail!("logits without a finite maximum");
     }
     Ok((i1 as u32, b1 - b2))
+}
+
+/// The bits of a logits row.
+fn bits(logits: &Tensor) -> Result<Vec<u32>> {
+    Ok(logits.flatten_all()?.to_dtype(candle_core::DType::F32)?.to_vec1::<f32>()?.iter().map(|x| x.to_bits()).collect())
+}
+
+/// prefill(a), [mark, prefill(x), rollback,] prefill(b), then two greedy
+/// steps: the bits of the three logits rows.
+fn rollback_arm(model: &Inkling, a: &[u32], x: Option<&[u32]>, b: &[u32]) -> Result<Vec<Vec<u32>>> {
+    let mut cache = model.new_cache();
+    CausalLm::prefill(model, a, &mut cache)?;
+    if let Some(x) = x {
+        let m = CausalLm::mark(model, &cache);
+        CausalLm::prefill(model, x, &mut cache)?;
+        CausalLm::rollback(model, &mut cache, &m)?;
+    }
+    let mut logits = CausalLm::prefill(model, b, &mut cache)?;
+    let mut rows = vec![bits(&logits)?];
+    for i in 0..2 {
+        let (next, _) = top2(&logits, None)?;
+        logits = CausalLm::step(model, next, a.len() + b.len() + i, &mut cache)?;
+        rows.push(bits(&logits)?);
+    }
+    Ok(rows)
 }
 
 fn ids(v: &Value, key: &str) -> Result<Option<Vec<u32>>> {
@@ -202,7 +299,14 @@ fn main() -> Result<()> {
         &std::fs::read(&args.tokens).with_context(|| format!("read {}", args.tokens.display()))?,
     )
     .with_context(|| format!("parse {}", args.tokens.display()))?;
-    let prompt = ids(&tok_json, "prompt")?.ok_or_else(|| anyhow::anyhow!("{}: no prompt", args.tokens.display()))?;
+    let mut prompt = ids(&tok_json, &args.prompt_key)?
+        .ok_or_else(|| anyhow::anyhow!("{}: no array {}", args.tokens.display(), args.prompt_key))?;
+    if let Some(n) = args.prompt_len {
+        if n > prompt.len() {
+            bail!("--prompt-len {n}: {} holds {} tokens under {}", args.tokens.display(), prompt.len(), args.prompt_key);
+        }
+        prompt.truncate(n);
+    }
     if prompt.is_empty() {
         bail!("{}: empty prompt", args.tokens.display());
     }
@@ -235,33 +339,100 @@ fn main() -> Result<()> {
         );
     }
     model.take_launches();
+    if let Some(n) = args.attn_chunk {
+        model.set_attn_chunk(n);
+    }
+    let peak = std::sync::Arc::new(std::sync::atomic::AtomicU64::new(0));
+    if args.peak_probe {
+        let (d, p) = (dev.clone(), peak.clone());
+        model.set_visit_probe(Some(Box::new(move || {
+            let _ = d.synchronize();
+            if let Some(b) = allocated(&d) {
+                p.fetch_max(b, std::sync::atomic::Ordering::Relaxed);
+            }
+        })));
+    }
+
+    let rollback_gate = if args.rollback_gate {
+        if prompt.len() < 4 {
+            bail!("--rollback-gate needs a prompt of at least 4 tokens");
+        }
+        let (a, b) = prompt.split_at(prompt.len() / 2);
+        let x: Vec<u32> = b.iter().rev().copied().collect();
+        let t = Instant::now();
+        let with = rollback_arm(&model, a, Some(&x), b)?;
+        let without = rollback_arm(&model, a, None, b)?;
+        let differing: Vec<usize> =
+            (0..with.len()).filter(|&r| with[r] != without[r]).collect();
+        eprintln!("inkrun: rollback gate, rows differing {differing:?}");
+        model.take_launches();
+        json!({"a": a.len(), "x": x.len(), "b": b.len(), "rows": with.len(), "differing_rows": differing,
+               "bit_for_bit": differing.is_empty(), "seconds": t.elapsed().as_secs_f64()})
+    } else {
+        Value::Null
+    };
 
     let mut cache = model.new_cache();
     dev.synchronize()?;
     let t = Instant::now();
-    let logits = CausalLm::prefill(&model, &prompt, &mut cache)?;
-    let (mut next, mut margin) = top2(&logits)?;
+    let mut logit_rows: Option<Vec<u8>> = args.logits_out.as_ref().map(|_| Vec::new());
+    let logits = match &args.routing_out {
+        None => CausalLm::prefill(&model, &prompt, &mut cache)?,
+        Some(p) => {
+            let out = model.forward(&prompt, &mut cache, true, false)?;
+            let visits: Vec<Value> = out
+                .visits
+                .iter()
+                .map(|v| json!({"layer": v.layer, "pass": v.pass, "experts": v.routing.indices, "margin": v.routing.margin}))
+                .collect();
+            std::fs::write(p, serde_json::to_string(&visits)?).with_context(|| format!("write {}", p.display()))?;
+            out.logits.reshape((1, 1, CausalLm::vocab_size(&model)))?
+        }
+    };
+    let (mut next, mut margin) = top2(&logits, logit_rows.as_mut())?;
     let seconds_prefill = t.elapsed().as_secs_f64();
     let launches_prefill = model.take_launches();
+    let peak_prefill = peak.load(std::sync::atomic::Ordering::Relaxed);
     eprintln!("inkrun: prefill of {} tokens in {seconds_prefill:.2} s", prompt.len());
 
     let mut tokens = vec![];
     let mut margins = vec![];
     let mut step_seconds = vec![];
     let mut step_launches = vec![];
+    let mut phase_rows: Vec<Value> = vec![];
     for i in 0..args.n {
         tokens.push(next);
         margins.push(margin);
         if i + 1 == args.n {
             break;
         }
+        let profiled = i < args.phases;
+        if profiled {
+            phases::start(&dev)?;
+        }
         let t = Instant::now();
         let logits = CausalLm::step(&model, next, prompt.len() + i, &mut cache)?;
-        (next, margin) = top2(&logits)?;
+        (next, margin) = top2(&logits, logit_rows.as_mut())?;
+        if profiled {
+            phases::mark(&dev, phases::Phase::Readback)?;
+            let acc = phases::stop();
+            let total = t.elapsed().as_secs_f64();
+            let parts: serde_json::Map<String, Value> =
+                phases::ALL.iter().zip(acc).map(|(p, s)| (p.name().to_string(), json!(s))).collect();
+            phase_rows.push(json!({"step": i, "total": total, "sum_of_parts": acc.iter().sum::<f64>(), "parts": parts}));
+        }
         step_seconds.push(t.elapsed().as_secs_f64());
         step_launches.push(model.take_launches());
     }
     let mem_end = memory(&dev);
+    let vocab = CausalLm::vocab_size(&model);
+    let logits_file = match (&args.logits_out, &logit_rows) {
+        (Some(p), Some(buf)) => {
+            std::fs::write(p, buf).with_context(|| format!("write {}", p.display()))?;
+            json!({"path": p, "rows": buf.len() / (4 * vocab), "vocab": vocab, "bytes": buf.len()})
+        }
+        _ => Value::Null,
+    };
 
     let (equal_prefix, first_mismatch, all_equal) = match &reference {
         None => (None, None, None),
@@ -270,6 +441,27 @@ fn main() -> Result<()> {
             let all = k == tokens.len() && r.len() >= tokens.len();
             (Some(k), if all { None } else { Some(k) }, Some(all))
         }
+    };
+    let med = |mut v: Vec<f64>| -> Option<f64> {
+        v.sort_by(f64::total_cmp);
+        v.get(v.len() / 2).copied()
+    };
+    let phases_report = if phase_rows.is_empty() {
+        Value::Null
+    } else {
+        let col = |k: &str| phase_rows.iter().map(|r| r[k].as_f64().unwrap_or(f64::NAN)).collect::<Vec<_>>();
+        let parts: serde_json::Map<String, Value> = phases::ALL
+            .iter()
+            .map(|p| {
+                let v = phase_rows.iter().map(|r| r["parts"][p.name()].as_f64().unwrap_or(f64::NAN)).collect();
+                (p.name().to_string(), json!(med(v)))
+            })
+            .collect();
+        let untimed: Vec<f64> = step_seconds.iter().skip(args.phases).copied().collect();
+        json!({"profiled_steps": phase_rows.len(), "rows": phase_rows,
+               "median_parts": parts, "median_total_profiled": med(col("total")),
+               "median_sum_of_parts": med(col("sum_of_parts")),
+               "untimed_steps": untimed.len(), "median_total_untimed": med(untimed)})
     };
     let mut sorted = step_seconds.clone();
     sorted.sort_by(f64::total_cmp);
@@ -299,6 +491,17 @@ fn main() -> Result<()> {
         "equal_prefix": equal_prefix,
         "first_mismatch": first_mismatch,
         "all_equal": all_equal,
+        "prompt_key": args.prompt_key,
+        "phases": phases_report,
+        "attn_chunk": model.attn_chunk(),
+        "rollback_gate": rollback_gate,
+        "peak_probe": if args.peak_probe {
+            json!({"kind": "largest allocated size read after a layer visit, device drained",
+                   "prefill": peak_prefill, "whole_run": peak.load(std::sync::atomic::Ordering::Relaxed)})
+        } else {
+            Value::Null
+        },
+        "logits_file": logits_file,
     });
     let text = serde_json::to_string_pretty(&report)?;
     std::fs::write(&args.out, &text).with_context(|| format!("write {}", args.out.display()))?;

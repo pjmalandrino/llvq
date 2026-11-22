@@ -33,7 +33,7 @@ use std::path::Path;
 use candle_core::{DType, Device, Result, Tensor};
 
 use config::InklingConfig;
-use layers::{block_attn_res, LayerWeights, MoeSource, Routing, SlotCache};
+use layers::{block_attn_res, LayerWeights, MoeSource, Routing, SlotCache, SlotMark};
 use loader::NativeCheckpoint;
 
 /// The embedding output and each pre-loop layer's output and routing.
@@ -122,12 +122,65 @@ pub struct ForwardOut {
 pub struct InklingCache {
     slots: Vec<SlotCache>,
     len: usize,
+    tokens: Vec<u32>,
+}
+
+/// What [`crate::lm::CausalLm::mark`] keeps for [`Inkling`]: the tokens held
+/// and, per slot, the positions and the four convolution states.
+#[derive(Debug, Clone)]
+pub struct InklingMark {
+    tokens: Vec<u32>,
+    slots: Vec<SlotMark>,
+}
+
+impl InklingMark {
+    /// Tokens held at the mark.
+    pub fn tokens(&self) -> &[u32] {
+        &self.tokens
+    }
 }
 
 impl InklingCache {
     /// Tokens held.
     pub fn len(&self) -> usize {
         self.len
+    }
+
+    /// The token ids held, in order.
+    pub fn tokens(&self) -> &[u32] {
+        &self.tokens
+    }
+
+    /// Make room for `positions` tokens in every slot before the next growth
+    /// of its key and value buffers. Nothing held changes.
+    pub fn reserve(&mut self, positions: usize) -> Result<()> {
+        self.slots.iter_mut().try_for_each(|s| s.reserve(positions))
+    }
+
+    /// The state needed to come back here.
+    pub fn mark(&self) -> InklingMark {
+        InklingMark { tokens: self.tokens.clone(), slots: self.slots.iter().map(SlotCache::mark).collect() }
+    }
+
+    /// Cut the cache back to `m`. Refused, with the cache unchanged, when the
+    /// tokens of `m` are not a prefix of the tokens the cache holds.
+    pub fn rollback(&mut self, m: &InklingMark) -> Result<()> {
+        if m.slots.len() != self.slots.len() {
+            candle_core::bail!("rollback: a mark of {} slots on a cache of {}", m.slots.len(), self.slots.len());
+        }
+        let n = m.tokens.len();
+        if n > self.len || self.tokens[..n] != m.tokens[..] {
+            candle_core::bail!("rollback: the {n} tokens of the mark are not a prefix of the {} the cache holds", self.len);
+        }
+        if let Some(s) = self.slots.iter().find(|s| s.len() < n) {
+            candle_core::bail!("rollback: a slot holds {} positions, the mark {n}", s.len());
+        }
+        for (s, sm) in self.slots.iter_mut().zip(&m.slots) {
+            s.rollback(sm)?;
+        }
+        self.len = n;
+        self.tokens.truncate(n);
+        Ok(())
     }
 
     pub fn is_empty(&self) -> bool {
@@ -170,7 +223,14 @@ pub struct Inkling {
     /// When set, the wall time of every MoE call, `(layer, seconds)`, the
     /// device synchronized on both sides. Off by default.
     moe_timing: std::sync::Mutex<Option<Vec<(usize, f64)>>>,
+    /// Query rows of one attention score tensor ([`layers::DEFAULT_ATTN_CHUNK`]; `0`: one chunk).
+    attn_chunk: usize,
+    /// Called after every layer visit when set: a measurement reads the device memory there.
+    visit_probe: std::sync::Mutex<Option<VisitProbe>>,
 }
+
+/// What [`Inkling::set_visit_probe`] takes.
+pub type VisitProbe = Box<dyn FnMut() + Send>;
 
 /// A source whose calls are timed, the device drained before and after.
 struct TimedMoe<'a> {
@@ -248,6 +308,8 @@ impl Inkling {
             dev: dev.clone(),
             experts,
             moe_timing: std::sync::Mutex::new(None),
+            attn_chunk: layers::DEFAULT_ATTN_CHUNK,
+            visit_probe: std::sync::Mutex::new(None),
         })
     }
 
@@ -290,7 +352,7 @@ impl Inkling {
     }
 
     pub fn new_cache(&self) -> InklingCache {
-        InklingCache { slots: vec![SlotCache::default(); self.n_slots()], len: 0 }
+        InklingCache { slots: vec![SlotCache::default(); self.n_slots()], len: 0, tokens: vec![] }
     }
 
     /// The native experts of `layer`, decoded one expert at a time.
@@ -320,6 +382,25 @@ impl Inkling {
         self.moe_timing.lock().expect("no panic holds this lock").as_mut().map(std::mem::take).unwrap_or_default()
     }
 
+    /// Take the attention scores of a prompt `rows` query rows at a time
+    /// (`0`: the whole prompt in one score tensor). Default
+    /// [`layers::DEFAULT_ATTN_CHUNK`]. A prompt no longer than `rows` runs the
+    /// operations of one call.
+    pub fn set_attn_chunk(&mut self, rows: usize) {
+        self.attn_chunk = rows;
+    }
+
+    pub fn attn_chunk(&self) -> usize {
+        self.attn_chunk
+    }
+
+    /// Call `probe` after every layer visit from now on (`None`: stop). It
+    /// sees nothing of the forward; a measurement drains the device and reads
+    /// its memory there.
+    pub fn set_visit_probe(&self, probe: Option<VisitProbe>) {
+        *self.visit_probe.lock().expect("no panic holds this lock") = probe;
+    }
+
     /// The source set for `layer`, if any.
     pub fn layer_source(&self, layer: usize) -> Option<&dyn MoeSource> {
         match &self.experts[layer] {
@@ -338,7 +419,9 @@ impl Inkling {
             candle_core::bail!("cache has {} slots, the model {}", cache.slots.len(), self.n_slots());
         }
         let lc = &self.cfg.loop_config;
+        layers::phases::mark(&self.dev, layers::phases::Phase::Other)?;
         let embed = layers::embed(&self.ck, &self.cfg, ids, &self.dev)?;
+        layers::phases::mark(&self.dev, layers::phases::Phase::Embed)?;
         let mut visits = vec![];
         let mut h = embed.clone();
         let mut bs: Vec<Tensor> = vec![]; // block states, line 1360
@@ -357,7 +440,9 @@ impl Inkling {
             let messages = if pass >= 2 {
                 let (pbs, ph) = prev.as_ref().expect("previous pass");
                 // line 1407: `message_input`, the four queries of this loop layer
-                Some(block_attn_res(&self.message_queries[layer - lc.core_start], pbs, ph)?)
+                let m = block_attn_res(&self.message_queries[layer - lc.core_start], pbs, ph)?;
+                layers::phases::mark(&self.dev, layers::phases::Phase::NormsGates)?;
+                Some(m)
             } else {
                 None
             };
@@ -373,7 +458,11 @@ impl Inkling {
             let timed = TimedMoe { inner: src, dev: &self.dev, layer, out: &self.moe_timing };
             let src: &dyn MoeSource = if timing_on { &timed } else { src };
             let slot = &mut cache.slots[self.slot(layer, pass)];
-            let (next, routing) = lw.forward(&self.cfg, &h, &bs, messages.as_deref(), src, slot)?;
+            let (next, routing) =
+                lw.forward_chunked(&self.cfg, &h, &bs, messages.as_deref(), src, slot, self.attn_chunk)?;
+            if let Some(p) = self.visit_probe.lock().expect("no panic holds this lock").as_mut() {
+                p();
+            }
             if lw.boundary {
                 bs.push(h.clone());
             }
@@ -386,11 +475,14 @@ impl Inkling {
             }
         }
         cache.len += ids.len();
+        cache.tokens.extend_from_slice(ids);
         // line 1442-1443: `final_input` over the block states, then the norm
         let h = block_attn_res(&self.final_query, &bs, &h)?.remove(0);
         let h = layers::rms_norm(&h, &self.norm, self.cfg.rms_norm_eps)?;
         let h = if all_logits { h } else { h.narrow(0, h.dim(0)? - 1, 1)? };
+        layers::phases::mark(&self.dev, layers::phases::Phase::NormsGates)?;
         let logits = self.head(&h)?;
+        layers::phases::mark(&self.dev, layers::phases::Phase::Head)?;
         Ok(ForwardOut { embed, visits, logits })
     }
 
@@ -460,6 +552,7 @@ impl Inkling {
 
 impl crate::lm::CausalLm for Inkling {
     type Cache = InklingCache;
+    type Mark = InklingMark;
 
     // The logits have the unpadded rows only (`Inkling2UnpadVocab`); the
     // config's `vocab_size` is the padded embedding, 201,024.
@@ -483,5 +576,13 @@ impl crate::lm::CausalLm for Inkling {
         }
         let out = self.forward(&[token], cache, false, false)?;
         out.logits.reshape((1, 1, self.cfg.unpadded_vocab_size))
+    }
+
+    fn mark(&self, cache: &Self::Cache) -> Self::Mark {
+        cache.mark()
+    }
+
+    fn rollback(&self, cache: &mut Self::Cache, mark: &Self::Mark) -> Result<()> {
+        cache.rollback(mark)
     }
 }
