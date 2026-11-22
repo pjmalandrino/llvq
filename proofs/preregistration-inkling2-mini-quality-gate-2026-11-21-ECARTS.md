@@ -47,10 +47,10 @@ are encoded after it, during the day of 2026-11-22. Their reading on the 24 laye
   running), and everything after runs at 6 threads, on the Hessians already built. The encoder is resumable an
   expert and the settings are the annex's. Whether its output is bit-identical across thread counts was not checked.
 
-On 2026-11-22 at 10:15 the reconstructions of loop layers 7 to 17 were narrowed to float16 as well, for the same
-reason, after the gate had been read on their float32 files. Their codes had been checked against those files bit
-for bit (`logs/verify_L*.log` in the journal's raw folder) and decode to them. Layer 6 keeps its float32 files.
-Every reading taken after that hour, the one on the 24 layers included, runs on float16 reconstructions.
+The reconstructions of loop layers 6 to 17 stay in float32. A narrowing of layers 7 to 17 to float16 was queued on
+2026-11-22 at 10:15, when the disk fell to 37 GB, and was cancelled at 10:30 before it touched a file, the disk
+having come back to 78 GB. So the reading on the 24 layers mixes float32 reconstructions in the loop and float16
+ones outside it.
 
 The calibration captures of layers 6 to 17 (36 visit directories, 21 GB) were deleted at 06:30 to make room. They are
 rebuilt by `ops/inkling/capture.py` in about 18 minutes from the same tokens (`calib/tokens.u32` is kept).
