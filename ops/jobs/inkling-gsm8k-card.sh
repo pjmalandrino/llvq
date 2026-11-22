@@ -7,6 +7,7 @@
 #   (0) controls: the card, no LLVQ_* in the environment, `oracle` MATCH on Qwen3-0.6B, every input at its pin after
 #       it is copied from the bucket to the container's disk (the first-card inputs plus tokenizer.json, and the
 #       two int4 tables of the sealed file unless TABLES=checkpoint);
+#       then control 3: `inkrun` generates the 32 tokens of the Mac's resident run on this image, or the job stops;
 #   (1) `inkgsm run`: the dump is written on local disk, line by line, and copied to the bucket every COPY_EVERY
 #       seconds and at the end; `--deadline-seconds` stops it cleanly before the job's timeout, every written line
 #       whole. RESUME_FROM=<bucket dir of an earlier run> starts from that run's dump: only the missing problems run;
@@ -51,6 +52,10 @@ TEXTONLY_SHA=${TEXTONLY_SHA:-}
 CONFIG_SHA=${CONFIG_SHA:-}
 MANIFEST_SHA=${MANIFEST_SHA:-}
 TOKENIZER_SHA=${TOKENIZER_SHA:-}
+# The 32-token prompt and the Mac's 32 resident tokens (ops/inkling/stage-first-card.sh prints the pin): control 3
+# reruns the first card run's check on this image before any problem, so an engine change that breaks CUDA stops
+# the job in a minute instead of costing a full run.
+TOKENS_SHA=${TOKENS_SHA:-}
 # Which vocabulary tables the model reads. `sealed` (the default): the two int4 g64 tables of the sealed file,
 # staged under tables/ and pinned below, so the run reads the sealed object's own values. `checkpoint`: the
 # checkpoint's BF16 tables, another arm (the experts alone in lattice codes).
@@ -70,7 +75,7 @@ fi
 [ "$DEADLINE" -gt 0 ] 2>/dev/null || { echo "refused: DEADLINE=$DEADLINE is not a positive count of seconds" >&2; exit 1; }
 
 if [ "$DRY" != 1 ]; then
-  for v in TEXTONLY_SHA CONFIG_SHA MANIFEST_SHA TOKENIZER_SHA; do
+  for v in TEXTONLY_SHA CONFIG_SHA MANIFEST_SHA TOKENIZER_SHA TOKENS_SHA; do
     [ -n "${!v}" ] || { echo "refused: $v unset; the staging scripts print it" >&2; exit 1; }
   done
   if [ "$TABLES" = sealed ]; then
@@ -82,7 +87,7 @@ if [ "$DRY" != 1 ]; then
   fi
   { test -f "$PREREG" && test -f "$PREREG.ots"; } || { echo "refused: $PREREG(.ots) missing" >&2; exit 1; }
   LS=$(hf buckets ls "hf://buckets/$BUCKET/${IN#/out/}/" 2>/dev/null || true)
-  for f in config.json model.safetensors codes.sha256 tokenizer.json; do
+  for f in config.json model.safetensors codes.sha256 tokenizer.json tokens.json; do
     echo "$LS" | grep -q "/$f\$" || { echo "refused: $f absent from ${IN#/out/}/" >&2; exit 1; }
   done
   echo "$LS" | awk -v n=/model.safetensors 'substr($NF, length($NF) - length(n) + 1) == n {print $1}' \
@@ -106,7 +111,7 @@ fi
 PRE=$(printf 'O=%q\nIN=%q\nLAYERS=%q\nLIMIT=%q\nMAX_NEW=%q\nEFFORT=%q\nDEADLINE=%q\nCOPY_EVERY=%q\nRESUME=%q\nTEXTONLY_SHA=%q\nCONFIG_SHA=%q\nMANIFEST_SHA=%q\nTOKENIZER_SHA=%q\nPROBLEMS_SHA=%q\nTEXTONLY_BYTES=%q\nexport HF_HOME=/tmp/hf' \
   "$O" "$IN" "$LAYERS" "$LIMIT" "$MAX_NEW" "$EFFORT" "$DEADLINE" "$COPY_EVERY" "${RESUME_FROM:+/out/$RESUME_FROM}" \
   "$TEXTONLY_SHA" "$CONFIG_SHA" "$MANIFEST_SHA" "$TOKENIZER_SHA" "$PROBLEMS_SHA" "$TEXTONLY_BYTES")
-PRE="$PRE"$'\n'$(printf 'TABLES=%q\nEMBED_TABLE_SHA=%q\nUNEMBED_TABLE_SHA=%q' "$TABLES" "$EMBED_TABLE_SHA" "$UNEMBED_TABLE_SHA")
+PRE="$PRE"$'\n'$(printf 'TABLES=%q\nEMBED_TABLE_SHA=%q\nUNEMBED_TABLE_SHA=%q\nTOKENS_SHA=%q' "$TABLES" "$EMBED_TABLE_SHA" "$UNEMBED_TABLE_SHA" "$TOKENS_SHA")
 
 IFS= read -r -d '' BODY <<'JOB' || true
 mkdir -p "$O"
@@ -123,13 +128,14 @@ echo '== control 2: inputs to local disk, at their pins =='
 L=${SCRATCH:-/scratch}/inkling
 mkdir -p "$L/layers"
 date -u
-cp "$IN/config.json" "$IN/model.safetensors" "$IN/codes.sha256" "$IN/tokenizer.json" "$L/"
+cp "$IN/config.json" "$IN/model.safetensors" "$IN/codes.sha256" "$IN/tokenizer.json" "$IN/tokens.json" "$L/"
 test "$(stat -c %s "$L/model.safetensors")" = "$TEXTONLY_BYTES"
 for i in $(seq 0 $((LAYERS - 1))); do tar -xf "$IN/layers/L$(printf %02d "$i").tar" -C "$L/layers"; done
 test "$(sha256sum "$L/config.json" | cut -d' ' -f1)" = "$CONFIG_SHA"
 test "$(sha256sum "$L/model.safetensors" | cut -d' ' -f1)" = "$TEXTONLY_SHA"
 test "$(sha256sum "$L/codes.sha256" | cut -d' ' -f1)" = "$MANIFEST_SHA"
 test "$(sha256sum "$L/tokenizer.json" | cut -d' ' -f1)" = "$TOKENIZER_SHA"
+test "$(sha256sum "$L/tokens.json" | cut -d' ' -f1)" = "$TOKENS_SHA"
 TABLES_ARG=()
 if [ "$TABLES" = sealed ]; then
   mkdir -p "$L/tables"
@@ -145,6 +151,15 @@ if [ "$TABLES" = sealed ]; then sha256sum "$L/tables/embed.q4g64.llvqraw" "$L/ta
 D="$L/inkgsm.jsonl"
 if [ -n "$RESUME" ]; then cp "$RESUME/inkgsm.jsonl" "$D"; echo "resuming from $RESUME: $(($(grep -c . "$D") - 1)) lines"; fi
 date -u
+echo '== control 3: this image generates the Mac'"'"'s 32 resident tokens on this card =='
+inkrun --config "$L/config.json" --checkpoint "$L/model.safetensors" --layers "$L/layers" \
+  --tokens "$L/tokens.json" --device cuda --n 32 --require-layers "$LAYERS" --out "$O/inkrun.json" 2>&1 | tee "$O/inkrun.txt" | tail -3
+python3 - "$O/inkrun.json" <<'PY'
+import json, sys
+r = json.load(open(sys.argv[1]))
+print("control 3: equal prefix", r["equal_prefix"], "of", len(r["tokens"]), "| median step", round(r["step_seconds_median"], 4), "s")
+sys.exit(0 if r.get("all_equal") is True else "STOP: the 32 tokens differ from the Mac's resident run")
+PY
 echo '== (1) inkgsm run: 24 layers resident, GSM8K =='
 ( while sleep "$COPY_EVERY"; do [ -f "$D" ] && cp "$D" "$O/inkgsm.jsonl.part" && mv "$O/inkgsm.jsonl.part" "$O/inkgsm.jsonl"; done ) &
 COPIER=$!
