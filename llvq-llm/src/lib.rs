@@ -56,6 +56,7 @@ pub mod guided;
 pub mod hfpack;
 /// Inkling 2 Mini, first slice: the pre-loop layers in prefill (agent C, lot 1).
 pub mod inkling;
+pub mod inkseal;
 pub mod kvcapture;
 pub mod kvladder;
 pub mod kvq;
