@@ -96,9 +96,23 @@ WHAT A LAYER IN INT4 WOULD COST IN BYTES (*computed*)
   zero, which is 0.026 KL a GB for layers 18 and 19 and 0.019 for layers 20 to 23. The rivals' ladder moves by
   0.0285 KL a GB between its two files. So bytes spent this way follow the ladder at best; they do not beat it.
 
+THE SEALED FILE (*measured* on the file, 2026-11-22; logs and digests in `...-brut/seal/`)
+  `inkling2-mini.llvq`: 9,216 expert records and the two tables, 6,776,786,150 bytes.
+  sha256 deedd24d46f8e3549390b671346fa7ccd4ebad3d7f80884472d279bd15fe5519.
+  `inkling2-mini.sidecar.safetensors`: the 644 other text tensors as shipped, 1,366,327,848 bytes.
+  sha256 85d64d5cca0fe0f3522c3c8099ddc72ac0107c74aac6d65df8be6627959e1217.
+  Whole text model, 26,070,385,152 parameters: 2.473 b/param and 8.059 GB in the kernel accounting, 2.490 b/param as
+  stored (`rtbits --sidecar`). On disk the two files weigh 8.143 GB. The vision tower is not in them.
+  `inkseal verify`: PASS in 278 s. The 24 layers decode bit for bit to the reconstructions the arms above read
+  (layers outside the loop: the decode narrowed to float16, then bit for bit). The two tables equal their files.
+  The sidecar equals the native file. Each of the 1,244 native tensors sits in exactly one place: 176 as expert
+  records, 2 as raw tensors, 644 in the sidecar, 422 omitted, all of the vision tower. No text tensor is omitted.
+  So the arms above read the sealed file's own values, to the float16 narrowing of the layers outside the loop,
+  measured at KL 0.009614 against 0.009611 on layers 6 to 8 (gate journal).
+
 WHAT THIS DOES NOT READ
   A task. KL and top-1 measure fidelity to the teacher on one text of 16,376 positions.
   llama.cpp itself: a rival arm is the rival's weights in the reference forward.
-  The sealed file: the arms read the reconstructions the encode wrote, and the seal ran after them.
+  The sealed file through a kernel: the arms read its dense reconstructions in the reference forward.
   Any int4 expert, any row scale, any calibration on the quantized prefix, any second calibration draw.
   The group arms were run once, after the whole-model figure was known.

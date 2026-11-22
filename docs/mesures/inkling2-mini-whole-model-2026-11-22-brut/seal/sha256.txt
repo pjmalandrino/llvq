@@ -1,0 +1,2 @@
+deedd24d46f8e3549390b671346fa7ccd4ebad3d7f80884472d279bd15fe5519  inkling2-mini.llvq
+85d64d5cca0fe0f3522c3c8099ddc72ac0107c74aac6d65df8be6627959e1217  inkling2-mini.sidecar.safetensors

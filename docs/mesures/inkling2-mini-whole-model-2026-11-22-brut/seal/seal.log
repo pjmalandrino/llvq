@@ -1,0 +1,4 @@
+sealed inkling2-mini.llvq: 9216 records (9216 expert, 0 int4), payload 49829511168 bits, 2 raw tensors, 6776786150 bytes
+sidecar inkling2-mini.sidecar.safetensors: 644 tensors, 1366327848 bytes
+omitted: 422 tensors, 318256128 native elements (an NVFP4 byte holds two weights)
+seal: 51.5 s

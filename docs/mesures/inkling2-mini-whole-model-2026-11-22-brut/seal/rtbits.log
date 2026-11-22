@@ -1,0 +1,29 @@
+  ── whole model over the sealed file and its sidecar ──
+  part                                    parameters              bits     b/param        GB
+  experts, lattice, archive              24461180928       49829511168    2.037085    6.2287
+  experts, lattice, kernel               24461180928       49375346688    2.018519    6.1719
+  other lattice, archive                           0                 0    0.000000    0.0000
+  other lattice, kernel                            0                 0    0.000000    0.0000
+  int4 g128 records                                0                 0    0.000000    0.0000
+  raw tensors (file, as stored)            926318592        4168433664    4.500000    0.5211
+  sidecar, text model                      682885632       10930053120   16.005686    1.3663
+  sidecar, model.visual.*                          0                 0    0.000000    0.0000
+  sidecar inkling2-mini.sidecar.safetensors: 644 tensors
+  b/param, lattice at archive : text model 2.490489 over 26070385152 parameters; with vision 2.490489 over 26070385152
+  b/param, lattice at kernel  : text model 2.473068 over 26070385152 parameters; with vision 2.473068 over 26070385152
+
+  against plan section 1 (plan figures computed; file figures measured, lattice at kernel)
+  row                              params plan     params file  GB plan  GB file  b/p plan  b/p file
+  experts (Tetra)                  24461180928     24461180928    6.172    6.172    2.0185    2.0185
+  attention, Tetra                   226492416               0    0.057    0.000    2.0133    0.0000
+  attention, int4 g128               417595392               0    0.222    0.000    4.2529    0.0000
+  embed + unembed, int4 g64          926318592       926318592    0.521    0.521    4.4995    4.5000
+  rest as shipped (sidecar)           38797824       682885632    0.078    1.366   16.0834   16.0057
+  text model                       26070385152     26070385152    7.049    8.059    2.1630    2.4731
+  vision tower (sidecar)             318256128               0    0.637    0.000   16.0000    0.0000
+  with vision                      26388641280     26070385152    7.686    8.059    2.3300    2.4731
+
+  NO CLASS STATISTIC IS PRINTED. Every accumulator of this tool keys on a v1
+           class — masks, level histograms, slot strides, the Planes14 and E1c projections —
+           and a Tetra word names none. A plausible-looking histogram here would be worse
+           than its absence.

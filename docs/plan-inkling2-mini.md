@@ -291,6 +291,12 @@ spent that way follow the ladder and do not beat it. No expert has been encoded 
 ladder is a better code of those six layers at the same bits: a calibration on the quantized prefix, a floor for
 the starved experts (25.0 to 41.4 % of their cells), the row scales. None is measured on this model.
 
+The file is sealed and verified (2026-11-22, same journal): `inkling2-mini.llvq`, 6.777 GB, and its sidecar,
+1.366 GB; 2.473 b/param in the kernel accounting and 2.490 as stored; `inkseal verify` PASS, every native tensor
+in exactly one place and no text tensor omitted. On the experts alone, over the 24 layers, the lattice code at
+2.037 bits reads the KL of `IQ2_XXS` at 2.372 bits and is below `IQ1_S` and `IQ1_M` on 8 windows of 8
+(*measured*). The file loses that as a file because it keeps attention in 16 bits.
+
 Order of the week: the file and the whole-model KL first; then the first run on a card (resident GB, tokens, first
 tok/s) and GSM8K on the same card; then the grouped launch for speed, and the row scales if GSM8K leaves a gap worth
 their $17 to $35; then the runtime on Inkling with tools and a real coding-agent session; the card of the model
