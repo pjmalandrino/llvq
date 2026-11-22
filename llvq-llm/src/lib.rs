@@ -54,9 +54,13 @@ pub mod fused_metal;
 pub mod gsm8k;
 pub mod guided;
 pub mod hfpack;
+/// Inkling 2 Mini, first slice: the pre-loop layers in prefill (agent C, lot 1).
+pub mod inkling;
 pub mod kvcapture;
 pub mod kvladder;
 pub mod kvq;
+/// The `CausalLm` trait; `Qwen3` implements it by delegation.
+pub mod lm;
 pub mod loader;
 pub mod model;
 #[cfg(all(target_os = "linux", feature = "cuda"))]
