@@ -1,0 +1,47 @@
+INKLING 2 MINI, DECODE SPEED ON THE MAC, THE LOOP OF 2026-11-22
+
+RESULT SO FAR
+  Decode went from 0.526 s a token in the morning to 0.121 s in the evening, 1.9 to 8.25 tok/s (*measured*), with
+  the 24 layers of experts resident in lattice codes. The file, its bits and its values did not change: every
+  step below is bit for bit, or class B with its gate, as `docs/plan-debit-inkling2-mini.md` defines them.
+
+HOW A LINE IS READ
+  `bench_decode.sh` (beside the raw table): three rounds in separate processes, Metal, 24 resident layers, the
+  32-token prompt of the first card run, 32 greedy tokens; the median step of each round, then the median of the
+  three with their range. `same tokens` compares the 32 tokens with the Mac's resident run of commit f05dc6e.
+  Raw rows: `inkling-debit-boucle-2026-11-22-brut/bench_decode.tsv`. The Mac is shared; the load is in the table.
+
+THE LADDER (*measured* by the coordinator unless said)
+  head      setting                                 s a token, median [range]     tok/s   GB after load   same tokens
+  (morning) 15 resident layers, lot 2               0.526                         1.9     9.0             -
+  f05dc6e   buffers out of candle's pool (K1)       0.205 [0.199, 0.217]          4.9     11.37           reference
+  3663600   + one-row visit, cache in place (E)     0.1954 [0.1931, 0.1957]       5.12    11.42           yes
+  3663600   + fused glue (F, wired by X)            0.1588 [0.1555, 0.1941]       6.30    11.42           yes
+  a76a44b   experts in four launches (M), default   0.1758 [0.1757, 0.1782]       5.69    11.34           yes
+  a76a44b   + fused glue                            0.1412 [0.1404, 0.1416]       7.08    11.34           yes
+  a76a44b   + fused glue + int4 head                0.1212 [0.1206, 0.1213]       8.25    10.68           no, see below
+
+  The morning line is agent D's breakdown (`inkling2-mini-quality-gate-2026-11-21-brut/engine/`). The K1 line is one
+  run of 31 steps, the Mac reference of the first card run.
+  The int4 head reads the sealed file's output table, whose values are not the checkpoint's: its tokens are those
+  of another object and differ from the reference by design. It needs a reference of its own.
+
+WHAT IS A DEFAULT AND WHAT IS NOT
+  Default, bit for bit: the pool fix, the one-row visit, the cache in place, the experts in four launches, the
+  8-row prompt path.
+  Behind a switch: the fused glue (`--glue fused`), class B. Its gates on one window: equal greedy tokens on the
+  32- and 600-token prompts, 0 and 6 routing flips of 768, perplexity +0.035 % +- 0.100 %. Two more windows are
+  being read before it becomes the default.
+  Behind a switch: the int4 head (`--head int4`), the file's own values.
+  Written and not wired: the attention's products in three launches a visit (agent A), 1,428 to 226 us a visit on
+  synthetic inputs.
+
+WHERE THE TIME OF ONE TOKEN WENT, head 01058d8, before the fused glue and the four-launch experts
+  (*measured*, `profile_merged_01058d8.json`, every part drained, so shares and not seconds; untimed token 0.193 s)
+  attention products 30.1 %, norms with gates and residuals 22.8 %, experts 13.6 %, convolutions 12.6 %, cache
+  copies 5.9 %, scores and softmax 5.8 %, head 5.4 %, routing 4.2 %.
+
+WHAT THIS DOES NOT READ
+  A long context: every line is 32 tokens of prompt and 32 of decode. The prompt's own speed and memory. A quiet
+  machine: agents were building and measuring beside every round. Anything on CUDA beyond the first card run,
+  0.166 s a token on the eager path of commit f05dc6e.
