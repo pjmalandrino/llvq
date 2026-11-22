@@ -1,0 +1,10 @@
+head f05dc6e
+   Compiling llvq-cuda v0.1.0 (/Users/pjmalandrino/Documents/Pro/workspace/poc/llvq/.claude/worktrees/inkling-mini/llvq-cuda)
+   Compiling llvq-llm v0.1.0 (/Users/pjmalandrino/Documents/Pro/workspace/poc/llvq/.claude/worktrees/inkling-mini/llvq-llm)
+    Finished `release` profile [optimized] target(s) in 1m 31s
+inkrun: dense weights on metal in 0.3 s
+inkrun: 24 layers resident in 14.2 s: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23]
+inkrun: prefill of 32 tokens in 0.95 s
+inkrun: 32 tokens, median step 0.205 s, equal to the reference: Some(false) (first mismatch Some(7)), report /Users/pjmalandrino/llvq-inkling-mini/lot4-coord/inkrun_metal_24.json
+tokens.json written; resident layers 24 | median step s 0.205344792 | tok/s 4.869858106749549
+equal to the reference of prompt32.json: False | memory {'after_dense': 5.09, 'after_resident': 11.37, 'before_load': 0.0, 'end': 11.68}
