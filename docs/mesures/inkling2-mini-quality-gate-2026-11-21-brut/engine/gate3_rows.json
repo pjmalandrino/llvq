@@ -1,0 +1,31 @@
+{
+  "logits_rows8_vs_rows1": {
+    "argmax_equal": 31,
+    "max_abs": 0.6415925025939941,
+    "max_abs_ref": 28.812379837036133
+  },
+  "rows_1": {
+    "lattice_launches_32": 34330,
+    "lattice_launches_window": 1926000,
+    "median_32": 2.867345459,
+    "seconds_32": [
+      3.921674917,
+      2.848828333,
+      2.867345459
+    ],
+    "seconds_window": 56.129308625,
+    "window_tokens": 2048
+  },
+  "rows_8": {
+    "lattice_launches_32": 12285,
+    "lattice_launches_window": 254997,
+    "median_32": 2.79911725,
+    "seconds_32": [
+      2.983024541,
+      2.7672765,
+      2.79911725
+    ],
+    "seconds_window": 28.025631083,
+    "window_tokens": 2048
+  }
+}

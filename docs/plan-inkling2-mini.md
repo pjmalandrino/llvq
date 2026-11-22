@@ -178,6 +178,10 @@ the `rot_apply` wall (`docs/format-noyau.md` §8).
 Gate J5: tokens equal to J4's eager path, or inside the ±0.12 % perplexity band, then served tok/s, GB after load and
 the 8k peak on one card, each with its price in memory.
 
+The throughput items that cost nothing on the other criteria, or near nothing, are ordered in
+`docs/plan-debit-inkling2-mini.md`: decode, prompt reading, their memory, and the items with a price that are not
+scheduled.
+
 ### J6, levers and publication
 
 Loop-aware calibration on the quantized prefix, row scales (`ops/llvqtune` needs adapters for 3-D experts, and a
