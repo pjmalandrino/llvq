@@ -1,8 +1,8 @@
 INKLING 2 MINI, DECODE SPEED ON THE MAC, THE LOOP OF 2026-11-22
 
 RESULT SO FAR
-  Decode went from 0.526 s a token in the morning to 0.121 s in the evening, 1.9 to 8.25 tok/s (*measured*), with
-  the 24 layers of experts resident in lattice codes. The file, its bits and its values did not change: every
+  Decode went from 0.526 s a token in the morning to 0.0737 s after midnight, 1.9 to 13.57 tok/s (*measured*), with
+  the 24 layers of experts resident in lattice codes. Device memory after load went from 11.37 to 8.03 GB. The file, its bits and its values did not change: every
   step below is bit for bit, or class B with its gate, as `docs/plan-debit-inkling2-mini.md` defines them.
 
 HOW A LINE IS READ
@@ -20,6 +20,12 @@ THE LADDER (*measured* by the coordinator unless said)
   a76a44b   experts in four launches (M), default   0.1758 [0.1757, 0.1782]       5.69    11.34           yes
   a76a44b   + fused glue                            0.1412 [0.1404, 0.1416]       7.08    11.34           yes
   a76a44b   + fused glue + int4 head                0.1212 [0.1206, 0.1213]       8.25    10.68           no, see below
+  23ae6a1   fused glue + int4 head (same night)     0.1216 [0.1215, 0.1220]       8.22    10.68           no, see below
+  23ae6a1   fused glue + fused attention            0.0911 [0.0910, 0.0913]       10.98   8.70            yes
+  23ae6a1   + int4 head                             0.0737 [0.0736, 0.0737]       13.57   8.03            no, see below
+
+  The three lines of 23ae6a1 were read after midnight on a quiet machine (load 1.6 to 2.7), the lines above them
+  beside agents' builds (load 4.6 to 7.0). The repeated line (8.25 then 8.22) says the load moved it by 0.3 %.
 
   The morning line is agent D's breakdown (`inkling2-mini-quality-gate-2026-11-21-brut/engine/`). The K1 line is one
   run of 31 steps, the Mac reference of the first card run.
@@ -33,8 +39,16 @@ WHAT IS A DEFAULT AND WHAT IS NOT
   32- and 600-token prompts, 0 and 6 routing flips of 768, perplexity +0.035 % +- 0.100 %. Two more windows are
   being read before it becomes the default.
   Behind a switch: the int4 head (`--head int4`), the file's own values.
-  Written and not wired: the attention's products in three launches a visit (agent A), 1,428 to 226 us a visit on
-  synthetic inputs.
+  Behind a switch: the attention's products in three launches a visit (`--attn fused`), class B. The seven
+  attention matrices of a layer are then held once on the device, in BF16 as the file stores them, and a prompt
+  widens one layer's matrices for the duration of its call. Its gates (`attn-wiring/` beside the raw table):
+    `--attn candle` gives the logits of the head before it, bit for bit, on the 32- and 600-token prompts, both glues;
+    `--attn fused` gives equal greedy tokens on those four runs of 17 rows; 1, 0, 0 and 6 routing flips of 768,
+    starting at margins of 1e-5; logit gaps of 3e-3 where no flip happened, 0.12 at most after one;
+    one WikiText-2 window, 2,047 teacher-forced positions, fused against candle: -0.0006 % +- 0.102 % (95 %);
+    five wiring mutants, each seen red by `tests/inkling_wave3_attn.rs`.
+  Memory with `--attn fused` (*measured*): 5.14 to 2.49 GB after the dense load, 11.34 to 8.70 GB after the experts,
+  peak of a 600-token prompt 13.63 to 10.46 GB, prompt time unchanged (6.2 s for 600 tokens).
 
 WHERE THE TIME OF ONE TOKEN WENT, head 01058d8, before the fused glue and the four-launch experts
   (*measured*, `profile_merged_01058d8.json`, every part drained, so shares and not seconds; untimed token 0.193 s)
@@ -42,6 +56,6 @@ WHERE THE TIME OF ONE TOKEN WENT, head 01058d8, before the fused glue and the fo
   copies 5.9 %, scores and softmax 5.8 %, head 5.4 %, routing 4.2 %.
 
 WHAT THIS DOES NOT READ
-  A long context: every line is 32 tokens of prompt and 32 of decode. The prompt's own speed and memory. A quiet
-  machine: agents were building and measuring beside every round. Anything on CUDA beyond the first card run,
+  A long context: every line is 32 tokens of prompt and 32 of decode. The prompt's own speed. A quiet machine
+  before midnight: agents were building and measuring beside every round until 22:37. Anything on CUDA beyond the first card run,
   0.166 s a token on the eager path of commit f05dc6e.

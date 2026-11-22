@@ -1,0 +1,43 @@
+=== glue candle, prompt 32
+attn candle: logits bit for bit the untouched head's
+tokens equal: True; first difference at token None
+largest logit gap over rows 0..16: 9.4557e-02; per row: 0.00e+00, 2.77e-03, 3.46e-03, 3.04e-03, 3.65e-03, 4.15e-03, 3.33e-03, 3.21e-03, 5.68e-03, 9.46e-02, 1.77e-02, 7.04e-03, 4.49e-03, 4.21e-03, 4.23e-03, 3.14e-03, 3.62e-03
+routing compared on 16 steps x 48 visits = 768 pairs; flips 1
+  step 8 layer 14 pass 3: margin candle 7.629e-06 fused 2.921e-06, experts swapped [96, 120]
+smallest candle margin among the compared steps: 7.62939453125e-06
+=== glue candle, prompt 600
+attn candle: logits bit for bit the untouched head's
+tokens equal: True; first difference at token None
+largest logit gap over rows 0..16: 8.8348e-03; per row: 0.00e+00, 3.16e-03, 3.05e-03, 3.27e-03, 4.22e-03, 3.51e-03, 3.53e-03, 3.60e-03, 2.60e-03, 8.83e-03, 2.30e-03, 2.59e-03, 3.92e-03, 3.08e-03, 2.82e-03, 2.31e-03, 1.35e-03
+routing compared on 16 steps x 48 visits = 768 pairs; flips 0
+smallest candle margin among the compared steps: 1.4737248420715332e-05
+=== glue fused, prompt 32
+attn candle: logits bit for bit the untouched head's
+tokens equal: True; first difference at token None
+largest logit gap over rows 0..16: 5.3110e-03; per row: 0.00e+00, 2.98e-03, 3.20e-03, 3.12e-03, 2.83e-03, 4.18e-03, 3.48e-03, 3.25e-03, 5.26e-03, 5.31e-03, 5.16e-03, 2.60e-03, 3.82e-03, 3.23e-03, 2.84e-03, 4.11e-03, 3.60e-03
+routing compared on 16 steps x 48 visits = 768 pairs; flips 0
+smallest candle margin among the compared steps: 7.778406143188477e-06
+=== glue fused, prompt 600
+attn candle: logits bit for bit the untouched head's
+tokens equal: True; first difference at token None
+largest logit gap over rows 0..16: 1.2222e-01; per row: 0.00e+00, 3.15e-03, 2.48e-03, 3.25e-03, 4.25e-03, 3.88e-03, 4.56e-03, 3.10e-03, 2.58e-03, 3.95e-03, 1.90e-03, 3.03e-03, 3.45e-03, 2.79e-03, 1.97e-02, 1.22e-01, 3.81e-02
+routing compared on 16 steps x 48 visits = 768 pairs; flips 6
+  step 13 layer 6 pass 2: margin candle 1.013e-05 fused 5.856e-06, experts swapped [23, 77]
+  step 14 layer 11 pass 2: margin candle 1.636e-04 fused 4.811e-04, experts swapped [44, 124]
+  step 14 layer 14 pass 2: margin candle 9.518e-03 fused 4.008e-03, experts swapped [45, 55]
+  step 14 layer 6 pass 3: margin candle 3.979e-04 fused 1.768e-03, experts swapped [74, 126]
+  step 14 layer 7 pass 3: margin candle 2.721e-02 fused 2.075e-04, experts swapped [46, 49]
+  step 14 layer 8 pass 3: margin candle 2.635e-03 fused 9.796e-03, experts swapped [54, 84]
+smallest candle margin among the compared steps: 1.0132789611816406e-05
+before_candle_32         step 0.1800 s  prefill   0.87 s  GB dense 5.14 experts 11.34 end 11.61 peak prefill 11.45 run 11.45
+before_candle_600        step 0.2293 s  prefill   6.06 s  GB dense 5.14 experts 11.34 end 11.95 peak prefill 13.63 run 13.63
+before_fused_32          step 0.1464 s  prefill   0.75 s  GB dense 5.14 experts 11.34 end 11.66 peak prefill 11.45 run 11.45
+before_fused_600         step 0.2021 s  prefill   6.16 s  GB dense 5.14 experts 11.34 end 12.76 peak prefill 13.63 run 13.63
+w1_candle_candle_32      step 0.1858 s  prefill   8.12 s  GB dense 5.14 experts 11.34 end 11.62 peak prefill 11.45 run 11.45
+w1_candle_candle_600     step 0.2301 s  prefill   6.13 s  GB dense 5.14 experts 11.34 end 11.95 peak prefill 13.60 run 13.60
+w1_candle_fused_32       step 0.1515 s  prefill   0.76 s  GB dense 5.14 experts 11.34 end 11.66 peak prefill 11.45 run 11.45
+w1_candle_fused_600      step 0.1939 s  prefill   6.12 s  GB dense 5.14 experts 11.34 end 12.74 peak prefill 13.60 run 13.60
+w1_fused_candle_32       step 0.1388 s  prefill   0.91 s  GB dense 2.49 experts 8.70 end 9.13 peak prefill 8.90 run 8.90
+w1_fused_candle_600      step 0.1878 s  prefill   6.21 s  GB dense 2.49 experts 8.70 end 9.81 peak prefill 10.46 run 10.46
+w1_fused_fused_32        step 0.0990 s  prefill   0.90 s  GB dense 2.49 experts 8.70 end 8.91 peak prefill 8.90 run 9.18
+w1_fused_fused_600       step 0.1390 s  prefill   6.18 s  GB dense 2.49 experts 8.70 end 10.34 peak prefill 10.46 run 10.71
