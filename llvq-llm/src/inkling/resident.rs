@@ -4,12 +4,17 @@
 //! Nothing here is dense. Each expert's three records (gate, up, down) are read
 //! from `layers/Lxx/codes/eNNN.llvqrec`, transcoded to the served `tetra48`
 //! stream by [`crate::fused::Transcoder`], and uploaded once by
-//! [`MetalRuntime::upload_stream_unpooled`]: the checks and bytes of the
+//! [`MetalRuntime::upload_moe_layer`]: the checks and bytes of the
 //! `upload_stream` that `fused_metal::load_resolved` uses for a sealed Qwen3
-//! file, in buffers outside candle's pool. The two rotations of an expert are
-//! built by [`RotationTables::build`] from the seed each record carries and
-//! uploaded by [`MetalRuntime::upload_rotation_unpooled`]. No kernel, shader
-//! or served path is changed: this module only calls them.
+//! file, every record of the layer in one placement heap outside candle's
+//! pool, each record aliased by its own buffer. The two rotations of an expert
+//! are built by [`RotationTables::build`] from the seed each record carries
+//! and go into the same heap. No served kernel, shader or path is changed.
+//!
+//! One row (a decode step) takes the four launches of plan item D3
+//! ([`ResidentExperts::forward_one_row_fused`]) when the layer is switched to
+//! them, else the one-expert-at-a-time path ([`ResidentExperts::forward_one_row`]),
+//! which stays the reference.
 //!
 //! [`experts_forward`] has the role and the shapes of
 //! [`super::layers::experts_forward`]: same `x` `[T, H]` f32, same
@@ -40,7 +45,9 @@ use candle_core::{DType, Device, Result, Tensor};
 use super::config::InklingConfig;
 use super::layers::{ExpertSource, MoeSource, Routing};
 use crate::fused::{FusedLayout, HostStream, RotationTables, Transcoder};
-use crate::fused_metal::{MetalRotation, MetalRuntime, MetalTetraProj};
+use crate::fused_metal::{
+    MetalMoeSlab, MetalRotation, MetalRuntime, MetalTetraProj, MoeHostExpert, MoeHostProj, MOE_MAX_SELECTED,
+};
 
 /// The tile the served Metal door uses (`fused_metal::load_resolved_tuned`).
 pub const SERVED_TILE: usize = 64;
@@ -93,6 +100,9 @@ pub struct UploadStats {
     /// Whether those buffers sit in candle's pool (`load_pooled`, the path
     /// before plan item K1) or outside it (`load`).
     pub pooled: bool,
+    /// Bytes of the layer's placement heap (plan item D3), which every
+    /// record buffer of `load` aliases; 0 for `load_pooled`.
+    pub slab_bytes: u64,
 }
 
 impl UploadStats {
@@ -110,7 +120,19 @@ pub struct ResidentExperts {
     pub stats: UploadStats,
     /// LLVQ kernel launches (rotations and Tetra matvecs) issued so far.
     launches: AtomicUsize,
+    /// The layer's records in one placement heap, which `experts` alias
+    /// (plan item D3). `None` for `load_pooled` and `from_parts`.
+    slab: Option<MetalMoeSlab>,
+    /// One row takes the four fused launches ([`Self::forward_one_row_fused`])
+    /// when the slab and the runtime allow them.
+    fused: bool,
 }
+
+/// Whether a layer loaded with a slab takes the fused one-row path by
+/// default. Set from the class A gate of plan item D3, green on 2026-11-22:
+/// the whole-model logits of the fused path equal the path before D3 byte for
+/// byte (`tests/inkling_wave2_moe.rs`, `D/lot4-m/STEP1.md`).
+pub const FUSED_DEFAULT: bool = true;
 
 /// A runtime on the served tables and tile, without host copies.
 pub fn served_runtime(dev: &Device) -> Result<Arc<MetalRuntime>> {
@@ -133,10 +155,12 @@ impl ResidentExperts {
     /// kind, shape or rotation seed is not the one `extq` writes for this
     /// slot, and a codes file with trailing bytes.
     ///
-    /// Every buffer is made by the Metal device outside candle's pool
-    /// (`MetalRuntime::upload_stream_unpooled`, plan item K1): the same
-    /// bytes in the same storage mode, so the same results, and 2,048
-    /// buffers a layer that candle's allocator no longer walks.
+    /// Every record goes into one placement heap made by the Metal device
+    /// outside candle's pool (`MetalRuntime::upload_moe_layer`, plan items K1
+    /// and D3): the same bytes in the same storage mode, so the same results.
+    /// Each record keeps a buffer of its own, an alias into the heap, for the
+    /// one-expert path; the fused path reads the heap through one buffer and
+    /// an offset table.
     pub fn load(
         rt: Arc<MetalRuntime>,
         dev: &Device,
@@ -175,7 +199,7 @@ impl ResidentExperts {
         let tr = Transcoder::for_kind(FusedLayout::Tetra48, llvq_artifact::CodeKind::Tetra)
             .map_err(candle_core::Error::msg)?;
         let mut stats = UploadStats { pooled, ..UploadStats::default() };
-        let mut experts = Vec::with_capacity(n);
+        let mut hosts = Vec::with_capacity(n);
         for e in 0..n {
             let path: PathBuf = layer_dir.join("codes").join(format!("e{e:03}.llvqrec"));
             let t = Instant::now();
@@ -229,47 +253,124 @@ impl ResidentExperts {
                 let rscale: Vec<f32> = m.row_scales.iter().map(|&v| v as f32).collect();
                 let tail = crate::fused::tail_f16_bits(&m.tail);
                 stats.seconds_transcode += t.elapsed().as_secs_f64();
-                let t = Instant::now();
-                let proj = if pooled {
-                    rt.upload_stream(&want, m.d_out, m.d_in, nblocks, stride_u32 as usize, &words, &gscale, &rscale, &tail)?
-                } else {
-                    rt.upload_stream_unpooled(
-                        &want, m.d_out, m.d_in, nblocks, stride_u32 as usize, &words, &gscale, &rscale, &tail,
-                    )?
-                };
-                stats.buffers += 4;
-                stats.seconds_upload += t.elapsed().as_secs_f64();
                 stats.word_bytes += words.len() as u64 * 4;
                 stats.side_bytes += 8 + 4 * rscale.len() as u64 + 2 * tail.len().max(1) as u64;
                 stats.weights += (m.d_out * m.d_in) as u64;
-                projs.push(proj);
+                projs.push(MoeHostProj {
+                    name: want,
+                    d_out: m.d_out,
+                    d_in: m.d_in,
+                    nblocks,
+                    row_stride_u32: stride_u32 as usize,
+                    words,
+                    gscale,
+                    rscale,
+                    tail,
+                });
             }
-            let mut rot = |n: usize, seed: u64| -> Result<MetalRotation> {
-                let t = Instant::now();
-                let tables = RotationTables::build(n, seed).map_err(candle_core::Error::msg)?;
-                stats.seconds_transcode += t.elapsed().as_secs_f64();
-                let t = Instant::now();
-                let up = if pooled { rt.upload_rotation(&tables)? } else { rt.upload_rotation_unpooled(&tables)? };
-                stats.buffers += 2;
-                stats.seconds_upload += t.elapsed().as_secs_f64();
-                stats.rotation_bytes += 4 * tables.signbits.len() as u64 + 4 * tables.small.len().max(1) as u64;
-                Ok(up)
-            };
-            let rot_in = rot(h, seeds[0])?;
-            let rot_down = rot(inter, seeds[2])?;
+            let t = Instant::now();
+            let rot_in = RotationTables::build(h, seeds[0]).map_err(candle_core::Error::msg)?;
+            let rot_down = RotationTables::build(inter, seeds[2]).map_err(candle_core::Error::msg)?;
+            stats.seconds_transcode += t.elapsed().as_secs_f64();
+            for tb in [&rot_in, &rot_down] {
+                stats.rotation_bytes += 4 * tb.signbits.len() as u64 + 4 * tb.small.len().max(1) as u64;
+            }
             let down = projs.pop().expect("three records");
             let up = projs.pop().expect("three records");
             let gate = projs.pop().expect("three records");
-            experts.push(ResidentExpert { gate, up, down, rot_in, rot_down });
+            hosts.push(MoeHostExpert { projs: [gate, up, down], rot_in, rot_down });
         }
+        let t = Instant::now();
+        let (experts, slab) = if pooled {
+            let mut experts = Vec::with_capacity(n);
+            for hx in &hosts {
+                let mut projs = Vec::with_capacity(3);
+                for p in &hx.projs {
+                    projs.push(rt.upload_stream(
+                        &p.name, p.d_out, p.d_in, p.nblocks, p.row_stride_u32, &p.words, &p.gscale, &p.rscale, &p.tail,
+                    )?);
+                }
+                let rot_in = rt.upload_rotation(&hx.rot_in)?;
+                let rot_down = rt.upload_rotation(&hx.rot_down)?;
+                let down = projs.pop().expect("three records");
+                let up = projs.pop().expect("three records");
+                let gate = projs.pop().expect("three records");
+                experts.push(ResidentExpert { gate, up, down, rot_in, rot_down });
+            }
+            stats.buffers += 16 * n;
+            (experts, None)
+        } else {
+            let (slab, experts) = Self::upload_slab(&rt, &hosts)?;
+            // The record buffers alias the heap: 16 an expert, plus the slab
+            // buffer and the offset table.
+            stats.buffers += 16 * n + 2;
+            stats.slab_bytes = slab.device_bytes();
+            (experts, Some(slab))
+        };
+        stats.seconds_upload += t.elapsed().as_secs_f64();
         stats.experts = experts.len();
-        Ok(Self { layer, rt, dev: dev.clone(), experts, stats, launches: AtomicUsize::new(0) })
+        Ok(Self { layer, rt, dev: dev.clone(), experts, stats, launches: AtomicUsize::new(0), slab, fused: FUSED_DEFAULT })
+    }
+
+    /// Upload `hosts` into one placement heap and wrap the aliases.
+    fn upload_slab(rt: &MetalRuntime, hosts: &[MoeHostExpert]) -> Result<(MetalMoeSlab, Vec<ResidentExpert>)> {
+        let (slab, aliases) = rt.upload_moe_layer(hosts)?;
+        let experts = aliases
+            .into_iter()
+            .map(|a| ResidentExpert { gate: a.gate, up: a.up, down: a.down, rot_in: a.rot_in, rot_down: a.rot_down })
+            .collect();
+        Ok((slab, experts))
+    }
+
+    /// A layer from experts on the host, in one placement heap as [`Self::load`]
+    /// makes it: the constructor a test builds synthetic slab layers with.
+    /// `stats` stays empty but for the slab's size.
+    pub fn from_host(rt: Arc<MetalRuntime>, dev: &Device, layer: usize, hosts: &[MoeHostExpert]) -> Result<Self> {
+        let (slab, experts) = Self::upload_slab(&rt, hosts)?;
+        let stats = UploadStats { experts: experts.len(), slab_bytes: slab.device_bytes(), ..UploadStats::default() };
+        Ok(Self {
+            layer,
+            rt,
+            dev: dev.clone(),
+            experts,
+            stats,
+            launches: AtomicUsize::new(0),
+            slab: Some(slab),
+            fused: FUSED_DEFAULT,
+        })
     }
 
     /// Experts already on the device, as a layer: the constructor a test
     /// builds synthetic experts with. `stats` stays empty.
     pub fn from_parts(rt: Arc<MetalRuntime>, dev: &Device, layer: usize, experts: Vec<ResidentExpert>) -> Self {
-        Self { layer, rt, dev: dev.clone(), experts, stats: UploadStats::default(), launches: AtomicUsize::new(0) }
+        Self {
+            layer,
+            rt,
+            dev: dev.clone(),
+            experts,
+            stats: UploadStats::default(),
+            launches: AtomicUsize::new(0),
+            slab: None,
+            fused: FUSED_DEFAULT,
+        }
+    }
+
+    /// Take the fused one-row path (`true`) or the one-expert-at-a-time one.
+    /// The fused path runs only where [`Self::fused_available`] holds; else
+    /// a row falls back to [`Self::forward_one_row`].
+    pub fn set_fused(&mut self, on: bool) {
+        self.fused = on;
+    }
+
+    /// Whether one row takes the fused path when it can.
+    pub fn fused(&self) -> bool {
+        self.fused
+    }
+
+    /// Whether this layer can take the fused path: a slab whose experts share
+    /// one shape, on a runtime whose one-expert kernels the fused ones copy.
+    pub fn fused_available(&self) -> bool {
+        self.slab.as_ref().is_some_and(|s| s.shape().is_some()) && self.rt.moe_fused_eligible()
     }
 
     /// Launch through `rt` from now on: its tuning (prefill rows) and its
@@ -340,6 +441,11 @@ impl ResidentExperts {
     /// bookkeeping needs for several rows.
     pub fn forward(&self, x: &Tensor, routing: &Routing, cfg: &InklingConfig) -> Result<Tensor> {
         if routing.indices.len() == 1 && x.dim(0)? == 1 {
+            if self.fused {
+                if let Some(y) = self.forward_one_row_fused(x, routing, cfg)? {
+                    return Ok(y);
+                }
+            }
             if let Some(y) = self.forward_one_row(x, routing, cfg)? {
                 return Ok(y);
             }
@@ -390,6 +496,56 @@ impl ResidentExperts {
             out = (out + y)?;
         }
         Ok(Some(out.to_device(x.device())?))
+    }
+
+    /// The one-row MoE in four launches (plan item D3).
+    ///
+    /// The operations of [`Self::forward_one_row`] in its order, with the
+    /// expert loop moved into the kernels: (a) the input rotations of the
+    /// routed experts, (b) their gate and up, (c) after the activation, which
+    /// stays candle's ops on all routed rows at once, their down rotations,
+    /// (d) their down products, each times its weight and added in ascending
+    /// expert order from +0. The routed ids and weights travel in one small
+    /// device buffer. `None` when the layer has no fused path
+    /// ([`Self::fused_available`]), when the routing names an expert twice, or
+    /// when `x` is not one row of the slab's width: then
+    /// [`Self::forward_one_row`] runs instead.
+    pub fn forward_one_row_fused(&self, x: &Tensor, routing: &Routing, cfg: &InklingConfig) -> Result<Option<Tensor>> {
+        let Some(slab) = self.slab.as_ref() else {
+            return Ok(None);
+        };
+        let Some(shape) = slab.shape() else {
+            return Ok(None);
+        };
+        if !self.rt.moe_fused_eligible() || x.dims() != [1, shape.hidden] || shape.inter != cfg.intermediate_size {
+            return Ok(None);
+        }
+        let (idx, w) = (&routing.indices[0], &routing.weights[0]);
+        let mut order: Vec<(u32, f32)> = idx.iter().copied().zip(w.iter().copied()).collect();
+        order.sort_by_key(|p| p.0);
+        if order.is_empty() || order.len() > MOE_MAX_SELECTED || order.windows(2).any(|p| p[0].0 == p[1].0) {
+            return Ok(None);
+        }
+        if let Some(&(e, _)) = order.iter().find(|p| p.0 as usize >= self.experts.len()) {
+            candle_core::bail!("token 0: expert {e} of a layer of {}", self.experts.len());
+        }
+        let k = order.len();
+        let mut sel: Vec<u32> = order.iter().map(|p| p.0).collect();
+        sel.extend(order.iter().map(|p| p.1.to_bits()));
+        let sel = Tensor::from_vec(sel, 2 * k, &self.dev)?;
+        let xd = x.to_device(&self.dev)?.to_dtype(DType::F32)?.contiguous()?;
+        self.bump(4);
+        let xr = self.rt.moe_rotate(slab, false, &xd.to_dtype(DType::F16)?, &sel)?;
+        let gu = self.rt.moe_gate_up(slab, &xr, &sel)?;
+        let (g, u) = (gu.get(0)?, gu.get(1)?);
+        // line 771: softcap(gate) * sigmoid(gate) * softcap(up)
+        let act = softcap(&g, cfg.mlp_gate_softcap)?
+            .mul(&candle_nn::ops::sigmoid(&g)?)?
+            .mul(&softcap(&u, cfg.mlp_up_softcap)?)?
+            .contiguous()?;
+        let ar = self.rt.moe_rotate(slab, true, &act.to_dtype(DType::F16)?, &sel)?;
+        let y = self.rt.moe_down_sum(slab, &ar, &sel)?;
+        Ok(Some(y.to_device(x.device())?))
     }
 
     /// The MoE for any number of rows: per expert that received tokens,
