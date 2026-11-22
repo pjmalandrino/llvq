@@ -1,0 +1,349 @@
+{
+ "experts24": {
+  "spec": "experts:all=dir:/Users/pjmalandrino/llvq-inkling-mini/layers",
+  "windows_used": [
+   0,
+   1,
+   2,
+   3,
+   4,
+   5,
+   6,
+   7
+  ],
+  "kl_mean": 0.08336472604423761,
+  "kl_ci95": [
+   0.0736763970926404,
+   0.09189206953160464
+  ],
+  "kl_max": 5.624096393585205,
+  "top1_agree": 0.8896556124091148,
+  "nll_teacher": 1.8240511566400528,
+  "nll_arm": 1.88358373939991,
+  "nll_diff_mean": 0.05953258275985718,
+  "nll_diff_ci95": [
+   0.05380892753601074,
+   0.06518957018852234
+  ],
+  "ppl_teacher": 6.196912329554683,
+  "ppl_arm": 6.577033050038777,
+  "ppl_ratio": 1.061340341813648,
+  "bootstrap": "10000 resamples of windows, seed 0, percentile"
+ },
+ "experts24_tables": {
+  "spec": "experts:all=dir:/Users/pjmalandrino/llvq-inkling-mini/layers;model.embed_tokens.weight=table:/Users/pjmalandrino/llvq-inkling-mini/lot1-b/tables/embed.q4g64.llvqraw;lm_head.weight=table:/Users/pjmalandrino/llvq-inkling-mini/lot1-b/tables/unembed.q4g64.llvqraw",
+  "windows_used": [
+   0,
+   1,
+   2,
+   3,
+   4,
+   5,
+   6,
+   7
+  ],
+  "kl_mean": 0.08795495424419641,
+  "kl_ci95": [
+   0.0782800478162244,
+   0.09693981427699327
+  ],
+  "kl_max": 5.671753406524658,
+  "top1_agree": 0.8866023495793343,
+  "nll_teacher": 1.8240511566400528,
+  "nll_arm": 1.8898328989744186,
+  "nll_diff_mean": 0.06578174233436584,
+  "nll_diff_ci95": [
+   0.059862745180726054,
+   0.07186497412621976
+  ],
+  "ppl_teacher": 6.196912329554683,
+  "ppl_arm": 6.618262670158124,
+  "ppl_ratio": 1.0679935939377279,
+  "bootstrap": "10000 resamples of windows, seed 0, percentile"
+ },
+ "experts24_attn": {
+  "windows_done": 0
+ },
+ "whole": {
+  "windows_done": 0
+ },
+ "attn_only": {
+  "spec": "attention:all=attn:/Users/pjmalandrino/llvq-inkling-mini/lot1-b/attn",
+  "windows_used": [
+   0,
+   1,
+   2,
+   3,
+   4,
+   5,
+   6,
+   7
+  ],
+  "kl_mean": 0.023422553203999996,
+  "kl_ci95": [
+   0.020786937314551324,
+   0.025830726954154667
+  ],
+  "kl_max": 1.190975308418274,
+  "top1_agree": 0.9335002601146698,
+  "nll_teacher": 1.8240511566400528,
+  "nll_arm": 1.8411983251571655,
+  "nll_diff_mean": 0.017147168517112732,
+  "nll_diff_ci95": [
+   0.01283508986234665,
+   0.021489565446972843
+  ],
+  "ppl_teacher": 6.196912329554683,
+  "ppl_arm": 6.304088083895787,
+  "ppl_ratio": 1.0172950251095136,
+  "bootstrap": "10000 resamples of windows, seed 0, percentile"
+ },
+ "attn_lattice_only": {
+  "spec": "model.layers.0.self_attn.q_proj.linear.weight=file:/Users/pjmalandrino/llvq-inkling-mini/lot1-b/attn/L00_q/model.layers.0.attn.wq_du.weight.f32;model.layers.0.self_attn.k_proj.linear.weight=file:/Users/pjmalandrino/llvq-inkling-mini/lot1-b/attn/L00_k/model.layers.0.attn.wk_dv.weight.f32;model.layers.1.self_attn.q_proj.linear.weight=file:/Users/pjmalandrino/llvq-inkling-mini/lot1-b/attn/L01_q/model.layers.1.attn.wq_du.weight.f32;model.layers.1.self_attn.k_proj.linear.weight=file:/Users/pjmalandrino/llvq-inkling-mini/lot1-b/attn/L01_k/model.layers.1.attn.wk_dv.weight.f32;model.layers.2.self_attn.q_proj.linear.weight=file:/Users/pjmalandrino/llvq-inkling-mini/lot1-b/attn/L02_q/model.layers.2.attn.wq_du.weight.f32;model.layers.2.self_attn.k_proj.linear.weight=file:/Users/pjmalandrino/llvq-inkling-mini/lot1-b/attn/L02_k/model.layers.2.attn.wk_dv.weight.f32;model.layers.3.self_attn.q_proj.linear.weight=file:/Users/pjmalandrino/llvq-inkling-mini/lot1-b/attn/L03_q/model.layers.3.attn.wq_du.weight.f32;model.layers.3.self_attn.k_proj.linear.weight=file:/Users/pjmalandrino/llvq-inkling-mini/lot1-b/attn/L03_k/model.layers.3.attn.wk_dv.weight.f32;model.layers.4.self_attn.q_proj.linear.weight=file:/Users/pjmalandrino/llvq-inkling-mini/lot1-b/attn/L04_q/model.layers.4.attn.wq_du.weight.f32;model.layers.4.self_attn.k_proj.linear.weight=file:/Users/pjmalandrino/llvq-inkling-mini/lot1-b/attn/L04_k/model.layers.4.attn.wk_dv.weight.f32;model.layers.5.self_attn.q_proj.linear.weight=file:/Users/pjmalandrino/llvq-inkling-mini/lot1-b/attn/L05_q/model.layers.5.attn.wq_du.weight.f32;model.layers.5.self_attn.k_proj.linear.weight=file:/Users/pjmalandrino/llvq-inkling-mini/lot1-b/attn/L05_k/model.layers.5.attn.wk_dv.weight.f32;model.layers.6.self_attn.q_proj.linear.weight=file:/Users/pjmalandrino/llvq-inkling-mini/lot1-b/attn/L06_q/model.layers.6.attn.wq_du.weight.f32;model.layers.6.self_attn.k_proj.linear.weight=file:/Users/pjmalandrino/llvq-inkling-mini/lot1-b/attn/L06_k/model.layers.6.attn.wk_dv.weight.f32;model.layers.7.self_attn.q_proj.linear.weight=file:/Users/pjmalandrino/llvq-inkling-mini/lot1-b/attn/L07_q/model.layers.7.attn.wq_du.weight.f32;model.layers.7.self_attn.k_proj.linear.weight=file:/Users/pjmalandrino/llvq-inkling-mini/lot1-b/attn/L07_k/model.layers.7.attn.wk_dv.weight.f32;model.layers.8.self_attn.q_proj.linear.weight=file:/Users/pjmalandrino/llvq-inkling-mini/lot1-b/attn/L08_q/model.layers.8.attn.wq_du.weight.f32;model.layers.8.self_attn.k_proj.linear.weight=file:/Users/pjmalandrino/llvq-inkling-mini/lot1-b/attn/L08_k/model.layers.8.attn.wk_dv.weight.f32;model.layers.9.self_attn.q_proj.linear.weight=file:/Users/pjmalandrino/llvq-inkling-mini/lot1-b/attn/L09_q/model.layers.9.attn.wq_du.weight.f32;model.layers.9.self_attn.k_proj.linear.weight=file:/Users/pjmalandrino/llvq-inkling-mini/lot1-b/attn/L09_k/model.layers.9.attn.wk_dv.weight.f32;model.layers.10.self_attn.q_proj.linear.weight=file:/Users/pjmalandrino/llvq-inkling-mini/lot1-b/attn/L10_q/model.layers.10.attn.wq_du.weight.f32;model.layers.10.self_attn.k_proj.linear.weight=file:/Users/pjmalandrino/llvq-inkling-mini/lot1-b/attn/L10_k/model.layers.10.attn.wk_dv.weight.f32;model.layers.11.self_attn.q_proj.linear.weight=file:/Users/pjmalandrino/llvq-inkling-mini/lot1-b/attn/L11_q/model.layers.11.attn.wq_du.weight.f32;model.layers.11.self_attn.k_proj.linear.weight=file:/Users/pjmalandrino/llvq-inkling-mini/lot1-b/attn/L11_k/model.layers.11.attn.wk_dv.weight.f32;model.layers.12.self_attn.q_proj.linear.weight=file:/Users/pjmalandrino/llvq-inkling-mini/lot1-b/attn/L12_q/model.layers.12.attn.wq_du.weight.f32;model.layers.12.self_attn.k_proj.linear.weight=file:/Users/pjmalandrino/llvq-inkling-mini/lot1-b/attn/L12_k/model.layers.12.attn.wk_dv.weight.f32;model.layers.13.self_attn.q_proj.linear.weight=file:/Users/pjmalandrino/llvq-inkling-mini/lot1-b/attn/L13_q/model.layers.13.attn.wq_du.weight.f32;model.layers.13.self_attn.k_proj.linear.weight=file:/Users/pjmalandrino/llvq-inkling-mini/lot1-b/attn/L13_k/model.layers.13.attn.wk_dv.weight.f32;model.layers.14.self_attn.q_proj.linear.weight=file:/Users/pjmalandrino/llvq-inkling-mini/lot1-b/attn/L14_q/model.layers.14.attn.wq_du.weight.f32;model.layers.14.self_attn.k_proj.linear.weight=file:/Users/pjmalandrino/llvq-inkling-mini/lot1-b/attn/L14_k/model.layers.14.attn.wk_dv.weight.f32;model.layers.15.self_attn.q_proj.linear.weight=file:/Users/pjmalandrino/llvq-inkling-mini/lot1-b/attn/L15_q/model.layers.15.attn.wq_du.weight.f32;model.layers.15.self_attn.k_proj.linear.weight=file:/Users/pjmalandrino/llvq-inkling-mini/lot1-b/attn/L15_k/model.layers.15.attn.wk_dv.weight.f32;model.layers.16.self_attn.q_proj.linear.weight=file:/Users/pjmalandrino/llvq-inkling-mini/lot1-b/attn/L16_q/model.layers.16.attn.wq_du.weight.f32;model.layers.16.self_attn.k_proj.linear.weight=file:/Users/pjmalandrino/llvq-inkling-mini/lot1-b/attn/L16_k/model.layers.16.attn.wk_dv.weight.f32;model.layers.17.self_attn.q_proj.linear.weight=file:/Users/pjmalandrino/llvq-inkling-mini/lot1-b/attn/L17_q/model.layers.17.attn.wq_du.weight.f32;model.layers.17.self_attn.k_proj.linear.weight=file:/Users/pjmalandrino/llvq-inkling-mini/lot1-b/attn/L17_k/model.layers.17.attn.wk_dv.weight.f32;model.layers.18.self_attn.q_proj.linear.weight=file:/Users/pjmalandrino/llvq-inkling-mini/lot1-b/attn/L18_q/model.layers.18.attn.wq_du.weight.f32;model.layers.18.self_attn.k_proj.linear.weight=file:/Users/pjmalandrino/llvq-inkling-mini/lot1-b/attn/L18_k/model.layers.18.attn.wk_dv.weight.f32;model.layers.19.self_attn.q_proj.linear.weight=file:/Users/pjmalandrino/llvq-inkling-mini/lot1-b/attn/L19_q/model.layers.19.attn.wq_du.weight.f32;model.layers.19.self_attn.k_proj.linear.weight=file:/Users/pjmalandrino/llvq-inkling-mini/lot1-b/attn/L19_k/model.layers.19.attn.wk_dv.weight.f32;model.layers.20.self_attn.q_proj.linear.weight=file:/Users/pjmalandrino/llvq-inkling-mini/lot1-b/attn/L20_q/model.layers.20.attn.wq_du.weight.f32;model.layers.20.self_attn.k_proj.linear.weight=file:/Users/pjmalandrino/llvq-inkling-mini/lot1-b/attn/L20_k/model.layers.20.attn.wk_dv.weight.f32;model.layers.21.self_attn.q_proj.linear.weight=file:/Users/pjmalandrino/llvq-inkling-mini/lot1-b/attn/L21_q/model.layers.21.attn.wq_du.weight.f32;model.layers.21.self_attn.k_proj.linear.weight=file:/Users/pjmalandrino/llvq-inkling-mini/lot1-b/attn/L21_k/model.layers.21.attn.wk_dv.weight.f32;model.layers.22.self_attn.q_proj.linear.weight=file:/Users/pjmalandrino/llvq-inkling-mini/lot1-b/attn/L22_q/model.layers.22.attn.wq_du.weight.f32;model.layers.22.self_attn.k_proj.linear.weight=file:/Users/pjmalandrino/llvq-inkling-mini/lot1-b/attn/L22_k/model.layers.22.attn.wk_dv.weight.f32;model.layers.23.self_attn.q_proj.linear.weight=file:/Users/pjmalandrino/llvq-inkling-mini/lot1-b/attn/L23_q/model.layers.23.attn.wq_du.weight.f32;model.layers.23.self_attn.k_proj.linear.weight=file:/Users/pjmalandrino/llvq-inkling-mini/lot1-b/attn/L23_k/model.layers.23.attn.wk_dv.weight.f32",
+  "windows_used": [
+   0,
+   1,
+   2,
+   3,
+   4,
+   5,
+   6,
+   7
+  ],
+  "kl_mean": 0.011760168708860874,
+  "kl_ci95": [
+   0.01002917880541645,
+   0.013519132236251606
+  ],
+  "kl_max": 1.0665161609649658,
+  "top1_agree": 0.9538959562778473,
+  "nll_teacher": 1.8240511566400528,
+  "nll_arm": 1.830033764243126,
+  "nll_diff_mean": 0.00598260760307312,
+  "nll_diff_ci95": [
+   0.002905474975705147,
+   0.009122492000460622
+  ],
+  "ppl_teacher": 6.196912329554683,
+  "ppl_arm": 6.234097144542906,
+  "ppl_ratio": 1.0060005391412232,
+  "bootstrap": "10000 resamples of windows, seed 0, percentile"
+ },
+ "attn_int4_only": {
+  "spec": "model.layers.0.self_attn.v_proj.linear.weight=file:/Users/pjmalandrino/llvq-inkling-mini/lot1-b/attn/L00_v/model.layers.0.attn.wv_dv.weight.f32;model.layers.0.self_attn.o_proj.linear.weight=file:/Users/pjmalandrino/llvq-inkling-mini/lot1-b/attn/L00_o/model.layers.0.attn.wo_ud.weight.f32;model.layers.0.self_attn.o_proj.gate_proj.weight=file:/Users/pjmalandrino/llvq-inkling-mini/lot1-b/attn/L00_q/model.layers.0.attn.gate_attn.weight.f32;model.layers.0.self_attn.relative_position_bias.linear.weight=file:/Users/pjmalandrino/llvq-inkling-mini/lot1-b/attn/L00_q/model.layers.0.attn.wr_du.weight.f32;model.layers.1.self_attn.v_proj.linear.weight=file:/Users/pjmalandrino/llvq-inkling-mini/lot1-b/attn/L01_v/model.layers.1.attn.wv_dv.weight.f32;model.layers.1.self_attn.o_proj.linear.weight=file:/Users/pjmalandrino/llvq-inkling-mini/lot1-b/attn/L01_o/model.layers.1.attn.wo_ud.weight.f32;model.layers.1.self_attn.o_proj.gate_proj.weight=file:/Users/pjmalandrino/llvq-inkling-mini/lot1-b/attn/L01_q/model.layers.1.attn.gate_attn.weight.f32;model.layers.1.self_attn.relative_position_bias.linear.weight=file:/Users/pjmalandrino/llvq-inkling-mini/lot1-b/attn/L01_q/model.layers.1.attn.wr_du.weight.f32;model.layers.2.self_attn.v_proj.linear.weight=file:/Users/pjmalandrino/llvq-inkling-mini/lot1-b/attn/L02_v/model.layers.2.attn.wv_dv.weight.f32;model.layers.2.self_attn.o_proj.linear.weight=file:/Users/pjmalandrino/llvq-inkling-mini/lot1-b/attn/L02_o/model.layers.2.attn.wo_ud.weight.f32;model.layers.2.self_attn.o_proj.gate_proj.weight=file:/Users/pjmalandrino/llvq-inkling-mini/lot1-b/attn/L02_q/model.layers.2.attn.gate_attn.weight.f32;model.layers.2.self_attn.relative_position_bias.linear.weight=file:/Users/pjmalandrino/llvq-inkling-mini/lot1-b/attn/L02_q/model.layers.2.attn.wr_du.weight.f32;model.layers.3.self_attn.v_proj.linear.weight=file:/Users/pjmalandrino/llvq-inkling-mini/lot1-b/attn/L03_v/model.layers.3.attn.wv_dv.weight.f32;model.layers.3.self_attn.o_proj.linear.weight=file:/Users/pjmalandrino/llvq-inkling-mini/lot1-b/attn/L03_o/model.layers.3.attn.wo_ud.weight.f32;model.layers.3.self_attn.o_proj.gate_proj.weight=file:/Users/pjmalandrino/llvq-inkling-mini/lot1-b/attn/L03_q/model.layers.3.attn.gate_attn.weight.f32;model.layers.3.self_attn.relative_position_bias.linear.weight=file:/Users/pjmalandrino/llvq-inkling-mini/lot1-b/attn/L03_q/model.layers.3.attn.wr_du.weight.f32;model.layers.4.self_attn.v_proj.linear.weight=file:/Users/pjmalandrino/llvq-inkling-mini/lot1-b/attn/L04_v/model.layers.4.attn.wv_dv.weight.f32;model.layers.4.self_attn.o_proj.linear.weight=file:/Users/pjmalandrino/llvq-inkling-mini/lot1-b/attn/L04_o/model.layers.4.attn.wo_ud.weight.f32;model.layers.4.self_attn.o_proj.gate_proj.weight=file:/Users/pjmalandrino/llvq-inkling-mini/lot1-b/attn/L04_q/model.layers.4.attn.gate_attn.weight.f32;model.layers.4.self_attn.relative_position_bias.linear.weight=file:/Users/pjmalandrino/llvq-inkling-mini/lot1-b/attn/L04_q/model.layers.4.attn.wr_du.weight.f32;model.layers.5.self_attn.v_proj.linear.weight=file:/Users/pjmalandrino/llvq-inkling-mini/lot1-b/attn/L05_v/model.layers.5.attn.wv_dv.weight.f32;model.layers.5.self_attn.o_proj.linear.weight=file:/Users/pjmalandrino/llvq-inkling-mini/lot1-b/attn/L05_o/model.layers.5.attn.wo_ud.weight.f32;model.layers.5.self_attn.o_proj.gate_proj.weight=file:/Users/pjmalandrino/llvq-inkling-mini/lot1-b/attn/L05_q/model.layers.5.attn.gate_attn.weight.f32;model.layers.5.self_attn.relative_position_bias.linear.weight=file:/Users/pjmalandrino/llvq-inkling-mini/lot1-b/attn/L05_q/model.layers.5.attn.wr_du.weight.f32;model.layers.6.self_attn.v_proj.linear.weight=file:/Users/pjmalandrino/llvq-inkling-mini/lot1-b/attn/L06_v/model.layers.6.attn.wv_dv.weight.f32;model.layers.6.self_attn.o_proj.linear.weight=file:/Users/pjmalandrino/llvq-inkling-mini/lot1-b/attn/L06_o/model.layers.6.attn.wo_ud.weight.f32;model.layers.6.self_attn.o_proj.gate_proj.weight=file:/Users/pjmalandrino/llvq-inkling-mini/lot1-b/attn/L06_q/model.layers.6.attn.gate_attn.weight.f32;model.layers.6.self_attn.relative_position_bias.linear.weight=file:/Users/pjmalandrino/llvq-inkling-mini/lot1-b/attn/L06_q/model.layers.6.attn.wr_du.weight.f32;model.layers.7.self_attn.v_proj.linear.weight=file:/Users/pjmalandrino/llvq-inkling-mini/lot1-b/attn/L07_v/model.layers.7.attn.wv_dv.weight.f32;model.layers.7.self_attn.o_proj.linear.weight=file:/Users/pjmalandrino/llvq-inkling-mini/lot1-b/attn/L07_o/model.layers.7.attn.wo_ud.weight.f32;model.layers.7.self_attn.o_proj.gate_proj.weight=file:/Users/pjmalandrino/llvq-inkling-mini/lot1-b/attn/L07_q/model.layers.7.attn.gate_attn.weight.f32;model.layers.7.self_attn.relative_position_bias.linear.weight=file:/Users/pjmalandrino/llvq-inkling-mini/lot1-b/attn/L07_q/model.layers.7.attn.wr_du.weight.f32;model.layers.8.self_attn.v_proj.linear.weight=file:/Users/pjmalandrino/llvq-inkling-mini/lot1-b/attn/L08_v/model.layers.8.attn.wv_dv.weight.f32;model.layers.8.self_attn.o_proj.linear.weight=file:/Users/pjmalandrino/llvq-inkling-mini/lot1-b/attn/L08_o/model.layers.8.attn.wo_ud.weight.f32;model.layers.8.self_attn.o_proj.gate_proj.weight=file:/Users/pjmalandrino/llvq-inkling-mini/lot1-b/attn/L08_q/model.layers.8.attn.gate_attn.weight.f32;model.layers.8.self_attn.relative_position_bias.linear.weight=file:/Users/pjmalandrino/llvq-inkling-mini/lot1-b/attn/L08_q/model.layers.8.attn.wr_du.weight.f32;model.layers.9.self_attn.v_proj.linear.weight=file:/Users/pjmalandrino/llvq-inkling-mini/lot1-b/attn/L09_v/model.layers.9.attn.wv_dv.weight.f32;model.layers.9.self_attn.o_proj.linear.weight=file:/Users/pjmalandrino/llvq-inkling-mini/lot1-b/attn/L09_o/model.layers.9.attn.wo_ud.weight.f32;model.layers.9.self_attn.o_proj.gate_proj.weight=file:/Users/pjmalandrino/llvq-inkling-mini/lot1-b/attn/L09_q/model.layers.9.attn.gate_attn.weight.f32;model.layers.9.self_attn.relative_position_bias.linear.weight=file:/Users/pjmalandrino/llvq-inkling-mini/lot1-b/attn/L09_q/model.layers.9.attn.wr_du.weight.f32;model.layers.10.self_attn.v_proj.linear.weight=file:/Users/pjmalandrino/llvq-inkling-mini/lot1-b/attn/L10_v/model.layers.10.attn.wv_dv.weight.f32;model.layers.10.self_attn.o_proj.linear.weight=file:/Users/pjmalandrino/llvq-inkling-mini/lot1-b/attn/L10_o/model.layers.10.attn.wo_ud.weight.f32;model.layers.10.self_attn.o_proj.gate_proj.weight=file:/Users/pjmalandrino/llvq-inkling-mini/lot1-b/attn/L10_q/model.layers.10.attn.gate_attn.weight.f32;model.layers.10.self_attn.relative_position_bias.linear.weight=file:/Users/pjmalandrino/llvq-inkling-mini/lot1-b/attn/L10_q/model.layers.10.attn.wr_du.weight.f32;model.layers.11.self_attn.v_proj.linear.weight=file:/Users/pjmalandrino/llvq-inkling-mini/lot1-b/attn/L11_v/model.layers.11.attn.wv_dv.weight.f32;model.layers.11.self_attn.o_proj.linear.weight=file:/Users/pjmalandrino/llvq-inkling-mini/lot1-b/attn/L11_o/model.layers.11.attn.wo_ud.weight.f32;model.layers.11.self_attn.o_proj.gate_proj.weight=file:/Users/pjmalandrino/llvq-inkling-mini/lot1-b/attn/L11_q/model.layers.11.attn.gate_attn.weight.f32;model.layers.11.self_attn.relative_position_bias.linear.weight=file:/Users/pjmalandrino/llvq-inkling-mini/lot1-b/attn/L11_q/model.layers.11.attn.wr_du.weight.f32;model.layers.12.self_attn.v_proj.linear.weight=file:/Users/pjmalandrino/llvq-inkling-mini/lot1-b/attn/L12_v/model.layers.12.attn.wv_dv.weight.f32;model.layers.12.self_attn.o_proj.linear.weight=file:/Users/pjmalandrino/llvq-inkling-mini/lot1-b/attn/L12_o/model.layers.12.attn.wo_ud.weight.f32;model.layers.12.self_attn.o_proj.gate_proj.weight=file:/Users/pjmalandrino/llvq-inkling-mini/lot1-b/attn/L12_q/model.layers.12.attn.gate_attn.weight.f32;model.layers.12.self_attn.relative_position_bias.linear.weight=file:/Users/pjmalandrino/llvq-inkling-mini/lot1-b/attn/L12_q/model.layers.12.attn.wr_du.weight.f32;model.layers.13.self_attn.v_proj.linear.weight=file:/Users/pjmalandrino/llvq-inkling-mini/lot1-b/attn/L13_v/model.layers.13.attn.wv_dv.weight.f32;model.layers.13.self_attn.o_proj.linear.weight=file:/Users/pjmalandrino/llvq-inkling-mini/lot1-b/attn/L13_o/model.layers.13.attn.wo_ud.weight.f32;model.layers.13.self_attn.o_proj.gate_proj.weight=file:/Users/pjmalandrino/llvq-inkling-mini/lot1-b/attn/L13_q/model.layers.13.attn.gate_attn.weight.f32;model.layers.13.self_attn.relative_position_bias.linear.weight=file:/Users/pjmalandrino/llvq-inkling-mini/lot1-b/attn/L13_q/model.layers.13.attn.wr_du.weight.f32;model.layers.14.self_attn.v_proj.linear.weight=file:/Users/pjmalandrino/llvq-inkling-mini/lot1-b/attn/L14_v/model.layers.14.attn.wv_dv.weight.f32;model.layers.14.self_attn.o_proj.linear.weight=file:/Users/pjmalandrino/llvq-inkling-mini/lot1-b/attn/L14_o/model.layers.14.attn.wo_ud.weight.f32;model.layers.14.self_attn.o_proj.gate_proj.weight=file:/Users/pjmalandrino/llvq-inkling-mini/lot1-b/attn/L14_q/model.layers.14.attn.gate_attn.weight.f32;model.layers.14.self_attn.relative_position_bias.linear.weight=file:/Users/pjmalandrino/llvq-inkling-mini/lot1-b/attn/L14_q/model.layers.14.attn.wr_du.weight.f32;model.layers.15.self_attn.v_proj.linear.weight=file:/Users/pjmalandrino/llvq-inkling-mini/lot1-b/attn/L15_v/model.layers.15.attn.wv_dv.weight.f32;model.layers.15.self_attn.o_proj.linear.weight=file:/Users/pjmalandrino/llvq-inkling-mini/lot1-b/attn/L15_o/model.layers.15.attn.wo_ud.weight.f32;model.layers.15.self_attn.o_proj.gate_proj.weight=file:/Users/pjmalandrino/llvq-inkling-mini/lot1-b/attn/L15_q/model.layers.15.attn.gate_attn.weight.f32;model.layers.15.self_attn.relative_position_bias.linear.weight=file:/Users/pjmalandrino/llvq-inkling-mini/lot1-b/attn/L15_q/model.layers.15.attn.wr_du.weight.f32;model.layers.16.self_attn.v_proj.linear.weight=file:/Users/pjmalandrino/llvq-inkling-mini/lot1-b/attn/L16_v/model.layers.16.attn.wv_dv.weight.f32;model.layers.16.self_attn.o_proj.linear.weight=file:/Users/pjmalandrino/llvq-inkling-mini/lot1-b/attn/L16_o/model.layers.16.attn.wo_ud.weight.f32;model.layers.16.self_attn.o_proj.gate_proj.weight=file:/Users/pjmalandrino/llvq-inkling-mini/lot1-b/attn/L16_q/model.layers.16.attn.gate_attn.weight.f32;model.layers.16.self_attn.relative_position_bias.linear.weight=file:/Users/pjmalandrino/llvq-inkling-mini/lot1-b/attn/L16_q/model.layers.16.attn.wr_du.weight.f32;model.layers.17.self_attn.v_proj.linear.weight=file:/Users/pjmalandrino/llvq-inkling-mini/lot1-b/attn/L17_v/model.layers.17.attn.wv_dv.weight.f32;model.layers.17.self_attn.o_proj.linear.weight=file:/Users/pjmalandrino/llvq-inkling-mini/lot1-b/attn/L17_o/model.layers.17.attn.wo_ud.weight.f32;model.layers.17.self_attn.o_proj.gate_proj.weight=file:/Users/pjmalandrino/llvq-inkling-mini/lot1-b/attn/L17_q/model.layers.17.attn.gate_attn.weight.f32;model.layers.17.self_attn.relative_position_bias.linear.weight=file:/Users/pjmalandrino/llvq-inkling-mini/lot1-b/attn/L17_q/model.layers.17.attn.wr_du.weight.f32;model.layers.18.self_attn.v_proj.linear.weight=file:/Users/pjmalandrino/llvq-inkling-mini/lot1-b/attn/L18_v/model.layers.18.attn.wv_dv.weight.f32;model.layers.18.self_attn.o_proj.linear.weight=file:/Users/pjmalandrino/llvq-inkling-mini/lot1-b/attn/L18_o/model.layers.18.attn.wo_ud.weight.f32;model.layers.18.self_attn.o_proj.gate_proj.weight=file:/Users/pjmalandrino/llvq-inkling-mini/lot1-b/attn/L18_q/model.layers.18.attn.gate_attn.weight.f32;model.layers.18.self_attn.relative_position_bias.linear.weight=file:/Users/pjmalandrino/llvq-inkling-mini/lot1-b/attn/L18_q/model.layers.18.attn.wr_du.weight.f32;model.layers.19.self_attn.v_proj.linear.weight=file:/Users/pjmalandrino/llvq-inkling-mini/lot1-b/attn/L19_v/model.layers.19.attn.wv_dv.weight.f32;model.layers.19.self_attn.o_proj.linear.weight=file:/Users/pjmalandrino/llvq-inkling-mini/lot1-b/attn/L19_o/model.layers.19.attn.wo_ud.weight.f32;model.layers.19.self_attn.o_proj.gate_proj.weight=file:/Users/pjmalandrino/llvq-inkling-mini/lot1-b/attn/L19_q/model.layers.19.attn.gate_attn.weight.f32;model.layers.19.self_attn.relative_position_bias.linear.weight=file:/Users/pjmalandrino/llvq-inkling-mini/lot1-b/attn/L19_q/model.layers.19.attn.wr_du.weight.f32;model.layers.20.self_attn.v_proj.linear.weight=file:/Users/pjmalandrino/llvq-inkling-mini/lot1-b/attn/L20_v/model.layers.20.attn.wv_dv.weight.f32;model.layers.20.self_attn.o_proj.linear.weight=file:/Users/pjmalandrino/llvq-inkling-mini/lot1-b/attn/L20_o/model.layers.20.attn.wo_ud.weight.f32;model.layers.20.self_attn.o_proj.gate_proj.weight=file:/Users/pjmalandrino/llvq-inkling-mini/lot1-b/attn/L20_q/model.layers.20.attn.gate_attn.weight.f32;model.layers.20.self_attn.relative_position_bias.linear.weight=file:/Users/pjmalandrino/llvq-inkling-mini/lot1-b/attn/L20_q/model.layers.20.attn.wr_du.weight.f32;model.layers.21.self_attn.v_proj.linear.weight=file:/Users/pjmalandrino/llvq-inkling-mini/lot1-b/attn/L21_v/model.layers.21.attn.wv_dv.weight.f32;model.layers.21.self_attn.o_proj.linear.weight=file:/Users/pjmalandrino/llvq-inkling-mini/lot1-b/attn/L21_o/model.layers.21.attn.wo_ud.weight.f32;model.layers.21.self_attn.o_proj.gate_proj.weight=file:/Users/pjmalandrino/llvq-inkling-mini/lot1-b/attn/L21_q/model.layers.21.attn.gate_attn.weight.f32;model.layers.21.self_attn.relative_position_bias.linear.weight=file:/Users/pjmalandrino/llvq-inkling-mini/lot1-b/attn/L21_q/model.layers.21.attn.wr_du.weight.f32;model.layers.22.self_attn.v_proj.linear.weight=file:/Users/pjmalandrino/llvq-inkling-mini/lot1-b/attn/L22_v/model.layers.22.attn.wv_dv.weight.f32;model.layers.22.self_attn.o_proj.linear.weight=file:/Users/pjmalandrino/llvq-inkling-mini/lot1-b/attn/L22_o/model.layers.22.attn.wo_ud.weight.f32;model.layers.22.self_attn.o_proj.gate_proj.weight=file:/Users/pjmalandrino/llvq-inkling-mini/lot1-b/attn/L22_q/model.layers.22.attn.gate_attn.weight.f32;model.layers.22.self_attn.relative_position_bias.linear.weight=file:/Users/pjmalandrino/llvq-inkling-mini/lot1-b/attn/L22_q/model.layers.22.attn.wr_du.weight.f32;model.layers.23.self_attn.v_proj.linear.weight=file:/Users/pjmalandrino/llvq-inkling-mini/lot1-b/attn/L23_v/model.layers.23.attn.wv_dv.weight.f32;model.layers.23.self_attn.o_proj.linear.weight=file:/Users/pjmalandrino/llvq-inkling-mini/lot1-b/attn/L23_o/model.layers.23.attn.wo_ud.weight.f32;model.layers.23.self_attn.o_proj.gate_proj.weight=file:/Users/pjmalandrino/llvq-inkling-mini/lot1-b/attn/L23_q/model.layers.23.attn.gate_attn.weight.f32;model.layers.23.self_attn.relative_position_bias.linear.weight=file:/Users/pjmalandrino/llvq-inkling-mini/lot1-b/attn/L23_q/model.layers.23.attn.wr_du.weight.f32",
+  "windows_used": [
+   0,
+   1,
+   2,
+   3,
+   4,
+   5,
+   6,
+   7
+  ],
+  "kl_mean": 0.01701981481164694,
+  "kl_ci95": [
+   0.015320496971253306,
+   0.01854496356099844
+  ],
+  "kl_max": 0.9137756824493408,
+  "top1_agree": 0.9450415372848511,
+  "nll_teacher": 1.8240511566400528,
+  "nll_arm": 1.8330849558115005,
+  "nll_diff_mean": 0.009033799171447754,
+  "nll_diff_ci95": [
+   0.006480678915977478,
+   0.01158052682876587
+  ],
+  "ppl_teacher": 6.196912329554683,
+  "ppl_arm": 6.253147617728718,
+  "ppl_ratio": 1.0090747270872034,
+  "bootstrap": "10000 resamples of windows, seed 0, percentile"
+ },
+ "tables_only": {
+  "spec": "model.embed_tokens.weight=table:/Users/pjmalandrino/llvq-inkling-mini/lot1-b/tables/embed.q4g64.llvqraw;lm_head.weight=table:/Users/pjmalandrino/llvq-inkling-mini/lot1-b/tables/unembed.q4g64.llvqraw",
+  "windows_used": [
+   0,
+   1,
+   2,
+   3,
+   4,
+   5,
+   6,
+   7
+  ],
+  "kl_mean": 0.007777073478791863,
+  "kl_ci95": [
+   0.007070679936441593,
+   0.00840455456636846
+  ],
+  "kl_max": 2.4382987022399902,
+  "top1_agree": 0.9628114402294159,
+  "nll_teacher": 1.8240511566400528,
+  "nll_arm": 1.8273856341838837,
+  "nll_diff_mean": 0.0033344775438308716,
+  "nll_diff_ci95": [
+   0.0011099573224782945,
+   0.005622325092554092
+  ],
+  "ppl_teacher": 6.196912329554683,
+  "ppl_arm": 6.217610283812582,
+  "ppl_ratio": 1.003340043098429,
+  "bootstrap": "10000 resamples of windows, seed 0, percentile"
+ },
+ "rival_iq2xxs": {
+  "spec": "experts:all=gguf:/Users/pjmalandrino/llvq-inkling-mini/gguf/Inkling-2-Mini-UD-IQ2_XXS.gguf;nonexperts=gguf:/Users/pjmalandrino/llvq-inkling-mini/gguf/Inkling-2-Mini-UD-IQ2_XXS.gguf",
+  "windows_used": [
+   0,
+   1,
+   2,
+   3,
+   4,
+   5,
+   6,
+   7
+  ],
+  "kl_mean": 0.08373489789664745,
+  "kl_ci95": [
+   0.07578423712402582,
+   0.09295265560504049
+  ],
+  "kl_max": 4.1087799072265625,
+  "top1_agree": 0.8858085200190544,
+  "nll_teacher": 1.8240511566400528,
+  "nll_arm": 1.888038381934166,
+  "nll_diff_mean": 0.06398722529411316,
+  "nll_diff_ci95": [
+   0.058909133076667786,
+   0.06855368576943874
+  ],
+  "ppl_teacher": 6.196912329554683,
+  "ppl_arm": 6.606396735015377,
+  "ppl_ratio": 1.066078779831652,
+  "bootstrap": "10000 resamples of windows, seed 0, percentile"
+ },
+ "rival_q2kxl": {
+  "spec": "experts:all=gguf:/Users/pjmalandrino/llvq-inkling-mini/gguf/Inkling-2-Mini-UD-Q2_K_XL.gguf;nonexperts=gguf:/Users/pjmalandrino/llvq-inkling-mini/gguf/Inkling-2-Mini-UD-Q2_K_XL.gguf",
+  "windows_used": [
+   0,
+   1,
+   2,
+   3,
+   4,
+   5,
+   6,
+   7
+  ],
+  "kl_mean": 0.06508965278044343,
+  "kl_ci95": [
+   0.05842344556003809,
+   0.07283331826329231
+  ],
+  "kl_max": 3.3548502922058105,
+  "top1_agree": 0.8998534604907036,
+  "nll_teacher": 1.8240511566400528,
+  "nll_arm": 1.8701567649841309,
+  "nll_diff_mean": 0.046105608344078064,
+  "nll_diff_ci95": [
+   0.04192700982093811,
+   0.04986702539026737
+  ],
+  "ppl_teacher": 6.196912329554683,
+  "ppl_arm": 6.489313616698734,
+  "ppl_ratio": 1.0471849965908848,
+  "bootstrap": "10000 resamples of windows, seed 0, percentile"
+ },
+ "experts_0_5": {
+  "spec": "experts:0-5=dir:/Users/pjmalandrino/llvq-inkling-mini/layers",
+  "windows_used": [
+   0,
+   1,
+   2,
+   3,
+   4,
+   5,
+   6,
+   7
+  ],
+  "kl_mean": 0.014408566756173968,
+  "kl_ci95": [
+   0.0128628549806308,
+   0.01575166232069023
+  ],
+  "kl_max": 2.321575164794922,
+  "top1_agree": 0.9551783204078674,
+  "nll_teacher": 1.8240511566400528,
+  "nll_arm": 1.823716163635254,
+  "nll_diff_mean": -0.00033499300479888916,
+  "nll_diff_ci95": [
+   -0.0043881237506866455,
+   0.0030276991426944726
+  ],
+  "ppl_teacher": 6.196912329554683,
+  "ppl_arm": 6.194836754943829,
+  "ppl_ratio": 0.9996650630990928,
+  "bootstrap": "10000 resamples of windows, seed 0, percentile"
+ },
+ "experts_18_23": {
+  "spec": "experts:18-23=dir:/Users/pjmalandrino/llvq-inkling-mini/layers",
+  "windows_used": [
+   0,
+   1,
+   2,
+   3,
+   4,
+   5,
+   6,
+   7
+  ],
+  "kl_mean": 0.036480149487033486,
+  "kl_ci95": [
+   0.030304407002404332,
+   0.04292046808404847
+  ],
+  "kl_max": 4.5234694480896,
+  "top1_agree": 0.939667820930481,
+  "nll_teacher": 1.8240511566400528,
+  "nll_arm": 1.8573506325483322,
+  "nll_diff_mean": 0.03329947590827942,
+  "nll_diff_ci95": [
+   0.027969539165496826,
+   0.039204378053545944
+  ],
+  "ppl_teacher": 6.196912329554683,
+  "ppl_arm": 6.406740456991598,
+  "ppl_ratio": 1.033860109079838,
+  "bootstrap": "10000 resamples of windows, seed 0, percentile"
+ },
+ "experts_20_23": {
+  "spec": "experts:20-23=dir:/Users/pjmalandrino/llvq-inkling-mini/layers",
+  "windows_used": [
+   0,
+   1,
+   2,
+   3,
+   4,
+   5,
+   6,
+   7
+  ],
+  "kl_mean": 0.02187155419960618,
+  "kl_ci95": [
+   0.01829732465557754,
+   0.025548976380378008
+  ],
+  "kl_max": 2.427654981613159,
+  "top1_agree": 0.9520640075206757,
+  "nll_teacher": 1.8240511566400528,
+  "nll_arm": 1.8433319330215454,
+  "nll_diff_mean": 0.019280776381492615,
+  "nll_diff_ci95": [
+   0.014677196741104126,
+   0.024487197399139404
+  ],
+  "ppl_teacher": 6.196912329554683,
+  "ppl_arm": 6.31755289501481,
+  "ppl_ratio": 1.0194678509303352,
+  "bootstrap": "10000 resamples of windows, seed 0, percentile"
+ }
+}

@@ -1,0 +1,14 @@
+{
+ "window": 6,
+ "kl_mean": 0.01869700290262699,
+ "kl_max": 0.9018045663833618,
+ "top1_agree": 0.9584758281707764,
+ "nll_teacher": 1.2642767429351807,
+ "nll_arm": 1.282585859298706,
+ "spec": "experts:20-23=dir:/Users/pjmalandrino/llvq-inkling-mini/layers",
+ "spec_sha": "6feb05552f99aaf0",
+ "tokens_fingerprint_of_8": "f1acc067bf1b610c",
+ "device": "mps",
+ "n_substituted": 0,
+ "sec_job": 197.6543459892273
+}

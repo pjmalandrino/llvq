@@ -1,0 +1,86 @@
+INKLING 2 MINI, THE WHOLE MODEL AGAINST ITS NATIVE TEACHER, 2026-11-22
+
+RESULT
+  The file the operator chose reads KL 0.0880 [0.0783, 0.0969] for 8.059 GB (*measured*, size *computed*). That is
+  0.0042 above unsloth's UD-IQ2_XXS, a file of 8.486 GB, and 0.0229 above UD-Q2_K_XL, 9.139 GB, both paired by
+  window. Our file holds the rivals' ladder to within 5 % of KL at 5 % fewer bytes. It does not beat it.
+  The loss sits in the last six layers: a quarter of the layers, 44 % of the experts' KL.
+
+WHAT WAS RUN
+  Not a preregistered gate. A reading, with no threshold stated before it.
+  Harness `ops/inkling/evalfull_arms.py`, one arm a student. The teacher is the native checkpoint
+  (`thinkingmachines/Inkling-2-Mini` @ ed40e7da) in the reference forward, `transformers` 046bdb8cc2, float32, on
+  the Mac's GPU (MPS). A student is the same forward with some tensors replaced.
+  Text: WikiText-2 test, 8 windows of 2,048 tokens, the same 8 for every arm (fingerprint f1acc067bf1b610c).
+  KL is KL(teacher || student) on the next-token distribution, mean over positions then over windows. Intervals are
+  95 % bootstraps over the 8 windows, 10,000 draws. Top-1 is the share of positions where both pick the same token.
+  dNLL is the student's loss minus the teacher's on the true token; the perplexity ratio is its exponential.
+  Raw rows, one a window and an arm: `inkling2-mini-whole-model-2026-11-22-brut/arms/<arm>/w{0..7}.json`, and
+  `arms/summary.json`.
+
+THE ARMS (*measured*)
+  arm                KL, 95 % interval          top-1     dNLL, 95 % interval          perplexity
+  rival_q2kxl        0.0651 [0.0584, 0.0728]   89.99 %   +0.0461 [+0.0419, +0.0499]   x1.0472
+  rival_iq2xxs       0.0837 [0.0758, 0.0930]   88.58 %   +0.0640 [+0.0589, +0.0686]   x1.0661
+  experts24_tables   0.0880 [0.0783, 0.0969]   88.66 %   +0.0658 [+0.0599, +0.0719]   x1.0680
+  experts24          0.0834 [0.0737, 0.0919]   88.97 %   +0.0595 [+0.0538, +0.0652]   x1.0613
+  experts_0_5        0.0144 [0.0129, 0.0158]   95.52 %   -0.0003 [-0.0044, +0.0030]   x0.9997
+  experts_18_23      0.0365 [0.0303, 0.0429]   93.97 %   +0.0333 [+0.0280, +0.0392]   x1.0339
+  experts_20_23      0.0219 [0.0183, 0.0255]   95.21 %   +0.0193 [+0.0147, +0.0245]   x1.0195
+  attn_only          0.0234 [0.0208, 0.0258]   93.35 %   +0.0171 [+0.0128, +0.0215]   x1.0173
+  attn_lattice_only  0.0118 [0.0100, 0.0135]   95.39 %   +0.0060 [+0.0029, +0.0091]   x1.0060
+  attn_int4_only     0.0170 [0.0153, 0.0185]   94.50 %   +0.0090 [+0.0065, +0.0116]   x1.0091
+  tables_only        0.0078 [0.0071, 0.0084]   96.28 %   +0.0033 [+0.0011, +0.0056]   x1.0033
+
+  What each arm replaces, everything else native:
+  rival_q2kxl, rival_iq2xxs   every tensor of unsloth's UD-Q2_K_XL or UD-IQ2_XXS file, transplanted into the
+                              reference forward. It reads the file's weights, not llama.cpp's kernels.
+  experts24_tables            the chosen file: the experts of the 24 layers in the lattice code, the two tables in
+                              int4 g64, attention as shipped.
+  experts24                   the experts of the 24 layers in the lattice code.
+  experts_0_5, _18_23, _20_23 the lattice experts of that group of layers alone.
+  attn_only                   the six attention matrices of every layer: `wq_du` and `wk_dv` in the lattice code,
+                              the four others in int4 g128.
+  attn_lattice_only, attn_int4_only   those two, or those four, alone.
+  tables_only                 the embedding and output tables in int4 g64.
+
+SIZES
+  Chosen file, text model: 8.059 GB and 2.473 b/param (*computed* in the kernel accounting, before the seal).
+  UD-IQ2_XXS: 8.486 GB and 2.600 b/param. UD-Q2_K_XL: 9.139 GB and 2.801 b/param (file sizes, *measured*).
+
+PAIRED BY WINDOW (*computed* from the raw rows; ours minus the rival, negative = ours lower)
+  experts24_tables minus rival_iq2xxs   +0.0042 [+0.0003, +0.0087]   ours lower on 1 of 8 windows
+  experts24        minus rival_iq2xxs   -0.0004 [-0.0042, +0.0046]   ours lower on 6 of 8 windows
+  experts24_tables minus rival_q2kxl    +0.0229 [+0.0169, +0.0294]   ours lower on 0 of 8 windows
+  experts24        minus rival_q2kxl    +0.0183 [+0.0125, +0.0250]   ours lower on 0 of 8 windows
+  The chosen file is behind UD-IQ2_XXS by a margin that the paired interval separates from zero, barely. With the
+  experts alone it is not separated. On top-1 the chosen file reads 88.66 % against 88.58 %.
+
+WHERE THE EXPERTS' LOSS SITS
+  group of layers      KL        a layer     visits a token
+  0 to 5               0.0144    0.0024      1 each
+  6 to 17, the loop    0.0378    0.0032      3 each
+  18 to 23             0.0365    0.0061      1 each
+  20 to 23             0.0219    0.0055      1 each
+  18 and 19            0.0146    0.0073      1 each     (*computed* as 18 to 23 minus 20 to 23)
+  The loop's figure is the gate's (`inkling2-mini-quality-gate-2026-11-21.txt`), read by `evalkl.py`, not by this
+  harness. The three groups sum to 0.0887; all 24 together read 0.0834. KL adds up to within 6 %.
+  Layers 0 to 5 cost no perplexity at all: x0.9997.
+  Layers 18 to 23 are a quarter of the layers and 44 % of the experts' KL. They are also where the census found the
+  most starved experts, 25.0 to 41.4 % of the cells, and layers 20 to 23 are the ones the checkpoint ships in MXFP8
+  where the others are NVFP4.
+
+WHAT A LAYER IN INT4 WOULD COST IN BYTES (*computed*)
+  One layer of experts is 1,019.2 M weights: 0.260 GB in the lattice code at 2.037 b, 0.541 GB in int4 g128 at
+  4.25 b, scale and bias of each group counted. A layer moved to int4 adds 0.282 GB.
+  Layers 18 and 19 in int4: 8.62 GB. Layers 20 to 23: 9.19 GB. Layers 18 to 23: 9.75 GB.
+  What those files would read is not measured: no expert was encoded in int4. At best a group's KL above goes to
+  zero, which is 0.026 KL a GB for layers 18 and 19 and 0.019 for layers 20 to 23. The rivals' ladder moves by
+  0.0285 KL a GB between its two files. So bytes spent this way follow the ladder at best; they do not beat it.
+
+WHAT THIS DOES NOT READ
+  A task. KL and top-1 measure fidelity to the teacher on one text of 16,376 positions.
+  llama.cpp itself: a rival arm is the rival's weights in the reference forward.
+  The sealed file: the arms read the reconstructions the encode wrote, and the seal ran after them.
+  Any int4 expert, any row scale, any calibration on the quantized prefix, any second calibration draw.
+  The group arms were run once, after the whole-model figure was known.

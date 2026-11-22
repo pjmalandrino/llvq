@@ -28,6 +28,9 @@ Arms (D = ~/llvq-inkling-mini):
   tables_only      the two tables alone
   rival_iq2xxs     the UD-IQ2_XXS file whole: experts through ggufx, every other tensor through ggufmap
   rival_q2kxl      the UD-Q2_K_XL file whole
+  experts_0_5, experts_18_23, experts_20_23
+                   diagnostic: the lattice experts of that group of layers alone, every other tensor native,
+                   to read which layers outside the loop carry the loss of experts24
 A rival arm transplants the file's weights into the reference forward pass (transformers 046bdb8cc2, float32). It
 measures the weights, not llama.cpp's kernels, its activation rounding or its own forward code.
 
@@ -55,7 +58,9 @@ ARMS_DIR = os.path.join(DATA, "evalfull", "arms")
 GGUF = {"rival_iq2xxs": os.path.join(DATA, "gguf", "Inkling-2-Mini-UD-IQ2_XXS.gguf"),
         "rival_q2kxl": os.path.join(DATA, "gguf", "Inkling-2-Mini-UD-Q2_K_XL.gguf")}
 ARMS = ("experts24", "experts24_tables", "experts24_attn", "whole", "attn_only", "attn_lattice_only", "attn_int4_only", "tables_only",
-        "rival_iq2xxs", "rival_q2kxl")
+        "rival_iq2xxs", "rival_q2kxl", "experts_0_5", "experts_18_23", "experts_20_23")
+# Diagnostic arms: the lattice experts of one group of layers outside the loop, everything else native.
+GROUPS = {"experts_0_5": "0-5", "experts_18_23": "18-23", "experts_20_23": "20-23"}
 # Which attention matrices the lattice code holds in the plan's default rule; the four others are int4 g128.
 ATTN_LATTICE = ("wq_du", "wk_dv")
 
@@ -67,6 +72,8 @@ def spec_of(arm, attn, tables):
          f"lm_head.weight=table:{os.path.join(tables, 'unembed.q4g64.llvqraw')}")
     if arm == "experts24":
         return e
+    if arm in GROUPS:
+        return f"experts:{GROUPS[arm]}=dir:{LAYERS}"
     if arm == "experts24_tables":
         return f"{e};{t}"
     if arm == "experts24_attn":
@@ -93,7 +100,7 @@ def spec_of(arm, attn, tables):
 def missing(arm, attn, tables):
     """What an arm lacks; empty when it can run."""
     out = []
-    if arm in ("experts24", "experts24_tables", "experts24_attn", "whole"):
+    if arm in ("experts24", "experts24_tables", "experts24_attn", "whole") or arm in GROUPS:
         for L in range(24):
             d = os.path.join(LAYERS, f"L{L:02d}")
             ok = os.path.exists(os.path.join(d, "VERIFIED")) and all(

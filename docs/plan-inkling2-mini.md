@@ -270,6 +270,27 @@ int4 g64, everything else as shipped: 8.059 GB and 2.473 b/param for the text mo
 with vision (*computed* in the kernel accounting). Not read yet: the six matrices one by one, and `wq_du` and
 `wk_dv` in int4.
 
+That object was read whole on 2026-11-22, once the 24 layers were encoded (*measured*,
+[whole-model](mesures/inkling2-mini-whole-model-2026-11-22.txt)): KL 0.0880 [0.0783, 0.0969], top-1 88.66 %,
+perplexity x 1.068. Paired by window it is 0.0042 above `UD-IQ2_XXS` [+0.0003, +0.0087], a file 5 % larger, and
+0.0229 above `UD-Q2_K_XL` [+0.0169, +0.0294], a file 13 % larger. The file holds the rivals' ladder; it does not
+beat it. The experts alone read 0.0834, not separated from `UD-IQ2_XXS`.
+
+The loop's result does not carry to the whole model, because the layers outside the loop cost more:
+
+| lattice experts of layers | KL | a layer |
+|---|---|---|
+| 0 to 5 | 0.0144 | 0.0024 |
+| 6 to 17, the loop (the gate) | 0.0378 | 0.0032 |
+| 18 to 23 | 0.0365 | 0.0061 |
+| of which 20 to 23 | 0.0219 | 0.0055 |
+
+Layers 18 to 23 are a quarter of the layers and 44 % of the experts' KL. A layer of experts moved to int4 g128 adds
+0.282 GB (*computed*), and at best buys 0.019 to 0.026 KL a GB, where the rivals' ladder moves by 0.0285: bytes
+spent that way follow the ladder and do not beat it. No expert has been encoded in int4. What could beat the
+ladder is a better code of those six layers at the same bits: a calibration on the quantized prefix, a floor for
+the starved experts (25.0 to 41.4 % of their cells), the row scales. None is measured on this model.
+
 Order of the week: the file and the whole-model KL first; then the first run on a card (resident GB, tokens, first
 tok/s) and GSM8K on the same card; then the grouped launch for speed, and the row scales if GSM8K leaves a gap worth
 their $17 to $35; then the runtime on Inkling with tools and a real coding-agent session; the card of the model

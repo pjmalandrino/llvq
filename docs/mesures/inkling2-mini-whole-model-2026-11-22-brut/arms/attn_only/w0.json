@@ -1,0 +1,14 @@
+{
+ "window": 0,
+ "kl_mean": 0.0164235420525074,
+ "kl_max": 0.4713035225868225,
+ "top1_agree": 0.9531021118164062,
+ "nll_teacher": 1.615234375,
+ "nll_arm": 1.6305774450302124,
+ "spec": "attention:all=attn:/Users/pjmalandrino/llvq-inkling-mini/lot1-b/attn",
+ "spec_sha": "6a2103ee49fd7b79",
+ "tokens_fingerprint_of_8": "f1acc067bf1b610c",
+ "device": "mps",
+ "n_substituted": 144,
+ "sec_job": 137.49801087379456
+}
