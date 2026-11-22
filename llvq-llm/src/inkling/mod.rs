@@ -19,6 +19,7 @@
 //! `tests/inkling_oracle.rs` compares the hidden states against f32 dumps of
 //! the reference (`ops/inkling/dump_ref.py`).
 
+pub mod attn_dense;
 pub mod config;
 pub mod expert_codes;
 pub mod glue;
