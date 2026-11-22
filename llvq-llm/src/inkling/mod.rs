@@ -21,6 +21,7 @@
 
 pub mod config;
 pub mod expert_codes;
+pub mod head;
 pub mod layers;
 pub mod loader;
 #[cfg(all(target_os = "macos", feature = "metal"))]
@@ -170,6 +171,9 @@ pub struct Inkling {
     /// When set, the wall time of every MoE call, `(layer, seconds)`, the
     /// device synchronized on both sides. Off by default.
     moe_timing: std::sync::Mutex<Option<Vec<(usize, f64)>>>,
+    /// The output projection, when set: `head` takes its logits instead of
+    /// the BF16 `unembed` rows (plan item D4). `None` unless set.
+    pub out_proj: Option<Box<dyn head::OutputProjection>>,
 }
 
 /// A source whose calls are timed, the device drained before and after.
@@ -248,6 +252,7 @@ impl Inkling {
             dev: dev.clone(),
             experts,
             moe_timing: std::sync::Mutex::new(None),
+            out_proj: None,
         })
     }
 
@@ -395,8 +400,14 @@ impl Inkling {
     }
 
     /// `lm_head` then the softcap (lines 1477-1478 and 751-757), the BF16
-    /// rows widened to f32 a chunk at a time.
+    /// rows widened to f32 a chunk at a time, or the logits of `out_proj`
+    /// when it is set.
     fn head(&self, h: &Tensor) -> Result<Tensor> {
+        if let Some(p) = &self.out_proj {
+            let logits = p.project(h)?;
+            let cap = self.cfg.final_logit_softcapping;
+            return (logits / cap)?.tanh()? * cap;
+        }
         let v = self.unembed.dim(0)?;
         let mut parts = vec![];
         let mut start = 0;

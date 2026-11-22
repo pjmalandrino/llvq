@@ -4,11 +4,12 @@
 //! Nothing here is dense. Each expert's three records (gate, up, down) are read
 //! from `layers/Lxx/codes/eNNN.llvqrec`, transcoded to the served `tetra48`
 //! stream by [`crate::fused::Transcoder`], and uploaded once by
-//! [`MetalRuntime::upload_stream`], exactly as `fused_metal::load_resolved`
-//! does for a sealed Qwen3 file. The two rotations of an expert are built by
-//! [`RotationTables::build`] from the seed each record carries and uploaded by
-//! [`MetalRuntime::upload_rotation`]. No kernel, shader or served path is
-//! changed: this module only calls them.
+//! [`MetalRuntime::upload_stream_unpooled`]: the checks and bytes of the
+//! `upload_stream` that `fused_metal::load_resolved` uses for a sealed Qwen3
+//! file, in buffers outside candle's pool. The two rotations of an expert are
+//! built by [`RotationTables::build`] from the seed each record carries and
+//! uploaded by [`MetalRuntime::upload_rotation_unpooled`]. No kernel, shader
+//! or served path is changed: this module only calls them.
 //!
 //! [`experts_forward`] has the role and the shapes of
 //! [`super::layers::experts_forward`]: same `x` `[T, H]` f32, same
@@ -87,6 +88,11 @@ pub struct UploadStats {
     pub seconds_read: f64,
     pub seconds_transcode: f64,
     pub seconds_upload: f64,
+    /// Device buffers made: 4 a projection and 2 a rotation, 16 an expert.
+    pub buffers: usize,
+    /// Whether those buffers sit in candle's pool (`load_pooled`, the path
+    /// before plan item K1) or outside it (`load`).
+    pub pooled: bool,
 }
 
 impl UploadStats {
@@ -126,12 +132,40 @@ impl ResidentExperts {
     /// Refuses a layer without its `VERIFIED` file, a record whose name,
     /// kind, shape or rotation seed is not the one `extq` writes for this
     /// slot, and a codes file with trailing bytes.
+    ///
+    /// Every buffer is made by the Metal device outside candle's pool
+    /// (`MetalRuntime::upload_stream_unpooled`, plan item K1): the same
+    /// bytes in the same storage mode, so the same results, and 2,048
+    /// buffers a layer that candle's allocator no longer walks.
     pub fn load(
         rt: Arc<MetalRuntime>,
         dev: &Device,
         layer_dir: &Path,
         layer: usize,
         cfg: &InklingConfig,
+    ) -> Result<Self> {
+        Self::load_with(rt, dev, layer_dir, layer, cfg, false)
+    }
+
+    /// [`Self::load`] with every buffer in candle's pool, as before plan
+    /// item K1. Kept to time what the pool costs, interleaved with `load`.
+    pub fn load_pooled(
+        rt: Arc<MetalRuntime>,
+        dev: &Device,
+        layer_dir: &Path,
+        layer: usize,
+        cfg: &InklingConfig,
+    ) -> Result<Self> {
+        Self::load_with(rt, dev, layer_dir, layer, cfg, true)
+    }
+
+    fn load_with(
+        rt: Arc<MetalRuntime>,
+        dev: &Device,
+        layer_dir: &Path,
+        layer: usize,
+        cfg: &InklingConfig,
+        pooled: bool,
     ) -> Result<Self> {
         let verified = layer_dir.join("VERIFIED");
         if !verified.exists() {
@@ -140,7 +174,7 @@ impl ResidentExperts {
         let (h, inter, n) = (cfg.hidden_size, cfg.intermediate_size, cfg.n_routed_experts);
         let tr = Transcoder::for_kind(FusedLayout::Tetra48, llvq_artifact::CodeKind::Tetra)
             .map_err(candle_core::Error::msg)?;
-        let mut stats = UploadStats::default();
+        let mut stats = UploadStats { pooled, ..UploadStats::default() };
         let mut experts = Vec::with_capacity(n);
         for e in 0..n {
             let path: PathBuf = layer_dir.join("codes").join(format!("e{e:03}.llvqrec"));
@@ -196,9 +230,14 @@ impl ResidentExperts {
                 let tail = crate::fused::tail_f16_bits(&m.tail);
                 stats.seconds_transcode += t.elapsed().as_secs_f64();
                 let t = Instant::now();
-                let proj = rt.upload_stream(
-                    &want, m.d_out, m.d_in, nblocks, stride_u32 as usize, &words, &gscale, &rscale, &tail,
-                )?;
+                let proj = if pooled {
+                    rt.upload_stream(&want, m.d_out, m.d_in, nblocks, stride_u32 as usize, &words, &gscale, &rscale, &tail)?
+                } else {
+                    rt.upload_stream_unpooled(
+                        &want, m.d_out, m.d_in, nblocks, stride_u32 as usize, &words, &gscale, &rscale, &tail,
+                    )?
+                };
+                stats.buffers += 4;
                 stats.seconds_upload += t.elapsed().as_secs_f64();
                 stats.word_bytes += words.len() as u64 * 4;
                 stats.side_bytes += 8 + 4 * rscale.len() as u64 + 2 * tail.len().max(1) as u64;
@@ -210,7 +249,8 @@ impl ResidentExperts {
                 let tables = RotationTables::build(n, seed).map_err(candle_core::Error::msg)?;
                 stats.seconds_transcode += t.elapsed().as_secs_f64();
                 let t = Instant::now();
-                let up = rt.upload_rotation(&tables)?;
+                let up = if pooled { rt.upload_rotation(&tables)? } else { rt.upload_rotation_unpooled(&tables)? };
+                stats.buffers += 2;
                 stats.seconds_upload += t.elapsed().as_secs_f64();
                 stats.rotation_bytes += 4 * tables.signbits.len() as u64 + 4 * tables.small.len().max(1) as u64;
                 Ok(up)
@@ -224,6 +264,19 @@ impl ResidentExperts {
         }
         stats.experts = experts.len();
         Ok(Self { layer, rt, dev: dev.clone(), experts, stats, launches: AtomicUsize::new(0) })
+    }
+
+    /// Experts already on the device, as a layer: the constructor a test
+    /// builds synthetic experts with. `stats` stays empty.
+    pub fn from_parts(rt: Arc<MetalRuntime>, dev: &Device, layer: usize, experts: Vec<ResidentExpert>) -> Self {
+        Self { layer, rt, dev: dev.clone(), experts, stats: UploadStats::default(), launches: AtomicUsize::new(0) }
+    }
+
+    /// Launch through `rt` from now on: its tuning (prefill rows) and its
+    /// compiled pipelines. The buffers stay where they are; a runtime reads
+    /// any buffer of its device.
+    pub fn set_runtime(&mut self, rt: Arc<MetalRuntime>) {
+        self.rt = rt;
     }
 
     pub fn count(&self) -> usize {
@@ -252,7 +305,9 @@ impl ResidentExperts {
 
     /// `W x_r` for every row of the rotated `xr` `[n, d_in]`, as f32 `[n, d_out]`:
     /// one matvec a row on the served tuning, or chunks of `prefill_rows` rows
-    /// through the rows kernel when the runtime was put on that tuning.
+    /// through the f32 rows kernel (`tv_tetra48_metal_lutdrf`, plan item P1)
+    /// when the runtime was put on that tuning. Each row is the matvec's f32,
+    /// bit for bit, either way.
     fn project(&self, proj: &MetalTetraProj, xr: &Tensor) -> Result<Tensor> {
         let n = xr.dim(0)?;
         let chunk = self.rt.prefill_rows().max(1);
@@ -265,7 +320,7 @@ impl ResidentExperts {
             let y = if k == 1 && chunk == 1 {
                 self.rt.matvec(proj, &rows)?
             } else {
-                self.rt.matvec_rows(proj, &rows.contiguous()?, k)?.to_dtype(DType::F32)?
+                self.rt.matvec_rows_f32(proj, &rows.contiguous()?, k)?
             };
             parts.push(y);
             r += k;
@@ -278,7 +333,70 @@ impl ResidentExperts {
     }
 
     /// The MoE of this layer, see [`experts_forward`].
+    ///
+    /// One row (a decode step) takes [`Self::forward_one_row`], any other
+    /// count [`Self::forward_general`]. Both run the same operations in the
+    /// same order; the one-row path only skips the copies that the row
+    /// bookkeeping needs for several rows.
     pub fn forward(&self, x: &Tensor, routing: &Routing, cfg: &InklingConfig) -> Result<Tensor> {
+        if routing.indices.len() == 1 && x.dim(0)? == 1 {
+            if let Some(y) = self.forward_one_row(x, routing, cfg)? {
+                return Ok(y);
+            }
+        }
+        self.forward_general(x, routing, cfg)
+    }
+
+    /// The one-row MoE (plan item D1, its MoE half).
+    ///
+    /// What [`Self::forward_general`] does at one row, minus its copies: no
+    /// id upload and no row gather (the gathered row is `x` itself), one
+    /// weight upload for the call instead of one an expert, and no scatter
+    /// (`index_add` of one row into a zero-initialised output is the f32 sum
+    /// `out + y`). The experts run in ascending order, each through the same
+    /// rotation, products, activation and weighting, and the output starts
+    /// from the same zeros, so every addition is the same one in the same
+    /// order. `None` when the routing names an expert twice, which the
+    /// general path gathers as two rows: then it runs instead.
+    pub fn forward_one_row(&self, x: &Tensor, routing: &Routing, cfg: &InklingConfig) -> Result<Option<Tensor>> {
+        let inter = cfg.intermediate_size;
+        let (idx, w) = (&routing.indices[0], &routing.weights[0]);
+        let mut order: Vec<(u32, f32)> = idx.iter().copied().zip(w.iter().copied()).collect();
+        order.sort_by_key(|p| p.0);
+        if order.windows(2).any(|p| p[0].0 == p[1].0) {
+            return Ok(None);
+        }
+        if let Some(&(e, _)) = order.iter().find(|p| p.0 as usize >= self.experts.len()) {
+            candle_core::bail!("token 0: expert {e} of a layer of {}", self.experts.len());
+        }
+        let xd = x.to_device(&self.dev)?.to_dtype(DType::F32)?.contiguous()?;
+        let mut out = xd.zeros_like()?;
+        let wts = Tensor::from_vec(order.iter().map(|p| p.1).collect::<Vec<_>>(), (order.len(), 1), &self.dev)?;
+        for (k, &(e, _)) in order.iter().enumerate() {
+            let ex = &self.experts[e as usize];
+            let xr = self.rotate(&ex.rot_in, &ex.gate.name, &xd)?;
+            let g = self.project(&ex.gate, &xr)?;
+            let u = self.project(&ex.up, &xr)?;
+            if g.dims() != [1, inter] || u.dims() != [1, inter] {
+                candle_core::bail!("expert {e}: gate {:?} and up {:?} for [1, {inter}]", g.dims(), u.dims());
+            }
+            // line 771: softcap(gate) * sigmoid(gate) * softcap(up)
+            let act = softcap(&g, cfg.mlp_gate_softcap)?
+                .mul(&candle_nn::ops::sigmoid(&g)?)?
+                .mul(&softcap(&u, cfg.mlp_up_softcap)?)?
+                .contiguous()?;
+            let ar = self.rotate(&ex.rot_down, &ex.down.name, &act)?;
+            let y = self.project(&ex.down, &ar)?.broadcast_mul(&wts.narrow(0, k, 1)?)?;
+            out = (out + y)?;
+        }
+        Ok(Some(out.to_device(x.device())?))
+    }
+
+    /// The MoE for any number of rows: per expert that received tokens,
+    /// gather its rows, compute, weight and `index_add` them, in ascending
+    /// expert order. The path before plan item D1, and the reference the
+    /// one-row path is gated against.
+    pub fn forward_general(&self, x: &Tensor, routing: &Routing, cfg: &InklingConfig) -> Result<Tensor> {
         let inter = cfg.intermediate_size;
         let xd = x.to_device(&self.dev)?.to_dtype(DType::F32)?.contiguous()?;
         let mut out = xd.zeros_like()?;
