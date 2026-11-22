@@ -16,6 +16,112 @@ use candle_core::{DType, Device, IndexOp, Result, Tensor, D};
 
 use super::config::InklingConfig;
 use super::loader::{NativeCheckpoint, NativeExperts};
+use phases::{mark, Phase};
+
+/// Wall time of a forward split by part, for the measurement flag of
+/// `inkrun`. Off by default: then [`mark`] is one atomic load and changes
+/// nothing. On, each mark drains the device and charges the time since the
+/// previous mark to the part just done, so the parts sum to the wall time of
+/// the marked span, slowed by the drains.
+pub mod phases {
+    use std::sync::atomic::{AtomicBool, Ordering};
+    use std::sync::Mutex;
+    use std::time::Instant;
+
+    use candle_core::{Device, Result};
+
+    /// The parts of a forward.
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    pub enum Phase {
+        /// The embedding rows and their norm.
+        Embed,
+        /// The output head and its softcap.
+        Head,
+        /// The logits read back to the host.
+        Readback,
+        /// Router product, sigmoid, read back, top-k on the host.
+        Routing,
+        /// The attention projections (query, key, value, relative, sink,
+        /// gate, output) with their clips and scales.
+        AttnProducts,
+        /// Relative bias and mask, scores, sinks, softmax, value product.
+        AttnScores,
+        /// The cache append and the copies of what it holds.
+        CacheCopies,
+        /// The four short convolutions of a visit.
+        Convolutions,
+        /// Block residuals, message gates, norms, residual adds.
+        NormsGates,
+        /// The MoE call.
+        Moe,
+        /// Whatever no other mark charged.
+        Other,
+    }
+
+    pub const ALL: [Phase; 11] = [
+        Phase::Embed,
+        Phase::Head,
+        Phase::Readback,
+        Phase::Routing,
+        Phase::AttnProducts,
+        Phase::AttnScores,
+        Phase::CacheCopies,
+        Phase::Convolutions,
+        Phase::NormsGates,
+        Phase::Moe,
+        Phase::Other,
+    ];
+
+    impl Phase {
+        pub fn name(self) -> &'static str {
+            match self {
+                Phase::Embed => "embed",
+                Phase::Head => "head",
+                Phase::Readback => "readback",
+                Phase::Routing => "routing",
+                Phase::AttnProducts => "attention_products",
+                Phase::AttnScores => "attention_scores_softmax",
+                Phase::CacheCopies => "cache_append_copies",
+                Phase::Convolutions => "convolutions",
+                Phase::NormsGates => "norms_gates_residual",
+                Phase::Moe => "moe",
+                Phase::Other => "other",
+            }
+        }
+    }
+
+    static ON: AtomicBool = AtomicBool::new(false);
+    static STATE: Mutex<Option<(Instant, [f64; 11])>> = Mutex::new(None);
+
+    /// Drain `dev` and start charging from now.
+    pub fn start(dev: &Device) -> Result<()> {
+        dev.synchronize()?;
+        *STATE.lock().expect("no panic holds this lock") = Some((Instant::now(), [0.0; 11]));
+        ON.store(true, Ordering::SeqCst);
+        Ok(())
+    }
+
+    /// Stop and return the seconds charged to each part, in the order of [`ALL`].
+    pub fn stop() -> [f64; 11] {
+        ON.store(false, Ordering::SeqCst);
+        STATE.lock().expect("no panic holds this lock").take().map(|s| s.1).unwrap_or([0.0; 11])
+    }
+
+    /// Drain `dev` and charge the time since the last mark to `p`.
+    #[inline]
+    pub fn mark(dev: &Device, p: Phase) -> Result<()> {
+        if !ON.load(Ordering::Relaxed) {
+            return Ok(());
+        }
+        dev.synchronize()?;
+        let now = Instant::now();
+        if let Some((last, acc)) = STATE.lock().expect("no panic holds this lock").as_mut() {
+            acc[p as usize] += now.duration_since(*last).as_secs_f64();
+            *last = now;
+        }
+        Ok(())
+    }
+}
 
 /// `x @ w.T` for `x` `[T, in]` and `w` `[out, in]` (`nn.Linear` without bias).
 pub fn linear(x: &Tensor, w: &Tensor) -> Result<Tensor> {
@@ -53,16 +159,66 @@ pub fn log_scale(cfg: &InklingConfig, positions: &[usize], dev: &Device) -> Resu
     Tensor::from_vec(v, (positions.len(), 1, 1), dev)
 }
 
+/// The last `K - 1` inputs of one short convolution, oldest first
+/// (`conv_state`, lines 297, 379, 438). A prompt leaves a block `[K - 1, C]`;
+/// a one-row step keeps a fixed ring of `K - 1` row handles `[1, C]` and
+/// replaces the oldest, with no concatenation and no copy. Nothing is written
+/// in place: a clone, or a mark, keeps what it saw.
+#[derive(Debug, Clone, Default)]
+pub enum ConvState {
+    /// No input yet: the history is zeros (the reference's left padding).
+    #[default]
+    Empty,
+    /// `[K - 1, C]`, oldest row first.
+    Block(Tensor),
+    /// `K - 1` rows `[1, C]`; `rows[head]` is the oldest.
+    Ring { rows: Vec<Tensor>, head: usize },
+}
+
+impl ConvState {
+    pub fn is_empty(&self) -> bool {
+        matches!(self, ConvState::Empty)
+    }
+
+    /// The `k - 1` history rows `[1, C]`, oldest first; zeros rows like `x` when empty.
+    fn rows(&self, x: &Tensor, k: usize) -> Result<Vec<Tensor>> {
+        match self {
+            ConvState::Empty => {
+                let z = Tensor::zeros((1, x.dim(1)?), x.dtype(), x.device())?;
+                Ok(vec![z; k - 1])
+            }
+            ConvState::Block(s) => (0..k - 1).map(|i| s.narrow(0, i, 1)).collect(),
+            ConvState::Ring { rows, head } => Ok((0..k - 1).map(|j| rows[(head + j) % (k - 1)].clone()).collect()),
+        }
+    }
+
+    /// After a one-row step on `x` `[1, C]`: `x` replaces the oldest row.
+    fn push_row(&mut self, x: &Tensor, k: usize) -> Result<()> {
+        let (mut rows, head) = match std::mem::take(self) {
+            ConvState::Ring { rows, head } => (rows, head),
+            other => (other.rows(x, k)?, 0),
+        };
+        rows[head] = x.clone();
+        *self = ConvState::Ring { rows, head: (head + 1) % (k - 1) };
+        Ok(())
+    }
+}
+
 /// The convolution context: the `k - 1` inputs before `x` (zeros when
 /// `state` is empty) then `x`, `[k - 1 + T, C]`. `state` becomes the last
 /// `k - 1` rows (`update_conv_state` / `conv_state.copy_`, lines 297, 379, 438).
-fn conv_context(x: &Tensor, k: usize, state: &mut Option<Tensor>) -> Result<Tensor> {
+fn conv_context(x: &Tensor, k: usize, state: &mut ConvState) -> Result<Tensor> {
     let t = x.dim(0)?;
-    let ctx = match state.as_ref() {
-        Some(s) => Tensor::cat(&[s, x], 0)?,
-        None => x.pad_with_zeros(0, k - 1, 0)?,
+    let ctx = match &*state {
+        ConvState::Block(s) => Tensor::cat(&[s, x], 0)?,
+        ConvState::Empty => x.pad_with_zeros(0, k - 1, 0)?,
+        ring @ ConvState::Ring { .. } => {
+            let mut parts = ring.rows(x, k)?;
+            parts.push(x.clone());
+            Tensor::cat(&parts, 0)?
+        }
     };
-    *state = Some(ctx.narrow(0, t, k - 1)?.contiguous()?);
+    *state = ConvState::Block(ctx.narrow(0, t, k - 1)?.contiguous()?);
     Ok(ctx)
 }
 
@@ -71,14 +227,24 @@ fn conv_context(x: &Tensor, k: usize, state: &mut Option<Tensor>) -> Result<Tens
 /// current token (`F.conv1d` with left padding `K - 1`, lines 316-322, or the
 /// cached history in decode, lines 373-376), then the residual and the output
 /// scale `1 / sqrt(K + 1)` (line 392).
-pub fn short_conv(x: &Tensor, w: &Tensor, state: &mut Option<Tensor>) -> Result<Tensor> {
+pub fn short_conv(x: &Tensor, w: &Tensor, state: &mut ConvState) -> Result<Tensor> {
     let k = w.dim(1)?;
     let t = x.dim(0)?;
-    let ctx = conv_context(x, k, state)?;
     let mut acc = x.zeros_like()?;
-    for j in 0..k {
-        let tap = w.i((.., j))?; // [C]
-        acc = (acc + ctx.narrow(0, j, t)?.broadcast_mul(&tap)?)?;
+    if t == 1 {
+        // One row: the history rows where they are, the same products and sums as the context below.
+        let rows = state.rows(x, k)?;
+        for (j, row) in rows.iter().chain(std::iter::once(x)).enumerate() {
+            let tap = w.i((.., j))?; // [C]
+            acc = (acc + row.broadcast_mul(&tap)?)?;
+        }
+        state.push_row(x, k)?;
+    } else {
+        let ctx = conv_context(x, k, state)?;
+        for j in 0..k {
+            let tap = w.i((.., j))?; // [C]
+            acc = (acc + ctx.narrow(0, j, t)?.broadcast_mul(&tap)?)?;
+        }
     }
     let out = (acc + x)?;
     // line 392: the output scale (absent from Inkling 1, per the reference comment)
@@ -96,17 +262,27 @@ pub fn dynamic_conv(
     static_w: &Tensor,
     weight_proj: &Tensor,
     heads: usize,
-    state: &mut Option<Tensor>,
+    state: &mut ConvState,
 ) -> Result<Tensor> {
     let (t, c) = x.dims2()?;
     let k = static_w.dim(0)?;
     let dw = linear(dynamic_input, weight_proj)?.reshape((t, heads, k))?; // line 430-431
-    let ctx = conv_context(x, k, state)?;
+    // One row reads the history rows where they are; a prompt reads the context.
+    let (rows, ctx) = if t == 1 { (Some(state.rows(x, k)?), None) } else { (None, Some(conv_context(x, k, state)?)) };
     let mut acc = x.zeros_like()?;
     for lag in 0..k {
         let d = dw.i((.., .., lag))?.unsqueeze(2)?.broadcast_as((t, heads, c / heads))?.reshape((t, c))?;
         let w = d.broadcast_add(&static_w.i(lag)?)?; // line 432
-        acc = (acc + ctx.narrow(0, k - 1 - lag, t)?.mul(&w)?)?; // lines 444-453
+        let src = match (&rows, &ctx) {
+            (Some(_), _) if lag == 0 => x.clone(),
+            (Some(rows), _) => rows[k - 1 - lag].clone(),
+            (None, Some(ctx)) => ctx.narrow(0, k - 1 - lag, t)?,
+            (None, None) => unreachable!("one of the two is set"),
+        };
+        acc = (acc + src.mul(&w)?)?; // lines 444-453
+    }
+    if t == 1 {
+        state.push_row(x, k)?;
     }
     let out = (acc + x)?;
     out / ((2 * k + 1) as f64).sqrt()
@@ -219,11 +395,20 @@ pub struct Routing {
 /// top-k on `score + e_score_correction_bias`, weights the scores of the
 /// chosen experts normalised to sum 1 (plus 1e-20) times `route_scale`.
 pub fn route(x: &Tensor, w_gate: &Tensor, bias: &Tensor, top_k: usize, scale: f64) -> Result<Routing> {
+    route_host_bias(x, w_gate, &bias.to_vec1::<f32>()?, top_k, scale)
+}
+
+/// [`route`] with the bias already on the host: the layer reads it once at
+/// load ([`LayerWeights::router_bias_host`]), not at every visit. The same
+/// f32 values in the same additions, so the same routing bit for bit.
+pub fn route_host_bias(x: &Tensor, w_gate: &Tensor, bias: &[f32], top_k: usize, scale: f64) -> Result<Routing> {
     let scores = candle_nn::ops::sigmoid(&linear(x, w_gate)?)?.to_vec2::<f32>()?;
-    let bias = bias.to_vec1::<f32>()?;
+    if scores.first().is_some_and(|s| s.len() != bias.len()) {
+        candle_core::bail!("route: {} scores and {} bias values", scores[0].len(), bias.len());
+    }
     let mut r = Routing { indices: vec![], weights: vec![], margin: vec![], scores: vec![] };
     for s in &scores {
-        let sel: Vec<f32> = s.iter().zip(&bias).map(|(a, b)| a + b).collect();
+        let sel: Vec<f32> = s.iter().zip(bias).map(|(a, b)| a + b).collect();
         let mut order: Vec<usize> = (0..sel.len()).collect();
         order.sort_by(|&a, &b| sel[b].total_cmp(&sel[a]).then(a.cmp(&b)));
         r.margin.push(sel[order[top_k - 1]] - sel[order[top_k]]);
@@ -250,6 +435,28 @@ pub fn experts_forward(
     let dev = x.device();
     let inter = cfg.intermediate_size;
     let mut out = x.zeros_like()?;
+    if x.dim(0)? == 1 && routing.indices.len() == 1 {
+        // One row: the experts in the ascending order of the general path
+        // below, each on `x` itself (no `index_select`), its weighted output
+        // added to the sum (`index_add` onto one row is that same addition),
+        // the 8 weights uploaded once.
+        let (idx, w) = (&routing.indices[0], &routing.weights[0]);
+        let wts = Tensor::from_vec(w.clone(), (w.len(), 1), dev)?;
+        let mut order: Vec<usize> = (0..idx.len()).collect();
+        order.sort_by_key(|&j| idx[j]);
+        for j in order {
+            let (gu_w, down_w) = src.expert(idx[j] as usize, dev)?;
+            let gu = linear(x, &gu_w)?;
+            let g = gu.narrow(1, 0, inter)?.contiguous()?;
+            let u = gu.narrow(1, inter, inter)?.contiguous()?;
+            let act = softcap(&g, cfg.mlp_gate_softcap)?
+                .mul(&candle_nn::ops::sigmoid(&g)?)?
+                .mul(&softcap(&u, cfg.mlp_up_softcap)?)?;
+            let y = linear(&act, &down_w)?.broadcast_mul(&wts.narrow(0, j, 1)?)?;
+            out = (out + y)?;
+        }
+        return Ok(out);
+    }
     let mut per_expert: Vec<Vec<(u32, f32)>> = vec![vec![]; src.count()];
     for (t, (idx, w)) in routing.indices.iter().zip(&routing.weights).enumerate() {
         for (&e, &wt) in idx.iter().zip(w) {
@@ -304,6 +511,13 @@ fn score_bias(rel_logits: &Tensor, offset: usize, s: usize, extent: usize, windo
     bias.broadcast_add(&mask)
 }
 
+/// Query rows of one attention score tensor, by default: a prompt longer
+/// than this goes through scores, bias, softmax and the value product in
+/// chunks of this many rows, after every key and value of the prompt is in
+/// the cache. At 24 heads and 9,000 cached positions one chunk of scores is
+/// 0.44 GB in f32.
+pub const DEFAULT_ATTN_CHUNK: usize = 512;
+
 /// `[kv_heads, T, d]` repeated to `[kv_heads * rep, T, d]`, head `h` reading kv head `h / rep` (lines 99-108).
 fn repeat_kv(x: &Tensor, rep: usize) -> Result<Tensor> {
     if rep == 1 {
@@ -313,49 +527,182 @@ fn repeat_kv(x: &Tensor, rep: usize) -> Result<Tensor> {
     x.unsqueeze(1)?.broadcast_as((kv, rep, t, d))?.reshape((kv * rep, t, d))
 }
 
-/// What one layer visit keeps between calls: keys `[kv_heads, S, d]` and
-/// values after their norms (what `cache.update` stores, line 612), and the
-/// last `K - 1` inputs of the key, value, post-attention and post-MLP
-/// convolutions (`conv_idx` 0 to 3, lines 563-566 and 868-873).
-#[derive(Debug, Clone, Default)]
+/// Positions a slot's key and value buffers are allocated in.
+const KV_GRAIN: usize = 256;
+
+/// The capacity after growing from `cap` to hold `need` positions: at least
+/// half again, in whole grains.
+fn grown_capacity(cap: usize, need: usize) -> usize {
+    need.max(cap + cap / 2).div_ceil(KV_GRAIN) * KV_GRAIN
+}
+
+/// What one layer visit keeps between calls: keys and values after their
+/// norms (what `cache.update` stores, line 612), and the last `K - 1` inputs
+/// of the key, value, post-attention and post-MLP convolutions (`conv_idx` 0
+/// to 3, lines 563-566 and 868-873).
+///
+/// Keys and values live in buffers allocated for more positions than they
+/// hold, grown by half when full: the new rows are written in place and the
+/// attention reads a view of the positions held. Keys are held transposed,
+/// `[kv_heads, d, cap]`, so the score product reads the head repeat of that
+/// view with no transpose copy; values are `[kv_heads, cap, d]`. A clone
+/// copies the buffers, since the next append writes into them.
+#[derive(Debug, Default)]
 pub struct SlotCache {
-    pub k: Option<Tensor>,
-    pub v: Option<Tensor>,
-    pub conv_k: Option<Tensor>,
-    pub conv_v: Option<Tensor>,
-    pub conv_attn: Option<Tensor>,
-    pub conv_mlp: Option<Tensor>,
+    k_buf: Option<Tensor>,
+    v_buf: Option<Tensor>,
+    len: usize,
+    /// Positions the buffers hold at least once they exist ([`Self::reserve`]).
+    min_capacity: usize,
+    pub conv_k: ConvState,
+    pub conv_v: ConvState,
+    pub conv_attn: ConvState,
+    pub conv_mlp: ConvState,
+}
+
+impl Clone for SlotCache {
+    fn clone(&self) -> Self {
+        let deep = |b: &Option<Tensor>| b.as_ref().map(|t| t.copy().expect("copy of a cache buffer"));
+        Self {
+            k_buf: deep(&self.k_buf),
+            v_buf: deep(&self.v_buf),
+            len: self.len,
+            min_capacity: self.min_capacity,
+            conv_k: self.conv_k.clone(),
+            conv_v: self.conv_v.clone(),
+            conv_attn: self.conv_attn.clone(),
+            conv_mlp: self.conv_mlp.clone(),
+        }
+    }
+}
+
+/// What [`SlotCache::mark`] keeps: the positions held and the four
+/// convolution states (key, value, post-attention, post-MLP). The states are
+/// never written in place, so a mark holds handles, not copies.
+#[derive(Debug, Clone)]
+pub struct SlotMark {
+    len: usize,
+    conv: [ConvState; 4],
+}
+
+impl SlotMark {
+    pub fn len(&self) -> usize {
+        self.len
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.len == 0
+    }
 }
 
 impl SlotCache {
     /// Tokens held.
     pub fn len(&self) -> usize {
-        self.k.as_ref().map_or(0, |k| k.dim(1).expect("rank-3 keys"))
+        self.len
+    }
+
+    /// The state needed to come back here.
+    pub fn mark(&self) -> SlotMark {
+        SlotMark {
+            len: self.len,
+            conv: [self.conv_k.clone(), self.conv_v.clone(), self.conv_attn.clone(), self.conv_mlp.clone()],
+        }
+    }
+
+    /// Back to `m`: the positions past `m.len()` are forgotten (the next
+    /// append writes over them) and the four convolution states are those of
+    /// `m`. Refused when `m` holds more positions than the slot. The caller
+    /// checks that the positions up to `m.len()` are those the mark saw.
+    pub fn rollback(&mut self, m: &SlotMark) -> Result<()> {
+        if m.len > self.len {
+            candle_core::bail!("slot rollback: the mark holds {} positions, the slot {}", m.len, self.len);
+        }
+        self.len = m.len;
+        let [k, v, attn, mlp] = m.conv.clone();
+        self.conv_k = k;
+        self.conv_v = v;
+        self.conv_attn = attn;
+        self.conv_mlp = mlp;
+        Ok(())
     }
 
     pub fn is_empty(&self) -> bool {
-        self.len() == 0
+        self.len == 0
+    }
+
+    /// Positions the buffers can hold before they grow.
+    pub fn capacity(&self) -> usize {
+        self.v_buf.as_ref().map_or(0, |v| v.dim(1).expect("rank-3 values"))
+    }
+
+    /// Views of what the slot holds: keys `[kv_heads, S, d]` and values
+    /// `[kv_heads, S, d]`. They share the buffers: read them before the next append.
+    pub fn keys_values(&self) -> Result<Option<(Tensor, Tensor)>> {
+        match (&self.k_buf, &self.v_buf) {
+            (Some(k), Some(v)) => Ok(Some((k.narrow(2, 0, self.len)?.transpose(1, 2)?, v.narrow(1, 0, self.len)?))),
+            _ => Ok(None),
+        }
+    }
+
+    /// Write `k` and `v` `[kv_heads, T, d]` at positions `len..len + T`, in
+    /// place, growing the buffers first if they are full. Returns views of
+    /// every position held: keys `[kv_heads, d, S]`, values `[kv_heads, S, d]`.
+    /// Make room for `positions`: the buffers, once they exist, hold at
+    /// least that many before they grow again. The values held do not change.
+    pub fn reserve(&mut self, positions: usize) -> Result<()> {
+        self.min_capacity = self.min_capacity.max(positions);
+        if positions > self.capacity() {
+            if let Some(k) = self.k_buf.clone() {
+                let (nkv, d, _) = k.dims3()?;
+                self.grow(positions.div_ceil(KV_GRAIN) * KV_GRAIN, nkv, d, &k)?;
+            }
+        }
+        Ok(())
+    }
+
+    /// New buffers of `cap` positions, like `like` in dtype and device, the
+    /// positions held copied in once.
+    fn grow(&mut self, cap: usize, nkv: usize, d: usize, like: &Tensor) -> Result<()> {
+        let kb = Tensor::zeros((nkv, d, cap), like.dtype(), like.device())?;
+        let vb = Tensor::zeros((nkv, cap, d), like.dtype(), like.device())?;
+        if let (Some(ok), Some(ov)) = (&self.k_buf, &self.v_buf) {
+            if self.len > 0 {
+                kb.slice_set(&ok.narrow(2, 0, self.len)?.contiguous()?, 2, 0)?;
+                vb.slice_set(&ov.narrow(1, 0, self.len)?.contiguous()?, 1, 0)?;
+            }
+        }
+        self.k_buf = Some(kb);
+        self.v_buf = Some(vb);
+        Ok(())
+    }
+
+    fn append_kv(&mut self, k: &Tensor, v: &Tensor) -> Result<(Tensor, Tensor)> {
+        let (nkv, t, d) = k.dims3()?;
+        let need = self.len + t;
+        if need > self.capacity() {
+            let cap = grown_capacity(self.capacity(), need.max(self.min_capacity));
+            self.grow(cap, nkv, d, k)?;
+        }
+        let (kb, vb) = (self.k_buf.as_ref().expect("allocated above"), self.v_buf.as_ref().expect("allocated above"));
+        kb.slice_set(&k.transpose(1, 2)?.contiguous()?, 2, self.len)?;
+        vb.slice_set(&v.contiguous()?, 1, self.len)?;
+        self.len = need;
+        Ok((kb.narrow(2, 0, need)?, vb.narrow(1, 0, need)?))
     }
 }
 
-fn append(cache: &mut Option<Tensor>, x: Tensor) -> Result<Tensor> {
-    let all = match cache.take() {
-        Some(past) => Tensor::cat(&[&past, &x], 1)?,
-        None => x,
-    };
-    *cache = Some(all.clone());
-    Ok(all)
-}
-
 impl AttnWeights {
-    fn kv(&self, x: &Tensor, w: &Tensor, conv: &KvConv, state: &mut Option<Tensor>) -> Result<Tensor> {
+    fn kv(&self, x: &Tensor, w: &Tensor, conv: &KvConv, state: &mut ConvState) -> Result<Tensor> {
         let s = linear(x, w)?;
-        match conv {
+        mark(x.device(), Phase::AttnProducts)?;
+        let y = match conv {
             KvConv::Static(cw) => short_conv(&s, cw, state),
             KvConv::Dynamic { static_w, weight_proj } => {
                 dynamic_conv(&s, x, static_w, weight_proj, self.kv_heads, state)
             }
-        }
+        }?;
+        mark(x.device(), Phase::Convolutions)?;
+        Ok(y)
     }
 
     /// The attention forward: sliding (lines 598-636) or full (lines
@@ -371,6 +718,24 @@ impl AttnWeights {
         xv: &Tensor,
         cache: &mut SlotCache,
     ) -> Result<Tensor> {
+        self.forward_chunked(cfg, xq, xk, xv, cache, DEFAULT_ATTN_CHUNK)
+    }
+
+    /// [`Self::forward`] with the query rows of the scores taken `chunk`
+    /// at a time (`0`: all at once). Every key and value of the `T` rows is
+    /// appended first; each chunk then builds its own bias and mask and
+    /// attends over every position the cache holds, its causal mask hiding
+    /// the later rows of the same call. With `T <= chunk` the operations are
+    /// those of one call.
+    pub fn forward_chunked(
+        &self,
+        cfg: &InklingConfig,
+        xq: &Tensor,
+        xk: &Tensor,
+        xv: &Tensor,
+        cache: &mut SlotCache,
+        chunk: usize,
+    ) -> Result<Tensor> {
         let t = xq.dim(0)?;
         let dev = xq.device();
         let offset = cache.len();
@@ -385,16 +750,18 @@ impl AttnWeights {
             q = q.broadcast_mul(tau)?;
         }
         let q = q.transpose(0, 1)?.contiguous()?; // [nh, T, hd]
+        mark(dev, Phase::AttnProducts)?;
 
         // Key: linear, convolution, L2 clip without scale. Value: linear, convolution, unweighted RMS norm (lines 515-528).
         let k = self.kv(xk, &self.wk, &self.k_conv, &mut cache.conv_k)?.reshape((t, nkv, hd))?;
         let k = l2_clip(&k, cfg.qk_l2_clip_threshold)?.transpose(0, 1)?.contiguous()?;
         let v = self.kv(xv, &self.wv, &self.v_conv, &mut cache.conv_v)?.reshape((t, nkv, hd))?;
         let v = rms_unweighted(&v, cfg.rms_norm_eps)?.transpose(0, 1)?.contiguous()?;
-        // line 612: the cache returns every key and value it holds
-        let k = append(&mut cache.k, k)?;
-        let v = append(&mut cache.v, v)?;
-        let s = k.dim(1)?;
+        mark(dev, Phase::AttnProducts)?;
+        // line 612: the cache returns every key and value it holds (keys as `[nkv, hd, S]`)
+        let (kt, v) = cache.append_kv(&k, &v)?;
+        let s = v.dim(1)?;
+        mark(dev, Phase::CacheCopies)?;
 
         // Relative bias (lines 260-270): per-head states, scale, L2 clip at the rel threshold, log scale in full layers.
         let r = linear(xq, &self.wr)?.reshape((t, nh, cfg.d_rel))?.broadcast_mul(&self.rel_scale)?;
@@ -403,21 +770,42 @@ impl AttnWeights {
             r = r.broadcast_mul(tau)?;
         }
         let rel_logits = r.transpose(0, 1)?.contiguous()?.broadcast_matmul(&self.rel_proj)?; // [nh, T, extent]
+        mark(dev, Phase::AttnProducts)?;
         let window = if self.sliding { Some(cfg.sliding_window_size) } else { None };
-        let bias = score_bias(&rel_logits, offset, s, self.rel_extent, window)?;
 
         // Scores, the per-token sink logit with zero value (lines 126-139), softmax in f32.
         let rep = nh / nkv;
-        let k = repeat_kv(&k, rep)?;
-        let v = repeat_kv(&v, rep)?;
-        let scores = (q.matmul(&k.transpose(1, 2)?.contiguous()?)? * (hd as f64).powf(-0.5))?.add(&bias)?;
+        // The repeat copies the views into contiguous `[nh, hd, S]` and `[nh, S, hd]`: the
+        // matrices the score and value products read before, with no transpose copy.
+        let kt = repeat_kv(&kt, rep)?.contiguous()?;
+        let v = repeat_kv(&v, rep)?.contiguous()?;
+        mark(dev, Phase::CacheCopies)?;
         let sinks = linear(xq, &self.sink)?.t()?.unsqueeze(2)?; // [nh, T, 1], line 619
-        let probs = candle_nn::ops::softmax_last_dim(&Tensor::cat(&[&scores, &sinks], 2)?.contiguous()?)?.narrow(2, 0, s)?;
-        let a = probs.contiguous()?.matmul(&v)?.transpose(0, 1)?.reshape((t, nh * hd))?;
+        let rows = if chunk == 0 { t } else { chunk.min(t) };
+        let mut parts = Vec::with_capacity(t.div_ceil(rows));
+        let mut r0 = 0;
+        while r0 < t {
+            let n = rows.min(t - r0);
+            let (qc, rc, sc) = if n == t {
+                (q.clone(), rel_logits.clone(), sinks.clone())
+            } else {
+                (q.narrow(1, r0, n)?.contiguous()?, rel_logits.narrow(1, r0, n)?, sinks.narrow(1, r0, n)?)
+            };
+            let bias = score_bias(&rc, offset + r0, s, self.rel_extent, window)?;
+            let scores = (qc.matmul(&kt)? * (hd as f64).powf(-0.5))?.add(&bias)?;
+            let probs =
+                candle_nn::ops::softmax_last_dim(&Tensor::cat(&[&scores, &sc], 2)?.contiguous()?)?.narrow(2, 0, s)?;
+            parts.push(probs.contiguous()?.matmul(&v)?.transpose(0, 1)?.reshape((n, nh * hd))?);
+            r0 += n;
+        }
+        let a = if parts.len() == 1 { parts.pop().expect("one part") } else { Tensor::cat(&parts, 0)? };
+        mark(dev, Phase::AttnScores)?;
 
         // Gated output (lines 540-543).
         let gate = candle_nn::ops::sigmoid(&linear(xq, &self.gate)?)?;
-        linear(&a.mul(&gate)?, &self.wo)
+        let out = linear(&a.mul(&gate)?, &self.wo)?;
+        mark(dev, Phase::AttnProducts)?;
+        Ok(out)
     }
 }
 
@@ -468,6 +856,8 @@ pub struct LayerWeights {
     pub post_mlp_convolution: Tensor,
     pub router_w: Tensor,
     pub router_bias: Tensor,
+    /// `router_bias` read to the host once, at load.
+    pub router_bias_host: Vec<f32>,
     /// Loop layers only (`controllers.*` in the file).
     pub message_gates: Option<MessageGates>,
 }
@@ -563,6 +953,7 @@ impl LayerWeights {
             post_attention_convolution: conv_weight(ck, &p("attn_sconv.weight"), dev)?,
             post_mlp_convolution: conv_weight(ck, &p("mlp_sconv.weight"), dev)?,
             router_w: f("mlp.gate.weight")?,
+            router_bias_host: f("mlp.gate.bias")?.to_vec1::<f32>()?,
             router_bias: f("mlp.gate.bias")?,
             message_gates,
         })
@@ -582,7 +973,24 @@ impl LayerWeights {
         experts: &dyn MoeSource,
         cache: &mut SlotCache,
     ) -> Result<(Tensor, Routing)> {
+        self.forward_chunked(cfg, h, block_states, messages, experts, cache, DEFAULT_ATTN_CHUNK)
+    }
+
+    /// [`Self::forward`] with the attention scores taken `attn_chunk` query
+    /// rows at a time ([`AttnWeights::forward_chunked`]).
+    #[allow(clippy::too_many_arguments)]
+    pub fn forward_chunked(
+        &self,
+        cfg: &InklingConfig,
+        h: &Tensor,
+        block_states: &[Tensor],
+        messages: Option<&[Tensor]>,
+        experts: &dyn MoeSource,
+        cache: &mut SlotCache,
+        attn_chunk: usize,
+    ) -> Result<(Tensor, Routing)> {
         let eps = cfg.rms_norm_eps;
+        let dev = h.device();
         let gates = match (messages, &self.message_gates) {
             (None, _) => None,
             (Some(m), Some(g)) if m.len() == 4 => Some((m, g)),
@@ -599,14 +1007,16 @@ impl LayerWeights {
                 // lines 961-962
                 None => {
                     let xn = rms_norm(&x, w, eps)?;
-                    self.attn.forward(cfg, &xn, &xn, &xn, cache)?
+                    mark(dev, Phase::NormsGates)?;
+                    self.attn.forward_chunked(cfg, &xn, &xn, &xn, cache, attn_chunk)?
                 }
                 // lines 964-967: one input, three gated copies, one norm
                 Some((m, g)) => {
                     let xq = rms_norm(&g.q.forward(&x, &m[0], eps)?, w, eps)?;
                     let xk = rms_norm(&g.k.forward(&x, &m[1], eps)?, w, eps)?;
                     let xv = rms_norm(&g.v.forward(&x, &m[2], eps)?, w, eps)?;
-                    self.attn.forward(cfg, &xq, &xk, &xv, cache)?
+                    mark(dev, Phase::NormsGates)?;
+                    self.attn.forward_chunked(cfg, &xq, &xk, &xv, cache, attn_chunk)?
                 }
             }
         } else {
@@ -625,15 +1035,16 @@ impl LayerWeights {
                 xk = g.k.forward(&xk, &m[1], eps)?;
                 xv = g.v.forward(&xv, &m[2], eps)?;
             }
-            self.attn.forward(
-                cfg,
-                &rms_norm(&xq, &self.norms_in[0], eps)?,
-                &rms_norm(&xk, &self.norms_in[1], eps)?,
-                &rms_norm(&xv, &self.norms_in[2], eps)?,
-                cache,
-            )?
+            let (xq, xk, xv) = (
+                rms_norm(&xq, &self.norms_in[0], eps)?,
+                rms_norm(&xk, &self.norms_in[1], eps)?,
+                rms_norm(&xv, &self.norms_in[2], eps)?,
+            );
+            mark(dev, Phase::NormsGates)?;
+            self.attn.forward_chunked(cfg, &xq, &xk, &xv, cache, attn_chunk)?
         };
         let a = short_conv(&attn_out, &self.post_attention_convolution, &mut cache.conv_attn)?;
+        mark(dev, Phase::Convolutions)?;
 
         // lines 901-905: at a block boundary the layer input becomes a block state and the residual restarts
         let mut states: Vec<Tensor> = block_states.to_vec();
@@ -649,10 +1060,17 @@ impl LayerWeights {
             m_in = g.mlp.forward(&m_in, &m[3], eps)?; // lines 991-992
         }
         let xn = rms_norm(&m_in, &self.post_attention_layernorm, eps)?;
-        let routing = route(&xn, &self.router_w, &self.router_bias, cfg.num_experts_per_tok, cfg.route_scale)?;
+        mark(dev, Phase::NormsGates)?;
+        let routing =
+            route_host_bias(&xn, &self.router_w, &self.router_bias_host, cfg.num_experts_per_tok, cfg.route_scale)?;
+        mark(dev, Phase::Routing)?;
         let m = experts.moe(&xn, &routing, cfg)?;
+        mark(dev, Phase::Moe)?;
         let m = short_conv(&m, &self.post_mlp_convolution, &mut cache.conv_mlp)?;
-        Ok(((residual + m)?, routing))
+        mark(dev, Phase::Convolutions)?;
+        let out = (residual + m)?;
+        mark(dev, Phase::NormsGates)?;
+        Ok((out, routing))
     }
 }
 
@@ -724,7 +1142,7 @@ mod tests {
         };
         let rank = cfg.loop_config.gate_rank;
         let mg = || MessageGate { down: r(&[rank, 2 * h]), forget: r(&[h, rank]), gain: r(&[h, rank]) };
-        LayerWeights {
+        let mut lw = LayerWeights {
             index: l,
             sliding,
             boundary: cfg.is_block_boundary(l),
@@ -754,13 +1172,16 @@ mod tests {
             post_attention_convolution: r(&[h, 4]),
             post_mlp_convolution: r(&[h, 4]),
             router_w: r(&[cfg.n_routed_experts, h]),
+            router_bias_host: vec![],
             router_bias: r(&[cfg.n_routed_experts]),
             message_gates: if cfg.is_loop_layer(l) {
                 Some(MessageGates { q: mg(), k: mg(), v: mg(), mlp: mg() })
             } else {
                 None
             },
-        }
+        };
+        lw.router_bias_host = lw.router_bias.to_vec1().unwrap();
+        lw
     }
 
     /// Layers 0 to 6 of the tiny config on `x`, layers 6 (sliding loop) and
@@ -897,6 +1318,7 @@ mod tests {
             post_mlp_convolution: mv(&lw.post_mlp_convolution),
             router_w: mv(&lw.router_w),
             router_bias: mv(&lw.router_bias),
+            router_bias_host: lw.router_bias_host.clone(),
             message_gates: lw.message_gates.as_ref().map(|g| {
                 let m = |x: &MessageGate| MessageGate { down: mv(&x.down), forget: mv(&x.forget), gain: mv(&x.gain) };
                 MessageGates { q: m(&g.q), k: m(&g.k), v: m(&g.v), mlp: m(&g.mlp) }
@@ -934,7 +1356,7 @@ mod tests {
         let (t, c) = (6, 3);
         let x = r(&[t, c]);
         let w = r(&[c, 4]);
-        let ours = short_conv(&x, &w, &mut None)?.to_vec2::<f32>()?;
+        let ours = short_conv(&x, &w, &mut ConvState::Empty)?.to_vec2::<f32>()?;
         let xv = x.to_vec2::<f32>()?;
         let wv = w.to_vec2::<f32>()?;
         for ti in 0..t {
