@@ -218,8 +218,9 @@ pub struct Inkling {
     /// `final_input.query` (`attn_res.output_query`), `[1, H]`.
     final_query: Tensor,
     norm: Tensor,
-    /// `unembed.weight` rows `0..unpadded_vocab_size`, BF16, `[V, H]`.
-    unembed: Tensor,
+    /// `unembed.weight` rows `0..unpadded_vocab_size`, BF16, `[V, H]`;
+    /// `None` when [`LoadOptions::int4_head`] chose the int4 head at load.
+    unembed: Option<Tensor>,
     dev: Device,
     /// One entry per layer; [`LayerExperts::Native`] unless set.
     experts: Vec<LayerExperts>,
@@ -236,6 +237,69 @@ pub struct Inkling {
     attn_chunk: usize,
     /// Called after every layer visit when set: a measurement reads the device memory there.
     visit_probe: std::sync::Mutex<Option<VisitProbe>>,
+    /// The fused glue kernels, when [`Self::set_glue`] chose them: a one-row
+    /// forward then runs [`layers::LayerWeights::forward_fused`].
+    #[cfg(all(target_os = "macos", feature = "metal"))]
+    glue: Option<std::sync::Arc<glue::Glue>>,
+}
+
+/// The small steps of a one-row visit: candle's operations (the default) or
+/// the fused glue kernels of [`glue`] (Metal only, class B).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum GlueKind {
+    Candle,
+    Fused,
+}
+
+impl GlueKind {
+    pub fn name(self) -> &'static str {
+        match self {
+            GlueKind::Candle => "candle",
+            GlueKind::Fused => "fused",
+        }
+    }
+}
+
+impl std::str::FromStr for GlueKind {
+    type Err = anyhow::Error;
+    fn from_str(s: &str) -> anyhow::Result<Self> {
+        match s {
+            "candle" => Ok(GlueKind::Candle),
+            "fused" => Ok(GlueKind::Fused),
+            o => anyhow::bail!("glue {o}: candle or fused"),
+        }
+    }
+}
+
+/// What [`Inkling::load_with`] does beyond the dense weights.
+#[derive(Debug, Clone, Default)]
+pub struct LoadOptions {
+    /// The int4 g64 output table (`bin/inktable`'s `unembed.q4g64.llvqraw`):
+    /// the head runs through [`head::Q4MetalHead`] and the BF16 `unembed`
+    /// rows are never put on the device (plan item D4). Metal only. `None`:
+    /// the BF16 head, as [`Inkling::load`].
+    pub int4_head: Option<std::path::PathBuf>,
+}
+
+/// Prompt rows one launch of the resident lattice kernel takes in the
+/// Inkling runtime ([`resident_runtime`]): the f32 rows kernel of plan item
+/// P1, each row bit for bit the one-row matvec's.
+pub const DEFAULT_PREFILL_ROWS: usize = 8;
+
+/// The runtime the resident experts launch through: the served tables and
+/// tile, with `prefill_rows` rows a prompt launch (1: one matvec a row, the
+/// path before P1; 2, 4 or 8: the f32 rows kernel).
+#[cfg(all(target_os = "macos", feature = "metal"))]
+pub fn resident_runtime(dev: &Device, prefill_rows: usize) -> Result<std::sync::Arc<crate::fused_metal::MetalRuntime>> {
+    let rt = resident::served_runtime(dev)?;
+    if prefill_rows == 1 {
+        return Ok(rt);
+    }
+    let mut rt = std::sync::Arc::try_unwrap(rt)
+        .map_err(|_| candle_core::Error::msg("served_runtime handed a shared runtime"))?;
+    let t = rt.tuning();
+    rt.set_tuning(crate::fused_metal::MetalTuning { prefill_rows, ..t })?;
+    Ok(std::sync::Arc::new(rt))
 }
 
 /// What [`Inkling::set_visit_probe`] takes.
@@ -273,6 +337,12 @@ const HEAD_CHUNK: usize = 16384;
 impl Inkling {
     /// Map `checkpoint` and load every dense weight onto `dev`.
     pub fn load(config: &Path, checkpoint: &Path, dev: &Device) -> anyhow::Result<Self> {
+        Self::load_with(config, checkpoint, dev, &LoadOptions::default())
+    }
+
+    /// [`Self::load`] with `opts`: the int4 head in place of the BF16 one,
+    /// whose rows are then never put on the device.
+    pub fn load_with(config: &Path, checkpoint: &Path, dev: &Device, opts: &LoadOptions) -> anyhow::Result<Self> {
         let cfg = InklingConfig::from_file(config)?;
         let ck = NativeCheckpoint::open(checkpoint)?;
         let layers = (0..cfg.num_hidden_layers)
@@ -302,9 +372,14 @@ impl Inkling {
         let final_query = ck.f32("attn_res.output_query", dev)?.unsqueeze(0)?;
         let norm = ck.f32("norm.weight", dev)?;
         // Inkling2UnpadVocab: the first `unpadded_vocab_size` rows (lm_head, line 1477)
-        let unembed = ck.raw("unembed.weight", dev)?;
-        anyhow::ensure!(unembed.dtype() == DType::BF16, "unembed.weight: {:?}, expected BF16", unembed.dtype());
-        let unembed = unembed.narrow(0, 0, cfg.unpadded_vocab_size)?;
+        let (unembed, out_proj) = match &opts.int4_head {
+            None => {
+                let unembed = ck.raw("unembed.weight", dev)?;
+                anyhow::ensure!(unembed.dtype() == DType::BF16, "unembed.weight: {:?}, expected BF16", unembed.dtype());
+                (Some(unembed.narrow(0, 0, cfg.unpadded_vocab_size)?), None)
+            }
+            Some(path) => (None, Some(Self::int4_head(path, &cfg, dev)?)),
+        };
         let experts = (0..cfg.num_hidden_layers).map(|_| LayerExperts::Native).collect();
         Ok(Self {
             cfg,
@@ -317,11 +392,64 @@ impl Inkling {
             dev: dev.clone(),
             experts,
             moe_timing: std::sync::Mutex::new(None),
-            out_proj: None,
+            out_proj,
             embed_table: None,
             attn_chunk: layers::DEFAULT_ATTN_CHUNK,
             visit_probe: std::sync::Mutex::new(None),
+            #[cfg(all(target_os = "macos", feature = "metal"))]
+            glue: None,
         })
+    }
+
+    /// The int4 head of `path` on the Metal device `dev`.
+    #[allow(unused_variables)]
+    fn int4_head(path: &Path, cfg: &InklingConfig, dev: &Device) -> anyhow::Result<Box<dyn head::OutputProjection>> {
+        #[cfg(all(target_os = "macos", feature = "metal"))]
+        if dev.is_metal() {
+            let rt = resident::served_runtime(dev)?;
+            let h = head::Q4MetalHead::load(rt, path, cfg.unpadded_vocab_size, cfg.hidden_size)?;
+            return Ok(Box::new(h));
+        }
+        anyhow::bail!("the int4 head runs on Metal only; {} asked on {dev:?}", path.display())
+    }
+
+    /// Whether the BF16 output rows are on the device.
+    pub fn has_bf16_head(&self) -> bool {
+        self.unembed.is_some()
+    }
+
+    /// Run the small steps of every one-row forward from now on through
+    /// `kind`. [`GlueKind::Fused`] compiles the kernels of [`glue`] and is
+    /// refused off Metal. A prompt (several rows) always runs candle's.
+    pub fn set_glue(&mut self, kind: GlueKind) -> Result<()> {
+        match kind {
+            GlueKind::Candle => {
+                #[cfg(all(target_os = "macos", feature = "metal"))]
+                {
+                    self.glue = None;
+                }
+                Ok(())
+            }
+            #[cfg(all(target_os = "macos", feature = "metal"))]
+            GlueKind::Fused => {
+                if !self.dev.is_metal() {
+                    candle_core::bail!("the fused glue runs on Metal only, the model is on {:?}", self.dev);
+                }
+                self.glue = Some(std::sync::Arc::new(glue::Glue::new(&self.dev)?));
+                Ok(())
+            }
+            #[cfg(not(all(target_os = "macos", feature = "metal")))]
+            GlueKind::Fused => candle_core::bail!("the fused glue needs a macOS build with the metal feature"),
+        }
+    }
+
+    /// The glue a one-row forward runs.
+    pub fn glue(&self) -> GlueKind {
+        #[cfg(all(target_os = "macos", feature = "metal"))]
+        if self.glue.is_some() {
+            return GlueKind::Fused;
+        }
+        GlueKind::Candle
     }
 
     pub fn device(&self) -> &Device {
@@ -472,6 +600,12 @@ impl Inkling {
             let timed = TimedMoe { inner: src, dev: &self.dev, layer, out: &self.moe_timing };
             let src: &dyn MoeSource = if timing_on { &timed } else { src };
             let slot = &mut cache.slots[self.slot(layer, pass)];
+            #[cfg(all(target_os = "macos", feature = "metal"))]
+            let (next, routing) = match &self.glue {
+                Some(g) if ids.len() == 1 => lw.forward_fused(&self.cfg, &h, &bs, messages.as_deref(), src, slot, g)?,
+                _ => lw.forward_chunked(&self.cfg, &h, &bs, messages.as_deref(), src, slot, self.attn_chunk)?,
+            };
+            #[cfg(not(all(target_os = "macos", feature = "metal")))]
             let (next, routing) =
                 lw.forward_chunked(&self.cfg, &h, &bs, messages.as_deref(), src, slot, self.attn_chunk)?;
             if let Some(p) = self.visit_probe.lock().expect("no panic holds this lock").as_mut() {
@@ -509,12 +643,15 @@ impl Inkling {
             let cap = self.cfg.final_logit_softcapping;
             return (logits / cap)?.tanh()? * cap;
         }
-        let v = self.unembed.dim(0)?;
+        let Some(unembed) = &self.unembed else {
+            candle_core::bail!("no output head: the BF16 rows were not loaded and no projection is set")
+        };
+        let v = unembed.dim(0)?;
         let mut parts = vec![];
         let mut start = 0;
         while start < v {
             let n = HEAD_CHUNK.min(v - start);
-            let w = self.unembed.narrow(0, start, n)?.to_dtype(DType::F32)?;
+            let w = unembed.narrow(0, start, n)?.to_dtype(DType::F32)?;
             parts.push(layers::linear(h, &w)?);
             start += n;
         }

@@ -180,6 +180,19 @@ impl ConvState {
         matches!(self, ConvState::Empty)
     }
 
+    /// The state as one block `[k - 1, C]`, oldest row first; `None` when
+    /// empty (zeros). A ring is concatenated in time order: the same values.
+    pub fn block(&self, k: usize) -> Result<Option<Tensor>> {
+        match self {
+            ConvState::Empty => Ok(None),
+            ConvState::Block(s) => Ok(Some(s.clone())),
+            ConvState::Ring { rows, head } => {
+                let ordered: Vec<Tensor> = (0..k - 1).map(|j| rows[(head + j) % (k - 1)].clone()).collect();
+                Ok(Some(Tensor::cat(&ordered, 0)?))
+            }
+        }
+    }
+
     /// The `k - 1` history rows `[1, C]`, oldest first; zeros rows like `x` when empty.
     fn rows(&self, x: &Tensor, k: usize) -> Result<Vec<Tensor>> {
         match self {
@@ -558,11 +571,18 @@ pub struct SlotCache {
     pub conv_v: ConvState,
     pub conv_attn: ConvState,
     pub conv_mlp: ConvState,
+    /// While the fused glue steps this slot ([`LayerWeights::forward_fused`]),
+    /// the post-attention and post-MLP states live in these device rings and
+    /// `conv_attn` / `conv_mlp` are stale. Every other reader settles them
+    /// first ([`Self::settle_rings`]); a clone and a mark read them back.
+    #[cfg(all(target_os = "macos", feature = "metal"))]
+    fused: Option<super::glue::FusedRings>,
 }
 
 impl Clone for SlotCache {
     fn clone(&self) -> Self {
         let deep = |b: &Option<Tensor>| b.as_ref().map(|t| t.copy().expect("copy of a cache buffer"));
+        let [_, _, conv_attn, conv_mlp] = self.conv_states().expect("read back of the convolution rings");
         Self {
             k_buf: deep(&self.k_buf),
             v_buf: deep(&self.v_buf),
@@ -570,8 +590,10 @@ impl Clone for SlotCache {
             min_capacity: self.min_capacity,
             conv_k: self.conv_k.clone(),
             conv_v: self.conv_v.clone(),
-            conv_attn: self.conv_attn.clone(),
-            conv_mlp: self.conv_mlp.clone(),
+            conv_attn,
+            conv_mlp,
+            #[cfg(all(target_os = "macos", feature = "metal"))]
+            fused: None,
         }
     }
 }
@@ -601,12 +623,42 @@ impl SlotCache {
         self.len
     }
 
-    /// The state needed to come back here.
+    /// The state needed to come back here. Rings the fused glue writes in
+    /// place are read back into new tensors, so the mark keeps copies.
     pub fn mark(&self) -> SlotMark {
-        SlotMark {
-            len: self.len,
-            conv: [self.conv_k.clone(), self.conv_v.clone(), self.conv_attn.clone(), self.conv_mlp.clone()],
+        SlotMark { len: self.len, conv: self.conv_states().expect("read back of the convolution rings") }
+    }
+
+    /// The four convolution states (key, value, post-attention, post-MLP),
+    /// the last two read back from the rings when the fused glue holds them.
+    fn conv_states(&self) -> Result<[ConvState; 4]> {
+        #[cfg(all(target_os = "macos", feature = "metal"))]
+        if let Some(r) = &self.fused {
+            let (a, m) = r.states()?;
+            return Ok([self.conv_k.clone(), self.conv_v.clone(), ConvState::Block(a), ConvState::Block(m)]);
         }
+        Ok([self.conv_k.clone(), self.conv_v.clone(), self.conv_attn.clone(), self.conv_mlp.clone()])
+    }
+
+    /// Bring the post-attention and post-MLP states back from the fused
+    /// glue's rings, if it holds them; the rings are dropped. Nothing changes
+    /// otherwise.
+    pub fn settle_rings(&mut self) -> Result<()> {
+        #[cfg(all(target_os = "macos", feature = "metal"))]
+        if let Some(r) = self.fused.take() {
+            let (a, m) = r.states()?;
+            self.conv_attn = ConvState::Block(a);
+            self.conv_mlp = ConvState::Block(m);
+        }
+        Ok(())
+    }
+
+    /// Whether the fused glue's rings hold the post-attention and post-MLP states.
+    pub fn has_rings(&self) -> bool {
+        #[cfg(all(target_os = "macos", feature = "metal"))]
+        return self.fused.is_some();
+        #[cfg(not(all(target_os = "macos", feature = "metal")))]
+        false
     }
 
     /// Back to `m`: the positions past `m.len()` are forgotten (the next
@@ -616,6 +668,11 @@ impl SlotCache {
     pub fn rollback(&mut self, m: &SlotMark) -> Result<()> {
         if m.len > self.len {
             candle_core::bail!("slot rollback: the mark holds {} positions, the slot {}", m.len, self.len);
+        }
+        #[cfg(all(target_os = "macos", feature = "metal"))]
+        {
+            // the next fused step refills its rings from the states restored below
+            self.fused = None;
         }
         self.len = m.len;
         let [k, v, attn, mlp] = m.conv.clone();
@@ -996,6 +1053,8 @@ impl LayerWeights {
             (Some(m), Some(g)) if m.len() == 4 => Some((m, g)),
             _ => candle_core::bail!("layer {}: messages given to a layer without message gates", self.index),
         };
+        // a slot the fused glue stepped hands its two rings back first
+        cache.settle_rings()?;
         let block_residual = h;
         let attn_out = if self.sliding {
             let x = match &self.attention_input {
@@ -1070,6 +1129,111 @@ impl LayerWeights {
         mark(dev, Phase::Convolutions)?;
         let out = (residual + m)?;
         mark(dev, Phase::NormsGates)?;
+        Ok((out, routing))
+    }
+
+    /// [`Self::forward_chunked`] for one row on Metal, its small steps
+    /// through the fused glue kernels (`super::glue`, plan item D7): `pre`
+    /// for the block residual, message gates and input norms; the attention
+    /// as candle runs it; `post_attn` for the post-attention convolution, the
+    /// residual, the MLP input and the router scores; `top8` for the routing,
+    /// read back once; the MoE as the source runs it; `post_mlp` for the
+    /// post-MLP convolution and the residual.
+    ///
+    /// The post-attention and post-MLP states move into two device rings,
+    /// filled from what the slot held (a prompt's block, a candle step's
+    /// ring, or zeros). Class B against the candle glue: `pre`, the normed
+    /// MLP input and the scores sum in another order.
+    #[cfg(all(target_os = "macos", feature = "metal"))]
+    #[allow(clippy::too_many_arguments)]
+    pub fn forward_fused(
+        &self,
+        cfg: &InklingConfig,
+        h: &Tensor,
+        block_states: &[Tensor],
+        messages: Option<&[Tensor]>,
+        experts: &dyn MoeSource,
+        cache: &mut SlotCache,
+        glue: &std::sync::Arc<super::glue::Glue>,
+    ) -> Result<(Tensor, Routing)> {
+        use super::glue::{FusedRings, GateW, PostAttnInputs, PreInputs};
+        fn gw(g: &MessageGate) -> GateW<'_> {
+            GateW { down: &g.down, forget: &g.forget, gain: &g.gain }
+        }
+        let eps = cfg.rms_norm_eps;
+        let dev = h.device();
+        if h.dim(0)? != 1 {
+            candle_core::bail!("layer {}: the fused glue takes one row, not {}", self.index, h.dim(0)?);
+        }
+        let gates = match (messages, &self.message_gates) {
+            (None, _) => None,
+            (Some(m), Some(g)) if m.len() == 4 => Some((m, g)),
+            _ => candle_core::bail!("layer {}: messages given to a layer without message gates", self.index),
+        };
+        let c = self.post_attention_convolution.dim(0)?;
+        let (k_attn, k_mlp) = (self.post_attention_convolution.dim(1)?, self.post_mlp_convolution.dim(1)?);
+        if cache.fused.is_none() {
+            let a = cache.conv_attn.block(k_attn)?;
+            let m = cache.conv_mlp.block(k_mlp)?;
+            cache.fused = Some(FusedRings::new(glue.clone(), dev, c, k_attn, a.as_ref(), k_mlp, m.as_ref())?);
+        }
+        let h = h.contiguous()?;
+        let states = block_states.iter().map(|s| s.contiguous()).collect::<Result<Vec<_>>>()?;
+        let msgs = match gates {
+            Some((m, _)) => Some(m.iter().map(|t| t.contiguous()).collect::<Result<Vec<_>>>()?),
+            None => None,
+        };
+
+        let pre = PreInputs {
+            h: &h,
+            states: &states,
+            queries: self.attention_input.as_ref(),
+            norms: &self.norms_in,
+            gates: match (&msgs, gates) {
+                (Some(m), Some((_, g))) => Some(([&m[0], &m[1], &m[2]], [gw(&g.q), gw(&g.k), gw(&g.v)])),
+                _ => None,
+            },
+            sliding: self.sliding,
+            eps,
+        };
+        let x = glue.pre(&pre)?;
+        mark(dev, Phase::NormsGates)?;
+        let attn_out = if x.dim(0)? == 1 {
+            self.attn.forward_chunked(cfg, &x, &x, &x, cache, DEFAULT_ATTN_CHUNK)?
+        } else {
+            let (xq, xk, xv) = (x.narrow(0, 0, 1)?, x.narrow(0, 1, 1)?, x.narrow(0, 2, 1)?);
+            self.attn.forward_chunked(cfg, &xq, &xk, &xv, cache, DEFAULT_ATTN_CHUNK)?
+        };
+        let attn_out = attn_out.contiguous()?;
+
+        let rings = cache.fused.as_mut().expect("filled above");
+        let post = PostAttnInputs {
+            attn_out: &attn_out,
+            h: &h,
+            states: &states,
+            boundary: self.boundary,
+            conv_w: &self.post_attention_convolution,
+            mlp_query: &self.mlp_input,
+            gate: match (&msgs, gates) {
+                (Some(m), Some((_, g))) => Some((&m[3], gw(&g.mlp))),
+                _ => None,
+            },
+            norm: &self.post_attention_layernorm,
+            router_w: &self.router_w,
+            eps,
+        };
+        let pa = glue.post_attn(&post, &mut rings.attn)?;
+        mark(dev, Phase::NormsGates)?;
+        let k = cfg.num_experts_per_tok;
+        let top = glue.top8(&pa.scores, &self.router_bias, k, cfg.route_scale)?;
+        let r = top.read(k)?;
+        let routing = Routing { indices: vec![r.ids], weights: vec![r.weights], margin: vec![r.margin], scores: vec![r.sel] };
+        mark(dev, Phase::Routing)?;
+        let m = experts.moe(&pa.xn, &routing, cfg)?.contiguous()?;
+        mark(dev, Phase::Moe)?;
+        let rings = cache.fused.as_mut().expect("filled above");
+        let out = glue.post_mlp(&m, &pa.residual, &self.post_mlp_convolution, &mut rings.mlp)?;
+        mark(dev, Phase::Convolutions)?;
         Ok((out, routing))
     }
 }
