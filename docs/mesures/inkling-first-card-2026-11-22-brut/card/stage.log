@@ -1,0 +1,34 @@
+tokens file: prompt 32 reference 32
+TEXTONLY_SHA=aaa23ae8b86c57c9198e102729cac6efcdb8fda2e42d4d8dd06bee50ce5576e8
+CONFIG_SHA=3d271ca52a039a63a68758520c0a8279f1f861016b32e0112221486239baf5ff
+TOKENS_SHA=0f09e3e902b72965d8b2e146cda116b901273861a56ea13e2aeb5f886c216cdf
+MANIFEST_SHA=2d8d702ff0885dde9a46f3422d167ed13f65b1ea50892a9af2df0a4380cf5eb1
+src=/Users/pjmalandrino/llvq-inkling-mini/textonly/config.json dst=hf://buckets/Pier-Jean/jobs-artifacts/inkling2-mini-inputs-2026-11-22/config.json
+src=/Users/pjmalandrino/llvq-inkling-mini/textonly/model.safetensors dst=hf://buckets/Pier-Jean/jobs-artifacts/inkling2-mini-inputs-2026-11-22/model.safetensors
+src=/Users/pjmalandrino/llvq-inkling-mini/lot2-u/stage/tokens.json dst=hf://buckets/Pier-Jean/jobs-artifacts/inkling2-mini-inputs-2026-11-22/tokens.json
+src=/Users/pjmalandrino/llvq-inkling-mini/lot2-u/stage/codes.sha256 dst=hf://buckets/Pier-Jean/jobs-artifacts/inkling2-mini-inputs-2026-11-22/codes.sha256
+src=/Users/pjmalandrino/llvq-inkling-mini/lot2-u/stage/L00.tar dst=hf://buckets/Pier-Jean/jobs-artifacts/inkling2-mini-inputs-2026-11-22/layers/L00.tar
+src=/Users/pjmalandrino/llvq-inkling-mini/lot2-u/stage/L01.tar dst=hf://buckets/Pier-Jean/jobs-artifacts/inkling2-mini-inputs-2026-11-22/layers/L01.tar
+src=/Users/pjmalandrino/llvq-inkling-mini/lot2-u/stage/L02.tar dst=hf://buckets/Pier-Jean/jobs-artifacts/inkling2-mini-inputs-2026-11-22/layers/L02.tar
+src=/Users/pjmalandrino/llvq-inkling-mini/lot2-u/stage/L03.tar dst=hf://buckets/Pier-Jean/jobs-artifacts/inkling2-mini-inputs-2026-11-22/layers/L03.tar
+src=/Users/pjmalandrino/llvq-inkling-mini/lot2-u/stage/L04.tar dst=hf://buckets/Pier-Jean/jobs-artifacts/inkling2-mini-inputs-2026-11-22/layers/L04.tar
+src=/Users/pjmalandrino/llvq-inkling-mini/lot2-u/stage/L05.tar dst=hf://buckets/Pier-Jean/jobs-artifacts/inkling2-mini-inputs-2026-11-22/layers/L05.tar
+src=/Users/pjmalandrino/llvq-inkling-mini/lot2-u/stage/L06.tar dst=hf://buckets/Pier-Jean/jobs-artifacts/inkling2-mini-inputs-2026-11-22/layers/L06.tar
+src=/Users/pjmalandrino/llvq-inkling-mini/lot2-u/stage/L07.tar dst=hf://buckets/Pier-Jean/jobs-artifacts/inkling2-mini-inputs-2026-11-22/layers/L07.tar
+src=/Users/pjmalandrino/llvq-inkling-mini/lot2-u/stage/L08.tar dst=hf://buckets/Pier-Jean/jobs-artifacts/inkling2-mini-inputs-2026-11-22/layers/L08.tar
+src=/Users/pjmalandrino/llvq-inkling-mini/lot2-u/stage/L09.tar dst=hf://buckets/Pier-Jean/jobs-artifacts/inkling2-mini-inputs-2026-11-22/layers/L09.tar
+src=/Users/pjmalandrino/llvq-inkling-mini/lot2-u/stage/L10.tar dst=hf://buckets/Pier-Jean/jobs-artifacts/inkling2-mini-inputs-2026-11-22/layers/L10.tar
+src=/Users/pjmalandrino/llvq-inkling-mini/lot2-u/stage/L11.tar dst=hf://buckets/Pier-Jean/jobs-artifacts/inkling2-mini-inputs-2026-11-22/layers/L11.tar
+src=/Users/pjmalandrino/llvq-inkling-mini/lot2-u/stage/L12.tar dst=hf://buckets/Pier-Jean/jobs-artifacts/inkling2-mini-inputs-2026-11-22/layers/L12.tar
+src=/Users/pjmalandrino/llvq-inkling-mini/lot2-u/stage/L13.tar dst=hf://buckets/Pier-Jean/jobs-artifacts/inkling2-mini-inputs-2026-11-22/layers/L13.tar
+src=/Users/pjmalandrino/llvq-inkling-mini/lot2-u/stage/L14.tar dst=hf://buckets/Pier-Jean/jobs-artifacts/inkling2-mini-inputs-2026-11-22/layers/L14.tar
+src=/Users/pjmalandrino/llvq-inkling-mini/lot2-u/stage/L15.tar dst=hf://buckets/Pier-Jean/jobs-artifacts/inkling2-mini-inputs-2026-11-22/layers/L15.tar
+src=/Users/pjmalandrino/llvq-inkling-mini/lot2-u/stage/L16.tar dst=hf://buckets/Pier-Jean/jobs-artifacts/inkling2-mini-inputs-2026-11-22/layers/L16.tar
+src=/Users/pjmalandrino/llvq-inkling-mini/lot2-u/stage/L17.tar dst=hf://buckets/Pier-Jean/jobs-artifacts/inkling2-mini-inputs-2026-11-22/layers/L17.tar
+src=/Users/pjmalandrino/llvq-inkling-mini/lot2-u/stage/L18.tar dst=hf://buckets/Pier-Jean/jobs-artifacts/inkling2-mini-inputs-2026-11-22/layers/L18.tar
+src=/Users/pjmalandrino/llvq-inkling-mini/lot2-u/stage/L19.tar dst=hf://buckets/Pier-Jean/jobs-artifacts/inkling2-mini-inputs-2026-11-22/layers/L19.tar
+src=/Users/pjmalandrino/llvq-inkling-mini/lot2-u/stage/L20.tar dst=hf://buckets/Pier-Jean/jobs-artifacts/inkling2-mini-inputs-2026-11-22/layers/L20.tar
+src=/Users/pjmalandrino/llvq-inkling-mini/lot2-u/stage/L21.tar dst=hf://buckets/Pier-Jean/jobs-artifacts/inkling2-mini-inputs-2026-11-22/layers/L21.tar
+src=/Users/pjmalandrino/llvq-inkling-mini/lot2-u/stage/L22.tar dst=hf://buckets/Pier-Jean/jobs-artifacts/inkling2-mini-inputs-2026-11-22/layers/L22.tar
+src=/Users/pjmalandrino/llvq-inkling-mini/lot2-u/stage/L23.tar dst=hf://buckets/Pier-Jean/jobs-artifacts/inkling2-mini-inputs-2026-11-22/layers/L23.tar
+done; pass the four pins above to ops/jobs/inkling-first-card.sh

@@ -297,6 +297,13 @@ in exactly one place and no text tensor omitted. On the experts alone, over the 
 2.037 bits reads the KL of `IQ2_XXS` at 2.372 bits and is below `IQ1_S` and `IQ1_M` on 8 windows of 8
 (*measured*). The file loses that as a file because it keeps attention in 16 bits.
 
+The engine ran on a card for the first time on 2026-11-22 (*measured*,
+[first-card](mesures/inkling-first-card-2026-11-22.txt), prereg timestamped before it): on one L4, 24 layers of
+experts resident in lattice codes, the 32 tokens of the Mac's resident run, 32 of 32, 10.11 GB after the experts,
+0.166 s a token on the eager path, verdict PASSES, $0.04. On the Mac the same commit plus the first wave of the
+throughput plan reads 0.192 s a token with 24 resident layers, against 0.526 with 15 that morning
+(`docs/plan-debit-inkling2-mini.md`).
+
 Order of the week: the file and the whole-model KL first; then the first run on a card (resident GB, tokens, first
 tok/s) and GSM8K on the same card; then the grouped launch for speed, and the row scales if GSM8K leaves a gap worth
 their $17 to $35; then the runtime on Inkling with tools and a real coding-agent session; the card of the model
