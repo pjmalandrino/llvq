@@ -1,0 +1,69 @@
+NVIDIA L4, 8.9, 23034 MiB, 0 MiB, 620.70.06
+Filesystem      Size  Used Avail Use% Mounted on
+overlay         419G   95G  325G  23% /
+overlay         419G   95G  325G  23% /
+== control 1: oracle on this backend ==
+Qwen/Qwen3-0.6B on Cuda(CudaDevice(DeviceId(1))) — max |Δhidden| = 0.000e0   (relative to max|h| = 8.550e1) → 0.000e0
+MATCH — the observable forward reproduces candle's Qwen3
+== control 2: inputs to local disk, at their pins ==
+Sun Nov 22 20:06:57 UTC 2026
+3d271ca52a039a63a68758520c0a8279f1f861016b32e0112221486239baf5ff  /scratch/inkling/config.json
+aaa23ae8b86c57c9198e102729cac6efcdb8fda2e42d4d8dd06bee50ce5576e8  /scratch/inkling/model.safetensors
+2d8d702ff0885dde9a46f3422d167ed13f65b1ea50892a9af2df0a4380cf5eb1  /scratch/inkling/codes.sha256
+7f332727f9a3f093dd452a39cc978e6757627e5dad1b0673aa4e75174f236dd6  /scratch/inkling/tokenizer.json
+9e778f58f8a9e6c093aad13abac87ff279c967ab3eb39549910eb47b343c6a48  /usr/local/share/llvq/spec-gsm8k-200.jsonl
+b7e9979f589a8a845215eeb8fecf5ed5a22e7685072b7bbdbddd45fee0bc027e  /scratch/inkling/tables/embed.q4g64.llvqraw
+cb26ce0c6145d35db52886b378185910b4adaf3de8024cb28e1e6f0062abcbb7  /scratch/inkling/tables/unembed.q4g64.llvqraw
+Sun Nov 22 20:09:06 UTC 2026
+== control 3: this image generates the Mac's 32 resident tokens on this card ==
+inkrun: 24 layers resident in 38.1 s: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23]
+inkrun: prefill of 32 tokens in 0.78 s
+inkrun: 32 tokens, median step 0.163 s, equal to the reference: Some(true) (first mismatch None), report /out/inkling-gsm8k-card-2026-11-22-r2/inkrun.json
+control 3: equal prefix 32 of 32 | median step 0.1625 s
+== (1) inkgsm run: 24 layers resident, GSM8K ==
+  [177/200] #176  ok gen  298 eos boxed acc  96.6 %  (1.2 s prefill, 46.9 s decode)
+  [178/200] #177  ok gen  408 eos boxed acc  96.6 %  (1.8 s prefill, 65.1 s decode)
+  [179/200] #178  ok gen  256 eos boxed acc  96.6 %  (1.2 s prefill, 40.3 s decode)
+  [180/200] #179  ok gen  125 eos boxed acc  96.7 %  (1.2 s prefill, 19.8 s decode)
+  [181/200] #180  ok gen  230 eos boxed acc  96.7 %  (1.3 s prefill, 36.4 s decode)
+  [182/200] #181  ok gen  622 eos boxed acc  96.7 %  (1.9 s prefill, 97.2 s decode)
+  [183/200] #182  -- gen 1234 eos boxed acc  96.2 %  (1.1 s prefill, 191.2 s decode)
+  [184/200] #183  ok gen  300 eos boxed acc  96.2 %  (2.2 s prefill, 47.6 s decode)
+  [185/200] #184  -- gen  973 eos boxed acc  95.7 %  (1.2 s prefill, 151.9 s decode)
+  [186/200] #185  ok gen  139 eos boxed acc  95.7 %  (1.2 s prefill, 22.2 s decode)
+  [187/200] #186  -- gen 1536 cap last  acc  95.2 %  (2.1 s prefill, 242.5 s decode)
+  [188/200] #187  ok gen  494 eos boxed acc  95.2 %  (1.2 s prefill, 76.9 s decode)
+  [189/200] #188  ok gen  227 eos boxed acc  95.2 %  (1.5 s prefill, 36.4 s decode)
+  [190/200] #189  ok gen  471 eos boxed acc  95.3 %  (1.5 s prefill, 73.6 s decode)
+  [191/200] #190  ok gen  110 eos boxed acc  95.3 %  (1.0 s prefill, 17.4 s decode)
+  [192/200] #191  ok gen  248 eos boxed acc  95.3 %  (1.2 s prefill, 39.1 s decode)
+  [193/200] #192  ok gen  384 eos boxed acc  95.3 %  (1.3 s prefill, 60.7 s decode)
+  [194/200] #193  ok gen  419 eos boxed acc  95.4 %  (2.2 s prefill, 66.3 s decode)
+  [195/200] #194  ok gen  135 eos boxed acc  95.4 %  (1.2 s prefill, 21.5 s decode)
+  [196/200] #195  ok gen  187 eos boxed acc  95.4 %  (1.2 s prefill, 29.5 s decode)
+  [197/200] #196  ok gen  189 eos boxed acc  95.4 %  (1.2 s prefill, 30.0 s decode)
+  [198/200] #197  ok gen  237 eos boxed acc  95.5 %  (1.3 s prefill, 37.4 s decode)
+  [199/200] #198  ok gen  554 eos boxed acc  95.5 %  (1.6 s prefill, 86.4 s decode)
+  [200/200] #199  ok gen  420 eos boxed acc  95.5 %  (1.7 s prefill, 66.3 s decode)
+inkgsm: 191/200 right = 95.50 % ± 1.47 (binomial SE), cut by the cap (1536) 4 (counted wrong); generated mean 369.4 tokens; decode 0.157 s a token, prefill 1.43 s a problem, 59.6 s a problem in all
+0 MiB, 23034 MiB
+inkgsm exit 0 (0 finished, 3 deadline: resume with RESUME_FROM=inkling-gsm8k-card-2026-11-22-r2)
+rows in the dump: 201 lines after the header, the trailer included when finished
+/out/inkling-gsm8k-card-2026-11-22-r2/inkgsm.jsonl: 1 rows re-graded by llvq_llm::gsm8k, 4 cut by the cap counted wrong
+    thinkingmachines/Inkling-2-Mini | llvq engine, routed experts resident in lattice codes | effort none | max_new 1536
+    191/200 right = 95.50 % ± 1.47 (binomial SE), cut by the cap (1536) 4 (counted wrong); generated mean 369.4 tokens; decode 0.157 s a token, prefill 1.43 s a problem, 59.6 s a problem in all
+200 problems: median step 0.1570 s, generated mean 369.4 max 1536, cut by the cap 4, seconds a problem mean 59.6, turns refused by the parser 4
+total 335
+drwxr-xr-x.   2 root   root         0 Nov 22 23:29 .
+drwxrwxrwx. 280 nobody nogroup      0 Nov 22 20:06 ..
+-rw-r--r--.   1 root   root         0 Nov 22 20:08 codes-check.txt
+-rw-r--r--.   1 root   root       129 Nov 22 20:06 disk.txt
+-rw-r--r--.   1 root   root       721 Nov 22 20:09 files.sha256
+-rw-r--r--.   1 root   root        17 Nov 22 23:29 gpu-after.txt
+-rw-r--r--.   1 root   root        44 Nov 22 20:06 gpu-before.txt
+-rw-r--r--.   1 root   root    306736 Nov 22 23:29 inkgsm.jsonl
+-rw-r--r--.   1 root   root     17498 Nov 22 20:09 inkgsm.txt
+-rw-r--r--.   1 root   root     12344 Nov 22 20:09 inkrun.json
+-rw-r--r--.   1 root   root       586 Nov 22 20:09 inkrun.txt
+-rw-r--r--.   1 root   root       377 Nov 22 20:06 oracle.txt
+-rw-r--r--.   1 root   root       758 Nov 22 23:29 summary.txt

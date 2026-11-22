@@ -1,0 +1,43 @@
+20:51:55 stage APP_STARTING | space sha ee94f304677295370cb0dbe24bc45672e75048ef | minutes waited 17.3
+image lists agree
+DRY_RUN: problems sha256 9e778f58f8a9e6c093aad13abac87ff279c967ab3eb39549910eb47b343c6a48, deadline 15304 s, timeout 285m, flavor l4x1
+launch 2026-11-22 20:51:55
+bucket inputs present; image ee94f304677295370cb0dbe24bc45672e75048ef
+  bucket: Pier-Jean/jobs-artifacts → /out
+l4x1 at 0.80 $/h = 0.0133 $/min; ceiling 285m → at worst 3.80 $
+inkling-gsm8k-card-r2 on l4x1: https://huggingface.co/jobs/Pier-Jean/6b0347de130a00b5aa8100d2
+  id 6b0347de130a00b5aa8100d2
+follow: uv run ops/run.py monitor 6b0347de130a00b5aa8100d2 --flavor l4x1
+job 6b0347de130a00b5aa8100d2
+[160 min billed · 2.13 $]
+[162 min billed · 2.16 $]
+[164 min billed · 2.18 $]
+[166 min billed · 2.21 $]
+[168 min billed · 2.24 $]
+[170 min billed · 2.26 $]
+[172 min billed · 2.29 $]
+[174 min billed · 2.32 $]
+[176 min billed · 2.34 $]
+[178 min billed · 2.37 $]
+[180 min billed · 2.40 $]
+[182 min billed · 2.42 $]
+[184 min billed · 2.45 $]
+[186 min billed · 2.48 $]
+[188 min billed · 2.50 $]
+[190 min billed · 2.53 $]
+[192 min billed · 2.56 $]
+[194 min billed · 2.58 $]
+[196 min billed · 2.61 $]
+[198 min billed · 2.64 $]
+[200 min billed · 2.66 $]
+[202 min billed · 2.69 $]
+[stage] COMPLETED 
+[203 min billed · 2.70 $]
+
+[end] COMPLETED: 3.38 h billed, 2.70 $
+
+[VRAM] peak 12.874 GB · mean 12.573 GB · p50 12.842 · p95 12.874
+       3992 samples over 12146 s (3.04 s apart)
+       series written to $HOME/llvq-inkling-mini/lot4-coord/gsm8k_sealed_metrics.json
+
+[exited with code 0]
