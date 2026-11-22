@@ -259,8 +259,12 @@ matrices encoded from the full capture with no fallback):
 
 Attention costs about 0.023 to 0.030 KL for each GB it saves, the tables 0.006, and the experts of the loop 0.010
 against their native NVFP4 (*computed*). Even at 4 bits attention is the dearest place to save bytes. Keeping it
-in f16 puts the text model at 8.06 GB instead of 7.05 (*computed*) and removes its 0.023. The rule is not
-settled: the six matrices have not been read one by one, and `wq_du` and `wk_dv` have not been tried in int4.
+in 16 bits puts the text model at 8.06 GB instead of 7.05 (*computed*) and removes its 0.023.
+The operator settled it on 2026-11-22: attention stays in 16 bits, as shipped, for the first file, and the
+finer rules come later. The object is therefore the experts of 24 layers in the lattice code, the two tables in
+int4 g64, everything else as shipped: 8.059 GB and 2.473 b/param for the text model, 8.696 GB and 2.636 b/param
+with vision (*computed* in the kernel accounting). Not read yet: the six matrices one by one, and `wq_du` and
+`wk_dv` in int4.
 
 Order of the week: the file and the whole-model KL first; then the first run on a card (resident GB, tokens, first
 tok/s) and GSM8K on the same card; then the grouped launch for speed, and the row scales if GSM8K leaves a gap worth
@@ -346,7 +350,7 @@ edits tonight's tools: the encode calls them by path all day.
 | 1 | spending cap | nothing paid | $0 |
 | 2 | where the remaining encode runs | on the Mac under the guard, no fixed hour; he stops it with one word | 12 to 17 Mac h, or $20 to $30 on a card |
 | 3 | BF16 and F32 tensors | sidecar safetensors, no format change | a raw tag is a format change and a full suite |
-| 4 | type rule | experts all Tetra; attention per §1 | the 4B's int4 `down_proj` band (a third of its layers) on the experts adds about 0.75 GB; attention all Tetra saves 0.12 GB |
+| 4 | type rule (settled 2026-11-22 for the first file: experts all Tetra, tables int4 g64, attention in 16 bits as shipped) | experts all Tetra; attention per §1 | the 4B's int4 `down_proj` band (a third of its layers) on the experts adds about 0.75 GB; attention all Tetra saves 0.12 GB |
 | 5 | b/param perimeter | text model and with vision, both stated | none |
 | 6 | GSM8K route | GSM8K-200 in the Python harness on the CPU | a card run, or a GGUF export: llama.cpp's main branch reads the model since `29b52d398b` (PR 32694, 2026-11-20; read on GitHub, not run here) |
 | 7 | starved experts | tonight's rule | J6 |

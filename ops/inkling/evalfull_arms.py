@@ -18,6 +18,8 @@
 
 Arms (D = ~/llvq-inkling-mini):
   experts24        experts of all 24 layers from D/layers (dir:, `.f32` or `.f16`), everything else native
+  experts24_tables + `embed` and `unembed` from `--tables`, attention native: the file the operator chose on 2026-11-22
+                   (attention kept in 16 bits)
   experts24_attn   + the six attention matrices of every layer from `--attn` (B's inkwh reconstructions)
   whole            + `embed` and `unembed` from `--tables` (B's int4 g64 tables): the whole quantized text model
   attn_only        the attention matrices alone, experts and tables native: what the attention's type rule costs
@@ -52,7 +54,7 @@ LAYERS = os.path.join(DATA, "layers")
 ARMS_DIR = os.path.join(DATA, "evalfull", "arms")
 GGUF = {"rival_iq2xxs": os.path.join(DATA, "gguf", "Inkling-2-Mini-UD-IQ2_XXS.gguf"),
         "rival_q2kxl": os.path.join(DATA, "gguf", "Inkling-2-Mini-UD-Q2_K_XL.gguf")}
-ARMS = ("experts24", "experts24_attn", "whole", "attn_only", "attn_lattice_only", "attn_int4_only", "tables_only",
+ARMS = ("experts24", "experts24_tables", "experts24_attn", "whole", "attn_only", "attn_lattice_only", "attn_int4_only", "tables_only",
         "rival_iq2xxs", "rival_q2kxl")
 # Which attention matrices the lattice code holds in the plan's default rule; the four others are int4 g128.
 ATTN_LATTICE = ("wq_du", "wk_dv")
@@ -65,6 +67,8 @@ def spec_of(arm, attn, tables):
          f"lm_head.weight=table:{os.path.join(tables, 'unembed.q4g64.llvqraw')}")
     if arm == "experts24":
         return e
+    if arm == "experts24_tables":
+        return f"{e};{t}"
     if arm == "experts24_attn":
         return f"{e};{a}"
     if arm == "whole":
@@ -89,7 +93,7 @@ def spec_of(arm, attn, tables):
 def missing(arm, attn, tables):
     """What an arm lacks; empty when it can run."""
     out = []
-    if arm in ("experts24", "experts24_attn", "whole"):
+    if arm in ("experts24", "experts24_tables", "experts24_attn", "whole"):
         for L in range(24):
             d = os.path.join(LAYERS, f"L{L:02d}")
             ok = os.path.exists(os.path.join(d, "VERIFIED")) and all(
@@ -107,7 +111,7 @@ def missing(arm, attn, tables):
             lack = [f"L{L}.{n}" for L in range(24) for n in model_full.ATTN_NATIVE if (L, n) not in idx]
             if lack:
                 out.append(f"{len(lack)} of 144 attention reconstructions (first: {lack[:4]})")
-    if arm in ("whole", "tables_only"):
+    if arm in ("whole", "tables_only", "experts24_tables"):
         for t in ("embed.q4g64.llvqraw", "unembed.q4g64.llvqraw"):
             if not os.path.exists(os.path.join(tables or "", t)):
                 out.append(f"table {t}")
