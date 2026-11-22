@@ -24,6 +24,7 @@ pub mod attn_metal;
 pub mod boundary;
 pub mod calib;
 pub mod chatfmt;
+pub mod inkchat;
 pub mod repl;
 pub mod session;
 pub mod corpus;
