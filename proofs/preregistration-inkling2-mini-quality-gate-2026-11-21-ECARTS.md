@@ -44,7 +44,8 @@ are encoded after it, during the day of 2026-11-22. Their reading on the 24 laye
   conversion, and the reconstructions of layers 6 to 17 stay in float32.
 - They are encoded in slices of 32 experts, where layers 6 to 17 ran at 10 threads in one piece. Experts 0 to 95 of
   layer 0 ran at 8 threads. The guard's sentinel then warned on the load (13.25 at 07:12, with two builds of lot 1
-  running), and everything after runs at 6 threads, on the Hessians already built. The encoder is resumable an
+  running), and layers 0 (from expert 96) to 3 ran at 6 threads, on the Hessians already built. From layer 4 on, at
+  11:42, the encode is back at 10 threads, the compiling agents having finished. The encoder is resumable an
   expert and the settings are the annex's. Whether its output is bit-identical across thread counts was not checked.
 
 The reconstructions of loop layers 6 to 17 stay in float32. A narrowing of layers 7 to 17 to float16 was queued on
