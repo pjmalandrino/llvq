@@ -70,6 +70,24 @@ WHERE THE EXPERTS' LOSS SITS
   most starved experts, 25.0 to 41.4 % of the cells, and layers 20 to 23 are the ones the checkpoint ships in MXFP8
   where the others are NVFP4.
 
+EXPERTS ONLY, THE FOUR RUNGS ON THE 24 LAYERS (*measured*, `evalkl.py`, the gate's harness, same 8 windows)
+  The experts of the 24 layers replaced by each code, every other tensor native. Bits are a weight of the experts.
+  Raw rows and the reading: `inkling2-mini-whole-model-2026-11-22-brut/ladder-0-23/`.
+  arm        bits     KL, 95 % interval          top-1     perplexity   lattice minus rung, by window
+  lattice    2.037    0.0834 [0.0737, 0.0919]   88.97 %   x1.0613
+  IQ1_S      2.135    0.1139 [0.1025, 0.1264]   86.63 %   x1.0908      -0.0306, lattice lower on 8 of 8
+  IQ1_M      2.226    0.1001 [0.0909, 0.1100]   87.79 %   x1.0821      -0.0168, lattice lower on 8 of 8
+  IQ2_XXS    2.372    0.0841 [0.0763, 0.0926]   88.43 %   x1.0649      -0.0007, lattice lower on 6 of 8
+  Q2_K_XL    2.580    0.0645 [0.0582, 0.0718]   89.85 %   x1.0433      +0.0188, lattice lower on 0 of 8
+  On the experts of the whole stack the lattice code at 2.037 bits reads what IQ2_XXS reads at 2.372: the same KL
+  for 14 % fewer bits. On the loop alone the gate placed it at 2.55 bits of the ladder; outside the loop the
+  advantage shrinks.
+  The gate's rule was written for the loop. Applied to the 24 layers, outside its perimeter, it reads FAIL on its
+  top-1 floor of 90 %: the lattice reads 88.97 %, and no rung reaches 90 % either. Its ladder condition holds: no
+  rung with as many bits or fewer does as well.
+  The chosen file loses that advantage as a file because it keeps attention in 16 bits, 1.29 GB of its 8.06, where
+  the rivals' files quantize it.
+
 WHAT A LAYER IN INT4 WOULD COST IN BYTES (*computed*)
   One layer of experts is 1,019.2 M weights: 0.260 GB in the lattice code at 2.037 b, 0.541 GB in int4 g128 at
   4.25 b, scale and bias of each group counted. A layer moved to int4 adds 0.282 GB.

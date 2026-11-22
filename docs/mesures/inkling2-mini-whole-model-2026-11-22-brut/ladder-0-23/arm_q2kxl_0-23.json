@@ -1,0 +1,116 @@
+{
+  "arm": "q2kxl_0-23",
+  "spec": "0-23=gguf:/Users/pjmalandrino/llvq-inkling-mini/gguf/Inkling-2-Mini-UD-Q2_K_XL.gguf",
+  "layers": {
+    "0": "gguf:/Users/pjmalandrino/llvq-inkling-mini/gguf/Inkling-2-Mini-UD-Q2_K_XL.gguf",
+    "1": "gguf:/Users/pjmalandrino/llvq-inkling-mini/gguf/Inkling-2-Mini-UD-Q2_K_XL.gguf",
+    "2": "gguf:/Users/pjmalandrino/llvq-inkling-mini/gguf/Inkling-2-Mini-UD-Q2_K_XL.gguf",
+    "3": "gguf:/Users/pjmalandrino/llvq-inkling-mini/gguf/Inkling-2-Mini-UD-Q2_K_XL.gguf",
+    "4": "gguf:/Users/pjmalandrino/llvq-inkling-mini/gguf/Inkling-2-Mini-UD-Q2_K_XL.gguf",
+    "5": "gguf:/Users/pjmalandrino/llvq-inkling-mini/gguf/Inkling-2-Mini-UD-Q2_K_XL.gguf",
+    "6": "gguf:/Users/pjmalandrino/llvq-inkling-mini/gguf/Inkling-2-Mini-UD-Q2_K_XL.gguf",
+    "7": "gguf:/Users/pjmalandrino/llvq-inkling-mini/gguf/Inkling-2-Mini-UD-Q2_K_XL.gguf",
+    "8": "gguf:/Users/pjmalandrino/llvq-inkling-mini/gguf/Inkling-2-Mini-UD-Q2_K_XL.gguf",
+    "9": "gguf:/Users/pjmalandrino/llvq-inkling-mini/gguf/Inkling-2-Mini-UD-Q2_K_XL.gguf",
+    "10": "gguf:/Users/pjmalandrino/llvq-inkling-mini/gguf/Inkling-2-Mini-UD-Q2_K_XL.gguf",
+    "11": "gguf:/Users/pjmalandrino/llvq-inkling-mini/gguf/Inkling-2-Mini-UD-Q2_K_XL.gguf",
+    "12": "gguf:/Users/pjmalandrino/llvq-inkling-mini/gguf/Inkling-2-Mini-UD-Q2_K_XL.gguf",
+    "13": "gguf:/Users/pjmalandrino/llvq-inkling-mini/gguf/Inkling-2-Mini-UD-Q2_K_XL.gguf",
+    "14": "gguf:/Users/pjmalandrino/llvq-inkling-mini/gguf/Inkling-2-Mini-UD-Q2_K_XL.gguf",
+    "15": "gguf:/Users/pjmalandrino/llvq-inkling-mini/gguf/Inkling-2-Mini-UD-Q2_K_XL.gguf",
+    "16": "gguf:/Users/pjmalandrino/llvq-inkling-mini/gguf/Inkling-2-Mini-UD-Q2_K_XL.gguf",
+    "17": "gguf:/Users/pjmalandrino/llvq-inkling-mini/gguf/Inkling-2-Mini-UD-Q2_K_XL.gguf",
+    "18": "gguf:/Users/pjmalandrino/llvq-inkling-mini/gguf/Inkling-2-Mini-UD-Q2_K_XL.gguf",
+    "19": "gguf:/Users/pjmalandrino/llvq-inkling-mini/gguf/Inkling-2-Mini-UD-Q2_K_XL.gguf",
+    "20": "gguf:/Users/pjmalandrino/llvq-inkling-mini/gguf/Inkling-2-Mini-UD-Q2_K_XL.gguf",
+    "21": "gguf:/Users/pjmalandrino/llvq-inkling-mini/gguf/Inkling-2-Mini-UD-Q2_K_XL.gguf",
+    "22": "gguf:/Users/pjmalandrino/llvq-inkling-mini/gguf/Inkling-2-Mini-UD-Q2_K_XL.gguf",
+    "23": "gguf:/Users/pjmalandrino/llvq-inkling-mini/gguf/Inkling-2-Mini-UD-Q2_K_XL.gguf"
+  },
+  "windows": 8,
+  "ctx": 2048,
+  "tokens_fingerprint": "f1acc067bf1b610c",
+  "positions_per_window": 2047,
+  "kl_mean": 0.0645406823605299,
+  "kl_ci95": [
+    0.05821861373260617,
+    0.07181659360649063
+  ],
+  "top1_agree": 0.8985100388526917,
+  "nll_teacher": 1.8240511566400528,
+  "nll_arm": 1.866411417722702,
+  "nll_diff_mean": 0.04236026108264923,
+  "nll_diff_ci95": [
+    0.0375937320291996,
+    0.046342089772224426
+  ],
+  "per_window": [
+    {
+      "window": 0,
+      "kl_mean": 0.05480872839689255,
+      "kl_max": 2.710279703140259,
+      "top1_agree": 0.9106009006500244,
+      "nll_teacher": 1.615234375,
+      "nll_arm": 1.6572397947311401
+    },
+    {
+      "window": 1,
+      "kl_mean": 0.06246403232216835,
+      "kl_max": 2.1256372928619385,
+      "top1_agree": 0.8851978778839111,
+      "nll_teacher": 2.0985589027404785,
+      "nll_arm": 2.146556854248047
+    },
+    {
+      "window": 2,
+      "kl_mean": 0.0538356751203537,
+      "kl_max": 2.2639098167419434,
+      "top1_agree": 0.8925256729125977,
+      "nll_teacher": 2.215076208114624,
+      "nll_arm": 2.2597861289978027
+    },
+    {
+      "window": 3,
+      "kl_mean": 0.08298979699611664,
+      "kl_max": 3.1883440017700195,
+      "top1_agree": 0.8754274845123291,
+      "nll_teacher": 2.0471668243408203,
+      "nll_arm": 2.0917673110961914
+    },
+    {
+      "window": 4,
+      "kl_mean": 0.0713404044508934,
+      "kl_max": 2.580968141555786,
+      "top1_agree": 0.8944797515869141,
+      "nll_teacher": 1.8723208904266357,
+      "nll_arm": 1.9219474792480469
+    },
+    {
+      "window": 5,
+      "kl_mean": 0.07417802512645721,
+      "kl_max": 3.177635908126831,
+      "top1_agree": 0.9022960662841797,
+      "nll_teacher": 1.7025995254516602,
+      "nll_arm": 1.747867465019226
+    },
+    {
+      "window": 6,
+      "kl_mean": 0.05684130638837814,
+      "kl_max": 1.9677271842956543,
+      "top1_agree": 0.9203712940216064,
+      "nll_teacher": 1.2642767429351807,
+      "nll_arm": 1.3006237745285034
+    },
+    {
+      "window": 7,
+      "kl_mean": 0.0598674900829792,
+      "kl_max": 1.1008129119873047,
+      "top1_agree": 0.9071812629699707,
+      "nll_teacher": 1.777175784111023,
+      "nll_arm": 1.8055025339126587
+    }
+  ],
+  "device": "mps",
+  "sec": 498.9656300544739,
+  "bootstrap": "10000 resamples of windows, seed 0, percentile"
+}
