@@ -285,6 +285,9 @@ pub enum AttnKind {
     #[default]
     Candle,
     Fused,
+    /// [`AttnKind::Fused`], and the scores of the row over the cache through
+    /// the one launch of [`attn_scores`] (class B too).
+    FusedScores,
 }
 
 impl AttnKind {
@@ -292,6 +295,7 @@ impl AttnKind {
         match self {
             AttnKind::Candle => "candle",
             AttnKind::Fused => "fused",
+            AttnKind::FusedScores => "fused+scores",
         }
     }
 }
@@ -302,7 +306,8 @@ impl std::str::FromStr for AttnKind {
         match s {
             "candle" => Ok(AttnKind::Candle),
             "fused" => Ok(AttnKind::Fused),
-            o => anyhow::bail!("attn {o}: candle or fused"),
+            "fused+scores" => Ok(AttnKind::FusedScores),
+            o => anyhow::bail!("attn {o}: candle, fused or fused+scores"),
         }
     }
 }
@@ -456,13 +461,19 @@ impl Inkling {
         match attn {
             AttnKind::Candle => Ok((0..n).map(|l| LayerWeights::load(ck, cfg, l, dev)).collect::<Result<Vec<_>>>()?),
             #[cfg(all(target_os = "macos", feature = "metal"))]
-            AttnKind::Fused => {
+            AttnKind::Fused | AttnKind::FusedScores => {
                 anyhow::ensure!(dev.is_metal(), "the fused attention runs on Metal only, the model is on {dev:?}");
                 let k = std::sync::Arc::new(attn_dense::AttnDense::new(dev)?);
-                Ok((0..n).map(|l| LayerWeights::load_dense(ck, cfg, l, dev, &k)).collect::<Result<Vec<_>>>()?)
+                let row = match attn {
+                    AttnKind::FusedScores => Some(std::sync::Arc::new(attn_scores::AttnRow::new(dev)?)),
+                    _ => None,
+                };
+                Ok((0..n).map(|l| LayerWeights::load_dense(ck, cfg, l, dev, &k, row.as_ref())).collect::<Result<Vec<_>>>()?)
             }
             #[cfg(not(all(target_os = "macos", feature = "metal")))]
-            AttnKind::Fused => anyhow::bail!("the fused attention needs a macOS build with the metal feature"),
+            AttnKind::Fused | AttnKind::FusedScores => {
+                anyhow::bail!("the fused attention needs a macOS build with the metal feature")
+            }
         }
     }
 

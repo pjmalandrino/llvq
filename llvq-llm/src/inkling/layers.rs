@@ -1016,8 +1016,29 @@ impl AttnWeights {
         let (kt, v) = cache.append_kv(&st.k, &st.v)?;
         let s = v.dim(1)?;
         mark(dev, Phase::CacheCopies)?;
-        let sinks = || Ok(st.sinks.clone());
-        let a = self.scores(cfg, &st.q, &kt, &v, &st.rel_logits, sinks, offset, s, 1, chunk)?;
+        let a = match &d.row {
+            // One launch over the cache in place (`super::attn_scores`): no
+            // repeat of the key-value heads, no mask built on the host.
+            Some(row) => {
+                let window = if self.sliding { Some(cfg.sliding_window_size) } else { None };
+                let keys = kt.transpose(1, 2)?;
+                let a = row.forward(&super::attn_scores::RowInputs {
+                    q: &st.q,
+                    rel: &st.rel_logits,
+                    sinks: &st.sinks,
+                    keys: &keys,
+                    values: &v,
+                    pos: offset,
+                    window,
+                })?;
+                mark(dev, Phase::AttnScores)?;
+                a
+            }
+            None => {
+                let sinks = || Ok(st.sinks.clone());
+                self.scores(cfg, &st.q, &kt, &v, &st.rel_logits, sinks, offset, s, 1, chunk)?
+            }
+        };
         let out = d.kernels.stage_out(&d.w, &a.contiguous()?, &st.gate)?;
         mark(dev, Phase::AttnProducts)?;
         Ok(out)
@@ -1113,7 +1134,8 @@ impl LayerWeights {
     /// [`Self::load`] with the attention through the kernels of
     /// `super::attn_dense` (`kernels`, compiled once for the model): the seven
     /// attention matrices are read from the file in BF16 straight into the
-    /// kernels' buffers, and no f32 copy of them is put on `dev`.
+    /// kernels' buffers, and no f32 copy of them is put on `dev`. With `row`,
+    /// the scores over the cache run through `super::attn_scores` too.
     #[cfg(all(target_os = "macos", feature = "metal"))]
     pub fn load_dense(
         ck: &NativeCheckpoint,
@@ -1121,6 +1143,7 @@ impl LayerWeights {
         l: usize,
         dev: &Device,
         kernels: &std::sync::Arc<super::attn_dense::AttnDense>,
+        row: Option<&std::sync::Arc<super::attn_scores::AttnRow>>,
     ) -> Result<Self> {
         let mut lw = Self::load_impl(ck, cfg, l, dev, true)?;
         let a = &mut lw.attn;
@@ -1129,7 +1152,9 @@ impl LayerWeights {
         for m in [&mut a.wq, &mut a.wr, &mut a.sink, &mut a.gate, &mut a.wk, &mut a.wv, &mut a.wo] {
             *m = empty.clone();
         }
-        a.dense = Some(super::attn_dense::FusedAttn::new(kernels.clone(), w, dev));
+        let mut fused = super::attn_dense::FusedAttn::new(kernels.clone(), w, dev);
+        fused.row = row.cloned();
+        a.dense = Some(fused);
         Ok(lw)
     }
 

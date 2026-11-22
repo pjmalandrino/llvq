@@ -742,12 +742,16 @@ impl KvRings {
 pub struct FusedAttn {
     pub kernels: Arc<AttnDense>,
     pub w: AttnDenseWeights,
+    /// The score kernel of `super::attn_scores`, when the loader chose it
+    /// (`AttnKind::FusedScores`): a one-row visit then reads the keys and
+    /// the values where the cache holds them, in one launch.
+    pub row: Option<Arc<super::attn_scores::AttnRow>>,
     dev: Device,
 }
 
 impl FusedAttn {
     pub fn new(kernels: Arc<AttnDense>, w: AttnDenseWeights, dev: &Device) -> Self {
-        Self { kernels, w, dev: dev.clone() }
+        Self { kernels, w, row: None, dev: dev.clone() }
     }
 
     /// The seven matrices widened to f32 for one several-row call (each

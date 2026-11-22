@@ -63,7 +63,9 @@
 //! one-row visit: candle's operations on f32 matrices (default), or the
 //! kernels of `inkling::attn_dense` on the matrices held once in BF16 (Metal
 //! only, class B); a prompt of several rows then widens one layer's matrices
-//! for its call. It composes with both values of `--glue`.
+//! for its call. It composes with both values of `--glue`. `fused+scores`
+//! also runs the scores of the row over the cache in one launch
+//! (`inkling::attn_scores`), reading the keys and values in place.
 //!
 //! `--routing-steps-out <file>` records the routing of every decode step
 //! (each step runs through `Inkling::forward` with its visits recorded):
@@ -140,7 +142,7 @@ fn usage() -> ! {
          [--resident verified|none] [--require-layers N] [--logits-out <file>] [--prompt-key <key>] \
          [--prompt-len N] [--phases K] [--attn-chunk N] [--peak-probe on] \
          [--rollback-gate on] [--prefill-rows 1|2|4|8] [--head bf16|int4 --head-table <file>] \
-         [--glue candle|fused] [--attn candle|fused] [--routing-steps-out <file>] [--score-from N | --score-prompt on] \
+         [--glue candle|fused] [--attn candle|fused|fused+scores] [--routing-steps-out <file>] [--score-from N | --score-prompt on] \
          [--nll-out <file>]"
     );
     std::process::exit(2)

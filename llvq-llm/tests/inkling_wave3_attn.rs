@@ -16,7 +16,10 @@
 //!     give the logits, bit for bit, of the same run without the detour;
 //!   - the model loaded with the fused attention holds no f32 copy of the
 //!     seven attention matrices;
-//!   - the fused attention is refused off Metal.
+//!   - the fused attention is refused off Metal;
+//!   - with the score kernel of `inkling::attn_scores` on top
+//!     (`AttnKind::FusedScores`), the steps still track the candle
+//!     attention's, from a cache of one position to one past the window.
 //!
 //! Tiny tests are not heavy jobs.
 #![cfg(all(target_os = "macos", feature = "metal"))]
@@ -270,6 +273,43 @@ fn fused_attn_tracks_candle_attn_metal() {
             let worst = g.iter().copied().fold(0f32, f32::max);
             assert!(worst < 1e-4, "glue {} prompt {}: a step is off by {worst:e}", glue.name(), p.len());
             assert!(g[1..].iter().any(|&x| x > 0.0), "glue {} prompt {}: no step differs: the kernels did not run", glue.name(), p.len());
+        }
+    }
+}
+
+/// The score kernel (`AttnKind::FusedScores`) tracks the candle attention,
+/// under both glues, on a one-token prompt (a cache of one position), a short
+/// prompt and one longer than the window and the relative extent: the row of
+/// a several-row prefill is bit for bit, every step within 1e-4 of the
+/// largest logit, and some step is not bit for bit the fused attention's
+/// without it (the score kernel ran).
+#[test]
+fn fused_scores_track_candle_attn_metal() {
+    let dev = metal();
+    let mut cand = tiny_model(&dev, AttnKind::Candle).unwrap();
+    let mut fused = tiny_model(&dev, AttnKind::Fused).unwrap();
+    let mut scores = tiny_model(&dev, AttnKind::FusedScores).unwrap();
+    assert_eq!(scores.attn(), AttnKind::FusedScores);
+    let mut ps = prompts();
+    ps.insert(0, ps[0][..1].to_vec());
+    for glue in [GlueKind::Candle, GlueKind::Fused] {
+        for m in [&mut cand, &mut fused, &mut scores] {
+            m.set_glue(glue).unwrap();
+        }
+        for p in &ps {
+            let (want, fed) = rows_fed(&cand, p, None);
+            let (mid, _) = rows_fed(&fused, p, Some(&fed));
+            let (got, _) = rows_fed(&scores, p, Some(&fed));
+            let g = gaps(&got, &want);
+            let same = got.iter().zip(&want).filter(|(a, b)| argmax(a) == argmax(b)).count();
+            println!("glue {} prompt {}: relative gaps {g:?}; argmax equal {same} of {}", glue.name(), p.len(), g.len());
+            if p.len() > 1 {
+                assert_eq!(g[0], 0.0, "glue {} prompt {}: the prefill row is not the candle attention's", glue.name(), p.len());
+            }
+            let worst = g.iter().copied().fold(0f32, f32::max);
+            assert!(worst < 1e-4, "glue {} prompt {}: a step is off by {worst:e}", glue.name(), p.len());
+            let ran = got.iter().zip(&mid).skip(1).any(|(a, b)| a != b);
+            assert!(ran, "glue {} prompt {}: every step is the fused attention's: the score kernel did not run", glue.name(), p.len());
         }
     }
 }
