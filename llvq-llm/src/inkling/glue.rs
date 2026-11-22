@@ -35,8 +35,10 @@
 //! device that the kernel reads and rewrites in place, oldest row replaced,
 //! so no step concatenates.
 //!
-//! Nothing here is wired into `LayerWeights::forward`. The inputs are plain
-//! tensors, so a change of the layer structs does not reach this file.
+//! `LayerWeights::forward_fused` (`layers.rs`) calls them for a one-row step
+//! when `Inkling::set_glue` chose them; a slot then holds its two rings in a
+//! [`FusedRings`]. The inputs are plain tensors, so a change of the layer
+//! structs does not reach this file.
 //!
 //! Same candle traps as `crate::fused_metal` (its header): the compile panics
 //! on a bad source, so it runs under `catch_unwind`; the ring buffers are
@@ -488,6 +490,74 @@ pub struct Top8 {
     pub margin: Tensor,
     /// The chosen experts ascending `[k]`, as f32 (exact below 2^24).
     pub ids: Tensor,
+    /// The whole output `[E + 2k + 1]`, `sel | weights | margin | ids`: what
+    /// one read back to the host takes.
+    pub raw: Tensor,
+}
+
+/// What [`Top8::read`] brings back to the host.
+pub struct TopRead {
+    pub sel: Vec<f32>,
+    pub weights: Vec<f32>,
+    pub margin: f32,
+    pub ids: Vec<u32>,
+}
+
+impl Top8 {
+    /// Read the output back once and split it: `sel`, the weights, the
+    /// margin and the expert ids, for `layers::Routing`.
+    pub fn read(&self, k: usize) -> Result<TopRead> {
+        let v = self.raw.to_vec1::<f32>()?;
+        if v.len() < 2 * k + 2 {
+            candle_core::bail!("top8 output of {} values for k = {k}", v.len());
+        }
+        let e = v.len() - 2 * k - 1;
+        let ids = v[e + k + 1..].iter().map(|&x| x as u32).collect();
+        Ok(TopRead { sel: v[..e].to_vec(), weights: v[e..e + k].to_vec(), margin: v[e + k], ids })
+    }
+}
+
+/// The two convolution rings of one layer visit (post-attention and
+/// post-MLP) while the fused glue steps it, with what reads them back.
+pub struct FusedRings {
+    pub attn: ConvRing,
+    pub mlp: ConvRing,
+    glue: std::sync::Arc<Glue>,
+    /// A one-element f32 tensor on the device: the carrier of the read-back launch.
+    like: Tensor,
+}
+
+impl std::fmt::Debug for FusedRings {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "FusedRings {{ attn: pos {}, mlp: pos {} }}", self.attn.pos, self.mlp.pos)
+    }
+}
+
+impl FusedRings {
+    /// Rings filled with the states `[k - 1, c]` oldest row first (`None`:
+    /// zeros, the state of an empty slot).
+    #[allow(clippy::too_many_arguments)]
+    pub fn new(
+        glue: std::sync::Arc<Glue>,
+        device: &Device,
+        c: usize,
+        k_attn: usize,
+        attn: Option<&Tensor>,
+        k_mlp: usize,
+        mlp: Option<&Tensor>,
+    ) -> Result<Self> {
+        Ok(Self {
+            attn: ConvRing::new(device, k_attn, c, attn)?,
+            mlp: ConvRing::new(device, k_mlp, c, mlp)?,
+            glue,
+            like: Tensor::zeros(1, DType::F32, device)?,
+        })
+    }
+
+    /// The two states `[k - 1, c]`, oldest row first, as new device tensors.
+    pub fn states(&self) -> Result<(Tensor, Tensor)> {
+        Ok((self.attn.state(&self.glue, &self.like)?, self.mlp.state(&self.glue, &self.like)?))
+    }
 }
 
 /// A convolution state as a ring of `K - 1` rows of `C` on the device.
@@ -772,6 +842,7 @@ impl Glue {
             weights: out.narrow(0, e, k)?,
             margin: out.narrow(0, e + k, 1)?,
             ids: out.narrow(0, e + k + 1, k)?,
+            raw: out,
         })
     }
 

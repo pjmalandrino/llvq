@@ -46,6 +46,31 @@
 //! and writes, per visit and prompt token, the experts chosen and the margin
 //! of the 8th over the 9th, as JSON.
 //!
+//! `--prefill-rows N` sets the prompt rows one launch of the resident
+//! lattice kernel takes (default 8, the f32 rows kernel; 1 for one matvec a
+//! row, the path before plan item P1). Metal only; each row is bit for bit
+//! the one-row matvec's either way.
+//!
+//! `--head int4 --head-table <unembed.q4g64.llvqraw>` runs the head through
+//! the int4 g64 table on Metal and never puts the BF16 output rows on the
+//! device (plan item D4). `--head bf16` is the default.
+//!
+//! `--glue candle|fused` chooses the small steps of a one-row visit: candle's
+//! operations (default) or the fused glue kernels (Metal only, class B). A
+//! prompt of several rows runs candle's either way.
+//!
+//! `--routing-steps-out <file>` records the routing of every decode step
+//! (each step runs through `Inkling::forward` with its visits recorded):
+//! per step and visit, the experts and the margin of the 8th over the 9th.
+//!
+//! `--score-from N` reads the `--prompt-key` array as a text to score and
+//! generates nothing: prefill of its first `N` tokens, then one-row steps fed
+//! the true tokens to its end; every position from `N - 1` on scores the next
+//! true token. `--score-prompt on` scores every position of one prefill of
+//! the whole array instead (all logits of the prompt path). Both write the
+//! negative log-likelihood of each scored position (f64, from the f32
+//! logits read back, log-sum-exp on the host) to `--nll-out` as JSON.
+//!
 //! `--logits-out` writes the f32 logits of the prefill's last position and
 //! of every step, as read back by the greedy choice: raw little-endian f32,
 //! one row of `vocab` values a position, prefill first, no header. The
@@ -92,6 +117,13 @@ struct Args {
     peak_probe: bool,
     rollback_gate: bool,
     routing_out: Option<PathBuf>,
+    prefill_rows: usize,
+    head_table: Option<PathBuf>,
+    glue: llvq_llm::inkling::GlueKind,
+    routing_steps_out: Option<PathBuf>,
+    score_from: Option<usize>,
+    score_prompt: bool,
+    nll_out: Option<PathBuf>,
 }
 
 fn usage() -> ! {
@@ -100,7 +132,9 @@ fn usage() -> ! {
          --tokens <tokens.json> --device cpu|metal|cuda --out <report.json> [--n 32] \
          [--resident verified|none] [--require-layers N] [--logits-out <file>] [--prompt-key <key>] \
          [--prompt-len N] [--phases K] [--attn-chunk N] [--peak-probe on] \
-         [--rollback-gate on]"
+         [--rollback-gate on] [--prefill-rows 1|2|4|8] [--head bf16|int4 --head-table <file>] \
+         [--glue candle|fused] [--routing-steps-out <file>] [--score-from N | --score-prompt on] \
+         [--nll-out <file>]"
     );
     std::process::exit(2)
 }
@@ -147,7 +181,40 @@ fn parse() -> Result<Args> {
             Some("on") => true,
             Some(o) => bail!("--rollback-gate {o}: on or off"),
         },
+        prefill_rows: take("prefill-rows")
+            .map(|v| v.parse())
+            .transpose()
+            .context("--prefill-rows")?
+            .unwrap_or(llvq_llm::inkling::DEFAULT_PREFILL_ROWS),
+        head_table: {
+            let table = take("head-table").map(PathBuf::from);
+            match (take("head").as_deref(), table) {
+                (None | Some("bf16"), None) => None,
+                (Some("int4"), Some(t)) => Some(t),
+                (Some("int4"), None) => bail!("--head int4 needs --head-table <unembed.q4g64.llvqraw>"),
+                (None | Some("bf16"), Some(_)) => bail!("--head-table without --head int4"),
+                (Some(o), _) => bail!("--head {o}: bf16 or int4"),
+            }
+        },
+        glue: take("glue").as_deref().unwrap_or("candle").parse()?,
+        routing_steps_out: take("routing-steps-out").map(PathBuf::from),
+        score_from: take("score-from").map(|v| v.parse()).transpose().context("--score-from")?,
+        score_prompt: match take("score-prompt").as_deref() {
+            None | Some("off") => false,
+            Some("on") => true,
+            Some(o) => bail!("--score-prompt {o}: on or off"),
+        },
+        nll_out: take("nll-out").map(PathBuf::from),
     };
+    if args.score_from.is_some() && args.score_prompt {
+        bail!("--score-from and --score-prompt are two modes; name one");
+    }
+    if (args.score_from.is_some() || args.score_prompt) != args.nll_out.is_some() {
+        bail!("--nll-out goes with --score-from or --score-prompt");
+    }
+    if args.score_from == Some(0) {
+        bail!("--score-from 0: the prefill needs at least one token");
+    }
     if let Some(k) = a.keys().next() {
         bail!("unknown option --{k}");
     }
@@ -270,7 +337,7 @@ fn make_resident(model: &mut Inkling, args: &Args, dev: &Device) -> Result<Vec<V
     match dev {
         #[cfg(all(target_os = "macos", feature = "metal"))]
         Device::Metal(_) => {
-            let rt = llvq_llm::inkling::resident::served_runtime(dev)?;
+            let rt = llvq_llm::inkling::resident_runtime(dev, args.prefill_rows)?;
             for (l, s) in model.make_resident(&args.layers, rt)? {
                 rows.push(json!({"layer": l, "experts": s.experts, "weights": s.weights, "file_bytes": s.file_bytes,
                     "uploaded_bytes": s.uploaded_bytes(), "word_bytes": s.word_bytes, "side_bytes": s.side_bytes,
@@ -315,7 +382,8 @@ fn main() -> Result<()> {
     let dev = device(&args.device)?;
     let mem_before = memory(&dev);
     let t = Instant::now();
-    let mut model = Inkling::load(&args.config, &args.checkpoint, &dev)?;
+    let opts = llvq_llm::inkling::LoadOptions { int4_head: args.head_table.clone() };
+    let mut model = Inkling::load_with(&args.config, &args.checkpoint, &dev, &opts)?;
     dev.synchronize()?;
     let seconds_dense = t.elapsed().as_secs_f64();
     let mem_dense = memory(&dev);
@@ -341,6 +409,14 @@ fn main() -> Result<()> {
     model.take_launches();
     if let Some(n) = args.attn_chunk {
         model.set_attn_chunk(n);
+    }
+    model.set_glue(args.glue)?;
+    let provenance = json!({"prefill_rows": args.prefill_rows, "glue": model.glue().name(),
+        "head": if args.head_table.is_some() { "int4" } else { "bf16" }, "head_table": args.head_table,
+        "bf16_head_on_device": model.has_bf16_head()});
+    if args.score_from.is_some() || args.score_prompt {
+        return score(&model, &args, &dev, &prompt, provenance,
+            json!({"before_load": mem_before, "after_dense": mem_dense, "after_resident": mem_resident}));
     }
     let peak = std::sync::Arc::new(std::sync::atomic::AtomicU64::new(0));
     if args.peak_probe {
@@ -400,6 +476,7 @@ fn main() -> Result<()> {
     let mut step_seconds = vec![];
     let mut step_launches = vec![];
     let mut phase_rows: Vec<Value> = vec![];
+    let mut step_routing: Vec<Value> = vec![];
     for i in 0..args.n {
         tokens.push(next);
         margins.push(margin);
@@ -411,7 +488,20 @@ fn main() -> Result<()> {
             phases::start(&dev)?;
         }
         let t = Instant::now();
-        let logits = CausalLm::step(&model, next, prompt.len() + i, &mut cache)?;
+        let logits = match &args.routing_steps_out {
+            None => CausalLm::step(&model, next, prompt.len() + i, &mut cache)?,
+            Some(_) => {
+                let out = model.forward(&[next], &mut cache, true, false)?;
+                step_routing.push(Value::Array(
+                    out.visits
+                        .iter()
+                        .map(|v| json!({"layer": v.layer, "pass": v.pass, "experts": v.routing.indices[0],
+                                        "margin": v.routing.margin[0]}))
+                        .collect(),
+                ));
+                out.logits.reshape((1, 1, CausalLm::vocab_size(&model)))?
+            }
+        };
         (next, margin) = top2(&logits, logit_rows.as_mut())?;
         if profiled {
             phases::mark(&dev, phases::Phase::Readback)?;
@@ -425,6 +515,9 @@ fn main() -> Result<()> {
         step_launches.push(model.take_launches());
     }
     let mem_end = memory(&dev);
+    if let Some(p) = &args.routing_steps_out {
+        std::fs::write(p, serde_json::to_string(&step_routing)?).with_context(|| format!("write {}", p.display()))?;
+    }
     let vocab = CausalLm::vocab_size(&model);
     let logits_file = match (&args.logits_out, &logit_rows) {
         (Some(p), Some(buf)) => {
@@ -502,6 +595,7 @@ fn main() -> Result<()> {
             Value::Null
         },
         "logits_file": logits_file,
+        "provenance": provenance,
     });
     let text = serde_json::to_string_pretty(&report)?;
     std::fs::write(&args.out, &text).with_context(|| format!("write {}", args.out.display()))?;
@@ -513,5 +607,81 @@ fn main() -> Result<()> {
         first_mismatch,
         args.out.display()
     );
+    Ok(())
+}
+
+/// `-log softmax(row)[target]` in f64, from an f32 row.
+fn nll(row: &[f32], target: u32) -> Result<f64> {
+    let t = target as usize;
+    if t >= row.len() {
+        bail!("token {target} outside a vocabulary of {}", row.len());
+    }
+    let m = row.iter().copied().fold(f32::NEG_INFINITY, f32::max) as f64;
+    let z: f64 = row.iter().map(|&x| (x as f64 - m).exp()).sum();
+    Ok(m + z.ln() - row[t] as f64)
+}
+
+/// The scoring modes: per-position negative log-likelihood of the true next
+/// token, by one-row steps (`--score-from`) or by one prefill (`--score-prompt`).
+fn score(model: &Inkling, args: &Args, dev: &Device, text: &[u32], provenance: Value, memory_load: Value) -> Result<()> {
+    if text.len() < 2 {
+        bail!("scoring needs at least 2 tokens");
+    }
+    let vocab = CausalLm::vocab_size(model);
+    let mut cache = model.new_cache();
+    let mut nlls: Vec<f64> = vec![];
+    let mut positions: Vec<usize> = vec![];
+    dev.synchronize()?;
+    let t = Instant::now();
+    let (mode, seconds_prefill, steps) = if args.score_prompt {
+        let out = model.forward(text, &mut cache, false, true)?;
+        let rows = out.logits.to_dtype(candle_core::DType::F32)?.to_vec2::<f32>()?;
+        if rows.len() != text.len() || rows[0].len() != vocab {
+            bail!("{} logits rows of {} for {} tokens", rows.len(), rows[0].len(), text.len());
+        }
+        for (p, row) in rows.iter().enumerate().take(text.len() - 1) {
+            nlls.push(nll(row, text[p + 1])?);
+            positions.push(p);
+        }
+        ("prompt", t.elapsed().as_secs_f64(), 0)
+    } else {
+        let n0 = args.score_from.expect("checked in parse");
+        if n0 >= text.len() {
+            bail!("--score-from {n0}: the text holds {} tokens", text.len());
+        }
+        let logits = CausalLm::prefill(model, &text[..n0], &mut cache)?;
+        let mut row = logits.flatten_all()?.to_vec1::<f32>()?;
+        let seconds_prefill = t.elapsed().as_secs_f64();
+        let mut p = n0 - 1;
+        let mut steps = 0;
+        loop {
+            nlls.push(nll(&row, text[p + 1])?);
+            positions.push(p);
+            p += 1;
+            if p + 1 >= text.len() {
+                break;
+            }
+            let logits = CausalLm::step(model, text[p], p, &mut cache)?;
+            row = logits.flatten_all()?.to_vec1::<f32>()?;
+            steps += 1;
+        }
+        ("steps", seconds_prefill, steps)
+    };
+    let seconds = t.elapsed().as_secs_f64();
+    let mean = nlls.iter().sum::<f64>() / nlls.len() as f64;
+    if let Some(p) = &args.nll_out {
+        std::fs::write(p, serde_json::to_string(&json!({"positions": positions, "nll": nlls}))?)
+            .with_context(|| format!("write {}", p.display()))?;
+    }
+    let report = json!({
+        "bin": "inkrun", "mode": format!("score-{mode}"), "device": args.device, "tokens_file": args.tokens,
+        "prompt_key": args.prompt_key, "text_tokens": text.len(), "score_from": args.score_from,
+        "scored": nlls.len(), "mean_nll": mean, "ppl": mean.exp(), "seconds": seconds,
+        "seconds_prefill": seconds_prefill, "steps": steps, "attn_chunk": model.attn_chunk(),
+        "nll_file": args.nll_out, "provenance": provenance,
+        "memory": {"load": memory_load, "end": memory(dev)},
+    });
+    std::fs::write(&args.out, serde_json::to_string_pretty(&report)?).with_context(|| format!("write {}", args.out.display()))?;
+    eprintln!("inkrun: scored {} positions ({mode}), ppl {:.4}, {seconds:.1} s, report {}", nlls.len(), mean.exp(), args.out.display());
     Ok(())
 }
