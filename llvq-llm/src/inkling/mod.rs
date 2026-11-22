@@ -21,6 +21,7 @@
 
 pub mod config;
 pub mod expert_codes;
+pub mod glue;
 pub mod head;
 pub mod layers;
 pub mod loader;
