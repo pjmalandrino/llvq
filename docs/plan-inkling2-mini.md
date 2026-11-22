@@ -238,6 +238,15 @@ the time. What a publication needs, each with its fundamental criterion:
 | serving | `llvq pull`, `run`, `serve`; the OpenAI route with tool calls; a real coding-agent session | tool calls served on Qwen3; Inkling's template in work; engine not yet generic |
 | the card and the licence | every figure labelled, the rivals' figures beside ours, Apache 2.0 and the upstream acceptable-use policy passed on | the policy page is not read yet |
 
+The bar for the whole quantized model, read on 2026-11-22 in our own harness (WikiText-2 test, 8 windows of 2,048
+tokens, every tensor of the rival file transplanted into the reference forward, *measured*): unsloth
+`UD-Q2_K_XL`, 9.139 GB and 2.801 b/param, reads KL 0.0651 [0.0584, 0.0728], top-1 89.99 %, perplexity x 1.047;
+`UD-IQ2_XXS`, 8.486 GB and 2.600 b/param, reads 0.0837 [0.0758, 0.0930], 88.58 %, x 1.066. Our file aims at
+7.05 GB and 2.163 b/param (*computed*). First costs outside the experts, each alone on one window: the embedding
+table in int4 g64 0.0028, the output table 0.0030, two int4 attention matrices of layer 0 0.0021. Attention is
+2.4 % of the weights and every token crosses all of it, so its type rule is decided on the three arms of the
+whole model (experts; plus attention; plus tables), not on §1's default.
+
 Order of the week: the file and the whole-model KL first; then the first run on a card (resident GB, tokens, first
 tok/s) and GSM8K on the same card; then the grouped launch for speed, and the row scales if GSM8K leaves a gap worth
 their $17 to $35; then the runtime on Inkling with tools and a real coding-agent session; the card of the model
