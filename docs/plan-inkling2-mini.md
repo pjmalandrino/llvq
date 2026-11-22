@@ -206,6 +206,19 @@ opencode's side, read on its documentation on 2026-11-22: a custom provider is d
 `capabilities.tools` and `limit.context`; for a model it does not know it assumes JSON tool support and a 200,000
 token context, so the entry must state the real limits.
 
+A first real session ran on 2026-11-22: opencode 1.18.20 against `llvq serve` on the sealed Qwen3 4B on Metal,
+inside a sandbox (no write outside a scratch folder, no network but the local machine). The client took our
+stream: six tool-call round trips were parsed, executed and answered (*measured*). Its first request carried
+9,116 prompt tokens and took 178 s to answer on the shared Mac; each later step added about 2,170 tokens and
+took 52 to 63 s, the history being read again only from what changed. The session did not complete its task:
+the 4B asked six times for `/src/main.rs`, a path outside the repository that the client refused, until the
+520 s cap. That is the model, not the route. Two facts for this plan follow. A coding agent's first prompt is
+about 9,000 tokens, so the time to read a long prompt decides whether the served model is usable: at the 10
+tok/s of today's row-by-row prefill of Inkling it would be 15 minutes (*computed*), which makes the grouped
+launch a condition of J7 and not only of speed. And this client's version takes the configuration shape
+`provider` / `npm: @ai-sdk/openai-compatible` / `options.baseURL`, not the `providers` / `package` shape its
+online documentation shows.
+
 Gate J7: a scripted client drives a tool-call round trip (call emitted, result returned, answer) on the served
 model, streamed and not, then opencode itself edits a file in a scratch repository through the endpoint. Order:
 after the model generates in our engine. The tool-call layer is model-independent and can be proven first on the
