@@ -20,6 +20,8 @@ Arms (D = ~/llvq-inkling-mini):
   experts24        experts of all 24 layers from D/layers (dir:, `.f32` or `.f16`), everything else native
   experts24_attn   + the six attention matrices of every layer from `--attn` (B's inkwh reconstructions)
   whole            + `embed` and `unembed` from `--tables` (B's int4 g64 tables): the whole quantized text model
+  attn_only        the attention matrices alone, experts and tables native: what the attention's type rule costs
+  tables_only      the two tables alone
   rival_iq2xxs     the UD-IQ2_XXS file whole: experts through ggufx, every other tensor through ggufmap
   rival_q2kxl      the UD-Q2_K_XL file whole
 A rival arm transplants the file's weights into the reference forward pass (transformers 046bdb8cc2, float32). It
@@ -48,7 +50,7 @@ LAYERS = os.path.join(DATA, "layers")
 ARMS_DIR = os.path.join(DATA, "evalfull", "arms")
 GGUF = {"rival_iq2xxs": os.path.join(DATA, "gguf", "Inkling-2-Mini-UD-IQ2_XXS.gguf"),
         "rival_q2kxl": os.path.join(DATA, "gguf", "Inkling-2-Mini-UD-Q2_K_XL.gguf")}
-ARMS = ("experts24", "experts24_attn", "whole", "rival_iq2xxs", "rival_q2kxl")
+ARMS = ("experts24", "experts24_attn", "whole", "attn_only", "tables_only", "rival_iq2xxs", "rival_q2kxl")
 
 
 def spec_of(arm, attn, tables):
@@ -62,6 +64,10 @@ def spec_of(arm, attn, tables):
         return f"{e};{a}"
     if arm == "whole":
         return f"{e};{a};{t}"
+    if arm == "attn_only":
+        return a
+    if arm == "tables_only":
+        return t
     if arm in GGUF:
         return f"experts:all=gguf:{GGUF[arm]};nonexperts=gguf:{GGUF[arm]}"
     raise KeyError(arm)
@@ -78,7 +84,7 @@ def missing(arm, attn, tables):
                 for s in ("w13_hat", "w2_hat"))
             if not ok:
                 out.append(f"experts L{L:02d}")
-    if arm in ("experts24_attn", "whole"):
+    if arm in ("experts24_attn", "whole", "attn_only"):
         import model_full
 
         if not attn or not os.path.isdir(attn):
@@ -88,7 +94,7 @@ def missing(arm, attn, tables):
             lack = [f"L{L}.{n}" for L in range(24) for n in model_full.ATTN_NATIVE if (L, n) not in idx]
             if lack:
                 out.append(f"{len(lack)} of 144 attention reconstructions (first: {lack[:4]})")
-    if arm == "whole":
+    if arm in ("whole", "tables_only"):
         for t in ("embed.q4g64.llvqraw", "unembed.q4g64.llvqraw"):
             if not os.path.exists(os.path.join(tables or "", t)):
                 out.append(f"table {t}")
