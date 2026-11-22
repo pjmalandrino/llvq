@@ -352,6 +352,24 @@ pub struct AttnWeights {
     pub wr: Tensor,
     pub rel_scale: Tensor,
     pub rel_proj: Tensor,
+    /// The attention through the kernels of `super::attn_dense`, when the
+    /// loader chose them ([`LayerWeights::load_with`]): a one-row forward runs
+    /// them, and the seven matrices above are then empty, held once in BF16
+    /// in these buffers and widened for a several-row call.
+    #[cfg(all(target_os = "macos", feature = "metal"))]
+    pub dense: Option<super::attn_dense::FusedAttn>,
+}
+
+/// The seven f32 matrices of one attention block, owned: what a several-row
+/// call reads when the loader kept them in BF16 only.
+pub struct AttnMats {
+    pub wq: Tensor,
+    pub wr: Tensor,
+    pub sink: Tensor,
+    pub gate: Tensor,
+    pub wk: Tensor,
+    pub wv: Tensor,
+    pub wo: Tensor,
 }
 
 /// Every expert of a layer as f32 matrices: `(gate_up [2I, H], down [H, I])`.
@@ -577,23 +595,31 @@ pub struct SlotCache {
     /// first ([`Self::settle_rings`]); a clone and a mark read them back.
     #[cfg(all(target_os = "macos", feature = "metal"))]
     fused: Option<super::glue::FusedRings>,
+    /// While the attention kernels step this slot, the key and value states
+    /// live in these device rings and `conv_k` / `conv_v` are stale. A
+    /// several-row attention settles them first ([`Self::settle_attn`]); a
+    /// clone and a mark read them back; a rollback drops them.
+    #[cfg(all(target_os = "macos", feature = "metal"))]
+    attn: Option<super::attn_dense::AttnSlot>,
 }
 
 impl Clone for SlotCache {
     fn clone(&self) -> Self {
         let deep = |b: &Option<Tensor>| b.as_ref().map(|t| t.copy().expect("copy of a cache buffer"));
-        let [_, _, conv_attn, conv_mlp] = self.conv_states().expect("read back of the convolution rings");
+        let [conv_k, conv_v, conv_attn, conv_mlp] = self.conv_states().expect("read back of the convolution rings");
         Self {
             k_buf: deep(&self.k_buf),
             v_buf: deep(&self.v_buf),
             len: self.len,
             min_capacity: self.min_capacity,
-            conv_k: self.conv_k.clone(),
-            conv_v: self.conv_v.clone(),
+            conv_k,
+            conv_v,
             conv_attn,
             conv_mlp,
             #[cfg(all(target_os = "macos", feature = "metal"))]
             fused: None,
+            #[cfg(all(target_os = "macos", feature = "metal"))]
+            attn: None,
         }
     }
 }
@@ -633,11 +659,41 @@ impl SlotCache {
     /// the last two read back from the rings when the fused glue holds them.
     fn conv_states(&self) -> Result<[ConvState; 4]> {
         #[cfg(all(target_os = "macos", feature = "metal"))]
+        let (conv_k, conv_v) = match &self.attn {
+            Some(a) => {
+                let (k, v) = a.states()?;
+                (ConvState::Block(k), ConvState::Block(v))
+            }
+            None => (self.conv_k.clone(), self.conv_v.clone()),
+        };
+        #[cfg(not(all(target_os = "macos", feature = "metal")))]
+        let (conv_k, conv_v) = (self.conv_k.clone(), self.conv_v.clone());
+        #[cfg(all(target_os = "macos", feature = "metal"))]
         if let Some(r) = &self.fused {
             let (a, m) = r.states()?;
-            return Ok([self.conv_k.clone(), self.conv_v.clone(), ConvState::Block(a), ConvState::Block(m)]);
+            return Ok([conv_k, conv_v, ConvState::Block(a), ConvState::Block(m)]);
         }
-        Ok([self.conv_k.clone(), self.conv_v.clone(), self.conv_attn.clone(), self.conv_mlp.clone()])
+        Ok([conv_k, conv_v, self.conv_attn.clone(), self.conv_mlp.clone()])
+    }
+
+    /// Bring the key and value states back from the attention kernels'
+    /// rings, if they hold them; the rings are dropped. Nothing changes otherwise.
+    pub fn settle_attn(&mut self) -> Result<()> {
+        #[cfg(all(target_os = "macos", feature = "metal"))]
+        if let Some(a) = self.attn.take() {
+            let (k, v) = a.states()?;
+            self.conv_k = ConvState::Block(k);
+            self.conv_v = ConvState::Block(v);
+        }
+        Ok(())
+    }
+
+    /// Whether the attention kernels' rings hold the key and value states.
+    pub fn has_attn_rings(&self) -> bool {
+        #[cfg(all(target_os = "macos", feature = "metal"))]
+        return self.attn.is_some();
+        #[cfg(not(all(target_os = "macos", feature = "metal")))]
+        false
     }
 
     /// Bring the post-attention and post-MLP states back from the fused
@@ -673,6 +729,7 @@ impl SlotCache {
         {
             // the next fused step refills its rings from the states restored below
             self.fused = None;
+            self.attn = None;
         }
         self.len = m.len;
         let [k, v, attn, mlp] = m.conv.clone();
@@ -793,6 +850,45 @@ impl AttnWeights {
         cache: &mut SlotCache,
         chunk: usize,
     ) -> Result<Tensor> {
+        #[cfg(all(target_os = "macos", feature = "metal"))]
+        if let Some(d) = &self.dense {
+            if xq.dim(0)? == 1 {
+                return self.forward_dense(cfg, d, xq, xk, xv, cache, chunk);
+            }
+            // Several rows: the key and value states come back from the
+            // rings, and the matrices are widened for this call only.
+            cache.settle_attn()?;
+            let m = d.widen()?;
+            return self.forward_mats(cfg, &m.refs(), xq, xk, xv, cache, chunk);
+        }
+        self.forward_mats(cfg, &self.refs(), xq, xk, xv, cache, chunk)
+    }
+
+    /// The seven matrices this block holds in f32.
+    fn refs(&self) -> MatRefs<'_> {
+        MatRefs {
+            wq: &self.wq,
+            wr: &self.wr,
+            sink: &self.sink,
+            gate: &self.gate,
+            wk: &self.wk,
+            wv: &self.wv,
+            wo: &self.wo,
+        }
+    }
+
+    /// [`Self::forward_chunked`] through candle on the f32 matrices `m`.
+    #[allow(clippy::too_many_arguments)]
+    fn forward_mats(
+        &self,
+        cfg: &InklingConfig,
+        m: &MatRefs,
+        xq: &Tensor,
+        xk: &Tensor,
+        xv: &Tensor,
+        cache: &mut SlotCache,
+        chunk: usize,
+    ) -> Result<Tensor> {
         let t = xq.dim(0)?;
         let dev = xq.device();
         let offset = cache.len();
@@ -801,7 +897,7 @@ impl AttnWeights {
         let tau = if self.sliding { None } else { Some(log_scale(cfg, &positions, dev)?) };
 
         // Query: linear, learned scale, L2 clip, and the log scale in full layers (lines 458-475, 190-236).
-        let q = linear(xq, &self.wq)?.reshape((t, nh, hd))?.broadcast_mul(&self.q_scale)?;
+        let q = linear(xq, m.wq)?.reshape((t, nh, hd))?.broadcast_mul(&self.q_scale)?;
         let mut q = l2_clip(&q, cfg.qk_l2_clip_threshold)?;
         if let Some(tau) = &tau {
             q = q.broadcast_mul(tau)?;
@@ -810,9 +906,9 @@ impl AttnWeights {
         mark(dev, Phase::AttnProducts)?;
 
         // Key: linear, convolution, L2 clip without scale. Value: linear, convolution, unweighted RMS norm (lines 515-528).
-        let k = self.kv(xk, &self.wk, &self.k_conv, &mut cache.conv_k)?.reshape((t, nkv, hd))?;
+        let k = self.kv(xk, m.wk, &self.k_conv, &mut cache.conv_k)?.reshape((t, nkv, hd))?;
         let k = l2_clip(&k, cfg.qk_l2_clip_threshold)?.transpose(0, 1)?.contiguous()?;
-        let v = self.kv(xv, &self.wv, &self.v_conv, &mut cache.conv_v)?.reshape((t, nkv, hd))?;
+        let v = self.kv(xv, m.wv, &self.v_conv, &mut cache.conv_v)?.reshape((t, nkv, hd))?;
         let v = rms_unweighted(&v, cfg.rms_norm_eps)?.transpose(0, 1)?.contiguous()?;
         mark(dev, Phase::AttnProducts)?;
         // line 612: the cache returns every key and value it holds (keys as `[nkv, hd, S]`)
@@ -821,23 +917,51 @@ impl AttnWeights {
         mark(dev, Phase::CacheCopies)?;
 
         // Relative bias (lines 260-270): per-head states, scale, L2 clip at the rel threshold, log scale in full layers.
-        let r = linear(xq, &self.wr)?.reshape((t, nh, cfg.d_rel))?.broadcast_mul(&self.rel_scale)?;
+        let r = linear(xq, m.wr)?.reshape((t, nh, cfg.d_rel))?.broadcast_mul(&self.rel_scale)?;
         let mut r = l2_clip(&r, cfg.rel_l2_clip_threshold)?;
         if let Some(tau) = &tau {
             r = r.broadcast_mul(tau)?;
         }
         let rel_logits = r.transpose(0, 1)?.contiguous()?.broadcast_matmul(&self.rel_proj)?; // [nh, T, extent]
         mark(dev, Phase::AttnProducts)?;
-        let window = if self.sliding { Some(cfg.sliding_window_size) } else { None };
 
-        // Scores, the per-token sink logit with zero value (lines 126-139), softmax in f32.
+        let sinks = || linear(xq, m.sink)?.t()?.unsqueeze(2); // [nh, T, 1], line 619
+        let a = self.scores(cfg, &q, &kt, &v, &rel_logits, sinks, offset, s, t, chunk)?;
+
+        // Gated output (lines 540-543).
+        let gate = candle_nn::ops::sigmoid(&linear(xq, m.gate)?)?;
+        let out = linear(&a.mul(&gate)?, m.wo)?;
+        mark(dev, Phase::AttnProducts)?;
+        Ok(out)
+    }
+
+    /// Scores over every position the slot holds, the per-token sink logit
+    /// with zero value (lines 126-139), softmax in f32, and the value
+    /// product, `chunk` query rows at a time: `[T, heads * head_dim]`.
+    #[allow(clippy::too_many_arguments)]
+    fn scores(
+        &self,
+        cfg: &InklingConfig,
+        q: &Tensor,
+        kt: &Tensor,
+        v: &Tensor,
+        rel_logits: &Tensor,
+        sinks: impl FnOnce() -> Result<Tensor>,
+        offset: usize,
+        s: usize,
+        t: usize,
+        chunk: usize,
+    ) -> Result<Tensor> {
+        let dev = q.device();
+        let (nh, nkv, hd) = (self.heads, self.kv_heads, self.head_dim);
+        let window = if self.sliding { Some(cfg.sliding_window_size) } else { None };
         let rep = nh / nkv;
         // The repeat copies the views into contiguous `[nh, hd, S]` and `[nh, S, hd]`: the
         // matrices the score and value products read before, with no transpose copy.
-        let kt = repeat_kv(&kt, rep)?.contiguous()?;
-        let v = repeat_kv(&v, rep)?.contiguous()?;
+        let kt = repeat_kv(kt, rep)?.contiguous()?;
+        let v = repeat_kv(v, rep)?.contiguous()?;
         mark(dev, Phase::CacheCopies)?;
-        let sinks = linear(xq, &self.sink)?.t()?.unsqueeze(2)?; // [nh, T, 1], line 619
+        let sinks = sinks()?;
         let rows = if chunk == 0 { t } else { chunk.min(t) };
         let mut parts = Vec::with_capacity(t.div_ceil(rows));
         let mut r0 = 0;
@@ -857,12 +981,63 @@ impl AttnWeights {
         }
         let a = if parts.len() == 1 { parts.pop().expect("one part") } else { Tensor::cat(&parts, 0)? };
         mark(dev, Phase::AttnScores)?;
+        Ok(a)
+    }
 
-        // Gated output (lines 540-543).
-        let gate = candle_nn::ops::sigmoid(&linear(xq, &self.gate)?)?;
-        let out = linear(&a.mul(&gate)?, &self.wo)?;
+    /// One row through the attention kernels (`super::attn_dense`): `stage_in`
+    /// in place of the products and their small steps, the cache append and
+    /// the score statements as [`Self::forward_mats`] runs them, `stage_out`
+    /// for the gated output. The key and value states move into the slot's
+    /// rings, filled from what it held (a prompt's block, a candle step's
+    /// ring, or zeros). Class B against the candle attention.
+    #[cfg(all(target_os = "macos", feature = "metal"))]
+    #[allow(clippy::too_many_arguments)]
+    fn forward_dense(
+        &self,
+        cfg: &InklingConfig,
+        d: &super::attn_dense::FusedAttn,
+        xq: &Tensor,
+        xk: &Tensor,
+        xv: &Tensor,
+        cache: &mut SlotCache,
+        chunk: usize,
+    ) -> Result<Tensor> {
+        let dev = xq.device();
+        let offset = cache.len();
+        if cache.attn.is_none() {
+            let k = cache.conv_k.block(d.w.taps)?;
+            let v = cache.conv_v.block(d.w.taps)?;
+            cache.attn = Some(super::attn_dense::AttnSlot::new(d, k.as_ref(), v.as_ref())?);
+        }
+        let (xq, xk, xv) = (xq.contiguous()?, xk.contiguous()?, xv.contiguous()?);
+        let rings = &mut cache.attn.as_mut().expect("filled above").rings;
+        let st = d.kernels.stage_in(&d.w, &xq, &xk, &xv, offset, rings)?;
+        mark(dev, Phase::AttnProducts)?;
+        let (kt, v) = cache.append_kv(&st.k, &st.v)?;
+        let s = v.dim(1)?;
+        mark(dev, Phase::CacheCopies)?;
+        let sinks = || Ok(st.sinks.clone());
+        let a = self.scores(cfg, &st.q, &kt, &v, &st.rel_logits, sinks, offset, s, 1, chunk)?;
+        let out = d.kernels.stage_out(&d.w, &a.contiguous()?, &st.gate)?;
         mark(dev, Phase::AttnProducts)?;
         Ok(out)
+    }
+}
+
+/// The seven f32 matrices a candle attention call reads, borrowed.
+struct MatRefs<'a> {
+    wq: &'a Tensor,
+    wr: &'a Tensor,
+    sink: &'a Tensor,
+    gate: &'a Tensor,
+    wk: &'a Tensor,
+    wv: &'a Tensor,
+    wo: &'a Tensor,
+}
+
+impl AttnMats {
+    fn refs(&self) -> MatRefs<'_> {
+        MatRefs { wq: &self.wq, wr: &self.wr, sink: &self.sink, gate: &self.gate, wk: &self.wk, wv: &self.wv, wo: &self.wo }
     }
 }
 
@@ -932,11 +1107,41 @@ impl LayerWeights {
     /// Load layer `l` from the native file, names per `conversion_mapping.py`
     /// lines 353-416 (`inkling2_text`) and 2679-2706 (`inkling2_loop_text`).
     pub fn load(ck: &NativeCheckpoint, cfg: &InklingConfig, l: usize, dev: &Device) -> Result<Self> {
+        Self::load_impl(ck, cfg, l, dev, false)
+    }
+
+    /// [`Self::load`] with the attention through the kernels of
+    /// `super::attn_dense` (`kernels`, compiled once for the model): the seven
+    /// attention matrices are read from the file in BF16 straight into the
+    /// kernels' buffers, and no f32 copy of them is put on `dev`.
+    #[cfg(all(target_os = "macos", feature = "metal"))]
+    pub fn load_dense(
+        ck: &NativeCheckpoint,
+        cfg: &InklingConfig,
+        l: usize,
+        dev: &Device,
+        kernels: &std::sync::Arc<super::attn_dense::AttnDense>,
+    ) -> Result<Self> {
+        let mut lw = Self::load_impl(ck, cfg, l, dev, true)?;
+        let a = &mut lw.attn;
+        let w = super::attn_dense::AttnDenseWeights::new(a, cfg, dev)?;
+        let empty = Tensor::zeros(0, DType::F32, &Device::Cpu)?;
+        for m in [&mut a.wq, &mut a.wr, &mut a.sink, &mut a.gate, &mut a.wk, &mut a.wv, &mut a.wo] {
+            *m = empty.clone();
+        }
+        a.dense = Some(super::attn_dense::FusedAttn::new(kernels.clone(), w, dev));
+        Ok(lw)
+    }
+
+    /// The body of [`Self::load`]; `host_bf16` reads the seven attention
+    /// matrices as the file stores them, on the host, for [`Self::load_dense`].
+    fn load_impl(ck: &NativeCheckpoint, cfg: &InklingConfig, l: usize, dev: &Device, host_bf16: bool) -> Result<Self> {
         if l >= cfg.num_hidden_layers {
             candle_core::bail!("layer {l}: the model has {} layers", cfg.num_hidden_layers);
         }
         let p = |s: &str| format!("layers.{l}.{s}");
         let f = |s: &str| ck.f32(&p(s), dev);
+        let big = |s: &str| if host_bf16 { ck.raw(&p(s), &Device::Cpu) } else { f(s) };
         let sliding = cfg.is_sliding(l);
         let (heads, kv_heads, head_dim) = cfg.attn_shape(l);
         let kv_conv = |which: &str| -> Result<KvConv> {
@@ -955,18 +1160,20 @@ impl LayerWeights {
             head_dim,
             sliding,
             rel_extent: cfg.layer_rel_extent(l),
-            wq: f("attn.wq_du.weight")?,
+            wq: big("attn.wq_du.weight")?,
             q_scale: f("attn.q_l2_clip.scale")?,
-            wk: f("attn.wk_dv.weight")?,
+            wk: big("attn.wk_dv.weight")?,
             k_conv: kv_conv("k")?,
-            wv: f("attn.wv_dv.weight")?,
+            wv: big("attn.wv_dv.weight")?,
             v_conv: kv_conv("v")?,
-            gate: f("attn.gate_attn.weight")?,
-            wo: f("attn.wo_ud.weight")?,
-            sink: f("attn.attn_sink_proj.weight")?,
-            wr: f("attn.wr_du.weight")?,
+            gate: big("attn.gate_attn.weight")?,
+            wo: big("attn.wo_ud.weight")?,
+            sink: big("attn.attn_sink_proj.weight")?,
+            wr: big("attn.wr_du.weight")?,
             rel_scale: f("attn.rel_l2_clip.scale")?,
             rel_proj: f("attn.rel_logits_proj.proj")?,
+            #[cfg(all(target_os = "macos", feature = "metal"))]
+            dense: None,
         };
         // `attn_res.attn_queries.{i}` is layer i+1's (Inkling2IndexOffsetWeightRename, offset 1).
         let attention_input = if l > 0 {
@@ -1332,6 +1539,8 @@ mod tests {
                 wr: r(&[nh * cfg.d_rel, h]),
                 rel_scale: r(&[nh, cfg.d_rel]),
                 rel_proj: r(&[cfg.d_rel, cfg.layer_rel_extent(l)]),
+                #[cfg(all(target_os = "macos", feature = "metal"))]
+                dense: None,
             },
             post_attention_convolution: r(&[h, 4]),
             post_mlp_convolution: r(&[h, 4]),
@@ -1477,6 +1686,8 @@ mod tests {
                 wr: mv(&lw.attn.wr),
                 rel_scale: mv(&lw.attn.rel_scale),
                 rel_proj: mv(&lw.attn.rel_proj),
+                #[cfg(all(target_os = "macos", feature = "metal"))]
+                dense: None,
             },
             post_attention_convolution: mv(&lw.post_attention_convolution),
             post_mlp_convolution: mv(&lw.post_mlp_convolution),

@@ -59,6 +59,12 @@
 //! operations (default) or the fused glue kernels (Metal only, class B). A
 //! prompt of several rows runs candle's either way.
 //!
+//! `--attn candle|fused` chooses, at load, the attention products of a
+//! one-row visit: candle's operations on f32 matrices (default), or the
+//! kernels of `inkling::attn_dense` on the matrices held once in BF16 (Metal
+//! only, class B); a prompt of several rows then widens one layer's matrices
+//! for its call. It composes with both values of `--glue`.
+//!
 //! `--routing-steps-out <file>` records the routing of every decode step
 //! (each step runs through `Inkling::forward` with its visits recorded):
 //! per step and visit, the experts and the margin of the 8th over the 9th.
@@ -120,6 +126,7 @@ struct Args {
     prefill_rows: usize,
     head_table: Option<PathBuf>,
     glue: llvq_llm::inkling::GlueKind,
+    attn: llvq_llm::inkling::AttnKind,
     routing_steps_out: Option<PathBuf>,
     score_from: Option<usize>,
     score_prompt: bool,
@@ -133,7 +140,7 @@ fn usage() -> ! {
          [--resident verified|none] [--require-layers N] [--logits-out <file>] [--prompt-key <key>] \
          [--prompt-len N] [--phases K] [--attn-chunk N] [--peak-probe on] \
          [--rollback-gate on] [--prefill-rows 1|2|4|8] [--head bf16|int4 --head-table <file>] \
-         [--glue candle|fused] [--routing-steps-out <file>] [--score-from N | --score-prompt on] \
+         [--glue candle|fused] [--attn candle|fused] [--routing-steps-out <file>] [--score-from N | --score-prompt on] \
          [--nll-out <file>]"
     );
     std::process::exit(2)
@@ -197,6 +204,7 @@ fn parse() -> Result<Args> {
             }
         },
         glue: take("glue").as_deref().unwrap_or("candle").parse()?,
+        attn: take("attn").as_deref().unwrap_or("candle").parse()?,
         routing_steps_out: take("routing-steps-out").map(PathBuf::from),
         score_from: take("score-from").map(|v| v.parse()).transpose().context("--score-from")?,
         score_prompt: match take("score-prompt").as_deref() {
@@ -383,7 +391,7 @@ fn main() -> Result<()> {
     let mem_before = memory(&dev);
     let t = Instant::now();
     let opts = llvq_llm::inkling::LoadOptions { int4_head: args.head_table.clone() };
-    let mut model = Inkling::load_with(&args.config, &args.checkpoint, &dev, &opts)?;
+    let mut model = Inkling::load_with_attn(&args.config, &args.checkpoint, &dev, &opts, args.attn)?;
     dev.synchronize()?;
     let seconds_dense = t.elapsed().as_secs_f64();
     let mem_dense = memory(&dev);
@@ -413,7 +421,8 @@ fn main() -> Result<()> {
     model.set_glue(args.glue)?;
     let provenance = json!({"prefill_rows": args.prefill_rows, "glue": model.glue().name(),
         "head": if args.head_table.is_some() { "int4" } else { "bf16" }, "head_table": args.head_table,
-        "bf16_head_on_device": model.has_bf16_head()});
+        "bf16_head_on_device": model.has_bf16_head(), "attn": model.attn().name(),
+        "attention_matrix_bytes": {"f32": model.attention_matrix_bytes().0, "bf16": model.attention_matrix_bytes().1}});
     if args.score_from.is_some() || args.score_prompt {
         return score(&model, &args, &dev, &prompt, provenance,
             json!({"before_load": mem_before, "after_dense": mem_dense, "after_resident": mem_resident}));

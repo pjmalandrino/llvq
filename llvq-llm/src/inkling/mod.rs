@@ -242,6 +242,8 @@ pub struct Inkling {
     /// forward then runs [`layers::LayerWeights::forward_fused`].
     #[cfg(all(target_os = "macos", feature = "metal"))]
     glue: Option<std::sync::Arc<glue::Glue>>,
+    /// The attention chosen at load ([`Self::load_with_attn`]).
+    attn: AttnKind,
 }
 
 /// The small steps of a one-row visit: candle's operations (the default) or
@@ -268,6 +270,38 @@ impl std::str::FromStr for GlueKind {
             "candle" => Ok(GlueKind::Candle),
             "fused" => Ok(GlueKind::Fused),
             o => anyhow::bail!("glue {o}: candle or fused"),
+        }
+    }
+}
+
+/// The attention products of a one-row visit: candle's operations on f32
+/// matrices (the default), or the kernels of [`attn_dense`] on the BF16
+/// matrices as the file stores them (Metal only, class B). Chosen at load
+/// ([`Inkling::load_with_attn`]):
+/// it decides which copy of the matrices the device holds.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum AttnKind {
+    #[default]
+    Candle,
+    Fused,
+}
+
+impl AttnKind {
+    pub fn name(self) -> &'static str {
+        match self {
+            AttnKind::Candle => "candle",
+            AttnKind::Fused => "fused",
+        }
+    }
+}
+
+impl std::str::FromStr for AttnKind {
+    type Err = anyhow::Error;
+    fn from_str(s: &str) -> anyhow::Result<Self> {
+        match s {
+            "candle" => Ok(AttnKind::Candle),
+            "fused" => Ok(AttnKind::Fused),
+            o => anyhow::bail!("attn {o}: candle or fused"),
         }
     }
 }
@@ -344,11 +378,23 @@ impl Inkling {
     /// [`Self::load`] with `opts`: the int4 head in place of the BF16 one,
     /// whose rows are then never put on the device.
     pub fn load_with(config: &Path, checkpoint: &Path, dev: &Device, opts: &LoadOptions) -> anyhow::Result<Self> {
+        Self::load_with_attn(config, checkpoint, dev, opts, AttnKind::Candle)
+    }
+
+    /// [`Self::load_with`] with the attention `attn`. [`AttnKind::Fused`]:
+    /// every layer's attention matrices are read in BF16 into the kernels'
+    /// buffers and held there only; a one-row forward runs the kernels, a
+    /// several-row one widens a layer's matrices for its call. Metal only.
+    pub fn load_with_attn(
+        config: &Path,
+        checkpoint: &Path,
+        dev: &Device,
+        opts: &LoadOptions,
+        attn: AttnKind,
+    ) -> anyhow::Result<Self> {
         let cfg = InklingConfig::from_file(config)?;
         let ck = NativeCheckpoint::open(checkpoint)?;
-        let layers = (0..cfg.num_hidden_layers)
-            .map(|l| LayerWeights::load(&ck, &cfg, l, dev))
-            .collect::<Result<Vec<_>>>()?;
+        let layers = Self::load_layers(&ck, &cfg, dev, attn)?;
         let n_loop = cfg.loop_config.core_end - cfg.loop_config.core_start;
         // Inkling2LoopMergeMessageQueries (core_model_loading.py 823-853): the file holds
         // [query, mlp] and [key, value] per loop layer; merged as [query, key, value, mlp].
@@ -399,7 +445,50 @@ impl Inkling {
             visit_probe: std::sync::Mutex::new(None),
             #[cfg(all(target_os = "macos", feature = "metal"))]
             glue: None,
+            attn,
         })
+    }
+
+    /// Every layer's dense weights, the attention as `attn` asks.
+    fn load_layers(ck: &NativeCheckpoint, cfg: &InklingConfig, dev: &Device, attn: AttnKind) -> anyhow::Result<Vec<LayerWeights>> {
+        let n = cfg.num_hidden_layers;
+        match attn {
+            AttnKind::Candle => Ok((0..n).map(|l| LayerWeights::load(ck, cfg, l, dev)).collect::<Result<Vec<_>>>()?),
+            #[cfg(all(target_os = "macos", feature = "metal"))]
+            AttnKind::Fused => {
+                anyhow::ensure!(dev.is_metal(), "the fused attention runs on Metal only, the model is on {dev:?}");
+                let k = std::sync::Arc::new(attn_dense::AttnDense::new(dev)?);
+                Ok((0..n).map(|l| LayerWeights::load_dense(ck, cfg, l, dev, &k)).collect::<Result<Vec<_>>>()?)
+            }
+            #[cfg(not(all(target_os = "macos", feature = "metal")))]
+            AttnKind::Fused => anyhow::bail!("the fused attention needs a macOS build with the metal feature"),
+        }
+    }
+
+    /// The attention the model was loaded with.
+    pub fn attn(&self) -> AttnKind {
+        self.attn
+    }
+
+    /// Bytes of the seven attention matrices of every layer on the device:
+    /// (as f32 tensors, as the kernels' BF16 buffers).
+    pub fn attention_matrix_bytes(&self) -> (usize, usize) {
+        let mut f32_bytes = 0;
+        #[allow(unused_mut)]
+        let mut bf16_bytes = 0;
+        for lw in &self.layers {
+            let a = &lw.attn;
+            for t in [&a.wq, &a.wr, &a.sink, &a.gate, &a.wk, &a.wv, &a.wo] {
+                if t.device().same_device(&self.dev) && t.dtype() == DType::F32 {
+                    f32_bytes += 4 * t.elem_count();
+                }
+            }
+            #[cfg(all(target_os = "macos", feature = "metal"))]
+            if let Some(d) = &a.dense {
+                bf16_bytes += d.w.matrix_bytes();
+            }
+        }
+        (f32_bytes, bf16_bytes)
     }
 
     /// The int4 head of `path` on the Metal device `dev`.

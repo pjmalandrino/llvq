@@ -40,7 +40,9 @@
 //! `[kv_heads, 1, d]`, the relative logits `[heads, 1, extent]`, the sinks
 //! `[heads, 1, 1]`, the gate `[1, heads * d]`.
 //!
-//! Nothing here is wired into `layers.rs`. Same candle traps as
+//! `layers.rs` runs these kernels for a one-row visit when the loader chose
+//! them (`LayerWeights::load_dense`, through [`FusedAttn`]); the key and
+//! value rings then live in the slot ([`AttnSlot`]). Same candle traps as
 //! `crate::fused_metal` (its header) and `inkling::glue`: the compile runs
 //! under `catch_unwind`; the weight and ring buffers are OWNED, so the
 //! allocator never hands them out as scratch; every output word is written.
@@ -54,7 +56,7 @@ use candle_metal_kernels::metal::{Buffer, ComputePipeline};
 use objc2_metal::{MTLResourceUsage, MTLSize};
 
 use super::config::InklingConfig;
-use super::layers::{AttnWeights, KvConv};
+use super::layers::{AttnMats, AttnWeights, KvConv};
 
 /// Threads a threadgroup of the two matrix-vector kernels: 8 SIMD-groups,
 /// one weight row each.
@@ -347,6 +349,17 @@ kernel void ad_ring_state(
     if (i >= k1 * c) { return; }
     out[i] = ring[((pos + i / c) % k1) * c + i % c];
 }
+
+// BF16 elements [off, off + n) of an owned buffer widened to f32: exact.
+kernel void ad_widen(
+    device const ushort *src [[buffer(0)]],
+    device float *out [[buffer(1)]],
+    constant uint2 &a [[buffer(2)]],
+    uint i [[thread_position_in_grid]])
+{
+    if (i >= a.y) { return; }
+    out[i] = as_type<float>(uint(src[a.x + i]) << 16);
+}
 "#;
 
 /// A constant struct of the MSL as its 4-byte words, in field order.
@@ -424,6 +437,28 @@ pub struct AttnDenseWeights {
     lay: Offsets,
 }
 
+/// The tensors of one attention block, borrowed, for
+/// [`AttnDenseWeights::from_parts`]: the fields of `AttnWeights` it reads.
+pub struct DenseParts<'a> {
+    pub heads: usize,
+    pub kv_heads: usize,
+    pub head_dim: usize,
+    pub sliding: bool,
+    pub rel_extent: usize,
+    pub wq: &'a Tensor,
+    pub wr: &'a Tensor,
+    pub sink: &'a Tensor,
+    pub gate: &'a Tensor,
+    pub wk: &'a Tensor,
+    pub wv: &'a Tensor,
+    pub wo: &'a Tensor,
+    pub q_scale: &'a Tensor,
+    pub rel_scale: &'a Tensor,
+    pub rel_proj: &'a Tensor,
+    pub k_conv: &'a KvConv,
+    pub v_conv: &'a KvConv,
+}
+
 /// A convolution as BF16 bits: its weights in the kernel's layout, its
 /// `weight_proj` rows when dynamic, its taps, and whether it is dynamic.
 type ConvBits = (Vec<u16>, Option<Vec<u16>>, usize, bool);
@@ -457,6 +492,32 @@ impl AttnDenseWeights {
     /// BF16 (any other value is refused). `cfg` gives the thresholds and the
     /// norm epsilon.
     pub fn new(w: &AttnWeights, cfg: &InklingConfig, device: &Device) -> Result<Self> {
+        let parts = DenseParts {
+            heads: w.heads,
+            kv_heads: w.kv_heads,
+            head_dim: w.head_dim,
+            sliding: w.sliding,
+            rel_extent: w.rel_extent,
+            wq: &w.wq,
+            wr: &w.wr,
+            sink: &w.sink,
+            gate: &w.gate,
+            wk: &w.wk,
+            wv: &w.wv,
+            wo: &w.wo,
+            q_scale: &w.q_scale,
+            rel_scale: &w.rel_scale,
+            rel_proj: &w.rel_proj,
+            k_conv: &w.k_conv,
+            v_conv: &w.v_conv,
+        };
+        Self::from_parts(&parts, cfg, device)
+    }
+
+    /// [`Self::new`] from the tensors one by one, in BF16 or in f32 holding
+    /// BF16 values, on any device: what the loader hands when no f32 copy of
+    /// the matrices is to be kept.
+    pub fn from_parts(w: &DenseParts, cfg: &InklingConfig, device: &Device) -> Result<Self> {
         let Device::Metal(dev) = device else { candle_core::bail!("AttnDenseWeights wants a Metal device") };
         let (nh, nkv, hd) = (w.heads, w.kv_heads, w.head_dim);
         let (hidden, din) = (w.wq.dim(1)?, nh * hd);
@@ -475,16 +536,16 @@ impl AttnDenseWeights {
             }
             Ok(())
         };
-        shape("wq", &w.wq, &[din, hidden])?;
-        shape("wr", &w.wr, &[nh * dr, hidden])?;
-        shape("sink", &w.sink, &[nh, hidden])?;
-        shape("gate", &w.gate, &[din, hidden])?;
-        shape("wk", &w.wk, &[c, hidden])?;
-        shape("wv", &w.wv, &[c, hidden])?;
-        shape("wo", &w.wo, &[hidden, din])?;
-        shape("q_scale", &w.q_scale, &[nh, hd])?;
-        shape("rel_scale", &w.rel_scale, &[nh, dr])?;
-        shape("rel_proj", &w.rel_proj, &[dr, ext])?;
+        shape("wq", w.wq, &[din, hidden])?;
+        shape("wr", w.wr, &[nh * dr, hidden])?;
+        shape("sink", w.sink, &[nh, hidden])?;
+        shape("gate", w.gate, &[din, hidden])?;
+        shape("wk", w.wk, &[c, hidden])?;
+        shape("wv", w.wv, &[c, hidden])?;
+        shape("wo", w.wo, &[hidden, din])?;
+        shape("q_scale", w.q_scale, &[nh, hd])?;
+        shape("rel_scale", w.rel_scale, &[nh, dr])?;
+        shape("rel_proj", w.rel_proj, &[dr, ext])?;
         // (conv weights in the kernel's layout, weight_proj rows or none, taps)
         let conv = |name: &str, k: &KvConv| -> Result<ConvBits> {
             match k {
@@ -505,8 +566,8 @@ impl AttnDenseWeights {
                 }
             }
         };
-        let (kc, kp, taps, dynamic) = conv("k conv", &w.k_conv)?;
-        let (vc, vp, vtaps, vdyn) = conv("v conv", &w.v_conv)?;
+        let (kc, kp, taps, dynamic) = conv("k conv", w.k_conv)?;
+        let (vc, vp, vtaps, vdyn) = conv("v conv", w.v_conv)?;
         if taps != vtaps || dynamic != vdyn || !(2..=MAX_TAPS).contains(&taps) {
             candle_core::bail!("attn_dense: key conv {taps} taps dynamic {dynamic}, value conv {vtaps} taps dynamic {vdyn}");
         }
@@ -522,13 +583,13 @@ impl AttnDenseWeights {
         let off_pv = off_v + c;
         let rows_n = off_pv + np;
         let mut rows: Vec<u16> = Vec::with_capacity(rows_n * hidden);
-        for (name, t) in [("wq", &w.wq), ("wr", &w.wr), ("sink", &w.sink), ("gate", &w.gate), ("wk", &w.wk)] {
+        for (name, t) in [("wq", w.wq), ("wr", w.wr), ("sink", w.sink), ("gate", w.gate), ("wk", w.wk)] {
             rows.extend(bf16_bits(name, t)?);
         }
         if let Some(p) = &kp {
             rows.extend_from_slice(p);
         }
-        rows.extend(bf16_bits("wv", &w.wv)?);
+        rows.extend(bf16_bits("wv", w.wv)?);
         if let Some(p) = &vp {
             rows.extend_from_slice(p);
         }
@@ -537,9 +598,9 @@ impl AttnDenseWeights {
         let so_rp = so_rs + nh * dr;
         let so_kc = so_rp + dr * ext;
         let so_vc = so_kc + c * taps;
-        let mut small = bf16_bits("q_scale", &w.q_scale)?;
-        small.extend(bf16_bits("rel_scale", &w.rel_scale)?);
-        small.extend(bf16_bits("rel_proj", &w.rel_proj)?);
+        let mut small = bf16_bits("q_scale", w.q_scale)?;
+        small.extend(bf16_bits("rel_scale", w.rel_scale)?);
+        small.extend(bf16_bits("rel_proj", w.rel_proj)?);
         small.extend(kc);
         small.extend(vc);
         let oo_k = din;
@@ -585,7 +646,7 @@ impl AttnDenseWeights {
             log_alpha: cfg.log_scaling_alpha,
             log_floor: cfg.log_scaling_n_floor,
             rows: dev.new_buffer_with_data(&rows)?,
-            wo: dev.new_buffer_with_data(&bf16_bits("wo", &w.wo)?)?,
+            wo: dev.new_buffer_with_data(&bf16_bits("wo", w.wo)?)?,
             small: dev.new_buffer_with_data(&small)?,
             lay,
         })
@@ -598,6 +659,13 @@ impl AttnDenseWeights {
             + self.hidden * self.heads * self.head_dim
             + l.so_vc
             + self.kv_heads * self.head_dim * self.taps)
+    }
+
+    /// Bytes of the seven attention matrices in these buffers (`wq`, `wr`,
+    /// `sink`, `gate`, `wk`, `wv`, `wo`), BF16: half their f32 size.
+    pub fn matrix_bytes(&self) -> usize {
+        let (din, c, h) = (self.heads * self.head_dim, self.kv_heads * self.head_dim, self.hidden);
+        2 * ((2 * din + self.heads * self.d_rel + self.heads + 2 * c) * h + h * din)
     }
 
     /// The convolution width of the key and value rings, `kv_heads * head_dim`.
@@ -668,6 +736,80 @@ impl KvRings {
     }
 }
 
+/// The attention of one layer through the kernels: the compiled library and
+/// the layer's BF16 buffers, the only copy of its seven matrices on the
+/// device once the loader hands them here.
+pub struct FusedAttn {
+    pub kernels: Arc<AttnDense>,
+    pub w: AttnDenseWeights,
+    dev: Device,
+}
+
+impl FusedAttn {
+    pub fn new(kernels: Arc<AttnDense>, w: AttnDenseWeights, dev: &Device) -> Self {
+        Self { kernels, w, dev: dev.clone() }
+    }
+
+    /// The seven matrices widened to f32 for one several-row call (each
+    /// BF16 value widens exactly, so the call reads the values the f32 copies
+    /// held). Dropped by the caller after the call.
+    pub fn widen(&self) -> Result<AttnMats> {
+        let like = Tensor::zeros(1, DType::F32, &self.dev)?;
+        let w = &self.w;
+        let l = &w.lay;
+        let (h, din, c) = (w.hidden, w.heads * w.head_dim, w.kv_heads * w.head_dim);
+        let one = |buf: &Buffer, first_row: usize, rows: usize, cols: usize| -> Result<Tensor> {
+            let n = rows * cols;
+            let op = Launch {
+                name: "attn-dense-widen",
+                pipe: &self.kernels.widen,
+                args: vec![Arg::Owned(buf, false), Arg::Out, Arg::Bytes(Words::default().u(first_row * cols).u(n))],
+                out_elems: n,
+                out_shape: Shape::from((rows, cols)),
+                grid: (n.div_ceil(256), 256),
+            };
+            like.apply_op1_no_bwd(&op)
+        };
+        Ok(AttnMats {
+            wq: one(&w.rows, 0, din, h)?,
+            wr: one(&w.rows, l.off_r, w.heads * w.d_rel, h)?,
+            sink: one(&w.rows, l.off_s, w.heads, h)?,
+            gate: one(&w.rows, l.off_g, din, h)?,
+            wk: one(&w.rows, l.off_k, c, h)?,
+            wv: one(&w.rows, l.off_v, c, h)?,
+            wo: one(&w.wo, 0, h, din)?,
+        })
+    }
+}
+
+/// The key and value convolution states of one cache slot while the kernels
+/// step it: its rings and what reads them back.
+pub struct AttnSlot {
+    kernels: Arc<AttnDense>,
+    pub rings: KvRings,
+    dev: Device,
+}
+
+impl std::fmt::Debug for AttnSlot {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "AttnSlot {{ taps: {}, channels: {} }}", self.rings.k.taps, self.rings.k.c)
+    }
+}
+
+impl AttnSlot {
+    /// Rings for `a` from the states `[taps - 1, kv_heads * head_dim]` the
+    /// slot holds (oldest row first), or zeros.
+    pub fn new(a: &FusedAttn, k: Option<&Tensor>, v: Option<&Tensor>) -> Result<Self> {
+        Ok(Self { kernels: a.kernels.clone(), rings: KvRings::new(&a.dev, &a.w, k, v)?, dev: a.dev.clone() })
+    }
+
+    /// The key and value states `[taps - 1, C]`, oldest row first, as new tensors.
+    pub fn states(&self) -> Result<(Tensor, Tensor)> {
+        let like = Tensor::zeros(1, DType::F32, &self.dev)?;
+        Ok((self.rings.k.state(&self.kernels, &like)?, self.rings.v.state(&self.kernels, &like)?))
+    }
+}
+
 /// What [`AttnDense::stage_in`] returns: views of one device buffer, in the
 /// layouts `forward_chunked` gives the cache and the score step.
 pub struct StageIn {
@@ -691,13 +833,14 @@ pub struct AttnDense {
     finish: ComputePipeline,
     out: ComputePipeline,
     ring_state: ComputePipeline,
+    widen: ComputePipeline,
 }
 
 fn compile(dev: &candle_core::MetalDevice) -> Result<Vec<ComputePipeline>> {
     use objc2_metal::{MTLCompileOptions, MTLMathFloatingPointFunctions, MTLMathMode};
     let raw = dev.device().clone();
     let src = format!("#define MV_TG {MV_TG}u\n#define FIN_TG {FIN_TG}u\n{SRC}");
-    let names = ["ad_products", "ad_finish", "ad_out", "ad_ring_state"];
+    let names = ["ad_products", "ad_finish", "ad_out", "ad_ring_state", "ad_widen"];
     let built = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
         let opts = MTLCompileOptions::new();
         opts.setMathMode(MTLMathMode::Safe);
@@ -727,8 +870,8 @@ impl AttnDense {
     pub fn new(device: &Device) -> Result<Self> {
         let Device::Metal(dev) = device else { candle_core::bail!("the attn_dense kernels want a Metal device") };
         let mut p = compile(dev)?.into_iter();
-        let mut next = || p.next().expect("four pipelines");
-        let k = Self { products: next(), finish: next(), out: next(), ring_state: next() };
+        let mut next = || p.next().expect("five pipelines");
+        let k = Self { products: next(), finish: next(), out: next(), ring_state: next(), widen: next() };
         for (name, pipe, tg) in
             [("ad_products", &k.products, MV_TG), ("ad_finish", &k.finish, FIN_TG), ("ad_out", &k.out, MV_TG)]
         {

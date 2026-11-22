@@ -211,6 +211,7 @@ impl Case {
             wr: self.get("wr", dev),
             rel_scale: self.get("rel_scale", dev),
             rel_proj: self.get("rel_proj", dev),
+            dense: None,
         }
     }
 
