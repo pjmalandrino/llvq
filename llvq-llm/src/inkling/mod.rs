@@ -20,10 +20,13 @@
 //! the reference (`ops/inkling/dump_ref.py`).
 
 pub mod config;
+pub mod expert_codes;
 pub mod layers;
 pub mod loader;
 #[cfg(all(target_os = "macos", feature = "metal"))]
 pub mod resident;
+#[cfg(all(target_os = "linux", feature = "cuda"))]
+pub mod resident_cuda;
 
 use std::path::Path;
 
