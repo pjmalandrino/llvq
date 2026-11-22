@@ -40,6 +40,7 @@ pub mod digest;
 pub mod embedquant;
 pub mod errmodel;
 pub mod eval;
+pub mod extq;
 pub mod fused;
 /// The CPU backend: the sealed file served without a card.
 pub mod fused_cpu;

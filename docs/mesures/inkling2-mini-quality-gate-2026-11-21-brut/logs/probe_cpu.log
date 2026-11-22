@@ -1,0 +1,54 @@
+Installed 39 packages in 269ms
+W1121 22:19:36.975000 22278 torch/distributed/elastic/multiprocessing/redirects.py:35] NOTE: Redirects are currently not supported in MacOs.
+Loading weights:   0%|          | 0/645 [00:00<?, ?it/s]Loading weights:  49%|████▊     | 314/645 [00:00<00:00, 3078.16it/s]Loading weights: 100%|██████████| 645/645 [00:00<00:00, 2901.85it/s]Loading weights: 100%|██████████| 645/645 [00:00<00:00, 2924.41it/s]
+[transformers] `causal_conv1d_fn` is falling back to its reference PyTorch implementation because `causal_conv1d` is not installed. This is correct but much slower; install `causal_conv1d` for the optimized kernel.
+  visit 00 L00 p0  load   1.2s  total    3.5s  ( 1157.3 tok/s this visit)
+  visit 01 L01 p0  load   1.6s  total    3.9s  ( 1058.1 tok/s this visit)
+  visit 02 L02 p0  load   1.6s  total    4.0s  ( 1024.3 tok/s this visit)
+  visit 03 L03 p0  load   1.3s  total    3.6s  ( 1145.9 tok/s this visit)
+  visit 04 L04 p0  load   1.3s  total    3.7s  ( 1118.2 tok/s this visit)
+  visit 05 L05 p0  load   1.3s  total    3.5s  ( 1160.6 tok/s this visit)
+  visit 06 L06 p1  load   1.3s  total    3.6s  ( 1141.8 tok/s this visit)
+  visit 07 L07 p1  load   1.3s  total    3.5s  ( 1172.1 tok/s this visit)
+  visit 08 L08 p1  load   1.3s  total    3.7s  ( 1096.4 tok/s this visit)
+  visit 09 L09 p1  load   1.3s  total    3.7s  ( 1108.6 tok/s this visit)
+  visit 10 L10 p1  load   1.3s  total    3.6s  ( 1124.9 tok/s this visit)
+  visit 11 L11 p1  load   1.3s  total    3.5s  ( 1170.3 tok/s this visit)
+  visit 12 L12 p1  load   1.3s  total    3.7s  ( 1106.4 tok/s this visit)
+  visit 13 L13 p1  load   1.3s  total    3.7s  ( 1105.1 tok/s this visit)
+  visit 14 L14 p1  load   1.3s  total    3.5s  ( 1170.2 tok/s this visit)
+  visit 15 L15 p1  load   1.3s  total    3.7s  ( 1109.6 tok/s this visit)
+  visit 16 L16 p1  load   1.3s  total    3.6s  ( 1130.8 tok/s this visit)
+  visit 17 L17 p1  load   1.4s  total    3.4s  ( 1221.4 tok/s this visit)
+  visit 18 L06 p2  load   1.3s  total    4.0s  ( 1022.6 tok/s this visit)
+  visit 19 L07 p2  load   1.3s  total    3.9s  ( 1039.4 tok/s this visit)
+  visit 20 L08 p2  load   1.3s  total    3.9s  ( 1043.9 tok/s this visit)
+  visit 21 L09 p2  load   1.3s  total    3.9s  ( 1054.1 tok/s this visit)
+  visit 22 L10 p2  load   1.3s  total    3.9s  ( 1054.0 tok/s this visit)
+  visit 23 L11 p2  load   1.3s  total    3.8s  ( 1089.9 tok/s this visit)
+  visit 24 L12 p2  load   1.3s  total    3.9s  ( 1058.4 tok/s this visit)
+  visit 25 L13 p2  load   1.3s  total    3.9s  ( 1037.5 tok/s this visit)
+  visit 26 L14 p2  load   1.3s  total    3.8s  ( 1072.7 tok/s this visit)
+  visit 27 L15 p2  load   1.3s  total    3.8s  ( 1064.8 tok/s this visit)
+  visit 28 L16 p2  load   1.3s  total    3.9s  ( 1059.4 tok/s this visit)
+  visit 29 L17 p2  load   1.3s  total    3.5s  ( 1160.2 tok/s this visit)
+  visit 30 L06 p3  load   1.3s  total    3.8s  ( 1072.1 tok/s this visit)
+  visit 31 L07 p3  load   1.3s  total    3.9s  ( 1054.9 tok/s this visit)
+  visit 32 L08 p3  load   1.2s  total    3.9s  ( 1049.2 tok/s this visit)
+  visit 33 L09 p3  load   1.2s  total    3.8s  ( 1079.7 tok/s this visit)
+  visit 34 L10 p3  load   1.2s  total    3.9s  ( 1049.2 tok/s this visit)
+  visit 35 L11 p3  load   1.2s  total    3.7s  ( 1092.8 tok/s this visit)
+  visit 36 L12 p3  load   1.3s  total    3.9s  ( 1044.6 tok/s this visit)
+  visit 37 L13 p3  load   1.2s  total    3.8s  ( 1081.8 tok/s this visit)
+  visit 38 L14 p3  load   1.2s  total    3.8s  ( 1090.2 tok/s this visit)
+  visit 39 L15 p3  load   1.2s  total    3.8s  ( 1065.4 tok/s this visit)
+  visit 40 L16 p3  load   1.2s  total    3.8s  ( 1071.2 tok/s this visit)
+  visit 41 L17 p3  load   1.2s  total    3.7s  ( 1116.8 tok/s this visit)
+  visit 42 L18 p0  load   1.2s  total    3.6s  ( 1152.5 tok/s this visit)
+  visit 43 L19 p0  load   1.2s  total    3.6s  ( 1146.0 tok/s this visit)
+  visit 44 L20 p0  load   0.7s  total    3.0s  ( 1374.3 tok/s this visit)
+  visit 45 L21 p0  load   0.7s  total    3.1s  ( 1321.7 tok/s this visit)
+  visit 46 L22 p0  load   0.7s  total    3.0s  ( 1351.9 tok/s this visit)
+  visit 47 L23 p0  load   0.7s  total    2.9s  ( 1409.2 tok/s this visit)
+  run: 2 x 2048 tokens in 179.1s = 22.87 tok/s
+{"probe_seqs": 2, "len": 2048, "device": "cpu", "threads": 10, "sec": 179.16533398628235, "tok_per_s": 22.86156539810099, "projected_capture_h_131072": 1.592580746544732, "projected_eval_arm_min_16384": 11.94435559908549}

@@ -1,0 +1,187 @@
+== 2026-11-21 22:54:25 G2 mutant (pass 2 dropped, 64 tokens)
+{"mutant": "pass 2 dropped", "max_abs_diff": 30.26898193359375, "top1_same": 40, "n": 64}
+mutant differs from the library forward: True {'mutant': 'pass 2 dropped', 'max_abs_diff': 30.26898193359375, 'top1_same': 40, 'n': 64}
+== 2026-11-21 22:56:30 capture, 64 x 2048, mps
+  visit 44 L20 p0  load   0.7s  total   10.1s  ( 6460.8 tok/s this visit)
+  visit 45 L21 p0  load   0.7s  total   10.2s  ( 6410.5 tok/s this visit)
+  visit 46 L22 p0  load   0.7s  total   10.0s  ( 6526.9 tok/s this visit)
+  visit 47 L23 p0  load   0.6s  total   10.5s  ( 6219.0 tok/s this visit)
+  run: 32 x 2048 tokens in 506.7s = 129.33 tok/s
+{"done": "/Users/pjmalandrino/llvq-inkling-mini/calib", "sec": 1072.6420741081238, "tok_per_s": 122.195467774265}
+== 2026-11-21 23:14:39 capture done
+      52
+ 28G	/Users/pjmalandrino/llvq-inkling-mini/calib
+/dev/disk3s5   926Gi   798Gi   100Gi    89%    7.2M  1.0G    1%   /System/Volumes/Data
+== 2026-11-21 23:14:50 layer 6: Hessians
+  L06 expert 128/128  45s
+{"layer": 6, "out": "/Users/pjmalandrino/llvq-inkling-mini/layers/L06", "sec": 45.29614305496216}
+== 2026-11-21 23:15:43 layer 6: encode
+extq failed
+Error: no per-expert token counts
+== 2026-11-21 23:16:50 layer 6: Hessians
+  L06 expert 128/128  43s
+{"layer": 6, "out": "/Users/pjmalandrino/llvq-inkling-mini/layers/L06", "sec": 43.330801010131836}
+== 2026-11-21 23:17:39 layer 6: encode
+expert 125: 13.3 s, tokens 31582, proxy_rel [gate 0.01530, up 0.01913, down 0.03846] Array []
+expert 126: 13.2 s, tokens 6735, proxy_rel [gate 0.01257, up 0.01752, down 0.03590] Array []
+expert 127: 13.2 s, tokens 20121, proxy_rel [gate 0.01613, up 0.02045, down 0.04490] Array []
+== 2026-11-21 23:45:35 layer 6: verify codes against reconstructions
+expert 127: 0 of 7962624 weights differ
+verify: 128 experts, 0 differing weights, codes 259563062 bytes
+== 2026-11-21 23:45:46 layer 6 done; inputs removed
+   disk free: 97Gi
+== 2026-11-21 23:45:46 layer 7: Hessians
+  L07 expert 128/128  42s
+{"layer": 7, "out": "/Users/pjmalandrino/llvq-inkling-mini/layers/L07", "sec": 42.06432485580444}
+== 2026-11-21 23:46:35 layer 7: encode
+expert 125: 13.3 s, tokens 5619, proxy_rel [gate 0.01109, up 0.01301, down 0.03606] Array []
+expert 126: 13.2 s, tokens 29850, proxy_rel [gate 0.01756, up 0.02230, down 0.05102] Array []
+expert 127: 13.2 s, tokens 46173, proxy_rel [gate 0.01912, up 0.02410, down 0.04694] Array []
+== 2026-11-22 00:14:54 layer 7: verify codes against reconstructions
+expert 127: 0 of 7962624 weights differ
+verify: 128 experts, 0 differing weights, codes 259563062 bytes
+== 2026-11-22 00:15:06 layer 7 done; inputs removed
+   disk free: 93Gi
+== 2026-11-22 00:15:06 layer 8: Hessians
+  L08 expert 128/128  42s
+{"layer": 8, "out": "/Users/pjmalandrino/llvq-inkling-mini/layers/L08", "sec": 42.389129877090454}
+== 2026-11-22 00:15:54 layer 8: encode
+expert 125: 13.2 s, tokens 43229, proxy_rel [gate 0.02033, up 0.02604, down 0.04942] Array []
+expert 126: 13.3 s, tokens 30628, proxy_rel [gate 0.02625, up 0.03194, down 0.05250] Array []
+expert 127: 13.2 s, tokens 26307, proxy_rel [gate 0.01699, up 0.02327, down 0.04613] Array []
+== 2026-11-22 00:44:14 layer 8: verify codes against reconstructions
+expert 127: 0 of 7962624 weights differ
+verify: 128 experts, 0 differing weights, codes 259563062 bytes
+== 2026-11-22 00:44:25 layer 8 done; inputs removed
+   disk free: 89Gi
+== 2026-11-22 00:44:25 arms on {6-8}
+ARM tetra_6-8  KL 0.00961 [0.00780, 0.01135]  top1 96.12%  dNLL +0.00058 [-0.00132, +0.00229]  (172s)
+ARM iq1s_6-8  KL 0.01477 [0.01244, 0.01699]  top1 94.96%  dNLL +0.00485 [+0.00187, +0.00777]  (236s)
+ARM iq1m_6-8  KL 0.01443 [0.01232, 0.01654]  top1 95.17%  dNLL +0.00546 [+0.00190, +0.00876]  (234s)
+ARM iq2xxs_6-8  KL 0.01264 [0.01063, 0.01461]  top1 95.41%  dNLL +0.00273 [+0.00090, +0.00457]  (236s)
+ARM q2kxl_6-8  KL 0.01033 [0.00875, 0.01177]  top1 95.87%  dNLL +0.00193 [-0.00093, +0.00449]  (236s)
+== 2026-11-22 01:03:37 stage done for {6-8}
+== 2026-11-22 01:03:55 layer 9: Hessians
+  L09 expert 128/128  49s
+{"layer": 9, "out": "/Users/pjmalandrino/llvq-inkling-mini/layers/L09", "sec": 48.76255202293396}
+== 2026-11-22 01:04:50 layer 9: encode
+expert 125: 13.3 s, tokens 62435, proxy_rel [gate 0.01799, up 0.02718, down 0.04882] Array []
+expert 126: 13.3 s, tokens 43685, proxy_rel [gate 0.02396, up 0.02627, down 0.06297] Array []
+expert 127: 13.3 s, tokens 29108, proxy_rel [gate 0.01606, up 0.02225, down 0.04476] Array []
+== 2026-11-22 01:33:26 layer 9: verify codes against reconstructions
+expert 127: 0 of 7962624 weights differ
+verify: 128 experts, 0 differing weights, codes 259563062 bytes
+== 2026-11-22 01:33:38 layer 9 done; inputs removed
+   disk free: 86Gi
+== 2026-11-22 01:33:38 layer 10: Hessians
+  L10 expert 128/128  42s
+{"layer": 10, "out": "/Users/pjmalandrino/llvq-inkling-mini/layers/L10", "sec": 42.483848094940186}
+== 2026-11-22 01:34:26 layer 10: encode
+expert 125: 13.2 s, tokens 9938, proxy_rel [gate 0.01786, up 0.02302, down 0.04507] Array []
+expert 126: 13.3 s, tokens 34845, proxy_rel [gate 0.02160, up 0.02758, down 0.04626] Array []
+expert 127: 13.2 s, tokens 63038, proxy_rel [gate 0.01781, up 0.03033, down 0.05975] Array []
+== 2026-11-22 02:02:43 layer 10: verify codes against reconstructions
+expert 127: 0 of 7962624 weights differ
+verify: 128 experts, 0 differing weights, codes 259563446 bytes
+== 2026-11-22 02:02:55 layer 10 done; inputs removed
+   disk free: 82Gi
+== 2026-11-22 02:02:55 layer 11: Hessians
+  L11 expert 128/128  42s
+{"layer": 11, "out": "/Users/pjmalandrino/llvq-inkling-mini/layers/L11", "sec": 42.49803185462952}
+== 2026-11-22 02:03:43 layer 11: encode
+expert 125: 13.3 s, tokens 104, proxy_rel [gate 0.00114, up 0.00163, down 0.00482] Array []
+expert 126: 13.2 s, tokens 680, proxy_rel [gate 0.00381, up 0.00489, down 0.00950] Array []
+expert 127: 13.3 s, tokens 78218, proxy_rel [gate 0.01202, up 0.03456, down 0.06747] Array []
+== 2026-11-22 02:32:01 layer 11: verify codes against reconstructions
+expert 127: 0 of 7962624 weights differ
+verify: 128 experts, 0 differing weights, codes 259563446 bytes
+== 2026-11-22 02:32:13 layer 11 done; inputs removed
+   disk free: 78Gi
+== 2026-11-22 02:32:13 arms on {6-11}
+ARM tetra_6-11  KL 0.02069 [0.01676, 0.02450]  top1 94.22%  dNLL +0.00744 [+0.00398, +0.01062]  (177s)
+ARM iq1s_6-11  KL 0.02637 [0.02250, 0.03006]  top1 93.36%  dNLL +0.01644 [+0.01042, +0.02215]  (286s)
+ARM iq1m_6-11  KL 0.02293 [0.01970, 0.02615]  top1 93.70%  dNLL +0.01546 [+0.00875, +0.02149]  (299s)
+ARM iq2xxs_6-11  KL 0.02078 [0.01760, 0.02393]  top1 94.12%  dNLL +0.01083 [+0.00765, +0.01420]  (293s)
+ARM q2kxl_6-11  KL 0.01514 [0.01267, 0.01755]  top1 95.10%  dNLL +0.00592 [+0.00385, +0.00788]  (297s)
+== 2026-11-22 02:55:26 stage done for {6-11}
+== 2026-11-22 02:55:44 layer 12: Hessians
+  L12 expert 128/128  49s
+{"layer": 12, "out": "/Users/pjmalandrino/llvq-inkling-mini/layers/L12", "sec": 48.62301826477051}
+== 2026-11-22 02:56:40 layer 12: encode
+expert 125: 13.5 s, tokens 62992, proxy_rel [gate 0.02171, up 0.02511, down 0.05809] Array []
+expert 126: 13.4 s, tokens 12729, proxy_rel [gate 0.01393, up 0.01878, down 0.04244] Array []
+expert 127: 13.4 s, tokens 9008, proxy_rel [gate 0.01233, up 0.01785, down 0.05477] Array []
+== 2026-11-22 03:26:06 layer 12: verify codes against reconstructions
+expert 127: 0 of 7962624 weights differ
+verify: 128 experts, 0 differing weights, codes 259563446 bytes
+== 2026-11-22 03:26:18 layer 12 done; inputs removed
+   disk free: 68Gi
+== 2026-11-22 03:26:18 layer 13: Hessians
+  L13 expert 128/128  44s
+{"layer": 13, "out": "/Users/pjmalandrino/llvq-inkling-mini/layers/L13", "sec": 43.53145503997803}
+== 2026-11-22 03:27:08 layer 13: encode
+expert 125: 13.5 s, tokens 3006, proxy_rel [gate 0.01059, up 0.01419, down 0.03138] Array []
+expert 126: 13.5 s, tokens 9967, proxy_rel [gate 0.02006, up 0.02570, down 0.05359] Array []
+expert 127: 13.5 s, tokens 7136, proxy_rel [gate 0.01428, up 0.02567, down 0.04355] Array []
+== 2026-11-22 03:55:47 layer 13: verify codes against reconstructions
+expert 127: 0 of 7962624 weights differ
+verify: 128 experts, 0 differing weights, codes 259563446 bytes
+== 2026-11-22 03:55:59 layer 13 done; inputs removed
+   disk free: 64Gi
+== 2026-11-22 03:55:59 layer 14: Hessians
+  L14 expert 128/128  42s
+{"layer": 14, "out": "/Users/pjmalandrino/llvq-inkling-mini/layers/L14", "sec": 42.60425877571106}
+== 2026-11-22 03:56:49 layer 14: encode
+expert 125: 13.5 s, tokens 171168, proxy_rel [gate 0.01944, up 0.04150, down 0.06350] Array []
+expert 126: 13.6 s, tokens 58646, proxy_rel [gate 0.02208, up 0.02846, down 0.05120] Array []
+expert 127: 13.5 s, tokens 384, proxy_rel [gate 0.00400, up 0.00398, down 0.01376] Array []
+== 2026-11-22 04:25:37 layer 14: verify codes against reconstructions
+expert 127: 0 of 7962624 weights differ
+verify: 128 experts, 0 differing weights, codes 259563446 bytes
+== 2026-11-22 04:25:49 layer 14 done; inputs removed
+   disk free: 60Gi
+== 2026-11-22 04:25:49 layer 15: Hessians
+  L15 expert 128/128  44s
+{"layer": 15, "out": "/Users/pjmalandrino/llvq-inkling-mini/layers/L15", "sec": 43.80643892288208}
+== 2026-11-22 04:26:40 layer 15: encode
+expert 125: 13.7 s, tokens 18505, proxy_rel [gate 0.00792, up 0.01548, down 0.03355] Array []
+expert 126: 13.6 s, tokens 210, proxy_rel [gate 0.00265, up 0.00268, down 0.00879] Array []
+expert 127: 13.6 s, tokens 7973, proxy_rel [gate 0.01105, up 0.01367, down 0.03009] Array []
+== 2026-11-22 04:55:26 layer 15: verify codes against reconstructions
+expert 127: 0 of 7962624 weights differ
+verify: 128 experts, 0 differing weights, codes 259563446 bytes
+== 2026-11-22 04:55:38 layer 15 done; inputs removed
+   disk free: 56Gi
+== 2026-11-22 04:55:38 layer 16: Hessians
+  L16 expert 128/128  45s
+{"layer": 16, "out": "/Users/pjmalandrino/llvq-inkling-mini/layers/L16", "sec": 44.570892095565796}
+== 2026-11-22 04:56:29 layer 16: encode
+expert 125: 13.5 s, tokens 220, proxy_rel [gate 0.00172, up 0.00190, down 0.00721] Array []
+expert 126: 13.4 s, tokens 22817, proxy_rel [gate 0.01158, up 0.02029, down 0.03335] Array []
+expert 127: 13.5 s, tokens 945, proxy_rel [gate 0.00207, up 0.00466, down 0.00873] Array []
+== 2026-11-22 05:25:15 layer 16: verify codes against reconstructions
+expert 127: 0 of 7962624 weights differ
+verify: 128 experts, 0 differing weights, codes 259563446 bytes
+== 2026-11-22 05:25:27 layer 16 done; inputs removed
+   disk free: 52Gi
+== 2026-11-22 05:25:27 layer 17: Hessians
+  L17 expert 128/128  43s
+{"layer": 17, "out": "/Users/pjmalandrino/llvq-inkling-mini/layers/L17", "sec": 43.27817225456238}
+== 2026-11-22 05:26:16 layer 17: encode
+expert 125: 13.4 s, tokens 3669, proxy_rel [gate 0.00980, up 0.00944, down 0.02856] Array []
+expert 126: 13.5 s, tokens 1260, proxy_rel [gate 0.00500, up 0.00650, down 0.01075] Array []
+expert 127: 13.5 s, tokens 697, proxy_rel [gate 0.00298, up 0.00281, down 0.00926] Array []
+== 2026-11-22 05:55:05 layer 17: verify codes against reconstructions
+expert 127: 0 of 7962624 weights differ
+verify: 128 experts, 0 differing weights, codes 259563446 bytes
+== 2026-11-22 05:55:17 layer 17 done; inputs removed
+   disk free: 48Gi
+== 2026-11-22 05:55:17 arms on {6-17}
+ARM tetra_6-17  KL 0.03781 [0.03275, 0.04252]  top1 92.04%  dNLL +0.02237 [+0.01935, +0.02578]  (168s)
+ARM iq1s_6-17  KL 0.05386 [0.04790, 0.05900]  top1 90.28%  dNLL +0.03501 [+0.02932, +0.04096]  (390s)
+ARM iq1m_6-17  KL 0.04541 [0.04071, 0.04965]  top1 90.97%  dNLL +0.03295 [+0.02649, +0.03932]  (396s)
+ARM iq2xxs_6-17  KL 0.04304 [0.03831, 0.04697]  top1 91.34%  dNLL +0.02623 [+0.02086, +0.03100]  (410s)
+ARM q2kxl_6-17  KL 0.02895 [0.02547, 0.03201]  top1 92.89%  dNLL +0.01542 [+0.01066, +0.02052]  (417s)
+== 2026-11-22 06:25:40 stage done for {6-17}
+== 2026-11-22 06:30:05 layer 0: Hessians
+{"layer": 0, "out": "/Users/pjmalandrino/llvq-inkling-mini/layers/L00", "sec": 33.79900813102722}

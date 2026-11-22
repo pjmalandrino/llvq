@@ -1,0 +1,1848 @@
+2026-11-21 22:51:30 START base_swap=10906M
+22:51:30 load=3.15 memfree=38% swap=10898M (+0M) gpu=8% holder=inkling-teacher: G2 mutant 64 tok 
+22:51:45 load=4.00 memfree=37% swap=24179M (+13281M) gpu=7% holder=inkling-teacher: G2 mutant 64 tok 
+22:52:00 load=3.40 memfree=37% swap=31943M (+21045M) gpu=8% holder=inkling-teacher: G2 mutant 64 tok 
+2026-11-21 22:52:00 PAUSED pgid 34547
+2026-11-21 22:52:00 EXIT CRITICAL: load=3.40 memfree=37% swap=31943M (+21045M over base) gpu=8%; paused pgid 34547
+2026-11-21 22:52:22 START base_swap=7914M
+22:52:22 load=3.41 memfree=92% swap=7914M (+0M) gpu=7% holder=none
+22:52:37 load=3.04 memfree=93% swap=7866M (+0M) gpu=7% holder=none
+22:52:52 load=2.96 memfree=93% swap=7818M (+0M) gpu=7% holder=none
+22:53:07 load=2.62 memfree=93% swap=7794M (+0M) gpu=7% holder=none
+22:53:22 load=2.26 memfree=93% swap=7778M (+0M) gpu=7% holder=none
+22:53:37 load=1.90 memfree=93% swap=7762M (+0M) gpu=8% holder=none
+22:53:52 load=1.92 memfree=93% swap=7721M (+0M) gpu=7% holder=none
+22:54:07 load=2.01 memfree=92% swap=7705M (+0M) gpu=7% holder=none
+22:54:22 load=2.15 memfree=93% swap=7689M (+0M) gpu=13% holder=none
+22:54:37 load=3.13 memfree=93% swap=7625M (+0M) gpu=7% holder=inkling: G2 mutant, memory-safe 
+22:54:52 load=5.07 memfree=93% swap=7513M (+0M) gpu=6% holder=inkling: G2 mutant, memory-safe 
+22:55:07 load=6.01 memfree=93% swap=7513M (+0M) gpu=6% holder=inkling: G2 mutant, memory-safe 
+22:55:22 load=6.72 memfree=94% swap=7513M (+0M) gpu=0% holder=inkling: G2 mutant, memory-safe 
+22:55:38 load=6.22 memfree=94% swap=7497M (+0M) gpu=0% holder=inkling: G2 mutant, memory-safe 
+22:55:53 load=6.69 memfree=94% swap=7489M (+0M) gpu=0% holder=inkling: G2 mutant, memory-safe 
+22:56:08 load=7.42 memfree=93% swap=7489M (+0M) gpu=0% holder=inkling: G2 mutant, memory-safe 
+22:56:23 load=7.38 memfree=94% swap=7461M (+0M) gpu=0% holder=inkling: G2 mutant, memory-safe 
+22:56:38 load=6.04 memfree=86% swap=7309M (+0M) gpu=1% holder=inkling: capture 64x2048 mps 
+22:56:53 load=5.13 memfree=77% swap=7285M (+0M) gpu=94% holder=inkling: capture 64x2048 mps 
+22:57:08 load=4.14 memfree=78% swap=7285M (+0M) gpu=95% holder=inkling: capture 64x2048 mps 
+22:57:23 load=3.37 memfree=78% swap=7277M (+0M) gpu=93% holder=inkling: capture 64x2048 mps 
+22:57:38 load=3.51 memfree=78% swap=7269M (+0M) gpu=96% holder=inkling: capture 64x2048 mps 
+22:57:53 load=3.16 memfree=75% swap=7269M (+0M) gpu=94% holder=inkling: capture 64x2048 mps 
+22:58:08 load=2.76 memfree=75% swap=7261M (+0M) gpu=92% holder=inkling: capture 64x2048 mps 
+22:58:23 load=2.45 memfree=73% swap=7253M (+0M) gpu=94% holder=inkling: capture 64x2048 mps 
+22:58:38 load=2.78 memfree=75% swap=7253M (+0M) gpu=94% holder=inkling: capture 64x2048 mps 
+22:58:53 load=2.51 memfree=73% swap=7245M (+0M) gpu=93% holder=inkling: capture 64x2048 mps 
+22:59:08 load=2.18 memfree=73% swap=7237M (+0M) gpu=94% holder=inkling: capture 64x2048 mps 
+22:59:23 load=1.92 memfree=73% swap=7237M (+0M) gpu=92% holder=inkling: capture 64x2048 mps 
+22:59:38 load=1.64 memfree=74% swap=7237M (+0M) gpu=92% holder=inkling: capture 64x2048 mps 
+22:59:53 load=2.08 memfree=72% swap=7237M (+0M) gpu=92% holder=inkling: capture 64x2048 mps 
+23:00:09 load=1.85 memfree=71% swap=7189M (+0M) gpu=94% holder=inkling: capture 64x2048 mps 
+23:00:24 load=1.73 memfree=71% swap=7189M (+0M) gpu=0% holder=inkling: capture 64x2048 mps 
+23:00:39 load=1.50 memfree=69% swap=7173M (+0M) gpu=0% holder=inkling: capture 64x2048 mps 
+23:00:54 load=1.32 memfree=71% swap=7165M (+0M) gpu=0% holder=inkling: capture 64x2048 mps 
+23:01:09 load=1.31 memfree=71% swap=7157M (+0M) gpu=100% holder=inkling: capture 64x2048 mps 
+23:01:24 load=1.38 memfree=71% swap=7149M (+0M) gpu=100% holder=inkling: capture 64x2048 mps 
+23:01:39 load=1.36 memfree=69% swap=7149M (+0M) gpu=100% holder=inkling: capture 64x2048 mps 
+23:01:54 load=1.13 memfree=69% swap=7149M (+0M) gpu=94% holder=inkling: capture 64x2048 mps 
+23:02:09 load=0.95 memfree=69% swap=7149M (+0M) gpu=92% holder=inkling: capture 64x2048 mps 
+23:02:24 load=1.03 memfree=69% swap=7141M (+0M) gpu=94% holder=inkling: capture 64x2048 mps 
+23:02:39 load=1.49 memfree=68% swap=7133M (+0M) gpu=0% holder=inkling: capture 64x2048 mps 
+23:02:54 load=1.24 memfree=69% swap=7125M (+0M) gpu=96% holder=inkling: capture 64x2048 mps 
+23:03:09 load=1.19 memfree=68% swap=7125M (+0M) gpu=96% holder=inkling: capture 64x2048 mps 
+23:03:24 load=1.15 memfree=68% swap=7125M (+0M) gpu=96% holder=inkling: capture 64x2048 mps 
+23:03:39 load=1.21 memfree=69% swap=7117M (+0M) gpu=96% holder=inkling: capture 64x2048 mps 
+23:03:54 load=1.10 memfree=69% swap=7085M (+0M) gpu=96% holder=inkling: capture 64x2048 mps 
+23:04:09 load=1.21 memfree=69% swap=7069M (+0M) gpu=96% holder=inkling: capture 64x2048 mps 
+23:04:24 load=1.18 memfree=69% swap=7061M (+0M) gpu=95% holder=inkling: capture 64x2048 mps 
+23:04:39 load=0.99 memfree=69% swap=7061M (+0M) gpu=97% holder=inkling: capture 64x2048 mps 
+23:04:54 load=1.39 memfree=69% swap=7053M (+0M) gpu=80% holder=inkling: capture 64x2048 mps 
+23:05:10 load=2.04 memfree=69% swap=7053M (+0M) gpu=93% holder=inkling: capture 64x2048 mps 
+23:05:25 load=1.67 memfree=70% swap=7053M (+0M) gpu=94% holder=inkling: capture 64x2048 mps 
+23:05:40 load=1.52 memfree=71% swap=7029M (+0M) gpu=94% holder=inkling: capture 64x2048 mps 
+23:05:55 load=1.26 memfree=71% swap=7013M (+0M) gpu=96% holder=inkling: capture 64x2048 mps 
+23:06:10 load=1.20 memfree=69% swap=7013M (+0M) gpu=94% holder=inkling: capture 64x2048 mps 
+23:06:25 load=0.93 memfree=69% swap=7013M (+0M) gpu=94% holder=inkling: capture 64x2048 mps 
+23:06:40 load=0.95 memfree=68% swap=6997M (+0M) gpu=96% holder=inkling: capture 64x2048 mps 
+23:06:55 load=1.04 memfree=69% swap=6949M (+0M) gpu=95% holder=inkling: capture 64x2048 mps 
+23:07:10 load=1.76 memfree=69% swap=6949M (+0M) gpu=96% holder=inkling: capture 64x2048 mps 
+23:07:25 load=1.74 memfree=69% swap=6941M (+0M) gpu=94% holder=inkling: capture 64x2048 mps 
+23:07:40 load=1.51 memfree=69% swap=6941M (+0M) gpu=95% holder=inkling: capture 64x2048 mps 
+23:07:55 load=1.39 memfree=69% swap=6941M (+0M) gpu=95% holder=inkling: capture 64x2048 mps 
+23:08:10 load=1.15 memfree=69% swap=6933M (+0M) gpu=96% holder=inkling: capture 64x2048 mps 
+23:08:25 load=1.25 memfree=69% swap=6933M (+0M) gpu=88% holder=inkling: capture 64x2048 mps 
+23:08:40 load=1.05 memfree=69% swap=6933M (+0M) gpu=93% holder=inkling: capture 64x2048 mps 
+23:08:55 load=1.76 memfree=69% swap=6933M (+0M) gpu=87% holder=inkling: capture 64x2048 mps 
+23:09:10 load=1.51 memfree=69% swap=6933M (+0M) gpu=92% holder=inkling: capture 64x2048 mps 
+23:09:25 load=1.39 memfree=68% swap=6933M (+0M) gpu=89% holder=inkling: capture 64x2048 mps 
+23:09:40 load=2.41 memfree=68% swap=6925M (+0M) gpu=93% holder=inkling: capture 64x2048 mps 
+23:09:55 load=1.96 memfree=68% swap=6925M (+0M) gpu=96% holder=inkling: capture 64x2048 mps 
+23:10:11 load=1.74 memfree=69% swap=6925M (+0M) gpu=95% holder=inkling: capture 64x2048 mps 
+23:10:26 load=1.49 memfree=68% swap=6925M (+0M) gpu=95% holder=inkling: capture 64x2048 mps 
+23:10:41 load=2.42 memfree=69% swap=6925M (+0M) gpu=93% holder=inkling: capture 64x2048 mps 
+23:10:56 load=2.18 memfree=69% swap=6925M (+0M) gpu=94% holder=inkling: capture 64x2048 mps 
+23:11:11 load=2.23 memfree=69% swap=6925M (+0M) gpu=93% holder=inkling: capture 64x2048 mps 
+23:11:26 load=1.96 memfree=69% swap=6917M (+0M) gpu=95% holder=inkling: capture 64x2048 mps 
+23:11:41 load=2.12 memfree=69% swap=6917M (+0M) gpu=95% holder=inkling: capture 64x2048 mps 
+23:11:56 load=2.32 memfree=67% swap=6909M (+0M) gpu=90% holder=inkling: capture 64x2048 mps 
+23:12:11 load=2.10 memfree=69% swap=6909M (+0M) gpu=95% holder=inkling: capture 64x2048 mps 
+23:12:26 load=2.90 memfree=66% swap=6909M (+0M) gpu=93% holder=inkling: capture 64x2048 mps 
+23:12:41 load=2.86 memfree=69% swap=6909M (+0M) gpu=94% holder=inkling: capture 64x2048 mps 
+23:12:56 load=3.15 memfree=69% swap=6901M (+0M) gpu=96% holder=inkling: capture 64x2048 mps 
+23:13:11 load=2.83 memfree=69% swap=6901M (+0M) gpu=96% holder=inkling: capture 64x2048 mps 
+23:13:26 load=2.43 memfree=69% swap=6893M (+0M) gpu=95% holder=inkling: capture 64x2048 mps 
+23:13:41 load=2.41 memfree=68% swap=6885M (+0M) gpu=91% holder=inkling: capture 64x2048 mps 
+23:13:56 load=2.11 memfree=71% swap=6877M (+0M) gpu=94% holder=inkling: capture 64x2048 mps 
+23:14:11 load=3.49 memfree=71% swap=6877M (+0M) gpu=92% holder=inkling: capture 64x2048 mps 
+23:14:26 load=3.08 memfree=71% swap=6869M (+0M) gpu=95% holder=inkling: capture 64x2048 mps 
+23:14:41 load=2.56 memfree=93% swap=6861M (+0M) gpu=19% holder=none
+23:14:56 load=2.67 memfree=93% swap=6861M (+0M) gpu=7% holder=inkling: prep layer 6 
+23:15:12 load=3.40 memfree=93% swap=6861M (+0M) gpu=12% holder=inkling: prep layer 6 
+23:15:27 load=4.47 memfree=93% swap=6853M (+0M) gpu=6% holder=inkling: prep layer 6 
+23:15:42 load=5.31 memfree=93% swap=6853M (+0M) gpu=6% holder=inkling: prep layer 6 
+23:15:57 load=4.78 memfree=93% swap=6853M (+0M) gpu=13% holder=none
+23:16:12 load=4.08 memfree=93% swap=6837M (+0M) gpu=12% holder=none
+23:16:27 load=3.99 memfree=93% swap=6837M (+0M) gpu=7% holder=inkling-extq: interface test L6 experts 0..2 
+23:16:42 load=5.63 memfree=93% swap=6837M (+0M) gpu=7% holder=inkling-extq: interface test L6 experts 0..2 
+23:16:57 load=5.62 memfree=93% swap=6837M (+0M) gpu=7% holder=inkling: prep layer 6 
+23:17:12 load=6.57 memfree=94% swap=6837M (+0M) gpu=6% holder=inkling: prep layer 6 
+23:17:27 load=5.55 memfree=94% swap=6837M (+0M) gpu=0% holder=inkling: prep layer 6 
+23:17:42 load=5.41 memfree=94% swap=6837M (+0M) gpu=0% holder=inkling-extq: layer 6 
+23:17:57 load=6.43 memfree=94% swap=6821M (+0M) gpu=0% holder=inkling-extq: layer 6 
+23:18:12 load=6.87 memfree=94% swap=6821M (+0M) gpu=0% holder=inkling-extq: layer 6 
+23:18:27 load=7.64 memfree=94% swap=6821M (+0M) gpu=0% holder=inkling-extq: layer 6 
+23:18:42 load=8.17 memfree=93% swap=6821M (+0M) gpu=1% holder=inkling-extq: layer 6 
+23:18:57 load=8.65 memfree=94% swap=6821M (+0M) gpu=0% holder=inkling-extq: layer 6 
+23:19:12 load=9.11 memfree=94% swap=6821M (+0M) gpu=0% holder=inkling-extq: layer 6 
+23:19:27 load=9.05 memfree=94% swap=6821M (+0M) gpu=0% holder=inkling-extq: layer 6 
+23:19:42 load=9.63 memfree=94% swap=6821M (+0M) gpu=0% holder=inkling-extq: layer 6 
+23:19:58 load=9.86 memfree=94% swap=6821M (+0M) gpu=0% holder=inkling-extq: layer 6 
+23:20:13 load=10.05 memfree=94% swap=6821M (+0M) gpu=0% holder=inkling-extq: layer 6 
+23:20:28 load=10.32 memfree=93% swap=6813M (+0M) gpu=1% holder=inkling-extq: layer 6 
+23:20:43 load=9.80 memfree=94% swap=6813M (+0M) gpu=0% holder=inkling-extq: layer 6 
+23:20:58 load=9.98 memfree=94% swap=6805M (+0M) gpu=0% holder=inkling-extq: layer 6 
+23:21:13 load=9.83 memfree=94% swap=6637M (+0M) gpu=0% holder=inkling-extq: layer 6 
+23:21:28 load=10.24 memfree=94% swap=6629M (+0M) gpu=0% holder=inkling-extq: layer 6 
+23:21:43 load=10.24 memfree=94% swap=6621M (+0M) gpu=0% holder=inkling-extq: layer 6 
+23:21:58 load=10.34 memfree=94% swap=6621M (+0M) gpu=0% holder=inkling-extq: layer 6 
+23:22:13 load=10.62 memfree=94% swap=6621M (+0M) gpu=0% holder=inkling-extq: layer 6 
+23:22:28 load=10.48 memfree=94% swap=6613M (+0M) gpu=0% holder=inkling-extq: layer 6 
+23:22:43 load=10.38 memfree=94% swap=6613M (+0M) gpu=0% holder=inkling-extq: layer 6 
+23:22:58 load=10.36 memfree=94% swap=6613M (+0M) gpu=0% holder=inkling-extq: layer 6 
+23:23:13 load=10.28 memfree=94% swap=6613M (+0M) gpu=0% holder=inkling-extq: layer 6 
+23:23:28 load=10.22 memfree=94% swap=6613M (+0M) gpu=0% holder=inkling-extq: layer 6 
+23:23:43 load=9.65 memfree=94% swap=6613M (+0M) gpu=0% holder=inkling-extq: layer 6 
+23:23:58 load=9.73 memfree=95% swap=6605M (+0M) gpu=0% holder=inkling-extq: layer 6 
+23:24:13 load=9.86 memfree=95% swap=6605M (+0M) gpu=0% holder=inkling-extq: layer 6 
+23:24:28 load=9.97 memfree=94% swap=6605M (+0M) gpu=0% holder=inkling-extq: layer 6 
+23:24:44 load=9.98 memfree=94% swap=6605M (+0M) gpu=0% holder=inkling-extq: layer 6 
+23:24:59 load=9.25 memfree=94% swap=6605M (+0M) gpu=0% holder=inkling-extq: layer 6 
+23:25:14 load=9.42 memfree=95% swap=6605M (+0M) gpu=0% holder=inkling-extq: layer 6 
+23:25:29 load=9.62 memfree=94% swap=6597M (+0M) gpu=0% holder=inkling-extq: layer 6 
+23:25:44 load=9.70 memfree=95% swap=6597M (+0M) gpu=0% holder=inkling-extq: layer 6 
+23:25:59 load=9.91 memfree=94% swap=6597M (+0M) gpu=0% holder=inkling-extq: layer 6 
+23:26:14 load=10.06 memfree=95% swap=6597M (+0M) gpu=0% holder=inkling-extq: layer 6 
+23:26:29 load=10.05 memfree=94% swap=6589M (+0M) gpu=0% holder=inkling-extq: layer 6 
+23:26:44 load=9.40 memfree=94% swap=6589M (+0M) gpu=0% holder=inkling-extq: layer 6 
+23:26:59 load=9.75 memfree=94% swap=6589M (+0M) gpu=0% holder=inkling-extq: layer 6 
+23:27:14 load=10.10 memfree=95% swap=6589M (+0M) gpu=0% holder=inkling-extq: layer 6 
+23:27:29 load=10.08 memfree=94% swap=6589M (+0M) gpu=0% holder=inkling-extq: layer 6 
+23:27:44 load=10.14 memfree=94% swap=6573M (+0M) gpu=0% holder=inkling-extq: layer 6 
+23:27:59 load=10.11 memfree=94% swap=6573M (+0M) gpu=0% holder=inkling-extq: layer 6 
+23:28:14 load=10.08 memfree=94% swap=6573M (+0M) gpu=0% holder=inkling-extq: layer 6 
+23:28:29 load=10.14 memfree=94% swap=6573M (+0M) gpu=0% holder=inkling-extq: layer 6 
+23:28:44 load=9.53 memfree=94% swap=6565M (+0M) gpu=0% holder=inkling-extq: layer 6 
+23:28:59 load=9.78 memfree=94% swap=6565M (+0M) gpu=0% holder=inkling-extq: layer 6 
+23:29:15 load=9.91 memfree=94% swap=6565M (+0M) gpu=0% holder=inkling-extq: layer 6 
+23:29:30 load=8.74 memfree=94% swap=6565M (+0M) gpu=0% holder=inkling-extq: layer 6 
+23:29:45 load=9.17 memfree=94% swap=6565M (+0M) gpu=0% holder=inkling-extq: layer 6 
+23:30:00 load=9.42 memfree=94% swap=6565M (+0M) gpu=0% holder=inkling-extq: layer 6 
+23:30:15 load=9.21 memfree=94% swap=6565M (+0M) gpu=0% holder=inkling-extq: layer 6 
+23:30:30 load=9.60 memfree=94% swap=6565M (+0M) gpu=0% holder=inkling-extq: layer 6 
+23:30:45 load=9.69 memfree=94% swap=6565M (+0M) gpu=0% holder=inkling-extq: layer 6 
+23:31:00 load=9.76 memfree=94% swap=6557M (+0M) gpu=0% holder=inkling-extq: layer 6 
+23:31:15 load=9.89 memfree=95% swap=6557M (+0M) gpu=0% holder=inkling-extq: layer 6 
+23:31:30 load=9.91 memfree=94% swap=6557M (+0M) gpu=0% holder=inkling-extq: layer 6 
+23:31:45 load=10.17 memfree=94% swap=6557M (+0M) gpu=0% holder=inkling-extq: layer 6 
+23:32:00 load=9.69 memfree=94% swap=6557M (+0M) gpu=0% holder=inkling-extq: layer 6 
+23:32:15 load=10.33 memfree=94% swap=6549M (+0M) gpu=0% holder=inkling-extq: layer 6 
+23:32:30 load=10.32 memfree=94% swap=6549M (+0M) gpu=0% holder=inkling-extq: layer 6 
+23:32:45 load=10.60 memfree=94% swap=6549M (+0M) gpu=0% holder=inkling-extq: layer 6 
+23:33:00 load=10.47 memfree=94% swap=6549M (+0M) gpu=0% holder=inkling-extq: layer 6 
+23:33:15 load=9.05 memfree=94% swap=6517M (+0M) gpu=0% holder=inkling-extq: layer 6 
+23:33:30 load=9.34 memfree=94% swap=6509M (+0M) gpu=0% holder=inkling-extq: layer 6 
+23:33:45 load=9.73 memfree=94% swap=6509M (+0M) gpu=0% holder=inkling-extq: layer 6 
+23:34:01 load=9.18 memfree=94% swap=6509M (+0M) gpu=0% holder=inkling-extq: layer 6 
+23:34:16 load=9.50 memfree=94% swap=6509M (+0M) gpu=0% holder=inkling-extq: layer 6 
+23:34:31 load=8.82 memfree=94% swap=6509M (+0M) gpu=0% holder=inkling-extq: layer 6 
+23:34:46 load=9.31 memfree=94% swap=6509M (+0M) gpu=0% holder=inkling-extq: layer 6 
+23:35:01 load=9.73 memfree=93% swap=6493M (+0M) gpu=0% holder=inkling-extq: layer 6 
+23:35:16 load=9.06 memfree=94% swap=6485M (+0M) gpu=0% holder=inkling-extq: layer 6 
+23:35:31 load=9.27 memfree=94% swap=6485M (+0M) gpu=0% holder=inkling-extq: layer 6 
+23:35:46 load=9.35 memfree=94% swap=6485M (+0M) gpu=0% holder=inkling-extq: layer 6 
+23:36:01 load=8.88 memfree=94% swap=6485M (+0M) gpu=0% holder=inkling-extq: layer 6 
+23:36:16 load=9.13 memfree=94% swap=6485M (+0M) gpu=0% holder=inkling-extq: layer 6 
+23:36:31 load=8.60 memfree=94% swap=6387M (+0M) gpu=0% holder=inkling-extq: layer 6 
+23:36:46 load=8.98 memfree=94% swap=6387M (+0M) gpu=0% holder=inkling-extq: layer 6 
+23:37:01 load=9.21 memfree=94% swap=6387M (+0M) gpu=0% holder=inkling-extq: layer 6 
+23:37:16 load=8.87 memfree=94% swap=6387M (+0M) gpu=0% holder=inkling-extq: layer 6 
+23:37:31 load=9.48 memfree=94% swap=6387M (+0M) gpu=0% holder=inkling-extq: layer 6 
+23:37:46 load=9.66 memfree=94% swap=6387M (+0M) gpu=0% holder=inkling-extq: layer 6 
+23:38:01 load=9.74 memfree=94% swap=6387M (+0M) gpu=0% holder=inkling-extq: layer 6 
+23:38:16 load=9.87 memfree=94% swap=6379M (+0M) gpu=0% holder=inkling-extq: layer 6 
+23:38:31 load=9.90 memfree=94% swap=6379M (+0M) gpu=0% holder=inkling-extq: layer 6 
+23:38:47 load=9.92 memfree=94% swap=6379M (+0M) gpu=0% holder=inkling-extq: layer 6 
+23:39:02 load=10.00 memfree=94% swap=6379M (+0M) gpu=0% holder=inkling-extq: layer 6 
+23:39:17 load=9.79 memfree=94% swap=6379M (+0M) gpu=0% holder=inkling-extq: layer 6 
+23:39:32 load=9.91 memfree=94% swap=6371M (+0M) gpu=0% holder=inkling-extq: layer 6 
+23:39:47 load=10.22 memfree=94% swap=6347M (+0M) gpu=0% holder=inkling-extq: layer 6 
+23:40:02 load=10.54 memfree=94% swap=6347M (+0M) gpu=0% holder=inkling-extq: layer 6 
+23:40:17 load=10.49 memfree=94% swap=6347M (+0M) gpu=0% holder=inkling-extq: layer 6 
+23:40:32 load=10.46 memfree=94% swap=6347M (+0M) gpu=0% holder=inkling-extq: layer 6 
+23:40:47 load=10.49 memfree=94% swap=6347M (+0M) gpu=0% holder=inkling-extq: layer 6 
+23:41:02 load=9.72 memfree=94% swap=6347M (+0M) gpu=0% holder=inkling-extq: layer 6 
+23:41:17 load=9.78 memfree=95% swap=6347M (+0M) gpu=0% holder=inkling-extq: layer 6 
+23:41:32 load=9.42 memfree=94% swap=6339M (+0M) gpu=0% holder=inkling-extq: layer 6 
+23:41:47 load=9.62 memfree=94% swap=6339M (+0M) gpu=0% holder=inkling-extq: layer 6 
+23:42:02 load=9.77 memfree=94% swap=6339M (+0M) gpu=0% holder=inkling-extq: layer 6 
+23:42:17 load=10.05 memfree=94% swap=6339M (+0M) gpu=0% holder=inkling-extq: layer 6 
+23:42:32 load=10.25 memfree=94% swap=6339M (+0M) gpu=0% holder=inkling-extq: layer 6 
+23:42:47 load=10.12 memfree=95% swap=6339M (+0M) gpu=0% holder=inkling-extq: layer 6 
+23:43:02 load=9.55 memfree=93% swap=6339M (+0M) gpu=0% holder=inkling-extq: layer 6 
+23:43:17 load=9.89 memfree=94% swap=6339M (+0M) gpu=0% holder=inkling-extq: layer 6 
+23:43:33 load=9.98 memfree=94% swap=6339M (+0M) gpu=0% holder=inkling-extq: layer 6 
+23:43:48 load=10.78 memfree=94% swap=6339M (+0M) gpu=0% holder=inkling-extq: layer 6 
+23:44:03 load=10.61 memfree=94% swap=6315M (+0M) gpu=0% holder=inkling-extq: layer 6 
+23:44:18 load=9.88 memfree=94% swap=6307M (+0M) gpu=0% holder=inkling-extq: layer 6 
+23:44:33 load=9.97 memfree=94% swap=6307M (+0M) gpu=0% holder=inkling-extq: layer 6 
+23:44:48 load=10.05 memfree=94% swap=6307M (+0M) gpu=0% holder=inkling-extq: layer 6 
+23:45:03 load=10.33 memfree=94% swap=6299M (+0M) gpu=1% holder=inkling-extq: layer 6 
+23:45:18 load=10.48 memfree=94% swap=6291M (+0M) gpu=0% holder=inkling-extq: layer 6 
+23:45:33 load=10.30 memfree=94% swap=6291M (+0M) gpu=0% holder=inkling-extq: layer 6 
+23:45:48 load=8.23 memfree=94% swap=6291M (+0M) gpu=0% holder=inkling: prep layer 7 
+23:46:03 load=6.71 memfree=94% swap=6291M (+0M) gpu=0% holder=inkling: prep layer 7 
+23:46:18 load=5.60 memfree=94% swap=6291M (+0M) gpu=0% holder=inkling: prep layer 7 
+23:46:33 load=4.89 memfree=94% swap=6291M (+0M) gpu=0% holder=inkling: prep layer 7 
+23:46:48 load=6.09 memfree=94% swap=6291M (+0M) gpu=0% holder=inkling-extq: layer 7 
+23:47:03 load=6.89 memfree=94% swap=6291M (+0M) gpu=0% holder=inkling-extq: layer 7 
+23:47:18 load=7.85 memfree=94% swap=6291M (+0M) gpu=0% holder=inkling-extq: layer 7 
+23:47:33 load=8.48 memfree=94% swap=6291M (+0M) gpu=0% holder=inkling-extq: layer 7 
+23:47:48 load=9.12 memfree=94% swap=6291M (+0M) gpu=0% holder=inkling-extq: layer 7 
+23:48:03 load=9.46 memfree=94% swap=6291M (+0M) gpu=0% holder=inkling-extq: layer 7 
+23:48:19 load=8.99 memfree=94% swap=6291M (+0M) gpu=0% holder=inkling-extq: layer 7 
+23:48:34 load=9.21 memfree=94% swap=6283M (+0M) gpu=0% holder=inkling-extq: layer 7 
+23:48:49 load=8.66 memfree=94% swap=6283M (+0M) gpu=0% holder=inkling-extq: layer 7 
+23:49:04 load=9.03 memfree=94% swap=6283M (+0M) gpu=0% holder=inkling-extq: layer 7 
+23:49:19 load=9.31 memfree=94% swap=6283M (+0M) gpu=0% holder=inkling-extq: layer 7 
+23:49:34 load=9.09 memfree=94% swap=6283M (+0M) gpu=0% holder=inkling-extq: layer 7 
+23:49:49 load=9.29 memfree=94% swap=6283M (+0M) gpu=0% holder=inkling-extq: layer 7 
+23:50:04 load=9.58 memfree=94% swap=6283M (+0M) gpu=0% holder=inkling-extq: layer 7 
+23:50:19 load=9.76 memfree=94% swap=6283M (+0M) gpu=0% holder=inkling-extq: layer 7 
+23:50:34 load=10.11 memfree=94% swap=6283M (+0M) gpu=0% holder=inkling-extq: layer 7 
+23:50:49 load=10.15 memfree=94% swap=6283M (+0M) gpu=0% holder=inkling-extq: layer 7 
+23:51:04 load=10.28 memfree=94% swap=6283M (+0M) gpu=0% holder=inkling-extq: layer 7 
+23:51:19 load=10.43 memfree=94% swap=6283M (+0M) gpu=0% holder=inkling-extq: layer 7 
+23:51:34 load=10.58 memfree=94% swap=6283M (+0M) gpu=0% holder=inkling-extq: layer 7 
+23:51:49 load=10.45 memfree=94% swap=6283M (+0M) gpu=0% holder=inkling-extq: layer 7 
+23:52:04 load=10.42 memfree=94% swap=6283M (+0M) gpu=0% holder=inkling-extq: layer 7 
+23:52:19 load=10.32 memfree=94% swap=6283M (+0M) gpu=0% holder=inkling-extq: layer 7 
+23:52:34 load=10.25 memfree=94% swap=6283M (+0M) gpu=0% holder=inkling-extq: layer 7 
+23:52:49 load=10.27 memfree=94% swap=6283M (+0M) gpu=0% holder=inkling-extq: layer 7 
+23:53:05 load=10.36 memfree=94% swap=6283M (+0M) gpu=0% holder=inkling-extq: layer 7 
+23:53:20 load=9.97 memfree=94% swap=6267M (+0M) gpu=0% holder=inkling-extq: layer 7 
+23:53:35 load=10.11 memfree=94% swap=6267M (+0M) gpu=0% holder=inkling-extq: layer 7 
+23:53:50 load=10.08 memfree=94% swap=6267M (+0M) gpu=0% holder=inkling-extq: layer 7 
+23:54:05 load=9.45 memfree=94% swap=6259M (+0M) gpu=0% holder=inkling-extq: layer 7 
+23:54:20 load=10.85 memfree=94% swap=6259M (+0M) gpu=0% holder=inkling-extq: layer 7 
+23:54:35 load=10.66 memfree=94% swap=6259M (+0M) gpu=0% holder=inkling-extq: layer 7 
+23:54:50 load=10.52 memfree=94% swap=6259M (+0M) gpu=0% holder=inkling-extq: layer 7 
+23:55:05 load=10.47 memfree=94% swap=6259M (+0M) gpu=0% holder=inkling-extq: layer 7 
+23:55:20 load=10.36 memfree=94% swap=6259M (+0M) gpu=0% holder=inkling-extq: layer 7 
+23:55:35 load=10.36 memfree=94% swap=6259M (+0M) gpu=0% holder=inkling-extq: layer 7 
+23:55:50 load=9.49 memfree=94% swap=6259M (+0M) gpu=0% holder=inkling-extq: layer 7 
+23:56:05 load=9.89 memfree=94% swap=6259M (+0M) gpu=0% holder=inkling-extq: layer 7 
+23:56:20 load=10.12 memfree=94% swap=6259M (+0M) gpu=0% holder=inkling-extq: layer 7 
+23:56:35 load=10.40 memfree=94% swap=6259M (+0M) gpu=0% holder=inkling-extq: layer 7 
+23:56:50 load=10.31 memfree=94% swap=6259M (+0M) gpu=0% holder=inkling-extq: layer 7 
+23:57:05 load=10.31 memfree=94% swap=6259M (+0M) gpu=0% holder=inkling-extq: layer 7 
+23:57:20 load=10.24 memfree=94% swap=6259M (+0M) gpu=0% holder=inkling-extq: layer 7 
+23:57:35 load=10.17 memfree=94% swap=6259M (+0M) gpu=0% holder=inkling-extq: layer 7 
+23:57:51 load=9.53 memfree=94% swap=6259M (+0M) gpu=0% holder=inkling-extq: layer 7 
+23:58:06 load=9.63 memfree=94% swap=6259M (+0M) gpu=0% holder=inkling-extq: layer 7 
+23:58:21 load=9.71 memfree=93% swap=6259M (+0M) gpu=1% holder=inkling-extq: layer 7 
+23:58:36 load=9.84 memfree=94% swap=6259M (+0M) gpu=0% holder=inkling-extq: layer 7 
+23:58:51 load=10.18 memfree=94% swap=6259M (+0M) gpu=0% holder=inkling-extq: layer 7 
+23:59:06 load=10.36 memfree=94% swap=6259M (+0M) gpu=0% holder=inkling-extq: layer 7 
+23:59:21 load=10.64 memfree=94% swap=6259M (+0M) gpu=0% holder=inkling-extq: layer 7 
+23:59:36 load=10.66 memfree=94% swap=6259M (+0M) gpu=0% holder=inkling-extq: layer 7 
+23:59:51 load=10.51 memfree=94% swap=6259M (+0M) gpu=0% holder=inkling-extq: layer 7 
+00:00:06 load=10.69 memfree=94% swap=6203M (+0M) gpu=0% holder=inkling-extq: layer 7 
+00:00:21 load=10.54 memfree=94% swap=6203M (+0M) gpu=0% holder=inkling-extq: layer 7 
+00:00:36 load=10.42 memfree=94% swap=6179M (+0M) gpu=0% holder=inkling-extq: layer 7 
+00:00:51 load=9.67 memfree=94% swap=6179M (+0M) gpu=0% holder=inkling-extq: layer 7 
+00:01:06 load=9.90 memfree=94% swap=6179M (+0M) gpu=0% holder=inkling-extq: layer 7 
+00:01:21 load=9.99 memfree=94% swap=6179M (+0M) gpu=0% holder=inkling-extq: layer 7 
+00:01:36 load=10.14 memfree=94% swap=6179M (+0M) gpu=0% holder=inkling-extq: layer 7 
+00:01:51 load=10.64 memfree=94% swap=6179M (+0M) gpu=0% holder=inkling-extq: layer 7 
+00:02:06 load=10.64 memfree=94% swap=6179M (+0M) gpu=0% holder=inkling-extq: layer 7 
+00:02:21 load=10.49 memfree=94% swap=6179M (+0M) gpu=0% holder=inkling-extq: layer 7 
+00:02:37 load=10.45 memfree=94% swap=6179M (+0M) gpu=0% holder=inkling-extq: layer 7 
+00:02:52 load=10.35 memfree=94% swap=6179M (+0M) gpu=0% holder=inkling-extq: layer 7 
+00:03:07 load=10.41 memfree=94% swap=6179M (+0M) gpu=0% holder=inkling-extq: layer 7 
+00:03:22 load=9.84 memfree=94% swap=6179M (+0M) gpu=0% holder=inkling-extq: layer 7 
+00:03:37 load=9.94 memfree=94% swap=6155M (+0M) gpu=0% holder=inkling-extq: layer 7 
+00:03:52 load=10.33 memfree=94% swap=6155M (+0M) gpu=0% holder=inkling-extq: layer 7 
+00:04:07 load=10.25 memfree=94% swap=6155M (+0M) gpu=0% holder=inkling-extq: layer 7 
+00:04:22 load=10.28 memfree=94% swap=6155M (+0M) gpu=0% holder=inkling-extq: layer 7 
+00:04:37 load=10.25 memfree=94% swap=6155M (+0M) gpu=0% holder=inkling-extq: layer 7 
+00:04:52 load=10.27 memfree=94% swap=6155M (+0M) gpu=0% holder=inkling-extq: layer 7 
+00:05:07 load=10.28 memfree=94% swap=6155M (+0M) gpu=0% holder=inkling-extq: layer 7 
+00:05:22 load=10.22 memfree=94% swap=6155M (+0M) gpu=0% holder=inkling-extq: layer 7 
+00:05:37 load=10.51 memfree=94% swap=6131M (+0M) gpu=0% holder=inkling-extq: layer 7 
+00:05:52 load=10.40 memfree=94% swap=6131M (+0M) gpu=0% holder=inkling-extq: layer 7 
+00:06:07 load=10.31 memfree=94% swap=6131M (+0M) gpu=0% holder=inkling-extq: layer 7 
+00:06:22 load=10.31 memfree=94% swap=6131M (+0M) gpu=0% holder=inkling-extq: layer 7 
+00:06:37 load=10.40 memfree=94% swap=6131M (+0M) gpu=0% holder=inkling-extq: layer 7 
+00:06:52 load=10.38 memfree=94% swap=6131M (+0M) gpu=0% holder=inkling-extq: layer 7 
+00:07:07 load=10.37 memfree=94% swap=6131M (+0M) gpu=0% holder=inkling-extq: layer 7 
+00:07:23 load=10.51 memfree=94% swap=6123M (+0M) gpu=0% holder=inkling-extq: layer 7 
+00:07:38 load=9.60 memfree=94% swap=6115M (+0M) gpu=0% holder=inkling-extq: layer 7 
+00:07:53 load=9.77 memfree=94% swap=6115M (+0M) gpu=0% holder=inkling-extq: layer 7 
+00:08:08 load=9.89 memfree=94% swap=6115M (+0M) gpu=0% holder=inkling-extq: layer 7 
+00:08:23 load=9.25 memfree=94% swap=6115M (+0M) gpu=0% holder=inkling-extq: layer 7 
+00:08:38 load=9.49 memfree=94% swap=6115M (+0M) gpu=0% holder=inkling-extq: layer 7 
+00:08:53 load=9.81 memfree=94% swap=5987M (+0M) gpu=0% holder=inkling-extq: layer 7 
+00:09:08 load=9.93 memfree=93% swap=5971M (+0M) gpu=0% holder=inkling-extq: layer 7 
+00:09:23 load=9.94 memfree=94% swap=5971M (+0M) gpu=0% holder=inkling-extq: layer 7 
+00:09:38 load=9.51 memfree=94% swap=5971M (+0M) gpu=0% holder=inkling-extq: layer 7 
+00:09:53 load=9.77 memfree=94% swap=5971M (+0M) gpu=0% holder=inkling-extq: layer 7 
+00:10:08 load=9.96 memfree=94% swap=5971M (+0M) gpu=0% holder=inkling-extq: layer 7 
+00:10:23 load=9.97 memfree=94% swap=5971M (+0M) gpu=0% holder=inkling-extq: layer 7 
+00:10:38 load=10.14 memfree=94% swap=5955M (+0M) gpu=0% holder=inkling-extq: layer 7 
+00:10:53 load=9.64 memfree=94% swap=5955M (+0M) gpu=0% holder=inkling-extq: layer 7 
+00:11:08 load=9.86 memfree=94% swap=5955M (+0M) gpu=0% holder=inkling-extq: layer 7 
+00:11:23 load=10.11 memfree=94% swap=5955M (+0M) gpu=0% holder=inkling-extq: layer 7 
+00:11:38 load=10.32 memfree=94% swap=5955M (+0M) gpu=0% holder=inkling-extq: layer 7 
+00:11:53 load=10.25 memfree=94% swap=5955M (+0M) gpu=0% holder=inkling-extq: layer 7 
+00:12:09 load=9.54 memfree=94% swap=5955M (+0M) gpu=0% holder=inkling-extq: layer 7 
+00:12:24 load=9.78 memfree=94% swap=5955M (+0M) gpu=0% holder=inkling-extq: layer 7 
+00:12:39 load=9.83 memfree=94% swap=5955M (+0M) gpu=0% holder=inkling-extq: layer 7 
+00:12:54 load=10.17 memfree=94% swap=5955M (+0M) gpu=0% holder=inkling-extq: layer 7 
+00:13:09 load=10.21 memfree=94% swap=5955M (+0M) gpu=0% holder=inkling-extq: layer 7 
+00:13:24 load=10.19 memfree=94% swap=5955M (+0M) gpu=0% holder=inkling-extq: layer 7 
+00:13:39 load=10.15 memfree=94% swap=5955M (+0M) gpu=0% holder=inkling-extq: layer 7 
+00:13:54 load=10.33 memfree=94% swap=5955M (+0M) gpu=0% holder=inkling-extq: layer 7 
+00:14:09 load=10.26 memfree=94% swap=5955M (+0M) gpu=0% holder=inkling-extq: layer 7 
+00:14:24 load=10.20 memfree=94% swap=5955M (+0M) gpu=0% holder=inkling-extq: layer 7 
+00:14:39 load=10.24 memfree=94% swap=5955M (+0M) gpu=0% holder=inkling-extq: layer 7 
+00:14:54 load=10.40 memfree=94% swap=5955M (+0M) gpu=0% holder=inkling-extq: layer 7 
+00:15:09 load=8.32 memfree=94% swap=5955M (+0M) gpu=0% holder=inkling: prep layer 8 
+00:15:24 load=7.50 memfree=93% swap=5955M (+0M) gpu=0% holder=inkling: prep layer 8 
+00:15:39 load=6.56 memfree=94% swap=5947M (+0M) gpu=0% holder=inkling: prep layer 8 
+00:15:54 load=5.48 memfree=94% swap=5947M (+0M) gpu=0% holder=inkling-extq: layer 8 
+00:16:09 load=6.48 memfree=94% swap=5947M (+0M) gpu=0% holder=inkling-extq: layer 8 
+00:16:24 load=7.55 memfree=94% swap=5947M (+0M) gpu=0% holder=inkling-extq: layer 8 
+00:16:39 load=8.09 memfree=94% swap=5947M (+0M) gpu=0% holder=inkling-extq: layer 8 
+00:16:55 load=8.51 memfree=94% swap=5947M (+0M) gpu=0% holder=inkling-extq: layer 8 
+00:17:10 load=9.16 memfree=94% swap=5947M (+0M) gpu=0% holder=inkling-extq: layer 8 
+00:17:25 load=9.42 memfree=94% swap=5947M (+0M) gpu=0% holder=inkling-extq: layer 8 
+00:17:40 load=9.69 memfree=94% swap=5947M (+0M) gpu=0% holder=inkling-extq: layer 8 
+00:17:55 load=9.89 memfree=94% swap=5931M (+0M) gpu=0% holder=inkling-extq: layer 8 
+00:18:10 load=9.92 memfree=94% swap=5931M (+0M) gpu=0% holder=inkling-extq: layer 8 
+00:18:25 load=9.93 memfree=93% swap=5923M (+0M) gpu=0% holder=inkling-extq: layer 8 
+00:18:40 load=9.87 memfree=94% swap=5923M (+0M) gpu=0% holder=inkling-extq: layer 8 
+00:18:55 load=10.31 memfree=94% swap=5923M (+0M) gpu=0% holder=inkling-extq: layer 8 
+00:19:10 load=9.60 memfree=94% swap=5923M (+0M) gpu=0% holder=inkling-extq: layer 8 
+00:19:25 load=9.24 memfree=94% swap=5923M (+0M) gpu=0% holder=inkling-extq: layer 8 
+00:19:40 load=9.63 memfree=94% swap=5923M (+0M) gpu=0% holder=inkling-extq: layer 8 
+00:19:55 load=9.88 memfree=94% swap=5923M (+0M) gpu=0% holder=inkling-extq: layer 8 
+00:20:10 load=9.98 memfree=94% swap=5923M (+0M) gpu=0% holder=inkling-extq: layer 8 
+00:20:25 load=10.32 memfree=93% swap=5923M (+0M) gpu=0% holder=inkling-extq: layer 8 
+00:20:40 load=10.32 memfree=94% swap=5907M (+0M) gpu=0% holder=inkling-extq: layer 8 
+00:20:55 load=10.25 memfree=94% swap=5907M (+0M) gpu=0% holder=inkling-extq: layer 8 
+00:21:10 load=12.50 memfree=94% swap=5907M (+0M) gpu=0% holder=inkling-extq: layer 8 
+00:21:25 load=12.23 memfree=94% swap=5907M (+0M) gpu=0% holder=inkling-extq: layer 8 
+00:21:41 load=11.01 memfree=94% swap=5891M (+0M) gpu=0% holder=inkling-extq: layer 8 
+00:21:56 load=10.79 memfree=94% swap=5891M (+0M) gpu=0% holder=inkling-extq: layer 8 
+00:22:11 load=10.77 memfree=94% swap=5891M (+0M) gpu=0% holder=inkling-extq: layer 8 
+00:22:26 load=10.90 memfree=93% swap=5891M (+0M) gpu=0% holder=inkling-extq: layer 8 
+2026-11-22 00:22:26 EXIT HEARTBEAT: no alert in 5400 s
+2026-11-22 00:22:47 START base_swap=5891M
+00:22:47 load=11.10 memfree=93% swap=5891M (+0M) gpu=9% holder=inkling-extq: layer 8 
+00:23:02 load=11.00 memfree=92% swap=5891M (+0M) gpu=13% holder=inkling-extq: layer 8 
+00:23:17 load=10.91 memfree=92% swap=5891M (+0M) gpu=7% holder=inkling-extq: layer 8 
+00:23:32 load=10.70 memfree=92% swap=5891M (+0M) gpu=11% holder=inkling-extq: layer 8 
+00:23:47 load=10.83 memfree=92% swap=5891M (+0M) gpu=7% holder=inkling-extq: layer 8 
+00:24:02 load=10.65 memfree=93% swap=5891M (+0M) gpu=7% holder=inkling-extq: layer 8 
+00:24:17 load=10.59 memfree=92% swap=5891M (+0M) gpu=12% holder=inkling-extq: layer 8 
+00:24:32 load=10.59 memfree=93% swap=5883M (+0M) gpu=10% holder=inkling-extq: layer 8 
+00:24:47 load=10.54 memfree=93% swap=5875M (+0M) gpu=23% holder=inkling-extq: layer 8 
+00:25:02 load=9.31 memfree=93% swap=5875M (+0M) gpu=1% holder=inkling-extq: layer 8 
+00:25:17 load=9.46 memfree=94% swap=5875M (+0M) gpu=0% holder=inkling-extq: layer 8 
+00:25:32 load=9.58 memfree=94% swap=5875M (+0M) gpu=0% holder=inkling-extq: layer 8 
+00:25:48 load=9.24 memfree=94% swap=5875M (+0M) gpu=0% holder=inkling-extq: layer 8 
+00:26:03 load=9.49 memfree=94% swap=5875M (+0M) gpu=0% holder=inkling-extq: layer 8 
+00:26:18 load=9.74 memfree=94% swap=5875M (+0M) gpu=0% holder=inkling-extq: layer 8 
+00:26:33 load=9.79 memfree=94% swap=5875M (+0M) gpu=0% holder=inkling-extq: layer 8 
+00:26:48 load=9.84 memfree=94% swap=5875M (+0M) gpu=0% holder=inkling-extq: layer 8 
+00:27:03 load=9.14 memfree=94% swap=5875M (+0M) gpu=0% holder=inkling-extq: layer 8 
+00:27:18 load=9.49 memfree=94% swap=5875M (+0M) gpu=0% holder=inkling-extq: layer 8 
+00:27:33 load=9.75 memfree=94% swap=5875M (+0M) gpu=0% holder=inkling-extq: layer 8 
+00:27:48 load=9.80 memfree=94% swap=5875M (+0M) gpu=0% holder=inkling-extq: layer 8 
+00:28:03 load=9.85 memfree=94% swap=5875M (+0M) gpu=0% holder=inkling-extq: layer 8 
+00:28:18 load=9.97 memfree=94% swap=5875M (+0M) gpu=0% holder=inkling-extq: layer 8 
+00:28:33 load=10.19 memfree=94% swap=5875M (+0M) gpu=0% holder=inkling-extq: layer 8 
+00:28:48 load=9.35 memfree=94% swap=5875M (+0M) gpu=0% holder=inkling-extq: layer 8 
+00:29:03 load=9.49 memfree=94% swap=5875M (+0M) gpu=0% holder=inkling-extq: layer 8 
+00:29:18 load=9.97 memfree=94% swap=5875M (+0M) gpu=0% holder=inkling-extq: layer 8 
+00:29:33 load=10.21 memfree=94% swap=5875M (+0M) gpu=0% holder=inkling-extq: layer 8 
+00:29:48 load=10.16 memfree=94% swap=5859M (+0M) gpu=0% holder=inkling-extq: layer 8 
+00:30:03 load=10.26 memfree=94% swap=5859M (+0M) gpu=0% holder=inkling-extq: layer 8 
+00:30:18 load=10.20 memfree=94% swap=5859M (+0M) gpu=0% holder=inkling-extq: layer 8 
+00:30:34 load=10.16 memfree=94% swap=5859M (+0M) gpu=0% holder=inkling-extq: layer 8 
+00:30:49 load=10.28 memfree=94% swap=5843M (+0M) gpu=0% holder=inkling-extq: layer 8 
+00:31:04 load=10.42 memfree=94% swap=5843M (+0M) gpu=0% holder=inkling-extq: layer 8 
+00:31:19 load=10.48 memfree=94% swap=5843M (+0M) gpu=0% holder=inkling-extq: layer 8 
+00:31:34 load=10.50 memfree=94% swap=5843M (+0M) gpu=0% holder=inkling-extq: layer 8 
+00:31:49 load=10.47 memfree=94% swap=5835M (+0M) gpu=0% holder=inkling-extq: layer 8 
+00:32:04 load=10.53 memfree=93% swap=5835M (+0M) gpu=1% holder=inkling-extq: layer 8 
+00:32:19 load=10.41 memfree=94% swap=5835M (+0M) gpu=0% holder=inkling-extq: layer 8 
+00:32:34 load=9.60 memfree=94% swap=5835M (+0M) gpu=0% holder=inkling-extq: layer 8 
+00:32:49 load=9.69 memfree=94% swap=5835M (+0M) gpu=0% holder=inkling-extq: layer 8 
+00:33:04 load=9.83 memfree=94% swap=5835M (+0M) gpu=0% holder=inkling-extq: layer 8 
+00:33:19 load=10.10 memfree=94% swap=5835M (+0M) gpu=0% holder=inkling-extq: layer 8 
+00:33:34 load=10.68 memfree=94% swap=5835M (+0M) gpu=0% holder=inkling-extq: layer 8 
+00:33:49 load=10.30 memfree=94% swap=5835M (+0M) gpu=0% holder=inkling-extq: layer 8 
+00:34:04 load=10.47 memfree=94% swap=5835M (+0M) gpu=0% holder=inkling-extq: layer 8 
+00:34:19 load=10.37 memfree=94% swap=5835M (+0M) gpu=0% holder=inkling-extq: layer 8 
+00:34:34 load=10.37 memfree=94% swap=5835M (+0M) gpu=0% holder=inkling-extq: layer 8 
+00:34:49 load=10.28 memfree=94% swap=5835M (+0M) gpu=0% holder=inkling-extq: layer 8 
+00:35:04 load=10.22 memfree=94% swap=5835M (+0M) gpu=0% holder=inkling-extq: layer 8 
+00:35:20 load=10.39 memfree=94% swap=5835M (+0M) gpu=0% holder=inkling-extq: layer 8 
+00:35:35 load=10.43 memfree=94% swap=5835M (+0M) gpu=0% holder=inkling-extq: layer 8 
+00:35:50 load=9.79 memfree=94% swap=5835M (+0M) gpu=0% holder=inkling-extq: layer 8 
+00:36:05 load=10.19 memfree=94% swap=5835M (+0M) gpu=0% holder=inkling-extq: layer 8 
+00:36:20 load=10.70 memfree=94% swap=5835M (+0M) gpu=0% holder=inkling-extq: layer 8 
+00:36:35 load=10.85 memfree=94% swap=5827M (+0M) gpu=0% holder=inkling-extq: layer 8 
+00:36:50 load=10.41 memfree=94% swap=5827M (+0M) gpu=0% holder=inkling-extq: layer 8 
+00:37:05 load=10.32 memfree=94% swap=5827M (+0M) gpu=0% holder=inkling-extq: layer 8 
+00:37:20 load=10.57 memfree=94% swap=5827M (+0M) gpu=0% holder=inkling-extq: layer 8 
+00:37:35 load=10.66 memfree=94% swap=5827M (+0M) gpu=0% holder=inkling-extq: layer 8 
+00:37:50 load=10.58 memfree=94% swap=5827M (+0M) gpu=0% holder=inkling-extq: layer 8 
+00:38:05 load=9.81 memfree=94% swap=5827M (+0M) gpu=0% holder=inkling-extq: layer 8 
+00:38:20 load=9.92 memfree=94% swap=5827M (+0M) gpu=0% holder=inkling-extq: layer 8 
+00:38:35 load=9.94 memfree=94% swap=5827M (+0M) gpu=0% holder=inkling-extq: layer 8 
+00:38:50 load=8.97 memfree=94% swap=5827M (+0M) gpu=0% holder=inkling-extq: layer 8 
+00:39:05 load=9.40 memfree=94% swap=5827M (+0M) gpu=0% holder=inkling-extq: layer 8 
+00:39:20 load=9.67 memfree=94% swap=5827M (+0M) gpu=0% holder=inkling-extq: layer 8 
+00:39:35 load=9.88 memfree=94% swap=5827M (+0M) gpu=0% holder=inkling-extq: layer 8 
+00:39:50 load=10.05 memfree=94% swap=5827M (+0M) gpu=0% holder=inkling-extq: layer 8 
+00:40:05 load=9.97 memfree=94% swap=5827M (+0M) gpu=0% holder=inkling-extq: layer 8 
+00:40:21 load=10.11 memfree=94% swap=5827M (+0M) gpu=0% holder=inkling-extq: layer 8 
+00:40:36 load=10.22 memfree=94% swap=5827M (+0M) gpu=0% holder=inkling-extq: layer 8 
+00:40:51 load=10.24 memfree=94% swap=5827M (+0M) gpu=0% holder=inkling-extq: layer 8 
+00:41:06 load=10.18 memfree=94% swap=5827M (+0M) gpu=0% holder=inkling-extq: layer 8 
+00:41:21 load=10.30 memfree=94% swap=5731M (+0M) gpu=0% holder=inkling-extq: layer 8 
+00:41:36 load=10.52 memfree=94% swap=5731M (+0M) gpu=0% holder=inkling-extq: layer 8 
+00:41:51 load=9.61 memfree=94% swap=5731M (+0M) gpu=0% holder=inkling-extq: layer 8 
+00:42:06 load=9.84 memfree=94% swap=5731M (+0M) gpu=0% holder=inkling-extq: layer 8 
+00:42:21 load=9.95 memfree=94% swap=5731M (+0M) gpu=0% holder=inkling-extq: layer 8 
+00:42:36 load=10.19 memfree=94% swap=5731M (+0M) gpu=0% holder=inkling-extq: layer 8 
+00:42:51 load=10.35 memfree=94% swap=5731M (+0M) gpu=0% holder=inkling-extq: layer 8 
+00:43:06 load=10.42 memfree=94% swap=5723M (+0M) gpu=0% holder=inkling-extq: layer 8 
+00:43:21 load=10.33 memfree=94% swap=5723M (+0M) gpu=0% holder=inkling-extq: layer 8 
+00:43:36 load=9.77 memfree=94% swap=5715M (+0M) gpu=0% holder=inkling-extq: layer 8 
+00:43:51 load=9.99 memfree=94% swap=5715M (+0M) gpu=0% holder=inkling-extq: layer 8 
+00:44:06 load=10.21 memfree=94% swap=5675M (+0M) gpu=0% holder=inkling-extq: layer 8 
+00:44:21 load=8.71 memfree=94% swap=5675M (+0M) gpu=0% holder=inkling-extq: verify layer 8 
+00:44:36 load=7.40 memfree=77% swap=5675M (+0M) gpu=70% holder=inkling: arm tetra 6-8 
+00:44:51 load=6.49 memfree=76% swap=5675M (+0M) gpu=93% holder=inkling: arm tetra 6-8 
+00:45:07 load=6.02 memfree=75% swap=5675M (+0M) gpu=93% holder=inkling: arm tetra 6-8 
+00:45:22 load=5.11 memfree=75% swap=5675M (+0M) gpu=91% holder=inkling: arm tetra 6-8 
+00:45:37 load=4.70 memfree=74% swap=5675M (+0M) gpu=92% holder=inkling: arm tetra 6-8 
+00:45:52 load=4.83 memfree=72% swap=5675M (+0M) gpu=92% holder=inkling: arm tetra 6-8 
+00:46:07 load=4.67 memfree=72% swap=5675M (+0M) gpu=93% holder=inkling: arm tetra 6-8 
+00:46:22 load=4.01 memfree=72% swap=5675M (+0M) gpu=92% holder=inkling: arm tetra 6-8 
+00:46:37 load=3.34 memfree=72% swap=5667M (+0M) gpu=94% holder=inkling: arm tetra 6-8 
+00:46:52 load=3.57 memfree=75% swap=5667M (+0M) gpu=95% holder=inkling: arm tetra 6-8 
+00:47:07 load=6.17 memfree=74% swap=5667M (+0M) gpu=93% holder=inkling: arm tetra 6-8 
+00:47:22 load=5.02 memfree=65% swap=5667M (+0M) gpu=95% holder=inkling: arm tetra 6-8 
+00:47:37 load=4.13 memfree=80% swap=5667M (+0M) gpu=87% holder=inkling: arm IQ1_S 6-8 
+00:47:52 load=3.50 memfree=80% swap=5667M (+0M) gpu=94% holder=inkling: arm IQ1_S 6-8 
+00:48:07 load=3.16 memfree=94% swap=5667M (+0M) gpu=95% holder=inkling: arm IQ1_S 6-8 
+00:48:22 load=2.61 memfree=77% swap=5659M (+0M) gpu=71% holder=inkling: arm IQ1_S 6-8 
+00:48:37 load=2.92 memfree=78% swap=5659M (+0M) gpu=93% holder=inkling: arm IQ1_S 6-8 
+00:48:52 load=3.10 memfree=78% swap=5659M (+0M) gpu=91% holder=inkling: arm IQ1_S 6-8 
+00:49:07 load=2.80 memfree=94% swap=5659M (+0M) gpu=96% holder=inkling: arm IQ1_S 6-8 
+00:49:22 load=2.40 memfree=76% swap=5659M (+0M) gpu=92% holder=inkling: arm IQ1_S 6-8 
+00:49:37 load=2.01 memfree=76% swap=5659M (+0M) gpu=94% holder=inkling: arm IQ1_S 6-8 
+00:49:53 load=2.30 memfree=75% swap=5659M (+0M) gpu=92% holder=inkling: arm IQ1_S 6-8 
+00:50:08 load=2.16 memfree=94% swap=5659M (+0M) gpu=0% holder=inkling: arm IQ1_S 6-8 
+00:50:23 load=2.13 memfree=75% swap=5659M (+0M) gpu=92% holder=inkling: arm IQ1_S 6-8 
+00:50:38 load=1.88 memfree=75% swap=5659M (+0M) gpu=94% holder=inkling: arm IQ1_S 6-8 
+00:50:53 load=1.67 memfree=75% swap=5651M (+0M) gpu=94% holder=inkling: arm IQ1_S 6-8 
+00:51:08 load=1.74 memfree=78% swap=5651M (+0M) gpu=92% holder=inkling: arm IQ1_S 6-8 
+00:51:23 load=1.64 memfree=74% swap=5651M (+0M) gpu=97% holder=inkling: arm IQ1_S 6-8 
+00:51:38 load=2.49 memfree=81% swap=5651M (+0M) gpu=33% holder=inkling: arm IQ1_M 6-8 
+00:51:53 load=3.02 memfree=76% swap=5651M (+0M) gpu=94% holder=inkling: arm IQ1_M 6-8 
+00:52:08 load=2.64 memfree=78% swap=5651M (+0M) gpu=92% holder=inkling: arm IQ1_M 6-8 
+00:52:23 load=2.36 memfree=92% swap=5651M (+0M) gpu=94% holder=inkling: arm IQ1_M 6-8 
+00:52:38 load=2.04 memfree=76% swap=5651M (+0M) gpu=93% holder=inkling: arm IQ1_M 6-8 
+00:52:53 load=2.22 memfree=76% swap=5651M (+0M) gpu=93% holder=inkling: arm IQ1_M 6-8 
+00:53:08 load=2.03 memfree=75% swap=5651M (+0M) gpu=93% holder=inkling: arm IQ1_M 6-8 
+00:53:23 load=1.80 memfree=92% swap=5651M (+0M) gpu=0% holder=inkling: arm IQ1_M 6-8 
+00:53:38 load=2.34 memfree=75% swap=5651M (+0M) gpu=94% holder=inkling: arm IQ1_M 6-8 
+00:53:53 load=2.20 memfree=75% swap=5651M (+0M) gpu=93% holder=inkling: arm IQ1_M 6-8 
+00:54:09 load=2.15 memfree=75% swap=5651M (+0M) gpu=94% holder=inkling: arm IQ1_M 6-8 
+00:54:24 load=1.90 memfree=92% swap=5651M (+0M) gpu=0% holder=inkling: arm IQ1_M 6-8 
+00:54:39 load=1.91 memfree=75% swap=5651M (+0M) gpu=0% holder=inkling: arm IQ1_M 6-8 
+00:54:54 load=1.85 memfree=75% swap=5651M (+0M) gpu=0% holder=inkling: arm IQ1_M 6-8 
+00:55:09 load=1.81 memfree=76% swap=5651M (+0M) gpu=93% holder=inkling: arm IQ1_M 6-8 
+00:55:24 load=1.63 memfree=76% swap=5651M (+0M) gpu=0% holder=inkling: arm IQ1_M 6-8 
+00:55:39 load=1.62 memfree=84% swap=5651M (+0M) gpu=0% holder=inkling: arm IQ2_XXS 6-8 
+00:55:54 load=2.58 memfree=77% swap=5651M (+0M) gpu=0% holder=inkling: arm IQ2_XXS 6-8 
+00:56:09 load=2.16 memfree=76% swap=5651M (+0M) gpu=95% holder=inkling: arm IQ2_XXS 6-8 
+00:56:24 load=1.90 memfree=90% swap=5651M (+0M) gpu=0% holder=inkling: arm IQ2_XXS 6-8 
+00:56:39 load=1.92 memfree=76% swap=5651M (+0M) gpu=89% holder=inkling: arm IQ2_XXS 6-8 
+00:56:54 load=2.56 memfree=75% swap=5651M (+0M) gpu=95% holder=inkling: arm IQ2_XXS 6-8 
+00:57:09 load=2.97 memfree=76% swap=5651M (+0M) gpu=97% holder=inkling: arm IQ2_XXS 6-8 
+00:57:24 load=2.53 memfree=91% swap=5651M (+0M) gpu=0% holder=inkling: arm IQ2_XXS 6-8 
+00:57:39 load=2.85 memfree=74% swap=5651M (+0M) gpu=95% holder=inkling: arm IQ2_XXS 6-8 
+00:57:54 load=2.38 memfree=74% swap=5651M (+0M) gpu=91% holder=inkling: arm IQ2_XXS 6-8 
+00:58:09 load=2.33 memfree=74% swap=5651M (+0M) gpu=90% holder=inkling: arm IQ2_XXS 6-8 
+00:58:24 load=2.26 memfree=92% swap=5651M (+0M) gpu=0% holder=inkling: arm IQ2_XXS 6-8 
+00:58:39 load=1.98 memfree=74% swap=5651M (+0M) gpu=0% holder=inkling: arm IQ2_XXS 6-8 
+00:58:55 load=2.43 memfree=74% swap=5651M (+0M) gpu=85% holder=inkling: arm IQ2_XXS 6-8 
+00:59:10 load=3.25 memfree=74% swap=5651M (+0M) gpu=90% holder=inkling: arm IQ2_XXS 6-8 
+00:59:25 load=3.66 memfree=71% swap=5651M (+0M) gpu=97% holder=inkling: arm IQ2_XXS 6-8 
+00:59:40 load=3.74 memfree=92% swap=5651M (+0M) gpu=0% holder=inkling: arm Q2_K_XL 6-8 
+00:59:55 load=3.19 memfree=81% swap=5643M (+0M) gpu=46% holder=inkling: arm Q2_K_XL 6-8 
+01:00:10 load=3.66 memfree=92% swap=5643M (+0M) gpu=0% holder=inkling: arm Q2_K_XL 6-8 
+01:00:25 load=3.15 memfree=76% swap=5627M (+0M) gpu=96% holder=inkling: arm Q2_K_XL 6-8 
+01:00:40 load=2.60 memfree=76% swap=5627M (+0M) gpu=90% holder=inkling: arm Q2_K_XL 6-8 
+01:00:55 load=2.16 memfree=76% swap=5627M (+0M) gpu=94% holder=inkling: arm Q2_K_XL 6-8 
+01:01:10 load=1.83 memfree=92% swap=5627M (+0M) gpu=0% holder=inkling: arm Q2_K_XL 6-8 
+01:01:25 load=1.89 memfree=92% swap=5627M (+0M) gpu=0% holder=inkling: arm Q2_K_XL 6-8 
+01:01:40 load=1.68 memfree=75% swap=5627M (+0M) gpu=95% holder=inkling: arm Q2_K_XL 6-8 
+01:01:55 load=1.53 memfree=74% swap=5627M (+0M) gpu=94% holder=inkling: arm Q2_K_XL 6-8 
+01:02:10 load=1.49 memfree=92% swap=5627M (+0M) gpu=0% holder=inkling: arm Q2_K_XL 6-8 
+01:02:25 load=1.46 memfree=92% swap=5627M (+0M) gpu=0% holder=inkling: arm Q2_K_XL 6-8 
+01:02:40 load=1.52 memfree=75% swap=5627M (+0M) gpu=95% holder=inkling: arm Q2_K_XL 6-8 
+01:02:55 load=2.12 memfree=75% swap=5627M (+0M) gpu=95% holder=inkling: arm Q2_K_XL 6-8 
+01:03:10 load=2.47 memfree=75% swap=5627M (+0M) gpu=89% holder=inkling: arm Q2_K_XL 6-8 
+01:03:25 load=2.68 memfree=77% swap=5619M (+0M) gpu=95% holder=inkling: arm Q2_K_XL 6-8 
+01:03:41 load=2.54 memfree=90% swap=5631M (+12M) gpu=16% holder=none
+01:03:56 load=2.34 memfree=90% swap=5631M (+12M) gpu=18% holder=inkling: prep layer 9 
+01:04:11 load=2.05 memfree=90% swap=5631M (+12M) gpu=7% holder=inkling: prep layer 9 
+01:04:26 load=2.31 memfree=91% swap=5631M (+12M) gpu=7% holder=inkling: prep layer 9 
+01:04:41 load=2.81 memfree=91% swap=5631M (+12M) gpu=6% holder=inkling: prep layer 9 
+01:04:56 load=3.43 memfree=90% swap=5631M (+12M) gpu=7% holder=inkling-extq: layer 9 
+01:05:11 load=5.03 memfree=92% swap=5631M (+12M) gpu=0% holder=inkling-extq: layer 9 
+01:05:26 load=6.28 memfree=91% swap=5631M (+12M) gpu=0% holder=inkling-extq: layer 9 
+01:05:41 load=7.18 memfree=92% swap=5631M (+12M) gpu=0% holder=inkling-extq: layer 9 
+01:05:56 load=8.26 memfree=92% swap=5631M (+12M) gpu=0% holder=inkling-extq: layer 9 
+01:06:11 load=8.64 memfree=91% swap=5631M (+12M) gpu=0% holder=inkling-extq: layer 9 
+01:06:26 load=9.09 memfree=92% swap=5631M (+12M) gpu=0% holder=inkling-extq: layer 9 
+01:06:41 load=9.29 memfree=92% swap=5631M (+12M) gpu=0% holder=inkling-extq: layer 9 
+01:06:56 load=8.84 memfree=92% swap=5631M (+12M) gpu=0% holder=inkling-extq: layer 9 
+01:07:11 load=9.25 memfree=92% swap=5631M (+12M) gpu=0% holder=inkling-extq: layer 9 
+01:07:26 load=9.42 memfree=92% swap=5631M (+12M) gpu=0% holder=inkling-extq: layer 9 
+01:07:41 load=9.62 memfree=92% swap=5599M (+0M) gpu=0% holder=inkling-extq: layer 9 
+01:07:56 load=9.84 memfree=92% swap=5583M (+0M) gpu=0% holder=inkling-extq: layer 9 
+01:08:12 load=9.88 memfree=92% swap=5583M (+0M) gpu=0% holder=inkling-extq: layer 9 
+01:08:27 load=10.41 memfree=92% swap=5583M (+0M) gpu=0% holder=inkling-extq: layer 9 
+01:08:42 load=9.32 memfree=92% swap=5583M (+0M) gpu=0% holder=inkling-extq: layer 9 
+01:08:57 load=9.47 memfree=92% swap=5583M (+0M) gpu=0% holder=inkling-extq: layer 9 
+01:09:12 load=9.74 memfree=93% swap=5583M (+0M) gpu=0% holder=inkling-extq: layer 9 
+01:09:27 load=9.13 memfree=93% swap=5583M (+0M) gpu=0% holder=inkling-extq: layer 9 
+01:09:42 load=9.47 memfree=93% swap=5583M (+0M) gpu=0% holder=inkling-extq: layer 9 
+01:09:57 load=9.58 memfree=92% swap=5583M (+0M) gpu=0% holder=inkling-extq: layer 9 
+01:10:12 load=9.68 memfree=93% swap=5583M (+0M) gpu=0% holder=inkling-extq: layer 9 
+01:10:27 load=9.82 memfree=92% swap=5583M (+0M) gpu=0% holder=inkling-extq: layer 9 
+01:10:42 load=9.35 memfree=93% swap=5583M (+0M) gpu=0% holder=inkling-extq: layer 9 
+01:10:57 load=10.37 memfree=92% swap=5583M (+0M) gpu=0% holder=inkling-extq: layer 9 
+01:11:12 load=10.58 memfree=93% swap=5583M (+0M) gpu=0% holder=inkling-extq: layer 9 
+01:11:27 load=10.60 memfree=93% swap=5583M (+0M) gpu=0% holder=inkling-extq: layer 9 
+01:11:42 load=10.98 memfree=92% swap=5575M (+0M) gpu=0% holder=inkling-extq: layer 9 
+01:11:57 load=11.40 memfree=92% swap=5567M (+0M) gpu=0% holder=inkling-extq: layer 9 
+01:12:12 load=11.49 memfree=93% swap=5567M (+0M) gpu=0% holder=inkling-extq: layer 9 
+01:12:27 load=11.45 memfree=93% swap=5567M (+0M) gpu=0% holder=inkling-extq: layer 9 
+01:12:42 load=11.35 memfree=93% swap=5567M (+0M) gpu=0% holder=inkling-extq: layer 9 
+01:12:58 load=10.88 memfree=92% swap=5567M (+0M) gpu=0% holder=inkling-extq: layer 9 
+01:13:13 load=10.97 memfree=93% swap=5567M (+0M) gpu=0% holder=inkling-extq: layer 9 
+01:13:28 load=10.90 memfree=92% swap=5567M (+0M) gpu=0% holder=inkling-extq: layer 9 
+01:13:43 load=10.09 memfree=93% swap=5567M (+0M) gpu=0% holder=inkling-extq: layer 9 
+01:13:58 load=10.36 memfree=92% swap=5567M (+0M) gpu=0% holder=inkling-extq: layer 9 
+01:14:13 load=9.57 memfree=93% swap=5567M (+0M) gpu=0% holder=inkling-extq: layer 9 
+01:14:28 load=9.66 memfree=93% swap=5567M (+0M) gpu=0% holder=inkling-extq: layer 9 
+01:14:43 load=9.82 memfree=93% swap=5567M (+0M) gpu=0% holder=inkling-extq: layer 9 
+01:14:58 load=9.79 memfree=92% swap=5567M (+0M) gpu=0% holder=inkling-extq: layer 9 
+01:15:13 load=9.83 memfree=93% swap=5567M (+0M) gpu=0% holder=inkling-extq: layer 9 
+01:15:28 load=9.87 memfree=93% swap=5567M (+0M) gpu=0% holder=inkling-extq: layer 9 
+01:15:43 load=9.98 memfree=92% swap=5567M (+0M) gpu=0% holder=inkling-extq: layer 9 
+01:15:58 load=10.76 memfree=92% swap=5567M (+0M) gpu=0% holder=inkling-extq: layer 9 
+01:16:13 load=10.81 memfree=93% swap=5567M (+0M) gpu=0% holder=inkling-extq: layer 9 
+01:16:28 load=10.63 memfree=92% swap=5567M (+0M) gpu=1% holder=inkling-extq: layer 9 
+01:16:43 load=10.63 memfree=93% swap=5567M (+0M) gpu=0% holder=inkling-extq: layer 9 
+01:16:58 load=10.49 memfree=93% swap=5567M (+0M) gpu=0% holder=inkling-extq: layer 9 
+01:17:13 load=10.38 memfree=93% swap=5567M (+0M) gpu=0% holder=inkling-extq: layer 9 
+01:17:28 load=10.28 memfree=93% swap=5567M (+0M) gpu=0% holder=inkling-extq: layer 9 
+01:17:44 load=9.61 memfree=92% swap=5567M (+0M) gpu=0% holder=inkling-extq: layer 9 
+01:17:59 load=9.98 memfree=93% swap=5559M (+0M) gpu=0% holder=inkling-extq: layer 9 
+01:18:14 load=12.30 memfree=93% swap=5559M (+0M) gpu=0% holder=inkling-extq: layer 9 
+01:18:29 load=13.22 memfree=93% swap=5559M (+0M) gpu=0% holder=inkling-extq: layer 9 
+01:18:44 load=12.95 memfree=93% swap=5559M (+0M) gpu=0% holder=inkling-extq: layer 9 
+01:18:59 load=12.29 memfree=93% swap=4786M (+0M) gpu=0% holder=inkling-extq: layer 9 
+01:19:14 load=11.78 memfree=93% swap=4786M (+0M) gpu=0% holder=inkling-extq: layer 9 
+01:19:29 load=10.67 memfree=92% swap=4786M (+0M) gpu=0% holder=inkling-extq: layer 9 
+01:19:44 load=9.98 memfree=93% swap=4786M (+0M) gpu=0% holder=inkling-extq: layer 9 
+01:19:59 load=10.13 memfree=92% swap=4786M (+0M) gpu=0% holder=inkling-extq: layer 9 
+01:20:14 load=9.31 memfree=93% swap=4786M (+0M) gpu=0% holder=inkling-extq: layer 9 
+01:20:29 load=9.54 memfree=93% swap=4786M (+0M) gpu=0% holder=inkling-extq: layer 9 
+01:20:44 load=9.95 memfree=93% swap=4786M (+0M) gpu=0% holder=inkling-extq: layer 9 
+01:20:59 load=10.20 memfree=93% swap=4778M (+0M) gpu=0% holder=inkling-extq: layer 9 
+01:21:14 load=10.16 memfree=93% swap=4778M (+0M) gpu=0% holder=inkling-extq: layer 9 
+01:21:29 load=10.05 memfree=93% swap=4770M (+0M) gpu=0% holder=inkling-extq: layer 9 
+01:21:44 load=10.04 memfree=93% swap=4770M (+0M) gpu=0% holder=inkling-extq: layer 9 
+01:21:59 load=10.03 memfree=93% swap=4770M (+0M) gpu=0% holder=inkling-extq: layer 9 
+01:22:15 load=9.89 memfree=93% swap=4770M (+0M) gpu=0% holder=inkling-extq: layer 9 
+01:22:30 load=9.91 memfree=93% swap=4770M (+0M) gpu=0% holder=inkling-extq: layer 9 
+01:22:45 load=9.93 memfree=93% swap=4770M (+0M) gpu=0% holder=inkling-extq: layer 9 
+01:23:00 load=10.39 memfree=92% swap=4770M (+0M) gpu=0% holder=inkling-extq: layer 9 
+01:23:15 load=10.30 memfree=93% swap=4770M (+0M) gpu=0% holder=inkling-extq: layer 9 
+01:23:30 load=10.24 memfree=93% swap=4770M (+0M) gpu=0% holder=inkling-extq: layer 9 
+01:23:45 load=10.18 memfree=93% swap=4770M (+0M) gpu=0% holder=inkling-extq: layer 9 
+01:24:00 load=9.50 memfree=92% swap=4770M (+0M) gpu=0% holder=inkling-extq: layer 9 
+01:24:15 load=9.83 memfree=93% swap=4770M (+0M) gpu=0% holder=inkling-extq: layer 9 
+01:24:30 load=9.94 memfree=93% swap=4770M (+0M) gpu=0% holder=inkling-extq: layer 9 
+01:24:45 load=10.11 memfree=93% swap=4770M (+0M) gpu=0% holder=inkling-extq: layer 9 
+01:25:00 load=10.17 memfree=92% swap=4770M (+0M) gpu=0% holder=inkling-extq: layer 9 
+01:25:15 load=10.04 memfree=93% swap=4770M (+0M) gpu=0% holder=inkling-extq: layer 9 
+01:25:30 load=10.03 memfree=93% swap=4770M (+0M) gpu=0% holder=inkling-extq: layer 9 
+01:25:45 load=10.03 memfree=93% swap=4770M (+0M) gpu=0% holder=inkling-extq: layer 9 
+01:26:00 load=10.02 memfree=92% swap=4770M (+0M) gpu=0% holder=inkling-extq: layer 9 
+01:26:15 load=10.16 memfree=93% swap=4762M (+0M) gpu=0% holder=inkling-extq: layer 9 
+01:26:30 load=9.46 memfree=93% swap=4762M (+0M) gpu=0% holder=inkling-extq: layer 9 
+01:26:45 load=9.90 memfree=93% swap=4762M (+0M) gpu=0% holder=inkling-extq: layer 9 
+01:27:01 load=10.14 memfree=92% swap=4762M (+0M) gpu=0% holder=inkling-extq: layer 9 
+01:27:16 load=10.25 memfree=93% swap=4762M (+0M) gpu=0% holder=inkling-extq: layer 9 
+01:27:31 load=10.26 memfree=93% swap=4762M (+0M) gpu=0% holder=inkling-extq: layer 9 
+01:27:46 load=10.65 memfree=93% swap=4762M (+0M) gpu=0% holder=inkling-extq: layer 9 
+01:28:01 load=10.51 memfree=92% swap=4762M (+0M) gpu=0% holder=inkling-extq: layer 9 
+01:28:16 load=10.47 memfree=93% swap=4762M (+0M) gpu=0% holder=inkling-extq: layer 9 
+01:28:31 load=10.50 memfree=93% swap=4762M (+0M) gpu=0% holder=inkling-extq: layer 9 
+01:28:46 load=10.39 memfree=93% swap=4762M (+0M) gpu=0% holder=inkling-extq: layer 9 
+01:29:01 load=10.23 memfree=93% swap=4762M (+0M) gpu=0% holder=inkling-extq: layer 9 
+01:29:16 load=10.18 memfree=93% swap=4762M (+0M) gpu=0% holder=inkling-extq: layer 9 
+01:29:31 load=9.49 memfree=93% swap=4762M (+0M) gpu=0% holder=inkling-extq: layer 9 
+01:29:46 load=9.68 memfree=93% swap=4762M (+0M) gpu=0% holder=inkling-extq: layer 9 
+01:30:01 load=9.89 memfree=93% swap=4754M (+0M) gpu=0% holder=inkling-extq: layer 9 
+01:30:16 load=9.92 memfree=93% swap=4754M (+0M) gpu=0% holder=inkling-extq: layer 9 
+01:30:31 load=10.01 memfree=93% swap=4754M (+0M) gpu=0% holder=inkling-extq: layer 9 
+01:30:46 load=10.15 memfree=93% swap=4754M (+0M) gpu=0% holder=inkling-extq: layer 9 
+01:31:01 load=10.12 memfree=93% swap=4754M (+0M) gpu=0% holder=inkling-extq: layer 9 
+01:31:16 load=10.09 memfree=93% swap=4754M (+0M) gpu=0% holder=inkling-extq: layer 9 
+01:31:31 load=10.23 memfree=93% swap=4754M (+0M) gpu=0% holder=inkling-extq: layer 9 
+01:31:46 load=10.38 memfree=93% swap=4754M (+0M) gpu=0% holder=inkling-extq: layer 9 
+01:32:02 load=9.58 memfree=93% swap=4754M (+0M) gpu=0% holder=inkling-extq: layer 9 
+01:32:17 load=9.90 memfree=93% swap=4754M (+0M) gpu=0% holder=inkling-extq: layer 9 
+01:32:32 load=10.21 memfree=93% swap=4754M (+0M) gpu=0% holder=inkling-extq: layer 9 
+01:32:47 load=9.71 memfree=92% swap=4754M (+0M) gpu=0% holder=inkling-extq: layer 9 
+01:33:02 load=9.91 memfree=92% swap=4754M (+0M) gpu=11% holder=inkling-extq: layer 9 
+01:33:17 load=9.93 memfree=93% swap=4754M (+0M) gpu=0% holder=inkling-extq: layer 9 
+01:33:32 load=9.44 memfree=93% swap=4754M (+0M) gpu=0% holder=inkling-extq: verify layer 9 
+01:33:47 load=7.64 memfree=93% swap=4754M (+0M) gpu=0% holder=inkling: prep layer 10 
+01:34:02 load=7.52 memfree=93% swap=4754M (+0M) gpu=0% holder=inkling: prep layer 10 
+01:34:17 load=6.23 memfree=93% swap=4754M (+0M) gpu=0% holder=inkling: prep layer 10 
+01:34:32 load=5.79 memfree=93% swap=4754M (+0M) gpu=0% holder=inkling-extq: layer 10 
+01:34:47 load=6.80 memfree=93% swap=4754M (+0M) gpu=0% holder=inkling-extq: layer 10 
+01:35:02 load=7.73 memfree=93% swap=4754M (+0M) gpu=0% holder=inkling-extq: layer 10 
+01:35:17 load=8.37 memfree=93% swap=4754M (+0M) gpu=0% holder=inkling-extq: layer 10 
+01:35:32 load=8.42 memfree=93% swap=4754M (+0M) gpu=0% holder=inkling-extq: layer 10 
+01:35:47 load=8.85 memfree=93% swap=4754M (+0M) gpu=0% holder=inkling-extq: layer 10 
+01:36:02 load=9.03 memfree=93% swap=4754M (+0M) gpu=0% holder=inkling-extq: layer 10 
+01:36:17 load=9.31 memfree=93% swap=4754M (+0M) gpu=0% holder=inkling-extq: layer 10 
+01:36:32 load=9.68 memfree=93% swap=4754M (+0M) gpu=0% holder=inkling-extq: layer 10 
+01:36:48 load=9.55 memfree=93% swap=4754M (+0M) gpu=0% holder=inkling-extq: layer 10 
+01:37:03 load=9.65 memfree=93% swap=4754M (+0M) gpu=0% holder=inkling-extq: layer 10 
+01:37:18 load=9.72 memfree=93% swap=4746M (+0M) gpu=0% holder=inkling-extq: layer 10 
+01:37:33 load=10.10 memfree=93% swap=4746M (+0M) gpu=0% holder=inkling-extq: layer 10 
+01:37:48 load=10.23 memfree=93% swap=4746M (+0M) gpu=0% holder=inkling-extq: layer 10 
+01:38:03 load=10.18 memfree=93% swap=4746M (+0M) gpu=0% holder=inkling-extq: layer 10 
+01:38:18 load=10.14 memfree=93% swap=4746M (+0M) gpu=0% holder=inkling-extq: layer 10 
+01:38:33 load=10.11 memfree=93% swap=4746M (+0M) gpu=0% holder=inkling-extq: layer 10 
+01:38:48 load=10.31 memfree=93% swap=4746M (+0M) gpu=0% holder=inkling-extq: layer 10 
+01:39:03 load=10.32 memfree=93% swap=4746M (+0M) gpu=0% holder=inkling-extq: layer 10 
+01:39:18 load=10.25 memfree=93% swap=4746M (+0M) gpu=0% holder=inkling-extq: layer 10 
+01:39:33 load=10.34 memfree=93% swap=4746M (+0M) gpu=0% holder=inkling-extq: layer 10 
+01:39:48 load=9.47 memfree=93% swap=4746M (+0M) gpu=0% holder=inkling-extq: layer 10 
+01:40:03 load=9.58 memfree=93% swap=4746M (+0M) gpu=0% holder=inkling-extq: layer 10 
+01:40:18 load=9.89 memfree=93% swap=4746M (+0M) gpu=0% holder=inkling-extq: layer 10 
+01:40:33 load=10.14 memfree=93% swap=4746M (+0M) gpu=0% holder=inkling-extq: layer 10 
+01:40:48 load=10.24 memfree=93% swap=4746M (+0M) gpu=0% holder=inkling-extq: layer 10 
+01:41:03 load=9.39 memfree=93% swap=4746M (+0M) gpu=0% holder=inkling-extq: layer 10 
+01:41:19 load=9.53 memfree=93% swap=4746M (+0M) gpu=0% holder=inkling-extq: layer 10 
+01:41:34 load=9.70 memfree=93% swap=4746M (+0M) gpu=0% holder=inkling-extq: layer 10 
+01:41:49 load=10.07 memfree=93% swap=4746M (+0M) gpu=0% holder=inkling-extq: layer 10 
+01:42:04 load=10.26 memfree=93% swap=4746M (+0M) gpu=0% holder=inkling-extq: layer 10 
+01:42:19 load=10.27 memfree=93% swap=4746M (+0M) gpu=0% holder=inkling-extq: layer 10 
+01:42:34 load=10.43 memfree=93% swap=4746M (+0M) gpu=0% holder=inkling-extq: layer 10 
+01:42:49 load=10.40 memfree=93% swap=4746M (+0M) gpu=0% holder=inkling-extq: layer 10 
+01:43:04 load=9.78 memfree=93% swap=4746M (+0M) gpu=0% holder=inkling-extq: layer 10 
+01:43:19 load=10.05 memfree=93% swap=4746M (+0M) gpu=0% holder=inkling-extq: layer 10 
+01:43:34 load=10.35 memfree=93% swap=4746M (+0M) gpu=0% holder=inkling-extq: layer 10 
+01:43:49 load=10.35 memfree=93% swap=4746M (+0M) gpu=0% holder=inkling-extq: layer 10 
+01:44:04 load=10.19 memfree=93% swap=4746M (+0M) gpu=0% holder=inkling-extq: layer 10 
+01:44:19 load=9.54 memfree=93% swap=4746M (+0M) gpu=0% holder=inkling-extq: layer 10 
+01:44:34 load=9.72 memfree=93% swap=4738M (+0M) gpu=0% holder=inkling-extq: layer 10 
+01:44:49 load=9.85 memfree=93% swap=4738M (+0M) gpu=0% holder=inkling-extq: layer 10 
+01:45:04 load=10.42 memfree=93% swap=4738M (+0M) gpu=0% holder=inkling-extq: layer 10 
+01:45:19 load=10.32 memfree=93% swap=4738M (+0M) gpu=0% holder=inkling-extq: layer 10 
+01:45:34 load=10.41 memfree=93% swap=4738M (+0M) gpu=0% holder=inkling-extq: layer 10 
+01:45:49 load=10.46 memfree=93% swap=4738M (+0M) gpu=0% holder=inkling-extq: layer 10 
+01:46:05 load=9.70 memfree=93% swap=4738M (+0M) gpu=0% holder=inkling-extq: layer 10 
+01:46:20 load=9.77 memfree=93% swap=4738M (+0M) gpu=0% holder=inkling-extq: layer 10 
+01:46:35 load=9.89 memfree=93% swap=4738M (+0M) gpu=0% holder=inkling-extq: layer 10 
+01:46:50 load=9.92 memfree=93% swap=4738M (+0M) gpu=0% holder=inkling-extq: layer 10 
+01:47:05 load=9.93 memfree=93% swap=4738M (+0M) gpu=0% holder=inkling-extq: layer 10 
+01:47:20 load=9.44 memfree=93% swap=4738M (+0M) gpu=0% holder=inkling-extq: layer 10 
+01:47:35 load=9.56 memfree=93% swap=4738M (+0M) gpu=0% holder=inkling-extq: layer 10 
+01:47:50 load=9.74 memfree=93% swap=4738M (+0M) gpu=0% holder=inkling-extq: layer 10 
+01:48:05 load=9.80 memfree=93% swap=4738M (+0M) gpu=0% holder=inkling-extq: layer 10 
+01:48:20 load=9.99 memfree=93% swap=4738M (+0M) gpu=0% holder=inkling-extq: layer 10 
+01:48:35 load=10.06 memfree=93% swap=4738M (+0M) gpu=0% holder=inkling-extq: layer 10 
+01:48:50 load=10.26 memfree=93% swap=4738M (+0M) gpu=0% holder=inkling-extq: layer 10 
+01:49:05 load=9.48 memfree=93% swap=4738M (+0M) gpu=1% holder=inkling-extq: layer 10 
+01:49:20 load=9.68 memfree=93% swap=4738M (+0M) gpu=0% holder=inkling-extq: layer 10 
+01:49:35 load=9.88 memfree=93% swap=4738M (+0M) gpu=0% holder=inkling-extq: layer 10 
+01:49:50 load=10.15 memfree=93% swap=4738M (+0M) gpu=0% holder=inkling-extq: layer 10 
+01:50:05 load=10.34 memfree=93% swap=4738M (+0M) gpu=0% holder=inkling-extq: layer 10 
+01:50:20 load=10.26 memfree=93% swap=4738M (+0M) gpu=0% holder=inkling-extq: layer 10 
+01:50:35 load=10.20 memfree=93% swap=4738M (+0M) gpu=0% holder=inkling-extq: layer 10 
+01:50:51 load=9.52 memfree=93% swap=4738M (+0M) gpu=0% holder=inkling-extq: layer 10 
+01:51:06 load=9.64 memfree=93% swap=4738M (+0M) gpu=0% holder=inkling-extq: layer 10 
+01:51:21 load=9.86 memfree=93% swap=4738M (+0M) gpu=0% holder=inkling-extq: layer 10 
+01:51:36 load=9.16 memfree=93% swap=4738M (+0M) gpu=0% holder=inkling-extq: layer 10 
+01:51:51 load=9.42 memfree=93% swap=4738M (+0M) gpu=0% holder=inkling-extq: layer 10 
+01:52:06 load=9.55 memfree=93% swap=4738M (+0M) gpu=0% holder=inkling-extq: layer 10 
+01:52:21 load=9.65 memfree=93% swap=4738M (+0M) gpu=0% holder=inkling-extq: layer 10 
+01:52:36 load=9.79 memfree=93% swap=4738M (+0M) gpu=0% holder=inkling-extq: layer 10 
+01:52:51 load=9.11 memfree=93% swap=4738M (+0M) gpu=0% holder=inkling-extq: layer 10 
+2026-11-22 01:52:51 EXIT HEARTBEAT: no alert in 5400 s
+2026-11-22 01:53:00 START base_swap=4738M
+01:53:00 load=9.56 memfree=91% swap=4738M (+0M) gpu=13% holder=inkling-extq: layer 10 
+01:53:15 load=9.93 memfree=92% swap=4738M (+0M) gpu=6% holder=inkling-extq: layer 10 
+01:53:30 load=10.02 memfree=93% swap=4738M (+0M) gpu=0% holder=inkling-extq: layer 10 
+01:53:45 load=10.16 memfree=93% swap=4738M (+0M) gpu=0% holder=inkling-extq: layer 10 
+01:54:00 load=10.12 memfree=92% swap=4738M (+0M) gpu=0% holder=inkling-extq: layer 10 
+01:54:15 load=10.24 memfree=93% swap=4738M (+0M) gpu=0% holder=inkling-extq: layer 10 
+01:54:30 load=10.33 memfree=93% swap=4738M (+0M) gpu=0% holder=inkling-extq: layer 10 
+01:54:45 load=10.26 memfree=93% swap=4738M (+0M) gpu=0% holder=inkling-extq: layer 10 
+01:55:00 load=10.20 memfree=92% swap=4738M (+0M) gpu=0% holder=inkling-extq: layer 10 
+01:55:16 load=9.36 memfree=93% swap=4738M (+0M) gpu=0% holder=inkling-extq: layer 10 
+01:55:31 load=9.58 memfree=93% swap=4738M (+0M) gpu=0% holder=inkling-extq: layer 10 
+01:55:46 load=9.67 memfree=93% swap=4738M (+0M) gpu=0% holder=inkling-extq: layer 10 
+01:56:01 load=9.91 memfree=92% swap=4738M (+0M) gpu=0% holder=inkling-extq: layer 10 
+01:56:16 load=10.22 memfree=93% swap=4738M (+0M) gpu=0% holder=inkling-extq: layer 10 
+01:56:31 load=9.58 memfree=93% swap=4738M (+0M) gpu=0% holder=inkling-extq: layer 10 
+01:56:46 load=9.67 memfree=93% swap=4738M (+0M) gpu=0% holder=inkling-extq: layer 10 
+01:57:01 load=9.75 memfree=93% swap=4738M (+0M) gpu=0% holder=inkling-extq: layer 10 
+01:57:16 load=9.87 memfree=93% swap=4738M (+0M) gpu=0% holder=inkling-extq: layer 10 
+01:57:31 load=9.90 memfree=93% swap=4738M (+0M) gpu=0% holder=inkling-extq: layer 10 
+01:57:46 load=10.12 memfree=93% swap=4738M (+0M) gpu=0% holder=inkling-extq: layer 10 
+01:58:01 load=10.10 memfree=93% swap=4738M (+0M) gpu=0% holder=inkling-extq: layer 10 
+01:58:16 load=9.99 memfree=93% swap=4738M (+0M) gpu=0% holder=inkling-extq: layer 10 
+01:58:31 load=9.46 memfree=93% swap=4738M (+0M) gpu=0% holder=inkling-extq: layer 10 
+01:58:46 load=9.81 memfree=93% swap=4738M (+0M) gpu=0% holder=inkling-extq: layer 10 
+01:59:01 load=10.20 memfree=93% swap=4738M (+0M) gpu=0% holder=inkling-extq: layer 10 
+01:59:16 load=10.23 memfree=93% swap=4738M (+0M) gpu=0% holder=inkling-extq: layer 10 
+01:59:31 load=10.24 memfree=93% swap=4738M (+0M) gpu=0% holder=inkling-extq: layer 10 
+01:59:46 load=9.99 memfree=93% swap=4738M (+0M) gpu=0% holder=inkling-extq: layer 10 
+02:00:02 load=10.06 memfree=92% swap=4738M (+0M) gpu=1% holder=inkling-extq: layer 10 
+02:00:17 load=10.11 memfree=93% swap=4738M (+0M) gpu=0% holder=inkling-extq: layer 10 
+02:00:32 load=10.17 memfree=93% swap=4738M (+0M) gpu=0% holder=inkling-extq: layer 10 
+02:00:47 load=10.27 memfree=93% swap=4738M (+0M) gpu=1% holder=inkling-extq: layer 10 
+02:01:02 load=10.21 memfree=93% swap=4738M (+0M) gpu=0% holder=inkling-extq: layer 10 
+02:01:17 load=10.16 memfree=93% swap=4738M (+0M) gpu=0% holder=inkling-extq: layer 10 
+02:01:32 load=9.69 memfree=93% swap=4738M (+0M) gpu=0% holder=inkling-extq: layer 10 
+02:01:47 load=10.20 memfree=93% swap=4738M (+0M) gpu=0% holder=inkling-extq: layer 10 
+02:02:02 load=10.31 memfree=93% swap=4738M (+0M) gpu=0% holder=inkling-extq: layer 10 
+02:02:17 load=10.24 memfree=93% swap=4738M (+0M) gpu=0% holder=inkling-extq: layer 10 
+02:02:32 load=10.19 memfree=93% swap=4738M (+0M) gpu=0% holder=inkling-extq: layer 10 
+02:02:47 load=9.56 memfree=93% swap=4738M (+0M) gpu=0% holder=inkling-extq: verify layer 10 
+02:03:02 load=7.66 memfree=93% swap=4738M (+0M) gpu=0% holder=inkling: prep layer 11 
+02:03:17 load=6.34 memfree=94% swap=4738M (+0M) gpu=0% holder=inkling: prep layer 11 
+02:03:32 load=5.31 memfree=94% swap=4738M (+0M) gpu=0% holder=inkling: prep layer 11 
+02:03:47 load=5.15 memfree=94% swap=4738M (+0M) gpu=0% holder=inkling-extq: layer 11 
+02:04:02 load=6.45 memfree=93% swap=4738M (+0M) gpu=0% holder=inkling-extq: layer 11 
+02:04:17 load=7.46 memfree=94% swap=4738M (+0M) gpu=0% holder=inkling-extq: layer 11 
+02:04:32 load=8.09 memfree=93% swap=4738M (+0M) gpu=9% holder=inkling-extq: layer 11 
+02:04:48 load=8.66 memfree=94% swap=4738M (+0M) gpu=0% holder=inkling-extq: layer 11 
+02:05:03 load=9.12 memfree=93% swap=4738M (+0M) gpu=0% holder=inkling-extq: layer 11 
+02:05:18 load=9.31 memfree=94% swap=4738M (+0M) gpu=0% holder=inkling-extq: layer 11 
+02:05:33 load=9.46 memfree=93% swap=4738M (+0M) gpu=0% holder=inkling-extq: layer 11 
+02:05:48 load=9.72 memfree=94% swap=4738M (+0M) gpu=0% holder=inkling-extq: layer 11 
+02:06:03 load=9.93 memfree=93% swap=4738M (+0M) gpu=0% holder=inkling-extq: layer 11 
+02:06:18 load=9.95 memfree=94% swap=4738M (+0M) gpu=0% holder=inkling-extq: layer 11 
+02:06:33 load=11.58 memfree=94% swap=4738M (+0M) gpu=0% holder=inkling-extq: layer 11 
+02:06:48 load=11.31 memfree=93% swap=4738M (+0M) gpu=1% holder=inkling-extq: layer 11 
+02:07:03 load=11.24 memfree=93% swap=4738M (+0M) gpu=0% holder=inkling-extq: layer 11 
+02:07:18 load=10.24 memfree=94% swap=4738M (+0M) gpu=0% holder=inkling-extq: layer 11 
+02:07:33 load=9.58 memfree=94% swap=4738M (+0M) gpu=0% holder=inkling-extq: layer 11 
+02:07:48 load=10.47 memfree=94% swap=4738M (+0M) gpu=0% holder=inkling-extq: layer 11 
+02:08:03 load=9.70 memfree=93% swap=4738M (+0M) gpu=0% holder=inkling-extq: layer 11 
+02:08:18 load=9.84 memfree=94% swap=4738M (+0M) gpu=0% holder=inkling-extq: layer 11 
+02:08:33 load=9.15 memfree=94% swap=4738M (+0M) gpu=0% holder=inkling-extq: layer 11 
+02:08:48 load=8.73 memfree=94% swap=4738M (+0M) gpu=0% holder=inkling-extq: layer 11 
+02:09:03 load=9.01 memfree=93% swap=4738M (+0M) gpu=0% holder=inkling-extq: layer 11 
+02:09:18 load=9.23 memfree=94% swap=4738M (+0M) gpu=0% holder=inkling-extq: layer 11 
+02:09:34 load=9.64 memfree=94% swap=4738M (+0M) gpu=0% holder=inkling-extq: layer 11 
+02:09:49 load=10.18 memfree=93% swap=4738M (+0M) gpu=0% holder=inkling-extq: layer 11 
+02:10:04 load=10.14 memfree=93% swap=4738M (+0M) gpu=0% holder=inkling-extq: layer 11 
+02:10:19 load=10.24 memfree=93% swap=4738M (+0M) gpu=0% holder=inkling-extq: layer 11 
+02:10:34 load=10.05 memfree=94% swap=4730M (+0M) gpu=0% holder=inkling-extq: layer 11 
+02:10:49 load=10.26 memfree=94% swap=4730M (+0M) gpu=0% holder=inkling-extq: layer 11 
+02:11:04 load=10.35 memfree=93% swap=4730M (+0M) gpu=0% holder=inkling-extq: layer 11 
+02:11:19 load=9.66 memfree=94% swap=4730M (+0M) gpu=0% holder=inkling-extq: layer 11 
+02:11:34 load=9.73 memfree=94% swap=4730M (+0M) gpu=0% holder=inkling-extq: layer 11 
+02:11:49 load=9.13 memfree=94% swap=4730M (+0M) gpu=0% holder=inkling-extq: layer 11 
+02:12:04 load=9.39 memfree=93% swap=4730M (+0M) gpu=0% holder=inkling-extq: layer 11 
+02:12:19 load=8.96 memfree=94% swap=4730M (+0M) gpu=0% holder=inkling-extq: layer 11 
+02:12:34 load=9.19 memfree=94% swap=4730M (+0M) gpu=0% holder=inkling-extq: layer 11 
+02:12:49 load=9.43 memfree=94% swap=4730M (+0M) gpu=0% holder=inkling-extq: layer 11 
+02:13:04 load=9.64 memfree=93% swap=4730M (+0M) gpu=0% holder=inkling-extq: layer 11 
+02:13:19 load=9.72 memfree=94% swap=4730M (+0M) gpu=0% holder=inkling-extq: layer 11 
+02:13:34 load=9.77 memfree=94% swap=4730M (+0M) gpu=0% holder=inkling-extq: layer 11 
+02:13:49 load=10.06 memfree=94% swap=4722M (+0M) gpu=0% holder=inkling-extq: layer 11 
+02:14:04 load=10.04 memfree=93% swap=4722M (+0M) gpu=0% holder=inkling-extq: layer 11 
+02:14:20 load=10.25 memfree=94% swap=4722M (+0M) gpu=0% holder=inkling-extq: layer 11 
+02:14:35 load=10.35 memfree=94% swap=4722M (+0M) gpu=0% holder=inkling-extq: layer 11 
+02:14:50 load=10.41 memfree=94% swap=4722M (+0M) gpu=0% holder=inkling-extq: layer 11 
+02:15:05 load=10.78 memfree=93% swap=4722M (+0M) gpu=0% holder=inkling-extq: layer 11 
+02:15:20 load=10.61 memfree=94% swap=4722M (+0M) gpu=0% holder=inkling-extq: layer 11 
+02:15:35 load=10.03 memfree=94% swap=4722M (+0M) gpu=0% holder=inkling-extq: layer 11 
+02:15:50 load=10.23 memfree=94% swap=4722M (+0M) gpu=0% holder=inkling-extq: layer 11 
+02:16:05 load=10.25 memfree=93% swap=4722M (+0M) gpu=0% holder=inkling-extq: layer 11 
+02:16:20 load=10.12 memfree=94% swap=4722M (+0M) gpu=0% holder=inkling-extq: layer 11 
+02:16:35 load=10.50 memfree=93% swap=4722M (+0M) gpu=0% holder=inkling-extq: layer 11 
+02:16:50 load=10.66 memfree=94% swap=4722M (+0M) gpu=0% holder=inkling-extq: layer 11 
+02:17:05 load=10.73 memfree=93% swap=4722M (+0M) gpu=0% holder=inkling-extq: layer 11 
+02:17:20 load=10.00 memfree=94% swap=4722M (+0M) gpu=0% holder=inkling-extq: layer 11 
+02:17:35 load=10.07 memfree=94% swap=4722M (+0M) gpu=0% holder=inkling-extq: layer 11 
+02:17:50 load=10.51 memfree=94% swap=4722M (+0M) gpu=0% holder=inkling-extq: layer 11 
+02:18:05 load=10.70 memfree=93% swap=4722M (+0M) gpu=0% holder=inkling-extq: layer 11 
+02:18:20 load=10.55 memfree=94% swap=4722M (+0M) gpu=0% holder=inkling-extq: layer 11 
+02:18:35 load=10.57 memfree=94% swap=4722M (+0M) gpu=0% holder=inkling-extq: layer 11 
+02:18:50 load=10.75 memfree=94% swap=4722M (+0M) gpu=0% holder=inkling-extq: layer 11 
+02:19:06 load=10.79 memfree=93% swap=4682M (+0M) gpu=0% holder=inkling-extq: layer 11 
+02:19:21 load=10.14 memfree=94% swap=4682M (+0M) gpu=0% holder=inkling-extq: layer 11 
+02:19:36 load=10.11 memfree=94% swap=4682M (+0M) gpu=0% holder=inkling-extq: layer 11 
+02:19:51 load=10.08 memfree=93% swap=4682M (+0M) gpu=1% holder=inkling-extq: layer 11 
+02:20:06 load=10.34 memfree=93% swap=4682M (+0M) gpu=0% holder=inkling-extq: layer 11 
+02:20:21 load=10.57 memfree=94% swap=4682M (+0M) gpu=0% holder=inkling-extq: layer 11 
+02:20:36 load=10.51 memfree=94% swap=4674M (+0M) gpu=0% holder=inkling-extq: layer 11 
+02:20:51 load=11.36 memfree=94% swap=4674M (+0M) gpu=0% holder=inkling-extq: layer 11 
+02:21:06 load=9.89 memfree=93% swap=4674M (+0M) gpu=0% holder=inkling-extq: layer 11 
+02:21:21 load=9.91 memfree=94% swap=4674M (+0M) gpu=0% holder=inkling-extq: layer 11 
+02:21:36 load=10.01 memfree=94% swap=4674M (+0M) gpu=0% holder=inkling-extq: layer 11 
+02:21:51 load=9.40 memfree=94% swap=4674M (+0M) gpu=0% holder=inkling-extq: layer 11 
+02:22:06 load=9.68 memfree=93% swap=4674M (+0M) gpu=0% holder=inkling-extq: layer 11 
+02:22:21 load=8.69 memfree=94% swap=4674M (+0M) gpu=0% holder=inkling-extq: layer 11 
+02:22:36 load=9.12 memfree=94% swap=4674M (+0M) gpu=0% holder=inkling-extq: layer 11 
+02:22:51 load=9.68 memfree=94% swap=4674M (+0M) gpu=0% holder=inkling-extq: layer 11 
+02:23:06 load=9.75 memfree=93% swap=4674M (+0M) gpu=0% holder=inkling-extq: layer 11 
+02:23:21 load=9.96 memfree=94% swap=4674M (+0M) gpu=0% holder=inkling-extq: layer 11 
+02:23:37 load=9.53 memfree=94% swap=4674M (+0M) gpu=0% holder=inkling-extq: layer 11 
+02:23:52 load=9.78 memfree=94% swap=4674M (+0M) gpu=0% holder=inkling-extq: layer 11 
+02:24:07 load=9.83 memfree=94% swap=4674M (+0M) gpu=0% holder=inkling-extq: layer 11 
+02:24:22 load=9.93 memfree=94% swap=4674M (+0M) gpu=0% holder=inkling-extq: layer 11 
+02:24:37 load=10.27 memfree=92% swap=4674M (+0M) gpu=0% holder=inkling-extq: layer 11 
+02:24:52 load=9.69 memfree=94% swap=4674M (+0M) gpu=0% holder=inkling-extq: layer 11 
+02:25:07 load=9.84 memfree=94% swap=4674M (+0M) gpu=0% holder=inkling-extq: layer 11 
+02:25:22 load=9.15 memfree=94% swap=4674M (+0M) gpu=0% holder=inkling-extq: layer 11 
+02:25:37 load=8.73 memfree=94% swap=4674M (+0M) gpu=0% holder=inkling-extq: layer 11 
+02:25:52 load=9.24 memfree=94% swap=4674M (+0M) gpu=0% holder=inkling-extq: layer 11 
+02:26:07 load=10.67 memfree=94% swap=4674M (+0M) gpu=0% holder=inkling-extq: layer 11 
+02:26:22 load=10.96 memfree=94% swap=4674M (+0M) gpu=0% holder=inkling-extq: layer 11 
+02:26:37 load=10.89 memfree=94% swap=4674M (+0M) gpu=0% holder=inkling-extq: layer 11 
+02:26:52 load=10.90 memfree=94% swap=4674M (+0M) gpu=0% holder=inkling-extq: layer 11 
+02:27:07 load=10.94 memfree=93% swap=4674M (+0M) gpu=0% holder=inkling-extq: layer 11 
+02:27:22 load=10.66 memfree=93% swap=4674M (+0M) gpu=0% holder=inkling-extq: layer 11 
+02:27:37 load=10.58 memfree=94% swap=4674M (+0M) gpu=0% holder=inkling-extq: layer 11 
+02:27:52 load=9.73 memfree=94% swap=4674M (+0M) gpu=0% holder=inkling-extq: layer 11 
+02:28:07 load=9.79 memfree=94% swap=4674M (+0M) gpu=0% holder=inkling-extq: layer 11 
+02:28:23 load=9.98 memfree=93% swap=4674M (+0M) gpu=0% holder=inkling-extq: layer 11 
+02:28:38 load=9.64 memfree=94% swap=4674M (+0M) gpu=0% holder=inkling-extq: layer 11 
+02:28:53 load=9.80 memfree=94% swap=4674M (+0M) gpu=0% holder=inkling-extq: layer 11 
+02:29:08 load=10.29 memfree=94% swap=4674M (+0M) gpu=0% holder=inkling-extq: layer 11 
+02:29:23 load=10.37 memfree=94% swap=4674M (+0M) gpu=0% holder=inkling-extq: layer 11 
+02:29:38 load=10.37 memfree=94% swap=4674M (+0M) gpu=0% holder=inkling-extq: layer 11 
+02:29:53 load=10.35 memfree=94% swap=4674M (+0M) gpu=0% holder=inkling-extq: layer 11 
+02:30:08 load=10.27 memfree=94% swap=4674M (+0M) gpu=0% holder=inkling-extq: layer 11 
+02:30:23 load=9.83 memfree=94% swap=4674M (+0M) gpu=0% holder=inkling-extq: layer 11 
+02:30:38 load=11.32 memfree=92% swap=4674M (+0M) gpu=0% holder=inkling-extq: layer 11 
+02:30:53 load=10.94 memfree=94% swap=4674M (+0M) gpu=0% holder=inkling-extq: layer 11 
+02:31:08 load=10.20 memfree=94% swap=4674M (+0M) gpu=0% holder=inkling-extq: layer 11 
+02:31:23 load=10.16 memfree=94% swap=4674M (+0M) gpu=0% holder=inkling-extq: layer 11 
+02:31:38 load=9.63 memfree=94% swap=4674M (+0M) gpu=0% holder=inkling-extq: layer 11 
+02:31:53 load=9.85 memfree=94% swap=4674M (+0M) gpu=0% holder=inkling-extq: layer 11 
+02:32:08 load=9.84 memfree=94% swap=4674M (+0M) gpu=0% holder=inkling-extq: verify layer 11 
+02:32:23 load=7.88 memfree=83% swap=4666M (+0M) gpu=44% holder=inkling: arm tetra 6-11 
+02:32:38 load=6.42 memfree=79% swap=4666M (+0M) gpu=94% holder=inkling: arm tetra 6-11 
+02:32:54 load=5.36 memfree=69% swap=4666M (+0M) gpu=90% holder=inkling: arm tetra 6-11 
+02:33:09 load=4.94 memfree=71% swap=4666M (+0M) gpu=93% holder=inkling: arm tetra 6-11 
+02:33:24 load=4.07 memfree=74% swap=4666M (+0M) gpu=88% holder=inkling: arm tetra 6-11 
+02:33:39 load=3.75 memfree=68% swap=4666M (+0M) gpu=92% holder=inkling: arm tetra 6-11 
+02:33:54 load=3.86 memfree=69% swap=4666M (+0M) gpu=92% holder=inkling: arm tetra 6-11 
+02:34:09 load=3.23 memfree=69% swap=4666M (+0M) gpu=0% holder=inkling: arm tetra 6-11 
+02:34:24 load=2.82 memfree=69% swap=4666M (+0M) gpu=54% holder=inkling: arm tetra 6-11 
+02:34:39 load=2.42 memfree=69% swap=4666M (+0M) gpu=0% holder=inkling: arm tetra 6-11 
+02:34:54 load=2.10 memfree=69% swap=4666M (+0M) gpu=93% holder=inkling: arm tetra 6-11 
+02:35:09 load=1.72 memfree=68% swap=4666M (+0M) gpu=54% holder=inkling: arm tetra 6-11 
+02:35:24 load=2.31 memfree=93% swap=4666M (+0M) gpu=0% holder=inkling: arm IQ1_S 6-11 
+02:35:39 load=2.39 memfree=79% swap=4666M (+0M) gpu=0% holder=inkling: arm IQ1_S 6-11 
+02:35:54 load=2.00 memfree=93% swap=4666M (+0M) gpu=0% holder=inkling: arm IQ1_S 6-11 
+02:36:09 load=1.86 memfree=78% swap=4666M (+0M) gpu=96% holder=inkling: arm IQ1_S 6-11 
+02:36:24 load=1.74 memfree=93% swap=4666M (+0M) gpu=0% holder=inkling: arm IQ1_S 6-11 
+02:36:39 load=1.73 memfree=77% swap=4666M (+0M) gpu=94% holder=inkling: arm IQ1_S 6-11 
+02:36:54 load=2.43 memfree=77% swap=4666M (+0M) gpu=0% holder=inkling: arm IQ1_S 6-11 
+02:37:09 load=2.76 memfree=80% swap=4666M (+0M) gpu=16% holder=inkling: arm IQ1_S 6-11 
+02:37:25 load=2.75 memfree=93% swap=4666M (+0M) gpu=0% holder=inkling: arm IQ1_S 6-11 
+02:37:40 load=2.36 memfree=79% swap=4666M (+0M) gpu=0% holder=inkling: arm IQ1_S 6-11 
+02:37:55 load=2.06 memfree=93% swap=4666M (+0M) gpu=0% holder=inkling: arm IQ1_S 6-11 
+02:38:10 load=1.82 memfree=76% swap=4666M (+0M) gpu=96% holder=inkling: arm IQ1_S 6-11 
+02:38:25 load=2.89 memfree=76% swap=4666M (+0M) gpu=95% holder=inkling: arm IQ1_S 6-11 
+02:38:40 load=2.40 memfree=93% swap=4666M (+0M) gpu=0% holder=inkling: arm IQ1_S 6-11 
+02:38:55 load=2.23 memfree=75% swap=4666M (+0M) gpu=95% holder=inkling: arm IQ1_S 6-11 
+02:39:10 load=2.12 memfree=93% swap=4666M (+0M) gpu=0% holder=inkling: arm IQ1_S 6-11 
+02:39:25 load=2.01 memfree=76% swap=4666M (+0M) gpu=90% holder=inkling: arm IQ1_S 6-11 
+02:39:40 load=1.79 memfree=76% swap=4666M (+0M) gpu=96% holder=inkling: arm IQ1_S 6-11 
+02:39:55 load=1.61 memfree=77% swap=4666M (+0M) gpu=90% holder=inkling: arm IQ1_S 6-11 
+02:40:10 load=2.01 memfree=64% swap=4666M (+0M) gpu=93% holder=inkling: arm IQ1_S 6-11 
+02:40:25 load=2.26 memfree=77% swap=4666M (+0M) gpu=94% holder=inkling: arm IQ1_M 6-11 
+02:40:40 load=2.63 memfree=77% swap=4666M (+0M) gpu=94% holder=inkling: arm IQ1_M 6-11 
+02:40:55 load=2.20 memfree=91% swap=4666M (+0M) gpu=0% holder=inkling: arm IQ1_M 6-11 
+02:41:10 load=1.93 memfree=75% swap=4666M (+0M) gpu=94% holder=inkling: arm IQ1_M 6-11 
+02:41:25 load=1.71 memfree=91% swap=4666M (+0M) gpu=0% holder=inkling: arm IQ1_M 6-11 
+02:41:40 load=1.71 memfree=75% swap=4666M (+0M) gpu=86% holder=inkling: arm IQ1_M 6-11 
+02:41:55 load=2.35 memfree=75% swap=4666M (+0M) gpu=87% holder=inkling: arm IQ1_M 6-11 
+02:42:10 load=2.05 memfree=91% swap=4666M (+0M) gpu=0% holder=inkling: arm IQ1_M 6-11 
+02:42:26 load=1.90 memfree=91% swap=4666M (+0M) gpu=0% holder=inkling: arm IQ1_M 6-11 
+02:42:41 load=1.70 memfree=91% swap=4666M (+0M) gpu=0% holder=inkling: arm IQ1_M 6-11 
+02:42:56 load=1.84 memfree=91% swap=4666M (+0M) gpu=0% holder=inkling: arm IQ1_M 6-11 
+02:43:11 load=1.57 memfree=74% swap=4666M (+0M) gpu=92% holder=inkling: arm IQ1_M 6-11 
+02:43:26 load=2.06 memfree=74% swap=4666M (+0M) gpu=91% holder=inkling: arm IQ1_M 6-11 
+02:43:41 load=1.91 memfree=91% swap=4666M (+0M) gpu=0% holder=inkling: arm IQ1_M 6-11 
+02:43:56 load=1.77 memfree=74% swap=4666M (+0M) gpu=94% holder=inkling: arm IQ1_M 6-11 
+02:44:11 load=1.60 memfree=91% swap=4666M (+0M) gpu=0% holder=inkling: arm IQ1_M 6-11 
+02:44:26 load=1.55 memfree=73% swap=4666M (+0M) gpu=96% holder=inkling: arm IQ1_M 6-11 
+02:44:41 load=1.80 memfree=72% swap=4666M (+0M) gpu=93% holder=inkling: arm IQ1_M 6-11 
+02:44:56 load=2.35 memfree=75% swap=4666M (+0M) gpu=91% holder=inkling: arm IQ1_M 6-11 
+02:45:11 load=2.21 memfree=67% swap=4666M (+0M) gpu=95% holder=inkling: arm IQ1_M 6-11 
+02:45:26 load=2.62 memfree=90% swap=4668M (+2M) gpu=0% holder=inkling: arm IQ2_XXS 6-11 
+02:45:41 load=2.90 memfree=76% swap=4668M (+2M) gpu=93% holder=inkling: arm IQ2_XXS 6-11 
+02:45:56 load=2.40 memfree=90% swap=4668M (+2M) gpu=0% holder=inkling: arm IQ2_XXS 6-11 
+02:46:11 load=2.16 memfree=74% swap=4668M (+2M) gpu=93% holder=inkling: arm IQ2_XXS 6-11 
+02:46:26 load=1.90 memfree=90% swap=4668M (+2M) gpu=0% holder=inkling: arm IQ2_XXS 6-11 
+02:46:41 load=1.70 memfree=74% swap=4668M (+2M) gpu=89% holder=inkling: arm IQ2_XXS 6-11 
+02:46:56 load=1.77 memfree=74% swap=4668M (+2M) gpu=91% holder=inkling: arm IQ2_XXS 6-11 
+02:47:12 load=2.93 memfree=74% swap=4668M (+2M) gpu=92% holder=inkling: arm IQ2_XXS 6-11 
+02:47:27 load=2.50 memfree=89% swap=4668M (+2M) gpu=0% holder=inkling: arm IQ2_XXS 6-11 
+02:47:42 load=2.24 memfree=73% swap=4668M (+2M) gpu=93% holder=inkling: arm IQ2_XXS 6-11 
+02:47:57 load=2.11 memfree=90% swap=4668M (+2M) gpu=0% holder=inkling: arm IQ2_XXS 6-11 
+02:48:12 load=1.86 memfree=73% swap=4668M (+2M) gpu=92% holder=inkling: arm IQ2_XXS 6-11 
+02:48:27 load=2.25 memfree=73% swap=4668M (+2M) gpu=94% holder=inkling: arm IQ2_XXS 6-11 
+02:48:42 load=2.12 memfree=71% swap=4668M (+2M) gpu=95% holder=inkling: arm IQ2_XXS 6-11 
+02:48:57 load=2.02 memfree=90% swap=4668M (+2M) gpu=0% holder=inkling: arm IQ2_XXS 6-11 
+02:49:12 load=1.79 memfree=70% swap=4668M (+2M) gpu=93% holder=inkling: arm IQ2_XXS 6-11 
+02:49:27 load=1.76 memfree=90% swap=4668M (+2M) gpu=0% holder=inkling: arm IQ2_XXS 6-11 
+02:49:42 load=1.74 memfree=71% swap=4668M (+2M) gpu=94% holder=inkling: arm IQ2_XXS 6-11 
+02:49:57 load=1.59 memfree=71% swap=4668M (+2M) gpu=91% holder=inkling: arm IQ2_XXS 6-11 
+02:50:12 load=1.79 memfree=70% swap=4668M (+2M) gpu=96% holder=inkling: arm IQ2_XXS 6-11 
+02:50:27 load=1.97 memfree=90% swap=4668M (+2M) gpu=0% holder=inkling: arm Q2_K_XL 6-11 
+02:50:42 load=2.03 memfree=76% swap=4668M (+2M) gpu=94% holder=inkling: arm Q2_K_XL 6-11 
+02:50:57 load=1.66 memfree=90% swap=4668M (+2M) gpu=0% holder=inkling: arm Q2_K_XL 6-11 
+02:51:12 load=1.59 memfree=90% swap=4660M (+0M) gpu=92% holder=inkling: arm Q2_K_XL 6-11 
+02:51:27 load=1.46 memfree=90% swap=4660M (+0M) gpu=0% holder=inkling: arm Q2_K_XL 6-11 
+02:51:42 load=1.44 memfree=74% swap=4660M (+0M) gpu=90% holder=inkling: arm Q2_K_XL 6-11 
+02:51:58 load=1.49 memfree=75% swap=4660M (+0M) gpu=92% holder=inkling: arm Q2_K_XL 6-11 
+02:52:13 load=1.77 memfree=74% swap=4660M (+0M) gpu=91% holder=inkling: arm Q2_K_XL 6-11 
+02:52:28 load=1.75 memfree=91% swap=4660M (+0M) gpu=0% holder=inkling: arm Q2_K_XL 6-11 
+02:52:43 load=1.59 memfree=73% swap=4660M (+0M) gpu=89% holder=inkling: arm Q2_K_XL 6-11 
+02:52:58 load=1.46 memfree=91% swap=4660M (+0M) gpu=93% holder=inkling: arm Q2_K_XL 6-11 
+02:53:13 load=1.52 memfree=73% swap=4660M (+0M) gpu=88% holder=inkling: arm Q2_K_XL 6-11 
+02:53:28 load=1.33 memfree=73% swap=4660M (+0M) gpu=93% holder=inkling: arm Q2_K_XL 6-11 
+02:53:43 load=1.25 memfree=73% swap=4660M (+0M) gpu=92% holder=inkling: arm Q2_K_XL 6-11 
+02:53:58 load=1.36 memfree=90% swap=4660M (+0M) gpu=0% holder=inkling: arm Q2_K_XL 6-11 
+02:54:13 load=1.28 memfree=72% swap=4660M (+0M) gpu=89% holder=inkling: arm Q2_K_XL 6-11 
+02:54:28 load=1.21 memfree=91% swap=4660M (+0M) gpu=95% holder=inkling: arm Q2_K_XL 6-11 
+02:54:43 load=2.06 memfree=72% swap=4660M (+0M) gpu=91% holder=inkling: arm Q2_K_XL 6-11 
+02:54:58 load=1.99 memfree=72% swap=4660M (+0M) gpu=93% holder=inkling: arm Q2_K_XL 6-11 
+02:55:13 load=1.91 memfree=74% swap=4660M (+0M) gpu=94% holder=inkling: arm Q2_K_XL 6-11 
+02:55:28 load=2.14 memfree=89% swap=4660M (+0M) gpu=85% holder=none
+02:55:43 load=2.31 memfree=89% swap=4660M (+0M) gpu=12% holder=none
+02:55:58 load=2.24 memfree=89% swap=4660M (+0M) gpu=14% holder=inkling: prep layer 12 
+02:56:13 load=2.81 memfree=89% swap=4660M (+0M) gpu=14% holder=inkling: prep layer 12 
+02:56:28 load=3.90 memfree=89% swap=4660M (+0M) gpu=13% holder=inkling: prep layer 12 
+02:56:43 load=3.76 memfree=89% swap=4660M (+0M) gpu=7% holder=inkling-extq: layer 12 
+02:56:59 load=5.45 memfree=89% swap=4652M (+0M) gpu=11% holder=inkling-extq: layer 12 
+02:57:14 load=6.61 memfree=89% swap=4652M (+0M) gpu=7% holder=inkling-extq: layer 12 
+02:57:29 load=7.67 memfree=89% swap=4652M (+0M) gpu=7% holder=inkling-extq: layer 12 
+02:57:44 load=8.57 memfree=89% swap=4652M (+0M) gpu=0% holder=inkling-extq: layer 12 
+02:57:59 load=9.67 memfree=89% swap=4652M (+0M) gpu=8% holder=inkling-extq: layer 12 
+02:58:14 load=10.03 memfree=89% swap=4652M (+0M) gpu=0% holder=inkling-extq: layer 12 
+02:58:29 load=10.42 memfree=89% swap=4652M (+0M) gpu=9% holder=inkling-extq: layer 12 
+02:58:44 load=10.48 memfree=89% swap=4652M (+0M) gpu=8% holder=inkling-extq: layer 12 
+02:58:59 load=9.88 memfree=89% swap=4644M (+0M) gpu=8% holder=inkling-extq: layer 12 
+02:59:14 load=9.99 memfree=89% swap=4644M (+0M) gpu=9% holder=inkling-extq: layer 12 
+02:59:29 load=10.36 memfree=89% swap=4644M (+0M) gpu=9% holder=inkling-extq: layer 12 
+02:59:44 load=10.59 memfree=90% swap=4644M (+0M) gpu=7% holder=inkling-extq: layer 12 
+02:59:59 load=10.60 memfree=89% swap=4644M (+0M) gpu=24% holder=inkling-extq: layer 12 
+03:00:14 load=10.77 memfree=89% swap=4644M (+0M) gpu=8% holder=inkling-extq: layer 12 
+03:00:29 load=11.13 memfree=89% swap=4644M (+0M) gpu=8% holder=inkling-extq: layer 12 
+03:00:44 load=10.49 memfree=89% swap=4644M (+0M) gpu=7% holder=inkling-extq: layer 12 
+03:00:59 load=10.52 memfree=89% swap=4644M (+0M) gpu=7% holder=inkling-extq: layer 12 
+03:01:15 load=11.01 memfree=89% swap=4644M (+0M) gpu=7% holder=inkling-extq: layer 12 
+03:01:30 load=10.94 memfree=89% swap=4644M (+0M) gpu=7% holder=inkling-extq: layer 12 
+03:01:45 load=10.86 memfree=89% swap=4644M (+0M) gpu=8% holder=inkling-extq: layer 12 
+03:02:00 load=10.74 memfree=89% swap=4644M (+0M) gpu=7% holder=inkling-extq: layer 12 
+03:02:15 load=9.89 memfree=89% swap=4644M (+0M) gpu=8% holder=inkling-extq: layer 12 
+03:02:30 load=11.98 memfree=91% swap=4644M (+0M) gpu=0% holder=inkling-extq: layer 12 
+03:02:45 load=11.61 memfree=90% swap=4644M (+0M) gpu=0% holder=inkling-extq: layer 12 
+03:03:00 load=12.38 memfree=90% swap=4644M (+0M) gpu=0% holder=inkling-extq: layer 12 
+03:03:15 load=11.85 memfree=91% swap=4644M (+0M) gpu=0% holder=inkling-extq: layer 12 
+03:03:30 load=11.36 memfree=91% swap=4644M (+0M) gpu=0% holder=inkling-extq: layer 12 
+03:03:45 load=11.22 memfree=90% swap=4644M (+0M) gpu=0% holder=inkling-extq: layer 12 
+03:04:00 load=11.32 memfree=90% swap=4644M (+0M) gpu=0% holder=inkling-extq: layer 12 
+03:04:15 load=11.17 memfree=91% swap=4644M (+0M) gpu=0% holder=inkling-extq: layer 12 
+03:04:30 load=10.83 memfree=91% swap=4644M (+0M) gpu=0% holder=inkling-extq: layer 12 
+03:04:45 load=10.72 memfree=90% swap=4644M (+0M) gpu=0% holder=inkling-extq: layer 12 
+03:05:00 load=10.56 memfree=90% swap=4644M (+0M) gpu=0% holder=inkling-extq: layer 12 
+03:05:15 load=10.60 memfree=91% swap=4644M (+0M) gpu=0% holder=inkling-extq: layer 12 
+03:05:30 load=10.69 memfree=91% swap=4644M (+0M) gpu=0% holder=inkling-extq: layer 12 
+03:05:45 load=10.62 memfree=90% swap=4644M (+0M) gpu=0% holder=inkling-extq: layer 12 
+03:06:01 load=10.56 memfree=90% swap=4644M (+0M) gpu=0% holder=inkling-extq: layer 12 
+03:06:16 load=10.65 memfree=91% swap=4644M (+0M) gpu=0% holder=inkling-extq: layer 12 
+03:06:31 load=11.01 memfree=91% swap=4644M (+0M) gpu=0% holder=inkling-extq: layer 12 
+03:06:46 load=10.87 memfree=90% swap=4644M (+0M) gpu=0% holder=inkling-extq: layer 12 
+03:07:01 load=10.81 memfree=89% swap=4644M (+0M) gpu=0% holder=inkling-extq: layer 12 
+03:07:16 load=10.77 memfree=91% swap=4644M (+0M) gpu=0% holder=inkling-extq: layer 12 
+03:07:31 load=10.51 memfree=91% swap=4644M (+0M) gpu=0% holder=inkling-extq: layer 12 
+03:07:46 load=9.79 memfree=91% swap=4644M (+0M) gpu=0% holder=inkling-extq: layer 12 
+03:08:01 load=9.90 memfree=91% swap=4644M (+0M) gpu=0% holder=inkling-extq: layer 12 
+03:08:16 load=9.92 memfree=91% swap=4644M (+0M) gpu=0% holder=inkling-extq: layer 12 
+03:08:31 load=10.02 memfree=91% swap=4644M (+0M) gpu=0% holder=inkling-extq: layer 12 
+03:08:46 load=10.01 memfree=91% swap=4644M (+0M) gpu=0% holder=inkling-extq: layer 12 
+03:09:01 load=9.28 memfree=89% swap=4644M (+0M) gpu=0% holder=inkling-extq: layer 12 
+03:09:16 load=9.44 memfree=91% swap=4644M (+0M) gpu=0% holder=inkling-extq: layer 12 
+03:09:31 load=9.70 memfree=91% swap=4644M (+0M) gpu=0% holder=inkling-extq: layer 12 
+03:09:46 load=9.93 memfree=91% swap=4644M (+0M) gpu=0% holder=inkling-extq: layer 12 
+03:10:01 load=10.02 memfree=91% swap=4644M (+0M) gpu=0% holder=inkling-extq: layer 12 
+03:10:16 load=9.45 memfree=91% swap=4644M (+0M) gpu=0% holder=inkling-extq: layer 12 
+03:10:32 load=9.57 memfree=91% swap=4644M (+0M) gpu=0% holder=inkling-extq: layer 12 
+03:10:47 load=9.82 memfree=91% swap=4644M (+0M) gpu=0% holder=inkling-extq: layer 12 
+03:11:02 load=10.24 memfree=91% swap=4644M (+0M) gpu=0% holder=inkling-extq: layer 12 
+03:11:17 load=10.41 memfree=91% swap=4644M (+0M) gpu=0% holder=inkling-extq: layer 12 
+03:11:32 load=10.61 memfree=91% swap=4644M (+0M) gpu=0% holder=inkling-extq: layer 12 
+03:11:47 load=10.70 memfree=91% swap=4644M (+0M) gpu=0% holder=inkling-extq: layer 12 
+03:12:02 load=11.63 memfree=91% swap=4644M (+0M) gpu=1% holder=inkling-extq: layer 12 
+03:12:17 load=11.87 memfree=91% swap=4644M (+0M) gpu=0% holder=inkling-extq: layer 12 
+03:12:32 load=10.52 memfree=91% swap=4644M (+0M) gpu=0% holder=inkling-extq: layer 12 
+03:12:47 load=10.62 memfree=91% swap=4644M (+0M) gpu=0% holder=inkling-extq: layer 12 
+03:13:02 load=10.79 memfree=91% swap=4644M (+0M) gpu=0% holder=inkling-extq: layer 12 
+03:13:17 load=10.10 memfree=91% swap=4644M (+0M) gpu=0% holder=inkling-extq: layer 12 
+03:13:32 load=10.29 memfree=91% swap=4644M (+0M) gpu=0% holder=inkling-extq: layer 12 
+03:13:47 load=10.23 memfree=91% swap=4644M (+0M) gpu=0% holder=inkling-extq: layer 12 
+03:14:02 load=9.57 memfree=90% swap=4644M (+0M) gpu=0% holder=inkling-extq: layer 12 
+03:14:17 load=9.66 memfree=91% swap=4644M (+0M) gpu=0% holder=inkling-extq: layer 12 
+03:14:32 load=9.17 memfree=91% swap=4644M (+0M) gpu=0% holder=inkling-extq: layer 12 
+03:14:47 load=9.89 memfree=91% swap=4644M (+0M) gpu=0% holder=inkling-extq: layer 12 
+03:15:02 load=9.91 memfree=91% swap=4644M (+0M) gpu=0% holder=inkling-extq: layer 12 
+03:15:18 load=10.00 memfree=91% swap=4644M (+0M) gpu=0% holder=inkling-extq: layer 12 
+03:15:33 load=10.00 memfree=91% swap=4644M (+0M) gpu=0% holder=inkling-extq: layer 12 
+03:15:48 load=10.07 memfree=91% swap=4644M (+0M) gpu=0% holder=inkling-extq: layer 12 
+03:16:03 load=10.20 memfree=91% swap=4644M (+0M) gpu=0% holder=inkling-extq: layer 12 
+03:16:18 load=10.15 memfree=91% swap=4644M (+0M) gpu=0% holder=inkling-extq: layer 12 
+03:16:33 load=10.20 memfree=91% swap=4644M (+0M) gpu=0% holder=inkling-extq: layer 12 
+03:16:48 load=10.36 memfree=91% swap=4644M (+0M) gpu=0% holder=inkling-extq: layer 12 
+03:17:03 load=10.41 memfree=91% swap=4644M (+0M) gpu=0% holder=inkling-extq: layer 12 
+03:17:18 load=10.47 memfree=91% swap=4644M (+0M) gpu=0% holder=inkling-extq: layer 12 
+03:17:33 load=10.67 memfree=91% swap=4644M (+0M) gpu=0% holder=inkling-extq: layer 12 
+03:17:48 load=10.80 memfree=91% swap=4636M (+0M) gpu=0% holder=inkling-extq: layer 12 
+03:18:03 load=11.42 memfree=91% swap=4628M (+0M) gpu=1% holder=inkling-extq: layer 12 
+03:18:18 load=11.19 memfree=91% swap=4628M (+0M) gpu=0% holder=inkling-extq: layer 12 
+03:18:33 load=12.19 memfree=91% swap=4628M (+0M) gpu=0% holder=inkling-extq: layer 12 
+03:18:48 load=11.95 memfree=91% swap=4628M (+0M) gpu=0% holder=inkling-extq: layer 12 
+03:19:03 load=11.58 memfree=91% swap=4628M (+0M) gpu=0% holder=inkling-extq: layer 12 
+03:19:18 load=11.16 memfree=92% swap=4628M (+0M) gpu=0% holder=inkling-extq: layer 12 
+03:19:33 load=11.69 memfree=92% swap=4628M (+0M) gpu=0% holder=inkling-extq: layer 12 
+03:19:48 load=11.46 memfree=91% swap=4628M (+0M) gpu=0% holder=inkling-extq: layer 12 
+03:20:04 load=11.29 memfree=91% swap=4628M (+0M) gpu=0% holder=inkling-extq: layer 12 
+03:20:19 load=11.15 memfree=91% swap=4628M (+0M) gpu=1% holder=inkling-extq: layer 12 
+03:20:34 load=10.97 memfree=92% swap=4628M (+0M) gpu=0% holder=inkling-extq: layer 12 
+03:20:49 load=10.76 memfree=91% swap=4628M (+0M) gpu=0% holder=inkling-extq: layer 12 
+03:21:04 load=10.72 memfree=91% swap=4628M (+0M) gpu=0% holder=inkling-extq: layer 12 
+03:21:19 load=10.79 memfree=92% swap=4628M (+0M) gpu=0% holder=inkling-extq: layer 12 
+03:21:34 load=10.61 memfree=92% swap=4628M (+0M) gpu=0% holder=inkling-extq: layer 12 
+03:21:49 load=10.70 memfree=92% swap=4628M (+0M) gpu=0% holder=inkling-extq: layer 12 
+03:22:04 load=10.62 memfree=92% swap=4628M (+0M) gpu=0% holder=inkling-extq: layer 12 
+03:22:19 load=10.48 memfree=92% swap=4628M (+0M) gpu=0% holder=inkling-extq: layer 12 
+03:22:34 load=10.38 memfree=92% swap=4628M (+0M) gpu=0% holder=inkling-extq: layer 12 
+03:22:49 load=10.52 memfree=92% swap=4628M (+0M) gpu=0% holder=inkling-extq: layer 12 
+03:23:04 load=10.40 memfree=92% swap=4628M (+0M) gpu=0% holder=inkling-extq: layer 12 
+2026-11-22 03:23:04 EXIT HEARTBEAT: no alert in 5400 s
+2026-11-22 03:23:14 START base_swap=4628M
+03:23:14 load=10.34 memfree=89% swap=4628M (+0M) gpu=21% holder=inkling-extq: layer 12 
+03:23:29 load=9.87 memfree=90% swap=4628M (+0M) gpu=0% holder=inkling-extq: layer 12 
+03:23:44 load=10.10 memfree=92% swap=4628M (+0M) gpu=0% holder=inkling-extq: layer 12 
+03:23:59 load=10.08 memfree=92% swap=4628M (+0M) gpu=0% holder=inkling-extq: layer 12 
+03:24:14 load=9.33 memfree=91% swap=4628M (+0M) gpu=0% holder=inkling-extq: layer 12 
+03:24:29 load=9.72 memfree=91% swap=4628M (+0M) gpu=0% holder=inkling-extq: layer 12 
+03:24:44 load=9.86 memfree=92% swap=4628M (+0M) gpu=0% holder=inkling-extq: layer 12 
+03:24:59 load=10.59 memfree=91% swap=4628M (+0M) gpu=0% holder=inkling-extq: layer 12 
+03:25:14 load=10.46 memfree=91% swap=4628M (+0M) gpu=0% holder=inkling-extq: layer 12 
+03:25:29 load=10.36 memfree=92% swap=4628M (+0M) gpu=0% holder=inkling-extq: layer 12 
+03:25:44 load=9.74 memfree=91% swap=4628M (+0M) gpu=0% holder=inkling-extq: layer 12 
+03:25:59 load=10.04 memfree=92% swap=4628M (+0M) gpu=0% holder=inkling-extq: layer 12 
+03:26:15 load=9.23 memfree=91% swap=4628M (+0M) gpu=0% holder=inkling-extq: verify layer 12 
+03:26:30 load=8.20 memfree=91% swap=4628M (+0M) gpu=0% holder=inkling: prep layer 13 
+03:26:45 load=6.60 memfree=91% swap=4628M (+0M) gpu=0% holder=inkling: prep layer 13 
+03:27:00 load=6.17 memfree=91% swap=4628M (+0M) gpu=0% holder=inkling: prep layer 13 
+03:27:15 load=6.14 memfree=92% swap=4628M (+0M) gpu=0% holder=inkling-extq: layer 13 
+03:27:30 load=7.05 memfree=92% swap=4628M (+0M) gpu=0% holder=inkling-extq: layer 13 
+03:27:45 load=7.09 memfree=92% swap=4628M (+0M) gpu=0% holder=inkling-extq: layer 13 
+03:28:00 load=7.89 memfree=91% swap=4628M (+0M) gpu=0% holder=inkling-extq: layer 13 
+03:28:15 load=8.49 memfree=92% swap=4628M (+0M) gpu=0% holder=inkling-extq: layer 13 
+03:28:30 load=8.83 memfree=92% swap=4628M (+0M) gpu=0% holder=inkling-extq: layer 13 
+03:28:45 load=9.23 memfree=91% swap=4628M (+0M) gpu=0% holder=inkling-extq: layer 13 
+03:29:00 load=9.08 memfree=91% swap=4628M (+0M) gpu=0% holder=inkling-extq: layer 13 
+03:29:15 load=9.28 memfree=92% swap=4628M (+0M) gpu=0% holder=inkling-extq: layer 13 
+03:29:30 load=9.75 memfree=92% swap=4628M (+0M) gpu=0% holder=inkling-extq: layer 13 
+03:29:45 load=9.89 memfree=91% swap=4628M (+0M) gpu=0% holder=inkling-extq: layer 13 
+03:30:00 load=10.40 memfree=91% swap=4628M (+0M) gpu=0% holder=inkling-extq: layer 13 
+03:30:15 load=10.31 memfree=92% swap=4628M (+0M) gpu=0% holder=inkling-extq: layer 13 
+03:30:30 load=10.24 memfree=92% swap=4628M (+0M) gpu=0% holder=inkling-extq: layer 13 
+03:30:46 load=10.27 memfree=91% swap=4628M (+0M) gpu=0% holder=inkling-extq: layer 13 
+03:31:01 load=9.64 memfree=91% swap=4628M (+0M) gpu=0% holder=inkling-extq: layer 13 
+03:31:16 load=9.85 memfree=92% swap=4628M (+0M) gpu=0% holder=inkling-extq: layer 13 
+03:31:31 load=10.11 memfree=92% swap=4628M (+0M) gpu=0% holder=inkling-extq: layer 13 
+03:31:46 load=8.89 memfree=91% swap=4628M (+0M) gpu=0% holder=inkling-extq: layer 13 
+03:32:01 load=9.13 memfree=91% swap=4628M (+0M) gpu=0% holder=inkling-extq: layer 13 
+03:32:16 load=9.25 memfree=92% swap=4628M (+0M) gpu=0% holder=inkling-extq: layer 13 
+03:32:31 load=9.02 memfree=92% swap=4628M (+0M) gpu=0% holder=inkling-extq: layer 13 
+03:32:46 load=9.46 memfree=92% swap=4628M (+0M) gpu=0% holder=inkling-extq: layer 13 
+03:33:01 load=9.05 memfree=92% swap=4628M (+0M) gpu=0% holder=inkling-extq: layer 13 
+03:33:16 load=9.26 memfree=92% swap=4628M (+0M) gpu=0% holder=inkling-extq: layer 13 
+03:33:31 load=9.50 memfree=92% swap=4628M (+0M) gpu=0% holder=inkling-extq: layer 13 
+03:33:46 load=9.02 memfree=92% swap=4628M (+0M) gpu=0% holder=inkling-extq: layer 13 
+03:34:01 load=9.24 memfree=91% swap=4628M (+0M) gpu=0% holder=inkling-extq: layer 13 
+03:34:16 load=9.49 memfree=92% swap=4628M (+0M) gpu=0% holder=inkling-extq: layer 13 
+03:34:31 load=9.06 memfree=92% swap=4628M (+0M) gpu=0% holder=inkling-extq: layer 13 
+03:34:46 load=9.27 memfree=92% swap=4628M (+0M) gpu=0% holder=inkling-extq: layer 13 
+03:35:01 load=8.87 memfree=92% swap=4628M (+0M) gpu=0% holder=inkling-extq: layer 13 
+03:35:16 load=9.87 memfree=92% swap=4628M (+0M) gpu=0% holder=inkling-extq: layer 13 
+03:35:32 load=10.52 memfree=92% swap=4628M (+0M) gpu=0% holder=inkling-extq: layer 13 
+03:35:47 load=10.48 memfree=92% swap=4628M (+0M) gpu=0% holder=inkling-extq: layer 13 
+03:36:02 load=10.45 memfree=92% swap=4628M (+0M) gpu=0% holder=inkling-extq: layer 13 
+03:36:17 load=10.48 memfree=92% swap=4628M (+0M) gpu=0% holder=inkling-extq: layer 13 
+03:36:32 load=10.38 memfree=92% swap=4628M (+0M) gpu=0% holder=inkling-extq: layer 13 
+03:36:47 load=10.46 memfree=92% swap=4628M (+0M) gpu=0% holder=inkling-extq: layer 13 
+03:37:02 load=10.50 memfree=92% swap=4628M (+0M) gpu=0% holder=inkling-extq: layer 13 
+03:37:17 load=10.39 memfree=92% swap=4628M (+0M) gpu=0% holder=inkling-extq: layer 13 
+03:37:32 load=10.52 memfree=92% swap=4628M (+0M) gpu=0% holder=inkling-extq: layer 13 
+03:37:47 load=10.41 memfree=92% swap=4628M (+0M) gpu=0% holder=inkling-extq: layer 13 
+03:38:02 load=10.38 memfree=92% swap=4628M (+0M) gpu=0% holder=inkling-extq: layer 13 
+03:38:17 load=10.30 memfree=92% swap=4628M (+0M) gpu=0% holder=inkling-extq: layer 13 
+03:38:32 load=10.31 memfree=92% swap=4620M (+0M) gpu=0% holder=inkling-extq: layer 13 
+03:38:47 load=10.24 memfree=92% swap=4620M (+0M) gpu=0% holder=inkling-extq: layer 13 
+03:39:02 load=10.19 memfree=92% swap=4620M (+0M) gpu=0% holder=inkling-extq: layer 13 
+03:39:17 load=9.54 memfree=92% swap=4620M (+0M) gpu=0% holder=inkling-extq: layer 13 
+03:39:32 load=9.80 memfree=92% swap=4620M (+0M) gpu=0% holder=inkling-extq: layer 13 
+03:39:47 load=9.77 memfree=90% swap=4620M (+0M) gpu=0% holder=inkling-extq: layer 13 
+03:40:03 load=9.96 memfree=92% swap=4620M (+0M) gpu=1% holder=inkling-extq: layer 13 
+03:40:18 load=10.10 memfree=92% swap=4620M (+0M) gpu=0% holder=inkling-extq: layer 13 
+03:40:33 load=10.01 memfree=92% swap=4620M (+0M) gpu=0% holder=inkling-extq: layer 13 
+03:40:48 load=10.36 memfree=92% swap=4620M (+0M) gpu=0% holder=inkling-extq: layer 13 
+03:41:03 load=10.28 memfree=92% swap=4620M (+0M) gpu=0% holder=inkling-extq: layer 13 
+03:41:18 load=10.35 memfree=92% swap=4620M (+0M) gpu=0% holder=inkling-extq: layer 13 
+03:41:33 load=10.27 memfree=92% swap=4620M (+0M) gpu=0% holder=inkling-extq: layer 13 
+03:41:48 load=9.97 memfree=92% swap=4620M (+0M) gpu=0% holder=inkling-extq: layer 13 
+03:42:03 load=9.98 memfree=92% swap=4620M (+0M) gpu=0% holder=inkling-extq: layer 13 
+03:42:18 load=10.33 memfree=92% swap=4620M (+0M) gpu=0% holder=inkling-extq: layer 13 
+03:42:33 load=10.34 memfree=92% swap=4620M (+0M) gpu=0% holder=inkling-extq: layer 13 
+03:42:48 load=10.56 memfree=92% swap=4620M (+0M) gpu=0% holder=inkling-extq: layer 13 
+03:43:03 load=10.97 memfree=92% swap=4620M (+0M) gpu=0% holder=inkling-extq: layer 13 
+03:43:18 load=10.82 memfree=92% swap=4620M (+0M) gpu=0% holder=inkling-extq: layer 13 
+03:43:33 load=10.64 memfree=92% swap=4620M (+0M) gpu=0% holder=inkling-extq: layer 13 
+03:43:48 load=10.63 memfree=92% swap=4620M (+0M) gpu=0% holder=inkling-extq: layer 13 
+03:44:03 load=10.56 memfree=92% swap=4620M (+0M) gpu=0% holder=inkling-extq: layer 13 
+03:44:18 load=10.44 memfree=92% swap=4620M (+0M) gpu=0% holder=inkling-extq: layer 13 
+03:44:33 load=10.34 memfree=92% swap=4620M (+0M) gpu=0% holder=inkling-extq: layer 13 
+03:44:49 load=9.65 memfree=92% swap=4620M (+0M) gpu=0% holder=inkling-extq: layer 13 
+03:45:04 load=9.73 memfree=92% swap=4620M (+0M) gpu=0% holder=inkling-extq: layer 13 
+03:45:19 load=8.70 memfree=92% swap=4620M (+0M) gpu=0% holder=inkling-extq: layer 13 
+03:45:34 load=9.30 memfree=92% swap=4620M (+0M) gpu=0% holder=inkling-extq: layer 13 
+03:45:49 load=9.93 memfree=92% swap=4620M (+0M) gpu=0% holder=inkling-extq: layer 13 
+03:46:04 load=9.95 memfree=92% swap=4620M (+0M) gpu=0% holder=inkling-extq: layer 13 
+03:46:19 load=9.96 memfree=92% swap=4620M (+0M) gpu=0% holder=inkling-extq: layer 13 
+03:46:34 load=10.32 memfree=92% swap=4620M (+0M) gpu=0% holder=inkling-extq: layer 13 
+03:46:49 load=9.91 memfree=92% swap=4620M (+0M) gpu=0% holder=inkling-extq: layer 13 
+03:47:04 load=9.93 memfree=92% swap=4620M (+0M) gpu=0% holder=inkling-extq: layer 13 
+03:47:19 load=10.09 memfree=92% swap=4620M (+0M) gpu=0% holder=inkling-extq: layer 13 
+03:47:34 load=10.07 memfree=92% swap=4620M (+0M) gpu=0% holder=inkling-extq: layer 13 
+03:47:49 load=10.20 memfree=92% swap=4620M (+0M) gpu=0% holder=inkling-extq: layer 13 
+03:48:04 load=9.83 memfree=92% swap=4620M (+0M) gpu=0% holder=inkling-extq: layer 13 
+03:48:19 load=9.32 memfree=92% swap=4620M (+0M) gpu=0% holder=inkling-extq: layer 13 
+03:48:34 load=11.09 memfree=92% swap=4620M (+0M) gpu=0% holder=inkling-extq: layer 13 
+03:48:49 load=10.93 memfree=92% swap=4620M (+0M) gpu=0% holder=inkling-extq: layer 13 
+03:49:04 load=10.80 memfree=92% swap=4620M (+0M) gpu=0% holder=inkling-extq: layer 13 
+03:49:19 load=10.70 memfree=92% swap=4620M (+0M) gpu=0% holder=inkling-extq: layer 13 
+03:49:35 load=10.55 memfree=92% swap=4620M (+0M) gpu=0% holder=inkling-extq: layer 13 
+03:49:50 load=10.43 memfree=92% swap=4620M (+0M) gpu=0% holder=inkling-extq: layer 13 
+03:50:05 load=10.47 memfree=92% swap=4620M (+0M) gpu=0% holder=inkling-extq: layer 13 
+03:50:20 load=9.63 memfree=92% swap=4620M (+0M) gpu=0% holder=inkling-extq: layer 13 
+03:50:35 load=9.94 memfree=92% swap=4620M (+0M) gpu=0% holder=inkling-extq: layer 13 
+03:50:50 load=10.09 memfree=92% swap=4620M (+0M) gpu=0% holder=inkling-extq: layer 13 
+03:51:05 load=9.46 memfree=92% swap=4620M (+0M) gpu=0% holder=inkling-extq: layer 13 
+03:51:20 load=9.72 memfree=92% swap=4620M (+0M) gpu=0% holder=inkling-extq: layer 13 
+03:51:35 load=9.93 memfree=92% swap=4620M (+0M) gpu=0% holder=inkling-extq: layer 13 
+03:51:50 load=10.17 memfree=92% swap=4620M (+0M) gpu=0% holder=inkling-extq: layer 13 
+03:52:05 load=10.13 memfree=92% swap=4620M (+0M) gpu=0% holder=inkling-extq: layer 13 
+03:52:20 load=10.10 memfree=92% swap=4620M (+0M) gpu=0% holder=inkling-extq: layer 13 
+03:52:35 load=10.15 memfree=92% swap=4620M (+0M) gpu=0% holder=inkling-extq: layer 13 
+03:52:50 load=10.27 memfree=92% swap=4620M (+0M) gpu=0% holder=inkling-extq: layer 13 
+03:53:05 load=10.21 memfree=92% swap=4620M (+0M) gpu=0% holder=inkling-extq: layer 13 
+03:53:20 load=10.47 memfree=92% swap=4620M (+0M) gpu=0% holder=inkling-extq: layer 13 
+03:53:35 load=10.59 memfree=92% swap=4620M (+0M) gpu=0% holder=inkling-extq: layer 13 
+03:53:50 load=10.53 memfree=92% swap=4620M (+0M) gpu=0% holder=inkling-extq: layer 13 
+03:54:06 load=10.70 memfree=92% swap=4620M (+0M) gpu=0% holder=inkling-extq: layer 13 
+03:54:21 load=10.39 memfree=92% swap=4620M (+0M) gpu=0% holder=inkling-extq: layer 13 
+03:54:36 load=10.30 memfree=92% swap=4620M (+0M) gpu=0% holder=inkling-extq: layer 13 
+03:54:51 load=10.38 memfree=92% swap=4612M (+0M) gpu=0% holder=inkling-extq: layer 13 
+03:55:06 load=10.38 memfree=92% swap=4612M (+0M) gpu=0% holder=inkling-extq: layer 13 
+03:55:21 load=9.76 memfree=92% swap=4612M (+0M) gpu=0% holder=inkling-extq: layer 13 
+03:55:36 load=9.94 memfree=92% swap=4612M (+0M) gpu=0% holder=inkling-extq: layer 13 
+03:55:51 load=10.11 memfree=92% swap=4612M (+0M) gpu=0% holder=inkling-extq: verify layer 13 
+03:56:06 load=8.31 memfree=92% swap=4612M (+0M) gpu=0% holder=inkling: prep layer 14 
+03:56:21 load=7.38 memfree=92% swap=4612M (+0M) gpu=1% holder=inkling: prep layer 14 
+03:56:36 load=6.11 memfree=92% swap=4612M (+0M) gpu=0% holder=inkling: prep layer 14 
+03:56:51 load=5.34 memfree=92% swap=4612M (+0M) gpu=0% holder=inkling-extq: layer 14 
+03:57:06 load=6.45 memfree=92% swap=4612M (+0M) gpu=0% holder=inkling-extq: layer 14 
+03:57:21 load=7.24 memfree=92% swap=4612M (+0M) gpu=0% holder=inkling-extq: layer 14 
+03:57:36 load=7.92 memfree=92% swap=4612M (+0M) gpu=0% holder=inkling-extq: layer 14 
+03:57:51 load=8.51 memfree=92% swap=4612M (+0M) gpu=0% holder=inkling-extq: layer 14 
+03:58:06 load=9.00 memfree=92% swap=4612M (+0M) gpu=0% holder=inkling-extq: layer 14 
+03:58:21 load=9.59 memfree=92% swap=4612M (+0M) gpu=0% holder=inkling-extq: layer 14 
+03:58:36 load=9.75 memfree=92% swap=4612M (+0M) gpu=0% holder=inkling-extq: layer 14 
+03:58:52 load=9.94 memfree=92% swap=4612M (+0M) gpu=0% holder=inkling-extq: layer 14 
+03:59:07 load=9.95 memfree=92% swap=4612M (+0M) gpu=0% holder=inkling-extq: layer 14 
+03:59:22 load=8.99 memfree=92% swap=4612M (+0M) gpu=0% holder=inkling-extq: layer 14 
+03:59:37 load=9.35 memfree=92% swap=4612M (+0M) gpu=0% holder=inkling-extq: layer 14 
+03:59:52 load=9.62 memfree=92% swap=4612M (+0M) gpu=0% holder=inkling-extq: layer 14 
+04:00:07 load=9.86 memfree=92% swap=4612M (+0M) gpu=0% holder=inkling-extq: layer 14 
+04:00:22 load=9.89 memfree=92% swap=4612M (+0M) gpu=0% holder=inkling-extq: layer 14 
+04:00:37 load=10.06 memfree=92% swap=4612M (+0M) gpu=0% holder=inkling-extq: layer 14 
+04:00:52 load=9.93 memfree=91% swap=4612M (+0M) gpu=0% holder=inkling-extq: layer 14 
+04:01:07 load=9.94 memfree=92% swap=4612M (+0M) gpu=0% holder=inkling-extq: layer 14 
+04:01:22 load=9.16 memfree=92% swap=4612M (+0M) gpu=0% holder=inkling-extq: layer 14 
+04:01:37 load=9.35 memfree=92% swap=4612M (+0M) gpu=0% holder=inkling-extq: layer 14 
+04:01:52 load=9.56 memfree=92% swap=4604M (+0M) gpu=0% holder=inkling-extq: layer 14 
+04:02:07 load=9.00 memfree=92% swap=4604M (+0M) gpu=0% holder=inkling-extq: layer 14 
+04:02:22 load=9.22 memfree=92% swap=4604M (+0M) gpu=0% holder=inkling-extq: layer 14 
+04:02:37 load=9.39 memfree=92% swap=4604M (+0M) gpu=0% holder=inkling-extq: layer 14 
+04:02:52 load=9.52 memfree=92% swap=4604M (+0M) gpu=0% holder=inkling-extq: layer 14 
+04:03:07 load=9.70 memfree=92% swap=4604M (+0M) gpu=0% holder=inkling-extq: layer 14 
+04:03:22 load=10.00 memfree=92% swap=4604M (+0M) gpu=0% holder=inkling-extq: layer 14 
+04:03:38 load=10.22 memfree=92% swap=4604M (+0M) gpu=0% holder=inkling-extq: layer 14 
+04:03:53 load=10.25 memfree=92% swap=4604M (+0M) gpu=0% holder=inkling-extq: layer 14 
+04:04:08 load=10.19 memfree=92% swap=4604M (+0M) gpu=0% holder=inkling-extq: layer 14 
+04:04:23 load=9.42 memfree=92% swap=4604M (+0M) gpu=0% holder=inkling-extq: layer 14 
+04:04:38 load=9.55 memfree=92% swap=4604M (+0M) gpu=0% holder=inkling-extq: layer 14 
+04:04:53 load=9.80 memfree=92% swap=4604M (+0M) gpu=0% holder=inkling-extq: layer 14 
+04:05:08 load=9.24 memfree=92% swap=4604M (+0M) gpu=0% holder=inkling-extq: layer 14 
+04:05:23 load=9.54 memfree=92% swap=4604M (+0M) gpu=0% holder=inkling-extq: layer 14 
+04:05:38 load=9.64 memfree=92% swap=4604M (+0M) gpu=0% holder=inkling-extq: layer 14 
+04:05:53 load=9.29 memfree=92% swap=4604M (+0M) gpu=1% holder=inkling-extq: layer 14 
+04:06:08 load=9.75 memfree=92% swap=4604M (+0M) gpu=0% holder=inkling-extq: layer 14 
+04:06:23 load=9.80 memfree=92% swap=4604M (+0M) gpu=0% holder=inkling-extq: layer 14 
+04:06:38 load=9.85 memfree=92% swap=4604M (+0M) gpu=0% holder=inkling-extq: layer 14 
+04:06:53 load=9.96 memfree=92% swap=4604M (+0M) gpu=0% holder=inkling-extq: layer 14 
+04:07:08 load=10.12 memfree=92% swap=4604M (+0M) gpu=0% holder=inkling-extq: layer 14 
+04:07:23 load=9.48 memfree=92% swap=4604M (+0M) gpu=0% holder=inkling-extq: layer 14 
+04:07:38 load=9.59 memfree=92% swap=4604M (+0M) gpu=0% holder=inkling-extq: layer 14 
+04:07:53 load=9.68 memfree=92% swap=4604M (+0M) gpu=0% holder=inkling-extq: layer 14 
+04:08:09 load=9.75 memfree=92% swap=4604M (+0M) gpu=0% holder=inkling-extq: layer 14 
+04:08:24 load=10.02 memfree=92% swap=4604M (+0M) gpu=0% holder=inkling-extq: layer 14 
+04:08:39 load=9.35 memfree=92% swap=4604M (+0M) gpu=0% holder=inkling-extq: layer 14 
+04:08:54 load=9.85 memfree=92% swap=4604M (+0M) gpu=0% holder=inkling-extq: layer 14 
+04:09:09 load=9.96 memfree=92% swap=4604M (+0M) gpu=0% holder=inkling-extq: layer 14 
+04:09:24 load=9.90 memfree=92% swap=4604M (+0M) gpu=0% holder=inkling-extq: layer 14 
+04:09:39 load=10.00 memfree=92% swap=4604M (+0M) gpu=0% holder=inkling-extq: layer 14 
+04:09:54 load=10.36 memfree=92% swap=4604M (+0M) gpu=0% holder=inkling-extq: layer 14 
+04:10:09 load=10.35 memfree=92% swap=4604M (+0M) gpu=0% holder=inkling-extq: layer 14 
+04:10:24 load=10.41 memfree=92% swap=4604M (+0M) gpu=0% holder=inkling-extq: layer 14 
+04:10:39 load=10.32 memfree=92% swap=4604M (+0M) gpu=0% holder=inkling-extq: layer 14 
+04:10:54 load=9.97 memfree=92% swap=4604M (+0M) gpu=0% holder=inkling-extq: layer 14 
+04:11:09 load=10.04 memfree=92% swap=4604M (+0M) gpu=0% holder=inkling-extq: layer 14 
+04:11:24 load=10.33 memfree=92% swap=4604M (+0M) gpu=0% holder=inkling-extq: layer 14 
+04:11:39 load=10.47 memfree=92% swap=4596M (+0M) gpu=0% holder=inkling-extq: layer 14 
+04:11:54 load=10.37 memfree=92% swap=4596M (+0M) gpu=0% holder=inkling-extq: layer 14 
+04:12:09 load=10.29 memfree=92% swap=4596M (+0M) gpu=0% holder=inkling-extq: layer 14 
+04:12:24 load=10.51 memfree=92% swap=4596M (+0M) gpu=0% holder=inkling-extq: layer 14 
+04:12:40 load=10.47 memfree=92% swap=4596M (+0M) gpu=0% holder=inkling-extq: layer 14 
+04:12:55 load=10.28 memfree=92% swap=4596M (+0M) gpu=0% holder=inkling-extq: layer 14 
+04:13:10 load=10.44 memfree=92% swap=4596M (+0M) gpu=0% holder=inkling-extq: layer 14 
+04:13:25 load=10.49 memfree=92% swap=4596M (+0M) gpu=0% holder=inkling-extq: layer 14 
+04:13:40 load=9.89 memfree=92% swap=4580M (+0M) gpu=0% holder=inkling-extq: layer 14 
+04:13:55 load=9.31 memfree=92% swap=4580M (+0M) gpu=0% holder=inkling-extq: layer 14 
+04:14:10 load=9.54 memfree=92% swap=4580M (+0M) gpu=0% holder=inkling-extq: layer 14 
+04:14:25 load=10.15 memfree=92% swap=4580M (+0M) gpu=0% holder=inkling-extq: layer 14 
+04:14:40 load=10.18 memfree=92% swap=4580M (+0M) gpu=0% holder=inkling-extq: layer 14 
+04:14:55 load=10.27 memfree=92% swap=4580M (+0M) gpu=0% holder=inkling-extq: layer 14 
+04:15:10 load=10.36 memfree=92% swap=4580M (+0M) gpu=0% holder=inkling-extq: layer 14 
+04:15:25 load=10.35 memfree=92% swap=4580M (+0M) gpu=0% holder=inkling-extq: layer 14 
+04:15:40 load=10.35 memfree=92% swap=4580M (+0M) gpu=0% holder=inkling-extq: layer 14 
+04:15:55 load=10.20 memfree=92% swap=4580M (+0M) gpu=0% holder=inkling-extq: layer 14 
+04:16:10 load=10.39 memfree=92% swap=4580M (+0M) gpu=0% holder=inkling-extq: layer 14 
+04:16:25 load=10.38 memfree=92% swap=4580M (+0M) gpu=0% holder=inkling-extq: layer 14 
+04:16:40 load=8.91 memfree=92% swap=4580M (+0M) gpu=0% holder=inkling-extq: layer 14 
+04:16:55 load=9.38 memfree=92% swap=4580M (+0M) gpu=0% holder=inkling-extq: layer 14 
+04:17:10 load=9.79 memfree=92% swap=4580M (+0M) gpu=0% holder=inkling-extq: layer 14 
+04:17:26 load=9.25 memfree=92% swap=4580M (+0M) gpu=0% holder=inkling-extq: layer 14 
+04:17:41 load=9.42 memfree=92% swap=4580M (+0M) gpu=0% holder=inkling-extq: layer 14 
+04:17:56 load=9.54 memfree=92% swap=4580M (+0M) gpu=0% holder=inkling-extq: layer 14 
+04:18:11 load=8.26 memfree=92% swap=4580M (+0M) gpu=0% holder=inkling-extq: layer 14 
+04:18:26 load=8.71 memfree=92% swap=4580M (+0M) gpu=0% holder=inkling-extq: layer 14 
+04:18:41 load=9.00 memfree=92% swap=4580M (+0M) gpu=0% holder=inkling-extq: layer 14 
+04:18:56 load=8.57 memfree=92% swap=4580M (+0M) gpu=0% holder=inkling-extq: layer 14 
+04:19:11 load=9.16 memfree=92% swap=4580M (+0M) gpu=0% holder=inkling-extq: layer 14 
+04:19:26 load=9.58 memfree=92% swap=4580M (+0M) gpu=0% holder=inkling-extq: layer 14 
+04:19:41 load=9.82 memfree=92% swap=4580M (+0M) gpu=0% holder=inkling-extq: layer 14 
+04:19:56 load=9.99 memfree=92% swap=4580M (+0M) gpu=0% holder=inkling-extq: layer 14 
+04:20:11 load=10.15 memfree=92% swap=4580M (+0M) gpu=0% holder=inkling-extq: layer 14 
+04:20:26 load=10.19 memfree=92% swap=4580M (+0M) gpu=0% holder=inkling-extq: layer 14 
+04:20:41 load=10.15 memfree=92% swap=4580M (+0M) gpu=0% holder=inkling-extq: layer 14 
+04:20:56 load=10.12 memfree=92% swap=4580M (+0M) gpu=0% holder=inkling-extq: layer 14 
+04:21:11 load=9.54 memfree=92% swap=4580M (+0M) gpu=0% holder=inkling-extq: layer 14 
+04:21:26 load=10.01 memfree=92% swap=4580M (+0M) gpu=0% holder=inkling-extq: layer 14 
+04:21:41 load=10.07 memfree=92% swap=4580M (+0M) gpu=0% holder=inkling-extq: layer 14 
+04:21:56 load=10.06 memfree=92% swap=4580M (+0M) gpu=0% holder=inkling-extq: layer 14 
+04:22:12 load=10.04 memfree=92% swap=4580M (+0M) gpu=0% holder=inkling-extq: layer 14 
+04:22:27 load=10.03 memfree=92% swap=4580M (+0M) gpu=0% holder=inkling-extq: layer 14 
+04:22:42 load=10.02 memfree=92% swap=4580M (+0M) gpu=0% holder=inkling-extq: layer 14 
+04:22:57 load=10.02 memfree=92% swap=4580M (+0M) gpu=0% holder=inkling-extq: layer 14 
+04:23:12 load=10.09 memfree=92% swap=4580M (+0M) gpu=0% holder=inkling-extq: layer 14 
+04:23:27 load=10.07 memfree=92% swap=4580M (+0M) gpu=0% holder=inkling-extq: layer 14 
+04:23:42 load=10.36 memfree=92% swap=4580M (+0M) gpu=0% holder=inkling-extq: layer 14 
+04:23:57 load=10.50 memfree=92% swap=4580M (+0M) gpu=0% holder=inkling-extq: layer 14 
+04:24:12 load=9.66 memfree=92% swap=4580M (+0M) gpu=0% holder=inkling-extq: layer 14 
+04:24:27 load=9.81 memfree=92% swap=4580M (+0M) gpu=0% holder=inkling-extq: layer 14 
+04:24:42 load=9.93 memfree=92% swap=4580M (+0M) gpu=0% holder=inkling-extq: layer 14 
+04:24:57 load=9.96 memfree=92% swap=4580M (+0M) gpu=0% holder=inkling-extq: layer 14 
+04:25:12 load=10.04 memfree=92% swap=4580M (+0M) gpu=0% holder=inkling-extq: layer 14 
+04:25:27 load=10.11 memfree=92% swap=4580M (+0M) gpu=0% holder=inkling-extq: layer 14 
+04:25:42 load=9.30 memfree=92% swap=4580M (+0M) gpu=0% holder=inkling-extq: verify layer 14 
+04:25:57 load=7.60 memfree=92% swap=4580M (+0M) gpu=0% holder=inkling: prep layer 15 
+04:26:12 load=7.01 memfree=92% swap=4580M (+0M) gpu=0% holder=inkling: prep layer 15 
+04:26:27 load=6.35 memfree=92% swap=4580M (+0M) gpu=0% holder=inkling: prep layer 15 
+04:26:43 load=5.99 memfree=92% swap=4580M (+0M) gpu=0% holder=inkling-extq: layer 15 
+04:26:58 load=6.22 memfree=92% swap=4580M (+0M) gpu=0% holder=inkling-extq: layer 15 
+04:27:13 load=7.37 memfree=92% swap=4580M (+0M) gpu=0% holder=inkling-extq: layer 15 
+04:27:28 load=8.02 memfree=92% swap=4580M (+0M) gpu=0% holder=inkling-extq: layer 15 
+04:27:43 load=7.80 memfree=92% swap=4580M (+0M) gpu=0% holder=inkling-extq: layer 15 
+04:27:58 load=8.28 memfree=92% swap=4580M (+0M) gpu=0% holder=inkling-extq: layer 15 
+04:28:13 load=8.58 memfree=92% swap=4580M (+0M) gpu=0% holder=inkling-extq: layer 15 
+04:28:28 load=8.35 memfree=92% swap=4580M (+0M) gpu=0% holder=inkling-extq: layer 15 
+04:28:43 load=8.79 memfree=92% swap=4580M (+0M) gpu=0% holder=inkling-extq: layer 15 
+04:28:58 load=9.21 memfree=92% swap=4580M (+0M) gpu=0% holder=inkling-extq: layer 15 
+04:29:13 load=9.53 memfree=92% swap=4580M (+0M) gpu=0% holder=inkling-extq: layer 15 
+04:29:28 load=9.70 memfree=92% swap=4580M (+0M) gpu=0% holder=inkling-extq: layer 15 
+04:29:43 load=9.77 memfree=92% swap=4580M (+0M) gpu=0% holder=inkling-extq: layer 15 
+04:29:58 load=9.82 memfree=92% swap=4580M (+0M) gpu=0% holder=inkling-extq: layer 15 
+04:30:13 load=9.86 memfree=92% swap=4580M (+0M) gpu=0% holder=inkling-extq: layer 15 
+04:30:28 load=10.10 memfree=92% swap=4580M (+0M) gpu=0% holder=inkling-extq: layer 15 
+04:30:43 load=10.23 memfree=91% swap=4580M (+0M) gpu=0% holder=inkling-extq: layer 15 
+04:30:58 load=10.18 memfree=92% swap=4580M (+0M) gpu=0% holder=inkling-extq: layer 15 
+04:31:14 load=9.50 memfree=92% swap=4580M (+0M) gpu=0% holder=inkling-extq: layer 15 
+04:31:29 load=9.69 memfree=92% swap=4580M (+0M) gpu=0% holder=inkling-extq: layer 15 
+04:31:44 load=10.04 memfree=92% swap=4580M (+0M) gpu=0% holder=inkling-extq: layer 15 
+04:31:59 load=9.36 memfree=92% swap=4580M (+0M) gpu=0% holder=inkling-extq: layer 15 
+04:32:14 load=9.50 memfree=92% swap=4580M (+0M) gpu=0% holder=inkling-extq: layer 15 
+04:32:29 load=9.68 memfree=92% swap=4580M (+0M) gpu=0% holder=inkling-extq: layer 15 
+04:32:44 load=9.09 memfree=92% swap=4580M (+0M) gpu=0% holder=inkling-extq: layer 15 
+04:32:59 load=9.37 memfree=92% swap=4580M (+0M) gpu=0% holder=inkling-extq: layer 15 
+04:33:14 load=9.58 memfree=92% swap=4580M (+0M) gpu=0% holder=inkling-extq: layer 15 
+04:33:29 load=9.67 memfree=92% swap=4580M (+0M) gpu=0% holder=inkling-extq: layer 15 
+04:33:44 load=9.74 memfree=93% swap=4580M (+0M) gpu=0% holder=inkling-extq: layer 15 
+04:33:59 load=9.96 memfree=92% swap=4580M (+0M) gpu=0% holder=inkling-extq: layer 15 
+04:34:14 load=9.32 memfree=92% swap=4580M (+0M) gpu=0% holder=inkling-extq: layer 15 
+04:34:29 load=10.03 memfree=92% swap=4580M (+0M) gpu=0% holder=inkling-extq: layer 15 
+04:34:44 load=10.23 memfree=92% swap=4580M (+0M) gpu=0% holder=inkling-extq: layer 15 
+04:34:59 load=10.25 memfree=92% swap=4580M (+0M) gpu=0% holder=inkling-extq: layer 15 
+04:35:14 load=10.26 memfree=92% swap=4580M (+0M) gpu=0% holder=inkling-extq: layer 15 
+04:35:29 load=10.21 memfree=92% swap=4580M (+0M) gpu=0% holder=inkling-extq: layer 15 
+04:35:45 load=10.38 memfree=92% swap=4580M (+0M) gpu=1% holder=inkling-extq: layer 15 
+04:36:00 load=10.36 memfree=92% swap=4580M (+0M) gpu=0% holder=inkling-extq: layer 15 
+04:36:15 load=10.42 memfree=92% swap=4580M (+0M) gpu=0% holder=inkling-extq: layer 15 
+04:36:30 load=10.73 memfree=92% swap=4580M (+0M) gpu=0% holder=inkling-extq: layer 15 
+04:36:45 load=10.57 memfree=92% swap=4580M (+0M) gpu=0% holder=inkling-extq: layer 15 
+04:37:00 load=11.00 memfree=91% swap=4580M (+0M) gpu=1% holder=inkling-extq: layer 15 
+04:37:15 load=10.17 memfree=92% swap=4580M (+0M) gpu=0% holder=inkling-extq: layer 15 
+04:37:30 load=10.28 memfree=92% swap=4580M (+0M) gpu=0% holder=inkling-extq: layer 15 
+04:37:45 load=10.51 memfree=92% swap=4580M (+0M) gpu=0% holder=inkling-extq: layer 15 
+04:38:00 load=10.48 memfree=92% swap=4580M (+0M) gpu=0% holder=inkling-extq: layer 15 
+04:38:15 load=10.72 memfree=92% swap=4580M (+0M) gpu=0% holder=inkling-extq: layer 15 
+04:38:30 load=10.63 memfree=91% swap=4580M (+0M) gpu=10% holder=inkling-extq: layer 15 
+04:38:45 load=10.49 memfree=92% swap=4580M (+0M) gpu=0% holder=inkling-extq: layer 15 
+04:39:00 load=10.60 memfree=91% swap=4580M (+0M) gpu=0% holder=inkling-extq: layer 15 
+04:39:15 load=10.47 memfree=92% swap=4580M (+0M) gpu=0% holder=inkling-extq: layer 15 
+04:39:30 load=10.44 memfree=92% swap=4580M (+0M) gpu=0% holder=inkling-extq: layer 15 
+04:39:45 load=10.42 memfree=92% swap=4580M (+0M) gpu=0% holder=inkling-extq: layer 15 
+04:40:00 load=10.48 memfree=92% swap=4580M (+0M) gpu=0% holder=inkling-extq: layer 15 
+04:40:15 load=10.67 memfree=92% swap=4580M (+0M) gpu=0% holder=inkling-extq: layer 15 
+04:40:31 load=10.52 memfree=92% swap=4580M (+0M) gpu=0% holder=inkling-extq: layer 15 
+04:40:46 load=10.48 memfree=92% swap=4580M (+0M) gpu=0% holder=inkling-extq: layer 15 
+04:41:01 load=10.37 memfree=92% swap=4580M (+0M) gpu=0% holder=inkling-extq: layer 15 
+04:41:16 load=10.50 memfree=92% swap=4580M (+0M) gpu=0% holder=inkling-extq: layer 15 
+04:41:31 load=9.78 memfree=92% swap=4580M (+0M) gpu=0% holder=inkling-extq: layer 15 
+04:41:46 load=9.83 memfree=92% swap=4580M (+0M) gpu=0% holder=inkling-extq: layer 15 
+04:42:01 load=9.79 memfree=92% swap=4580M (+0M) gpu=0% holder=inkling-extq: layer 15 
+04:42:16 load=9.90 memfree=92% swap=4580M (+0M) gpu=0% holder=inkling-extq: layer 15 
+04:42:31 load=9.92 memfree=92% swap=4580M (+0M) gpu=0% holder=inkling-extq: layer 15 
+04:42:46 load=10.24 memfree=92% swap=4580M (+0M) gpu=0% holder=inkling-extq: layer 15 
+04:43:01 load=10.63 memfree=92% swap=4580M (+0M) gpu=0% holder=inkling-extq: layer 15 
+04:43:16 load=10.84 memfree=92% swap=4580M (+0M) gpu=0% holder=inkling-extq: layer 15 
+04:43:31 load=10.80 memfree=92% swap=4580M (+0M) gpu=0% holder=inkling-extq: layer 15 
+04:43:46 load=10.62 memfree=92% swap=4580M (+0M) gpu=0% holder=inkling-extq: layer 15 
+04:44:01 load=10.48 memfree=92% swap=4580M (+0M) gpu=0% holder=inkling-extq: layer 15 
+04:44:16 load=10.31 memfree=92% swap=4580M (+0M) gpu=0% holder=inkling-extq: layer 15 
+04:44:31 load=10.24 memfree=92% swap=4580M (+0M) gpu=0% holder=inkling-extq: layer 15 
+04:44:46 load=10.19 memfree=92% swap=4580M (+0M) gpu=0% holder=inkling-extq: layer 15 
+04:45:02 load=10.14 memfree=92% swap=4580M (+0M) gpu=0% holder=inkling-extq: layer 15 
+04:45:17 load=10.39 memfree=92% swap=4580M (+0M) gpu=0% holder=inkling-extq: layer 15 
+04:45:32 load=10.22 memfree=92% swap=4580M (+0M) gpu=0% holder=inkling-extq: layer 15 
+04:45:47 load=9.64 memfree=92% swap=4580M (+0M) gpu=0% holder=inkling-extq: layer 15 
+04:46:02 load=9.72 memfree=92% swap=4580M (+0M) gpu=0% holder=inkling-extq: layer 15 
+04:46:17 load=10.08 memfree=92% swap=4580M (+0M) gpu=0% holder=inkling-extq: layer 15 
+04:46:32 load=10.06 memfree=92% swap=4580M (+0M) gpu=0% holder=inkling-extq: layer 15 
+04:46:47 load=10.05 memfree=92% swap=4580M (+0M) gpu=0% holder=inkling-extq: layer 15 
+04:47:02 load=10.04 memfree=92% swap=4580M (+0M) gpu=0% holder=inkling-extq: layer 15 
+04:47:17 load=10.03 memfree=92% swap=4580M (+0M) gpu=0% holder=inkling-extq: layer 15 
+04:47:32 load=10.09 memfree=93% swap=4580M (+0M) gpu=0% holder=inkling-extq: layer 15 
+04:47:47 load=10.14 memfree=92% swap=4580M (+0M) gpu=0% holder=inkling-extq: layer 15 
+04:48:02 load=10.26 memfree=92% swap=4580M (+0M) gpu=0% holder=inkling-extq: layer 15 
+04:48:17 load=10.56 memfree=92% swap=4580M (+0M) gpu=0% holder=inkling-extq: layer 15 
+04:48:32 load=10.50 memfree=93% swap=4572M (+0M) gpu=0% holder=inkling-extq: layer 15 
+04:48:47 load=10.39 memfree=92% swap=4572M (+0M) gpu=0% holder=inkling-extq: layer 15 
+04:49:02 load=10.30 memfree=92% swap=4564M (+0M) gpu=0% holder=inkling-extq: layer 15 
+04:49:17 load=9.75 memfree=92% swap=4564M (+0M) gpu=0% holder=inkling-extq: layer 15 
+04:49:33 load=10.00 memfree=92% swap=4564M (+0M) gpu=0% holder=inkling-extq: layer 15 
+04:49:48 load=9.92 memfree=92% swap=4564M (+0M) gpu=0% holder=inkling-extq: layer 15 
+04:50:03 load=9.49 memfree=92% swap=4564M (+0M) gpu=0% holder=inkling-extq: layer 15 
+04:50:18 load=9.60 memfree=92% swap=4564M (+0M) gpu=0% holder=inkling-extq: layer 15 
+04:50:33 load=9.89 memfree=92% swap=4564M (+0M) gpu=0% holder=inkling-extq: layer 15 
+04:50:48 load=9.83 memfree=92% swap=4564M (+0M) gpu=0% holder=inkling-extq: layer 15 
+04:51:03 load=10.02 memfree=92% swap=4564M (+0M) gpu=1% holder=inkling-extq: layer 15 
+04:51:18 load=10.01 memfree=92% swap=4564M (+0M) gpu=0% holder=inkling-extq: layer 15 
+04:51:33 load=10.21 memfree=92% swap=4564M (+0M) gpu=0% holder=inkling-extq: layer 15 
+04:51:48 load=10.37 memfree=92% swap=4564M (+0M) gpu=0% holder=inkling-extq: layer 15 
+04:52:03 load=8.90 memfree=92% swap=4564M (+0M) gpu=0% holder=inkling-extq: layer 15 
+04:52:18 load=9.15 memfree=92% swap=4564M (+0M) gpu=0% holder=inkling-extq: layer 15 
+04:52:33 load=9.33 memfree=92% swap=4564M (+0M) gpu=0% holder=inkling-extq: layer 15 
+04:52:48 load=9.55 memfree=92% swap=4564M (+0M) gpu=0% holder=inkling-extq: layer 15 
+04:53:03 load=9.65 memfree=92% swap=4564M (+0M) gpu=0% holder=inkling-extq: layer 15 
+04:53:18 load=9.65 memfree=92% swap=4564M (+0M) gpu=0% holder=inkling-extq: layer 15 
+2026-11-22 04:53:18 EXIT HEARTBEAT: no alert in 5400 s
+2026-11-22 04:53:32 START base_swap=4564M
+04:53:32 load=10.01 memfree=90% swap=4564M (+0M) gpu=12% holder=inkling-extq: layer 15 
+04:53:47 load=10.07 memfree=90% swap=4564M (+0M) gpu=15% holder=inkling-extq: layer 15 
+04:54:02 load=10.36 memfree=90% swap=4564M (+0M) gpu=15% holder=inkling-extq: layer 15 
+04:54:17 load=10.35 memfree=91% swap=4564M (+0M) gpu=13% holder=inkling-extq: layer 15 
+04:54:32 load=10.51 memfree=90% swap=4564M (+0M) gpu=13% holder=inkling-extq: layer 15 
+04:54:47 load=10.47 memfree=91% swap=4564M (+0M) gpu=8% holder=inkling-extq: layer 15 
+04:55:02 load=10.45 memfree=92% swap=4564M (+0M) gpu=1% holder=inkling-extq: layer 15 
+04:55:17 load=10.64 memfree=92% swap=4564M (+0M) gpu=0% holder=inkling-extq: layer 15 
+04:55:32 load=10.00 memfree=92% swap=4564M (+0M) gpu=0% holder=inkling-extq: verify layer 15 
+04:55:47 load=8.00 memfree=92% swap=4556M (+0M) gpu=0% holder=inkling: prep layer 16 
+04:56:02 load=6.46 memfree=92% swap=4556M (+0M) gpu=0% holder=inkling: prep layer 16 
+04:56:17 load=5.47 memfree=92% swap=4556M (+0M) gpu=0% holder=inkling: prep layer 16 
+04:56:33 load=4.62 memfree=92% swap=4556M (+0M) gpu=0% holder=inkling-extq: layer 16 
+04:56:48 load=6.36 memfree=92% swap=4556M (+0M) gpu=0% holder=inkling-extq: layer 16 
+04:57:03 load=7.16 memfree=91% swap=4556M (+0M) gpu=0% holder=inkling-extq: layer 16 
+04:57:18 load=7.35 memfree=92% swap=4556M (+0M) gpu=0% holder=inkling-extq: layer 16 
+04:57:33 load=8.07 memfree=92% swap=4556M (+0M) gpu=0% holder=inkling-extq: layer 16 
+04:57:48 load=8.42 memfree=92% swap=4556M (+0M) gpu=0% holder=inkling-extq: layer 16 
+04:58:03 load=8.85 memfree=92% swap=4556M (+0M) gpu=0% holder=inkling-extq: layer 16 
+04:58:18 load=9.10 memfree=92% swap=4556M (+0M) gpu=0% holder=inkling-extq: layer 16 
+04:58:33 load=9.30 memfree=92% swap=4556M (+0M) gpu=0% holder=inkling-extq: layer 16 
+04:58:48 load=9.73 memfree=92% swap=4556M (+0M) gpu=0% holder=inkling-extq: layer 16 
+04:59:03 load=9.79 memfree=92% swap=4556M (+0M) gpu=0% holder=inkling-extq: layer 16 
+04:59:18 load=9.10 memfree=93% swap=4556M (+0M) gpu=0% holder=inkling-extq: layer 16 
+04:59:33 load=9.44 memfree=92% swap=4556M (+0M) gpu=0% holder=inkling-extq: layer 16 
+04:59:48 load=9.86 memfree=92% swap=4556M (+0M) gpu=0% holder=inkling-extq: layer 16 
+05:00:03 load=10.11 memfree=92% swap=4556M (+0M) gpu=1% holder=inkling-extq: layer 16 
+05:00:18 load=10.09 memfree=92% swap=4556M (+0M) gpu=1% holder=inkling-extq: layer 16 
+05:00:33 load=10.21 memfree=92% swap=4556M (+0M) gpu=0% holder=inkling-extq: layer 16 
+05:00:48 load=10.23 memfree=92% swap=4556M (+0M) gpu=0% holder=inkling-extq: layer 16 
+05:01:03 load=10.32 memfree=92% swap=4556M (+0M) gpu=0% holder=inkling-extq: layer 16 
+05:01:19 load=9.87 memfree=93% swap=4556M (+0M) gpu=0% holder=inkling-extq: layer 16 
+05:01:34 load=9.90 memfree=92% swap=4556M (+0M) gpu=0% holder=inkling-extq: layer 16 
+05:01:49 load=10.07 memfree=93% swap=4556M (+0M) gpu=0% holder=inkling-extq: layer 16 
+05:02:04 load=10.05 memfree=92% swap=4556M (+0M) gpu=0% holder=inkling-extq: layer 16 
+05:02:19 load=9.98 memfree=93% swap=4556M (+0M) gpu=0% holder=inkling-extq: layer 16 
+05:02:34 load=11.02 memfree=92% swap=4556M (+0M) gpu=0% holder=inkling-extq: layer 16 
+05:02:49 load=10.85 memfree=92% swap=4556M (+0M) gpu=0% holder=inkling-extq: layer 16 
+05:03:04 load=10.66 memfree=92% swap=4556M (+0M) gpu=0% holder=inkling-extq: layer 16 
+05:03:19 load=10.60 memfree=93% swap=4556M (+0M) gpu=0% holder=inkling-extq: layer 16 
+05:03:34 load=10.33 memfree=91% swap=4556M (+0M) gpu=0% holder=inkling-extq: layer 16 
+05:03:49 load=10.26 memfree=92% swap=4556M (+0M) gpu=0% holder=inkling-extq: layer 16 
+05:04:04 load=10.20 memfree=92% swap=4556M (+0M) gpu=0% holder=inkling-extq: layer 16 
+05:04:19 load=10.23 memfree=93% swap=4556M (+0M) gpu=0% holder=inkling-extq: layer 16 
+05:04:34 load=10.18 memfree=92% swap=4556M (+0M) gpu=0% holder=inkling-extq: layer 16 
+05:04:49 load=10.14 memfree=92% swap=4556M (+0M) gpu=0% holder=inkling-extq: layer 16 
+05:05:04 load=10.46 memfree=92% swap=4556M (+0M) gpu=0% holder=inkling-extq: layer 16 
+05:05:19 load=10.50 memfree=92% swap=4556M (+0M) gpu=0% holder=inkling-extq: layer 16 
+05:05:34 load=10.39 memfree=93% swap=4556M (+0M) gpu=0% holder=inkling-extq: layer 16 
+05:05:49 load=9.71 memfree=92% swap=4556M (+0M) gpu=0% holder=inkling-extq: layer 16 
+05:06:05 load=10.08 memfree=92% swap=4556M (+0M) gpu=0% holder=inkling-extq: layer 16 
+05:06:20 load=10.21 memfree=93% swap=4556M (+0M) gpu=0% holder=inkling-extq: layer 16 
+05:06:35 load=10.41 memfree=93% swap=4556M (+0M) gpu=0% holder=inkling-extq: layer 16 
+05:06:50 load=10.32 memfree=92% swap=4556M (+0M) gpu=0% holder=inkling-extq: layer 16 
+05:07:05 load=10.25 memfree=92% swap=4556M (+0M) gpu=0% holder=inkling-extq: layer 16 
+05:07:20 load=10.19 memfree=93% swap=4556M (+0M) gpu=0% holder=inkling-extq: layer 16 
+05:07:35 load=10.28 memfree=92% swap=4556M (+0M) gpu=0% holder=inkling-extq: layer 16 
+05:07:50 load=10.28 memfree=92% swap=4556M (+0M) gpu=0% holder=inkling-extq: layer 16 
+05:08:05 load=10.09 memfree=92% swap=4556M (+0M) gpu=0% holder=inkling-extq: layer 16 
+05:08:20 load=10.07 memfree=93% swap=4556M (+0M) gpu=0% holder=inkling-extq: layer 16 
+05:08:35 load=10.27 memfree=92% swap=4548M (+0M) gpu=0% holder=inkling-extq: layer 16 
+05:08:50 load=10.08 memfree=92% swap=4548M (+0M) gpu=0% holder=inkling-extq: layer 16 
+05:09:05 load=10.06 memfree=92% swap=4548M (+0M) gpu=0% holder=inkling-extq: layer 16 
+05:09:20 load=10.04 memfree=93% swap=4548M (+0M) gpu=0% holder=inkling-extq: layer 16 
+05:09:35 load=10.18 memfree=92% swap=4548M (+0M) gpu=0% holder=inkling-extq: layer 16 
+05:09:50 load=10.14 memfree=92% swap=4548M (+0M) gpu=0% holder=inkling-extq: layer 16 
+05:10:05 load=10.03 memfree=92% swap=4548M (+0M) gpu=0% holder=inkling-extq: layer 16 
+05:10:20 load=10.25 memfree=92% swap=4548M (+0M) gpu=0% holder=inkling-extq: layer 16 
+05:10:36 load=10.63 memfree=92% swap=4548M (+0M) gpu=0% holder=inkling-extq: layer 16 
+05:10:51 load=10.71 memfree=92% swap=4548M (+0M) gpu=0% holder=inkling-extq: layer 16 
+05:11:06 load=10.84 memfree=92% swap=4548M (+0M) gpu=0% holder=inkling-extq: layer 16 
+05:11:21 load=10.88 memfree=93% swap=4548M (+0M) gpu=0% holder=inkling-extq: layer 16 
+05:11:36 load=10.26 memfree=92% swap=4548M (+0M) gpu=0% holder=inkling-extq: layer 16 
+05:11:51 load=10.42 memfree=92% swap=4548M (+0M) gpu=0% holder=inkling-extq: layer 16 
+05:12:06 load=10.69 memfree=92% swap=4548M (+0M) gpu=0% holder=inkling-extq: layer 16 
+05:12:21 load=10.98 memfree=93% swap=4548M (+0M) gpu=0% holder=inkling-extq: layer 16 
+05:12:36 load=10.99 memfree=92% swap=4548M (+0M) gpu=0% holder=inkling-extq: layer 16 
+05:12:51 load=11.21 memfree=92% swap=4548M (+0M) gpu=0% holder=inkling-extq: layer 16 
+05:13:06 load=11.37 memfree=92% swap=4548M (+0M) gpu=0% holder=inkling-extq: layer 16 
+05:13:21 load=11.21 memfree=93% swap=4548M (+0M) gpu=0% holder=inkling-extq: layer 16 
+05:13:36 load=10.94 memfree=92% swap=4548M (+0M) gpu=0% holder=inkling-extq: layer 16 
+05:13:51 load=10.07 memfree=92% swap=4540M (+0M) gpu=0% holder=inkling-extq: layer 16 
+05:14:06 load=10.21 memfree=92% swap=4540M (+0M) gpu=0% holder=inkling-extq: layer 16 
+05:14:21 load=10.08 memfree=93% swap=4540M (+0M) gpu=0% holder=inkling-extq: layer 16 
+05:14:36 load=10.14 memfree=92% swap=4540M (+0M) gpu=0% holder=inkling-extq: layer 16 
+05:14:51 load=10.43 memfree=92% swap=4540M (+0M) gpu=0% holder=inkling-extq: layer 16 
+05:15:07 load=10.33 memfree=92% swap=4540M (+0M) gpu=0% holder=inkling-extq: layer 16 
+05:15:22 load=9.97 memfree=93% swap=4540M (+0M) gpu=0% holder=inkling-extq: layer 16 
+05:15:37 load=10.44 memfree=92% swap=4540M (+0M) gpu=0% holder=inkling-extq: layer 16 
+05:15:52 load=10.34 memfree=92% swap=4540M (+0M) gpu=0% holder=inkling-extq: layer 16 
+05:16:07 load=10.41 memfree=92% swap=4540M (+0M) gpu=0% holder=inkling-extq: layer 16 
+05:16:22 load=10.31 memfree=93% swap=4540M (+0M) gpu=0% holder=inkling-extq: layer 16 
+05:16:37 load=10.32 memfree=92% swap=4540M (+0M) gpu=0% holder=inkling-extq: layer 16 
+05:16:52 load=10.25 memfree=92% swap=4540M (+0M) gpu=0% holder=inkling-extq: layer 16 
+05:17:07 load=10.20 memfree=92% swap=4540M (+0M) gpu=0% holder=inkling-extq: layer 16 
+05:17:22 load=9.89 memfree=93% swap=4540M (+0M) gpu=0% holder=inkling-extq: layer 16 
+05:17:37 load=9.91 memfree=91% swap=4540M (+0M) gpu=13% holder=inkling-extq: layer 16 
+05:17:52 load=10.06 memfree=93% swap=4540M (+0M) gpu=0% holder=inkling-extq: layer 16 
+05:18:07 load=10.05 memfree=92% swap=4540M (+0M) gpu=0% holder=inkling-extq: layer 16 
+05:18:22 load=10.57 memfree=93% swap=4540M (+0M) gpu=0% holder=inkling-extq: layer 16 
+05:18:37 load=10.52 memfree=92% swap=4540M (+0M) gpu=0% holder=inkling-extq: layer 16 
+05:18:52 load=9.67 memfree=92% swap=4540M (+0M) gpu=0% holder=inkling-extq: layer 16 
+05:19:07 load=9.83 memfree=92% swap=4540M (+0M) gpu=0% holder=inkling-extq: layer 16 
+05:19:22 load=9.93 memfree=93% swap=4540M (+0M) gpu=0% holder=inkling-extq: layer 16 
+05:19:37 load=9.33 memfree=92% swap=4540M (+0M) gpu=0% holder=inkling-extq: layer 16 
+05:19:53 load=9.71 memfree=92% swap=4540M (+0M) gpu=0% holder=inkling-extq: layer 16 
+05:20:08 load=9.78 memfree=93% swap=4540M (+0M) gpu=0% holder=inkling-extq: layer 16 
+05:20:23 load=10.79 memfree=93% swap=4540M (+0M) gpu=0% holder=inkling-extq: layer 16 
+05:20:38 load=11.03 memfree=92% swap=4532M (+0M) gpu=0% holder=inkling-extq: layer 16 
+05:20:53 load=10.37 memfree=93% swap=4532M (+0M) gpu=0% holder=inkling-extq: layer 16 
+05:21:08 load=9.82 memfree=92% swap=4532M (+0M) gpu=0% holder=inkling-extq: layer 16 
+05:21:23 load=9.94 memfree=93% swap=4532M (+0M) gpu=0% holder=inkling-extq: layer 16 
+05:21:38 load=9.95 memfree=92% swap=4532M (+0M) gpu=0% holder=inkling-extq: layer 16 
+05:21:53 load=10.04 memfree=93% swap=4532M (+0M) gpu=0% holder=inkling-extq: layer 16 
+05:22:08 load=10.17 memfree=92% swap=4532M (+0M) gpu=0% holder=inkling-extq: layer 16 
+05:22:23 load=9.41 memfree=93% swap=4532M (+0M) gpu=0% holder=inkling-extq: layer 16 
+05:22:38 load=9.62 memfree=92% swap=4532M (+0M) gpu=0% holder=inkling-extq: layer 16 
+05:22:53 load=10.63 memfree=93% swap=4532M (+0M) gpu=0% holder=inkling-extq: layer 16 
+05:23:08 load=10.38 memfree=92% swap=4532M (+0M) gpu=0% holder=inkling-extq: layer 16 
+05:23:23 load=10.66 memfree=92% swap=4524M (+0M) gpu=1% holder=inkling-extq: layer 16 
+05:23:38 load=10.51 memfree=93% swap=4524M (+0M) gpu=0% holder=inkling-extq: layer 16 
+05:23:53 load=10.33 memfree=93% swap=4524M (+0M) gpu=0% holder=inkling-extq: layer 16 
+05:24:08 load=10.26 memfree=92% swap=4524M (+0M) gpu=0% holder=inkling-extq: layer 16 
+05:24:23 load=10.20 memfree=93% swap=4524M (+0M) gpu=0% holder=inkling-extq: layer 16 
+05:24:39 load=9.56 memfree=92% swap=4524M (+0M) gpu=0% holder=inkling-extq: layer 16 
+05:24:54 load=9.82 memfree=93% swap=4524M (+0M) gpu=0% holder=inkling-extq: layer 16 
+05:25:09 load=9.78 memfree=93% swap=4524M (+0M) gpu=0% holder=inkling-extq: layer 16 
+05:25:24 load=8.52 memfree=93% swap=4524M (+0M) gpu=0% holder=inkling-extq: verify layer 16 
+05:25:39 load=7.20 memfree=92% swap=4524M (+0M) gpu=0% holder=inkling: prep layer 17 
+05:25:54 load=6.20 memfree=93% swap=4524M (+0M) gpu=0% holder=inkling: prep layer 17 
+05:26:09 load=5.28 memfree=93% swap=4524M (+0M) gpu=0% holder=inkling: prep layer 17 
+05:26:24 load=5.11 memfree=93% swap=4524M (+0M) gpu=0% holder=inkling-extq: layer 17 
+05:26:39 load=6.27 memfree=92% swap=4524M (+0M) gpu=0% holder=inkling-extq: layer 17 
+05:26:54 load=7.09 memfree=93% swap=4524M (+0M) gpu=0% holder=inkling-extq: layer 17 
+05:27:09 load=7.74 memfree=93% swap=4524M (+0M) gpu=0% holder=inkling-extq: layer 17 
+05:27:24 load=8.39 memfree=93% swap=4524M (+0M) gpu=0% holder=inkling-extq: layer 17 
+05:27:39 load=8.89 memfree=92% swap=4524M (+0M) gpu=0% holder=inkling-extq: layer 17 
+05:27:54 load=9.21 memfree=93% swap=4524M (+0M) gpu=0% holder=inkling-extq: layer 17 
+05:28:09 load=9.38 memfree=93% swap=4524M (+0M) gpu=0% holder=inkling-extq: layer 17 
+05:28:24 load=9.73 memfree=92% swap=4524M (+0M) gpu=0% holder=inkling-extq: layer 17 
+05:28:39 load=9.99 memfree=93% swap=4524M (+0M) gpu=0% holder=inkling-extq: layer 17 
+05:28:54 load=10.14 memfree=93% swap=4524M (+0M) gpu=0% holder=inkling-extq: layer 17 
+05:29:10 load=10.18 memfree=93% swap=4524M (+0M) gpu=0% holder=inkling-extq: layer 17 
+05:29:25 load=9.77 memfree=93% swap=4524M (+0M) gpu=0% holder=inkling-extq: layer 17 
+05:29:40 load=9.90 memfree=93% swap=4524M (+0M) gpu=0% holder=inkling-extq: layer 17 
+05:29:55 load=9.33 memfree=93% swap=4524M (+0M) gpu=0% holder=inkling-extq: layer 17 
+05:30:10 load=9.80 memfree=93% swap=4524M (+0M) gpu=0% holder=inkling-extq: layer 17 
+05:30:25 load=10.01 memfree=93% swap=4524M (+0M) gpu=0% holder=inkling-extq: layer 17 
+05:30:40 load=9.92 memfree=93% swap=4524M (+0M) gpu=0% holder=inkling-extq: layer 17 
+05:30:55 load=10.24 memfree=93% swap=4524M (+0M) gpu=0% holder=inkling-extq: layer 17 
+05:31:10 load=10.18 memfree=92% swap=4524M (+0M) gpu=0% holder=inkling-extq: layer 17 
+05:31:25 load=10.06 memfree=93% swap=4524M (+0M) gpu=0% holder=inkling-extq: layer 17 
+05:31:40 load=9.51 memfree=93% swap=4524M (+0M) gpu=0% holder=inkling-extq: layer 17 
+05:31:55 load=9.98 memfree=93% swap=4524M (+0M) gpu=0% holder=inkling-extq: layer 17 
+05:32:10 load=9.74 memfree=93% swap=4524M (+0M) gpu=0% holder=inkling-extq: layer 17 
+05:32:25 load=9.95 memfree=93% swap=4524M (+0M) gpu=0% holder=inkling-extq: layer 17 
+05:32:40 load=10.03 memfree=93% swap=4524M (+0M) gpu=0% holder=inkling-extq: layer 17 
+05:32:55 load=10.16 memfree=93% swap=4524M (+0M) gpu=0% holder=inkling-extq: layer 17 
+05:33:10 load=10.12 memfree=93% swap=4524M (+0M) gpu=0% holder=inkling-extq: layer 17 
+05:33:25 load=10.25 memfree=93% swap=4524M (+0M) gpu=0% holder=inkling-extq: layer 17 
+05:33:40 load=10.19 memfree=93% swap=4524M (+0M) gpu=0% holder=inkling-extq: layer 17 
+05:33:56 load=10.14 memfree=93% swap=4524M (+0M) gpu=0% holder=inkling-extq: layer 17 
+05:34:11 load=10.26 memfree=93% swap=4524M (+0M) gpu=0% holder=inkling-extq: layer 17 
+05:34:26 load=9.55 memfree=92% swap=4524M (+0M) gpu=0% holder=inkling-extq: layer 17 
+05:34:41 load=9.65 memfree=93% swap=4524M (+0M) gpu=0% holder=inkling-extq: layer 17 
+05:34:56 load=9.73 memfree=93% swap=4524M (+0M) gpu=0% holder=inkling-extq: layer 17 
+05:35:11 load=9.71 memfree=93% swap=4524M (+0M) gpu=0% holder=inkling-extq: layer 17 
+05:35:26 load=9.85 memfree=91% swap=4524M (+0M) gpu=0% holder=inkling-extq: layer 17 
+05:35:41 load=9.96 memfree=93% swap=4524M (+0M) gpu=0% holder=inkling-extq: layer 17 
+05:35:56 load=9.49 memfree=93% swap=4524M (+0M) gpu=0% holder=inkling-extq: layer 17 
+05:36:11 load=10.28 memfree=93% swap=4524M (+0M) gpu=0% holder=inkling-extq: layer 17 
+05:36:26 load=10.36 memfree=93% swap=4524M (+0M) gpu=0% holder=inkling-extq: layer 17 
+05:36:41 load=9.64 memfree=93% swap=4524M (+0M) gpu=0% holder=inkling-extq: layer 17 
+05:36:56 load=9.80 memfree=93% swap=4524M (+0M) gpu=0% holder=inkling-extq: layer 17 
+05:37:11 load=9.92 memfree=92% swap=4524M (+0M) gpu=0% holder=inkling-extq: layer 17 
+05:37:26 load=10.00 memfree=92% swap=4524M (+0M) gpu=0% holder=inkling-extq: layer 17 
+05:37:41 load=10.00 memfree=93% swap=4524M (+0M) gpu=0% holder=inkling-extq: layer 17 
+05:37:56 load=10.00 memfree=93% swap=4524M (+0M) gpu=0% holder=inkling-extq: layer 17 
+05:38:11 load=10.08 memfree=93% swap=4524M (+0M) gpu=0% holder=inkling-extq: layer 17 
+05:38:27 load=10.06 memfree=93% swap=4524M (+0M) gpu=0% holder=inkling-extq: layer 17 
+05:38:42 load=10.35 memfree=93% swap=4524M (+0M) gpu=0% holder=inkling-extq: layer 17 
+05:38:57 load=10.35 memfree=93% swap=4524M (+0M) gpu=0% holder=inkling-extq: layer 17 
+05:39:12 load=10.79 memfree=93% swap=4524M (+0M) gpu=0% holder=inkling-extq: layer 17 
+05:39:27 load=10.91 memfree=93% swap=4524M (+0M) gpu=0% holder=inkling-extq: layer 17 
+05:39:42 load=10.94 memfree=93% swap=4524M (+0M) gpu=0% holder=inkling-extq: layer 17 
+05:39:57 load=10.80 memfree=93% swap=4524M (+0M) gpu=0% holder=inkling-extq: layer 17 
+05:40:12 load=10.61 memfree=93% swap=4524M (+0M) gpu=0% holder=inkling-extq: layer 17 
+05:40:27 load=9.86 memfree=92% swap=4524M (+0M) gpu=0% holder=inkling-extq: layer 17 
+05:40:42 load=10.05 memfree=93% swap=4524M (+0M) gpu=0% holder=inkling-extq: layer 17 
+05:40:57 load=10.04 memfree=93% swap=4524M (+0M) gpu=0% holder=inkling-extq: layer 17 
+05:41:12 load=9.56 memfree=93% swap=4524M (+0M) gpu=0% holder=inkling-extq: layer 17 
+05:41:27 load=9.88 memfree=93% swap=4524M (+0M) gpu=0% holder=inkling-extq: layer 17 
+05:41:42 load=10.21 memfree=93% swap=4524M (+0M) gpu=0% holder=inkling-extq: layer 17 
+05:41:57 load=10.23 memfree=93% swap=4524M (+0M) gpu=0% holder=inkling-extq: layer 17 
+05:42:12 load=10.31 memfree=93% swap=4524M (+0M) gpu=0% holder=inkling-extq: layer 17 
+05:42:27 load=10.17 memfree=93% swap=4524M (+0M) gpu=0% holder=inkling-extq: layer 17 
+05:42:42 load=10.21 memfree=93% swap=4524M (+0M) gpu=0% holder=inkling-extq: layer 17 
+05:42:58 load=10.61 memfree=93% swap=4524M (+0M) gpu=0% holder=inkling-extq: layer 17 
+05:43:13 load=10.56 memfree=93% swap=4524M (+0M) gpu=0% holder=inkling-extq: layer 17 
+05:43:28 load=10.51 memfree=93% swap=4524M (+0M) gpu=0% holder=inkling-extq: layer 17 
+05:43:43 load=10.61 memfree=93% swap=4524M (+0M) gpu=0% holder=inkling-extq: layer 17 
+05:43:58 load=9.74 memfree=93% swap=4524M (+0M) gpu=0% holder=inkling-extq: layer 17 
+05:44:13 load=9.95 memfree=93% swap=4524M (+0M) gpu=0% holder=inkling-extq: layer 17 
+05:44:28 load=10.10 memfree=92% swap=4524M (+0M) gpu=0% holder=inkling-extq: layer 17 
+05:44:43 load=10.01 memfree=93% swap=4524M (+0M) gpu=0% holder=inkling-extq: layer 17 
+05:44:58 load=10.09 memfree=93% swap=4524M (+0M) gpu=0% holder=inkling-extq: layer 17 
+05:45:13 load=10.15 memfree=93% swap=4524M (+0M) gpu=0% holder=inkling-extq: layer 17 
+05:45:28 load=10.11 memfree=92% swap=4524M (+0M) gpu=0% holder=inkling-extq: layer 17 
+05:45:43 load=10.23 memfree=93% swap=4524M (+0M) gpu=0% holder=inkling-extq: layer 17 
+05:45:58 load=10.10 memfree=91% swap=4524M (+0M) gpu=0% holder=inkling-extq: layer 17 
+05:46:13 load=10.08 memfree=93% swap=4524M (+0M) gpu=0% holder=inkling-extq: layer 17 
+05:46:28 load=10.06 memfree=93% swap=4524M (+0M) gpu=0% holder=inkling-extq: layer 17 
+05:46:43 load=10.10 memfree=93% swap=4524M (+0M) gpu=0% holder=inkling-extq: layer 17 
+05:46:58 load=9.94 memfree=93% swap=4524M (+0M) gpu=0% holder=inkling-extq: layer 17 
+05:47:13 load=10.17 memfree=93% swap=4524M (+0M) gpu=0% holder=inkling-extq: layer 17 
+05:47:28 load=9.56 memfree=93% swap=4524M (+0M) gpu=0% holder=inkling-extq: layer 17 
+05:47:44 load=9.88 memfree=93% swap=4524M (+0M) gpu=0% holder=inkling-extq: layer 17 
+05:47:59 load=9.91 memfree=93% swap=4524M (+0M) gpu=0% holder=inkling-extq: layer 17 
+05:48:14 load=9.85 memfree=93% swap=4524M (+0M) gpu=0% holder=inkling-extq: layer 17 
+05:48:29 load=10.02 memfree=92% swap=4524M (+0M) gpu=0% holder=inkling-extq: layer 17 
+05:48:44 load=10.09 memfree=93% swap=4524M (+0M) gpu=0% holder=inkling-extq: layer 17 
+05:48:59 load=10.36 memfree=93% swap=4524M (+0M) gpu=0% holder=inkling-extq: layer 17 
+05:49:14 load=10.44 memfree=92% swap=4524M (+0M) gpu=0% holder=inkling-extq: layer 17 
+05:49:29 load=10.58 memfree=93% swap=4524M (+0M) gpu=0% holder=inkling-extq: layer 17 
+05:49:44 load=9.66 memfree=93% swap=4524M (+0M) gpu=0% holder=inkling-extq: layer 17 
+05:49:59 load=9.80 memfree=93% swap=4524M (+0M) gpu=0% holder=inkling-extq: layer 17 
+05:50:14 load=9.84 memfree=93% swap=4524M (+0M) gpu=0% holder=inkling-extq: layer 17 
+05:50:29 load=10.03 memfree=93% swap=4524M (+0M) gpu=0% holder=inkling-extq: layer 17 
+05:50:44 load=10.25 memfree=93% swap=4524M (+0M) gpu=0% holder=inkling-extq: layer 17 
+05:50:59 load=10.27 memfree=93% swap=4524M (+0M) gpu=0% holder=inkling-extq: layer 17 
+05:51:14 load=10.20 memfree=93% swap=4524M (+0M) gpu=0% holder=inkling-extq: layer 17 
+05:51:29 load=10.16 memfree=92% swap=4524M (+0M) gpu=0% holder=inkling-extq: layer 17 
+05:51:44 load=10.54 memfree=93% swap=4524M (+0M) gpu=0% holder=inkling-extq: layer 17 
+05:51:59 load=9.61 memfree=93% swap=4524M (+0M) gpu=0% holder=inkling-extq: layer 17 
+05:52:15 load=10.00 memfree=92% swap=4524M (+0M) gpu=0% holder=inkling-extq: layer 17 
+05:52:30 load=10.29 memfree=93% swap=4524M (+0M) gpu=0% holder=inkling-extq: layer 17 
+05:52:45 load=9.51 memfree=92% swap=4524M (+0M) gpu=0% holder=inkling-extq: layer 17 
+05:53:00 load=9.62 memfree=92% swap=4524M (+0M) gpu=0% holder=inkling-extq: layer 17 
+05:53:15 load=9.77 memfree=93% swap=4524M (+0M) gpu=0% holder=inkling-extq: layer 17 
+05:53:30 load=9.82 memfree=93% swap=4524M (+0M) gpu=0% holder=inkling-extq: layer 17 
+05:53:45 load=9.86 memfree=91% swap=4524M (+0M) gpu=0% holder=inkling-extq: layer 17 
+05:54:00 load=10.11 memfree=92% swap=4524M (+0M) gpu=0% holder=inkling-extq: layer 17 
+05:54:15 load=10.16 memfree=93% swap=4524M (+0M) gpu=0% holder=inkling-extq: layer 17 
+05:54:30 load=10.19 memfree=92% swap=4524M (+0M) gpu=0% holder=inkling-extq: layer 17 
+05:54:45 load=10.44 memfree=92% swap=4524M (+0M) gpu=0% holder=inkling-extq: layer 17 
+05:55:00 load=9.28 memfree=92% swap=4524M (+0M) gpu=0% holder=inkling-extq: layer 17 
+05:55:15 load=8.38 memfree=93% swap=4524M (+0M) gpu=0% holder=inkling-extq: verify layer 17 
+05:55:30 load=7.27 memfree=78% swap=4524M (+0M) gpu=93% holder=inkling: arm tetra 6-17 
+05:55:45 load=6.15 memfree=78% swap=4524M (+0M) gpu=95% holder=inkling: arm tetra 6-17 
+05:56:00 load=5.78 memfree=73% swap=4524M (+0M) gpu=87% holder=inkling: arm tetra 6-17 
+05:56:15 load=4.88 memfree=75% swap=4524M (+0M) gpu=88% holder=inkling: arm tetra 6-17 
+05:56:30 load=3.95 memfree=74% swap=4524M (+0M) gpu=90% holder=inkling: arm tetra 6-17 
+05:56:45 load=3.36 memfree=73% swap=4524M (+0M) gpu=94% holder=inkling: arm tetra 6-17 
+05:57:01 load=2.99 memfree=73% swap=4524M (+0M) gpu=95% holder=inkling: arm tetra 6-17 
+05:57:16 load=2.77 memfree=72% swap=4524M (+0M) gpu=93% holder=inkling: arm tetra 6-17 
+05:57:31 load=2.37 memfree=74% swap=4524M (+0M) gpu=93% holder=inkling: arm tetra 6-17 
+05:57:46 load=2.23 memfree=76% swap=4524M (+0M) gpu=92% holder=inkling: arm tetra 6-17 
+05:58:01 load=1.81 memfree=74% swap=4524M (+0M) gpu=93% holder=inkling: arm tetra 6-17 
+05:58:16 load=2.38 memfree=93% swap=4524M (+0M) gpu=0% holder=inkling: arm IQ1_S 6-17 
+05:58:31 load=2.79 memfree=78% swap=4516M (+0M) gpu=95% holder=inkling: arm IQ1_S 6-17 
+05:58:46 load=2.88 memfree=78% swap=4516M (+0M) gpu=96% holder=inkling: arm IQ1_S 6-17 
+05:59:01 load=2.46 memfree=92% swap=4516M (+0M) gpu=0% holder=inkling: arm IQ1_S 6-17 
+05:59:16 load=2.14 memfree=92% swap=4516M (+0M) gpu=91% holder=inkling: arm IQ1_S 6-17 
+05:59:31 load=2.04 memfree=92% swap=4516M (+0M) gpu=0% holder=inkling: arm IQ1_S 6-17 
+05:59:46 load=1.88 memfree=92% swap=4516M (+0M) gpu=85% holder=inkling: arm IQ1_S 6-17 
+06:00:01 load=1.68 memfree=76% swap=4516M (+0M) gpu=79% holder=inkling: arm IQ1_S 6-17 
+06:00:16 load=1.46 memfree=92% swap=4516M (+0M) gpu=0% holder=inkling: arm IQ1_S 6-17 
+06:00:31 load=1.52 memfree=77% swap=4516M (+0M) gpu=91% holder=inkling: arm IQ1_S 6-17 
+06:00:46 load=1.48 memfree=77% swap=4516M (+0M) gpu=80% holder=inkling: arm IQ1_S 6-17 
+06:01:01 load=1.38 memfree=92% swap=4516M (+0M) gpu=0% holder=inkling: arm IQ1_S 6-17 
+06:01:16 load=1.30 memfree=73% swap=4516M (+0M) gpu=91% holder=inkling: arm IQ1_S 6-17 
+06:01:31 load=1.30 memfree=92% swap=4516M (+0M) gpu=0% holder=inkling: arm IQ1_S 6-17 
+06:01:46 load=1.24 memfree=92% swap=4516M (+0M) gpu=95% holder=inkling: arm IQ1_S 6-17 
+06:02:02 load=1.55 memfree=74% swap=4516M (+0M) gpu=85% holder=inkling: arm IQ1_S 6-17 
+06:02:17 load=1.43 memfree=92% swap=4516M (+0M) gpu=0% holder=inkling: arm IQ1_S 6-17 
+06:02:32 load=1.33 memfree=79% swap=4516M (+0M) gpu=93% holder=inkling: arm IQ1_S 6-17 
+06:02:47 load=1.26 memfree=75% swap=4516M (+0M) gpu=91% holder=inkling: arm IQ1_S 6-17 
+06:03:02 load=1.20 memfree=92% swap=4516M (+0M) gpu=0% holder=inkling: arm IQ1_S 6-17 
+06:03:17 load=1.16 memfree=75% swap=4516M (+0M) gpu=92% holder=inkling: arm IQ1_S 6-17 
+06:03:32 load=1.19 memfree=92% swap=4516M (+0M) gpu=0% holder=inkling: arm IQ1_S 6-17 
+06:03:47 load=1.32 memfree=92% swap=4516M (+0M) gpu=95% holder=inkling: arm IQ1_S 6-17 
+06:04:02 load=1.39 memfree=74% swap=4516M (+0M) gpu=93% holder=inkling: arm IQ1_S 6-17 
+06:04:17 load=1.46 memfree=92% swap=4516M (+0M) gpu=0% holder=inkling: arm IQ1_S 6-17 
+06:04:32 load=1.51 memfree=74% swap=4516M (+0M) gpu=92% holder=inkling: arm IQ1_S 6-17 
+06:04:47 load=2.31 memfree=68% swap=4516M (+0M) gpu=96% holder=inkling: arm IQ1_S 6-17 
+06:05:02 load=2.71 memfree=73% swap=4516M (+0M) gpu=69% holder=inkling: arm IQ1_M 6-17 
+06:05:17 load=3.00 memfree=76% swap=4516M (+0M) gpu=94% holder=inkling: arm IQ1_M 6-17 
+06:05:32 load=2.71 memfree=77% swap=4516M (+0M) gpu=93% holder=inkling: arm IQ1_M 6-17 
+06:05:47 load=2.46 memfree=90% swap=4516M (+0M) gpu=0% holder=inkling: arm IQ1_M 6-17 
+06:06:02 load=2.21 memfree=90% swap=4516M (+0M) gpu=93% holder=inkling: arm IQ1_M 6-17 
+06:06:17 load=2.09 memfree=91% swap=4516M (+0M) gpu=0% holder=inkling: arm IQ1_M 6-17 
+06:06:33 load=1.92 memfree=90% swap=4516M (+0M) gpu=95% holder=inkling: arm IQ1_M 6-17 
+06:06:48 load=2.17 memfree=91% swap=4516M (+0M) gpu=0% holder=inkling: arm IQ1_M 6-17 
+06:07:03 load=1.98 memfree=91% swap=4516M (+0M) gpu=92% holder=inkling: arm IQ1_M 6-17 
+06:07:18 load=1.76 memfree=89% swap=4516M (+0M) gpu=0% holder=inkling: arm IQ1_M 6-17 
+06:07:33 load=1.73 memfree=90% swap=4516M (+0M) gpu=0% holder=inkling: arm IQ1_M 6-17 
+06:07:48 load=1.87 memfree=78% swap=4516M (+0M) gpu=93% holder=inkling: arm IQ1_M 6-17 
+06:08:03 load=1.75 memfree=91% swap=4516M (+0M) gpu=0% holder=inkling: arm IQ1_M 6-17 
+06:08:18 load=1.67 memfree=90% swap=4516M (+0M) gpu=94% holder=inkling: arm IQ1_M 6-17 
+06:08:33 load=1.44 memfree=73% swap=4516M (+0M) gpu=86% holder=inkling: arm IQ1_M 6-17 
+06:08:48 load=1.79 memfree=91% swap=4516M (+0M) gpu=0% holder=inkling: arm IQ1_M 6-17 
+06:09:03 load=1.77 memfree=73% swap=4516M (+0M) gpu=92% holder=inkling: arm IQ1_M 6-17 
+06:09:18 load=1.81 memfree=73% swap=4516M (+0M) gpu=70% holder=inkling: arm IQ1_M 6-17 
+06:09:33 load=1.63 memfree=91% swap=4516M (+0M) gpu=95% holder=inkling: arm IQ1_M 6-17 
+06:09:48 load=1.49 memfree=72% swap=4516M (+0M) gpu=90% holder=inkling: arm IQ1_M 6-17 
+06:10:03 load=1.38 memfree=91% swap=4516M (+0M) gpu=0% holder=inkling: arm IQ1_M 6-17 
+06:10:18 load=1.30 memfree=72% swap=4516M (+0M) gpu=94% holder=inkling: arm IQ1_M 6-17 
+06:10:33 load=1.23 memfree=91% swap=4516M (+0M) gpu=0% holder=inkling: arm IQ1_M 6-17 
+06:10:48 load=1.69 memfree=91% swap=4516M (+0M) gpu=95% holder=inkling: arm IQ1_M 6-17 
+06:11:03 load=1.82 memfree=72% swap=4516M (+0M) gpu=92% holder=inkling: arm IQ1_M 6-17 
+06:11:18 load=2.36 memfree=73% swap=4516M (+0M) gpu=92% holder=inkling: arm IQ1_M 6-17 
+06:11:33 load=1.90 memfree=56% swap=4516M (+0M) gpu=95% holder=inkling: arm IQ1_M 6-17 
+06:11:49 load=1.77 memfree=73% swap=4516M (+0M) gpu=79% holder=inkling: arm IQ2_XXS 6-17 
+06:12:04 load=1.68 memfree=74% swap=4516M (+0M) gpu=94% holder=inkling: arm IQ2_XXS 6-17 
+06:12:19 load=1.96 memfree=90% swap=4516M (+0M) gpu=93% holder=inkling: arm IQ2_XXS 6-17 
+06:12:34 load=1.67 memfree=90% swap=4516M (+0M) gpu=0% holder=inkling: arm IQ2_XXS 6-17 
+06:12:49 load=1.66 memfree=79% swap=4516M (+0M) gpu=92% holder=inkling: arm IQ2_XXS 6-17 
+06:13:04 load=1.51 memfree=90% swap=4516M (+0M) gpu=0% holder=inkling: arm IQ2_XXS 6-17 
+06:13:19 load=1.33 memfree=74% swap=4516M (+0M) gpu=0% holder=inkling: arm IQ2_XXS 6-17 
+06:13:34 load=1.26 memfree=90% swap=4516M (+0M) gpu=0% holder=inkling: arm IQ2_XXS 6-17 
+06:13:49 load=1.36 memfree=74% swap=4516M (+0M) gpu=0% holder=inkling: arm IQ2_XXS 6-17 
+06:14:04 load=1.43 memfree=90% swap=4516M (+0M) gpu=0% holder=inkling: arm IQ2_XXS 6-17 
+06:14:19 load=1.32 memfree=74% swap=4516M (+0M) gpu=0% holder=inkling: arm IQ2_XXS 6-17 
+06:14:34 load=1.39 memfree=90% swap=4516M (+0M) gpu=0% holder=inkling: arm IQ2_XXS 6-17 
+06:14:49 load=1.30 memfree=71% swap=4516M (+0M) gpu=97% holder=inkling: arm IQ2_XXS 6-17 
+06:15:04 load=1.23 memfree=90% swap=4516M (+0M) gpu=0% holder=inkling: arm IQ2_XXS 6-17 
+06:15:19 load=1.11 memfree=73% swap=4516M (+0M) gpu=97% holder=inkling: arm IQ2_XXS 6-17 
+06:15:34 load=1.37 memfree=90% swap=4516M (+0M) gpu=0% holder=inkling: arm IQ2_XXS 6-17 
+06:15:49 load=1.29 memfree=73% swap=4516M (+0M) gpu=91% holder=inkling: arm IQ2_XXS 6-17 
+06:16:04 load=1.38 memfree=90% swap=4516M (+0M) gpu=0% holder=inkling: arm IQ2_XXS 6-17 
+06:16:19 load=1.21 memfree=90% swap=4516M (+0M) gpu=0% holder=inkling: arm IQ2_XXS 6-17 
+06:16:34 load=1.24 memfree=90% swap=4516M (+0M) gpu=0% holder=inkling: arm IQ2_XXS 6-17 
+06:16:50 load=1.27 memfree=71% swap=4516M (+0M) gpu=0% holder=inkling: arm IQ2_XXS 6-17 
+06:17:05 load=1.43 memfree=90% swap=4516M (+0M) gpu=0% holder=inkling: arm IQ2_XXS 6-17 
+06:17:20 load=1.46 memfree=90% swap=4516M (+0M) gpu=0% holder=inkling: arm IQ2_XXS 6-17 
+06:17:35 load=1.42 memfree=73% swap=4516M (+0M) gpu=88% holder=inkling: arm IQ2_XXS 6-17 
+06:17:50 load=1.61 memfree=90% swap=4516M (+0M) gpu=0% holder=inkling: arm IQ2_XXS 6-17 
+06:18:05 load=1.47 memfree=71% swap=4516M (+0M) gpu=96% holder=inkling: arm IQ2_XXS 6-17 
+06:18:20 load=1.78 memfree=73% swap=4516M (+0M) gpu=93% holder=inkling: arm IQ2_XXS 6-17 
+06:18:35 load=1.92 memfree=67% swap=4516M (+0M) gpu=96% holder=inkling: arm IQ2_XXS 6-17 
+06:18:50 load=2.23 memfree=76% swap=4516M (+0M) gpu=42% holder=inkling: arm Q2_K_XL 6-17 
+06:19:05 load=2.19 memfree=76% swap=4516M (+0M) gpu=90% holder=inkling: arm Q2_K_XL 6-17 
+06:19:20 load=2.00 memfree=90% swap=4516M (+0M) gpu=0% holder=inkling: arm Q2_K_XL 6-17 
+06:19:35 load=1.99 memfree=74% swap=4516M (+0M) gpu=84% holder=inkling: arm Q2_K_XL 6-17 
+06:19:50 load=2.07 memfree=90% swap=4516M (+0M) gpu=0% holder=inkling: arm Q2_K_XL 6-17 
+06:20:05 load=1.90 memfree=90% swap=4516M (+0M) gpu=0% holder=inkling: arm Q2_K_XL 6-17 
+06:20:20 load=1.78 memfree=74% swap=4516M (+0M) gpu=94% holder=inkling: arm Q2_K_XL 6-17 
+06:20:35 load=1.61 memfree=90% swap=4516M (+0M) gpu=0% holder=inkling: arm Q2_K_XL 6-17 
+06:20:50 load=1.74 memfree=74% swap=4516M (+0M) gpu=94% holder=inkling: arm Q2_K_XL 6-17 
+06:21:05 load=1.59 memfree=90% swap=4516M (+0M) gpu=0% holder=inkling: arm Q2_K_XL 6-17 
+06:21:20 load=1.46 memfree=78% swap=4516M (+0M) gpu=96% holder=inkling: arm Q2_K_XL 6-17 
+06:21:35 load=1.44 memfree=90% swap=4516M (+0M) gpu=0% holder=inkling: arm Q2_K_XL 6-17 
+06:21:50 load=1.34 memfree=71% swap=4516M (+0M) gpu=95% holder=inkling: arm Q2_K_XL 6-17 
+06:22:06 load=1.33 memfree=90% swap=4516M (+0M) gpu=3% holder=inkling: arm Q2_K_XL 6-17 
+06:22:21 load=1.33 memfree=73% swap=4516M (+0M) gpu=96% holder=inkling: arm Q2_K_XL 6-17 
+06:22:36 load=1.26 memfree=90% swap=4516M (+0M) gpu=0% holder=inkling: arm Q2_K_XL 6-17 
+06:22:51 load=1.20 memfree=90% swap=4516M (+0M) gpu=0% holder=inkling: arm Q2_K_XL 6-17 
+06:23:06 load=1.15 memfree=90% swap=4516M (+0M) gpu=0% holder=inkling: arm Q2_K_XL 6-17 
+06:23:21 load=1.35 memfree=90% swap=4516M (+0M) gpu=0% holder=inkling: arm Q2_K_XL 6-17 
+06:23:36 load=1.20 memfree=71% swap=4516M (+0M) gpu=81% holder=inkling: arm Q2_K_XL 6-17 
+2026-11-22 06:23:36 EXIT HEARTBEAT: no alert in 5400 s
+2026-11-22 06:23:47 START base_swap=4516M
+06:23:47 load=1.40 memfree=68% swap=4516M (+0M) gpu=78% holder=inkling: arm Q2_K_XL 6-17 
+06:24:02 load=1.23 memfree=89% swap=4516M (+0M) gpu=52% holder=inkling: arm Q2_K_XL 6-17 
+06:24:17 load=1.78 memfree=70% swap=4516M (+0M) gpu=75% holder=inkling: arm Q2_K_XL 6-17 
+06:24:32 load=1.67 memfree=89% swap=4516M (+0M) gpu=12% holder=inkling: arm Q2_K_XL 6-17 
+06:24:47 load=1.67 memfree=70% swap=4516M (+0M) gpu=84% holder=inkling: arm Q2_K_XL 6-17 
+06:25:02 load=1.60 memfree=89% swap=4516M (+0M) gpu=14% holder=inkling: arm Q2_K_XL 6-17 
+06:25:18 load=1.61 memfree=72% swap=4516M (+0M) gpu=91% holder=inkling: arm Q2_K_XL 6-17 
+06:25:33 load=1.33 memfree=69% swap=4516M (+0M) gpu=96% holder=inkling: arm Q2_K_XL 6-17 
+06:25:48 load=1.56 memfree=89% swap=4516M (+0M) gpu=15% holder=none
+06:26:03 load=1.86 memfree=89% swap=4516M (+0M) gpu=13% holder=inkling: arm tetra f16 6-8 
+06:26:18 load=2.21 memfree=75% swap=4516M (+0M) gpu=91% holder=inkling: arm tetra f16 6-8 
+06:26:33 load=2.60 memfree=75% swap=4516M (+0M) gpu=94% holder=inkling: arm tetra f16 6-8 
+06:26:48 load=2.46 memfree=74% swap=4516M (+0M) gpu=89% holder=inkling: arm tetra f16 6-8 
+06:27:03 load=2.40 memfree=73% swap=4516M (+0M) gpu=88% holder=inkling: arm tetra f16 6-8 
+06:27:18 load=3.36 memfree=73% swap=4516M (+0M) gpu=92% holder=inkling: arm tetra f16 6-8 
+06:27:33 load=3.05 memfree=72% swap=4516M (+0M) gpu=92% holder=inkling: arm tetra f16 6-8 
+06:27:48 load=3.44 memfree=71% swap=4516M (+0M) gpu=91% holder=inkling: arm tetra f16 6-8 
+06:28:03 load=3.86 memfree=72% swap=4516M (+0M) gpu=93% holder=inkling: arm tetra f16 6-8 
+06:28:18 load=3.66 memfree=72% swap=4516M (+0M) gpu=91% holder=inkling: arm tetra f16 6-8 
+06:28:33 load=3.87 memfree=72% swap=4516M (+0M) gpu=93% holder=inkling: arm tetra f16 6-8 
+06:28:48 load=4.86 memfree=71% swap=4516M (+0M) gpu=92% holder=inkling: arm tetra f16 6-8 
+06:29:03 load=3.99 memfree=73% swap=4516M (+0M) gpu=90% holder=inkling: arm tetra f16 6-8 
+06:29:18 load=3.54 memfree=68% swap=4516M (+0M) gpu=85% holder=inkling: arm tetra f16 6-8 
+06:29:33 load=3.11 memfree=90% swap=4508M (+0M) gpu=12% holder=none
+06:29:48 load=2.65 memfree=89% swap=4508M (+0M) gpu=21% holder=none
+06:30:04 load=2.87 memfree=89% swap=4508M (+0M) gpu=20% holder=none
+06:30:19 load=2.76 memfree=89% swap=4508M (+0M) gpu=8% holder=inkling: prep layer 0 
+06:30:34 load=2.81 memfree=89% swap=4508M (+0M) gpu=8% holder=inkling: prep layer 0 
+06:30:49 load=2.69 memfree=89% swap=4508M (+0M) gpu=10% holder=none
+06:31:04 load=2.46 memfree=90% swap=4508M (+0M) gpu=0% holder=none
+06:31:19 load=2.48 memfree=89% swap=4508M (+0M) gpu=0% holder=none

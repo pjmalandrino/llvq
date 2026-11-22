@@ -1,0 +1,12 @@
+{
+  "gate": "G2",
+  "device": "cpu",
+  "ntok": 256,
+  "max_abs_diff_logits": 0.0,
+  "mean_abs_diff_logits": 0.0,
+  "top1_same_all": true,
+  "top1_same_count": 256,
+  "logit_absmax": 29.74251937866211,
+  "sec_executor": 100.13883781433105,
+  "sec_library": 76.61081004142761
+}

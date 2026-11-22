@@ -1,0 +1,113 @@
+INKLING 2 MINI, QUALITY GATE OF THE LATTICE CODE ON THE EXPERTS, one Mac night, 2026-11-21 to 2026-11-22
+==============================================================================================================================
+Result: PASS on the 12 layers of the loop. The lattice code at 2.037 expert bits reads KL 0.0378, against 0.0539 for
+the lowest rung of the unsloth ladder at 2.229 bits, and its top-1 agreement is 92.04 %. The 2.764-bit rung reads
+0.0290 and stays ahead. Every figure is *measured* on the Mac unless labelled, and the cost is $0.
+
+Prereg proofs/preregistration-inkling2-mini-quality-gate-2026-11-21.md (sha256 e947b7c8, stamped 22:01) and its annex
+on the encoder settings (sha256 2f5a02d2, stamped 22:41), both before the first encode. Departures and the missed
+prediction are in the last section. Raw outputs in inkling2-mini-quality-gate-2026-11-21-brut/. Model
+thinkingmachines/Inkling-2-Mini @ ed40e7da, rivals unsloth/Inkling-2-Mini-GGUF @ ae9327c5, reference code
+transformers @ 046bdb8cc2, rival reader gguf-py @ llama.cpp 690b87d881. Tools in ops/inkling/ and llvq-llm bin extq.
+
+WHAT WAS MEASURED
+  Teacher: the reference modules with the native experts dequantized to float32 (NVFP4 in layers 0 to 19, MXFP8 in
+  20 to 23). Student: the same model with the expert matrices of a layer set replaced, by the lattice
+  reconstructions or by the expert tensors of a rival GGUF file. Nothing else moves: attention, tables and router are
+  the teacher's in every arm. Score: KL(teacher || arm) of the next-token distributions on raw WikiText-2 test, 8
+  windows of 2,048 tokens (16,376 positions), top-1 agreement, paired NLL. Device MPS, where an unchanged model gives
+  KL exactly 0 (0.00019 on CPU). Intervals: bootstrap over the 8 windows, 95 %.
+  Encode: the 4B's sealed recipe (tetra1, rotation, damping 1e-2, blocks of 24, no row scales), one Hessian an
+  expert and a matrix group, tokens routed to the expert weighted by the squared routing weight, summed over the
+  three passes of a loop layer. Calibration 64 x 2,048 tokens of dclm-edu, on the teacher's activations.
+  Lattice expert bits: 2.0371 a weight in the archive accounting (*computed*; the files on disk give 2.0374).
+
+GATES BEFORE ANY MEASUREMENT: all green
+  G1 values: the dequantized native experts equal the ggml-org BF16 reference bit for bit after rounding to bf16, 16
+     matrices, correlation at least 0.999998.
+  G2 executor: the layer-major executor against the library forward, max logit difference 0.0 on CPU and on MPS,
+     256 of 256 argmax equal. Mutant (pass 2 dropped): max difference 30.27, 40 of 64 argmax equal.
+  G3 teacher: perplexity 6.20 on the 8 windows (NLL 1.824).
+  Rival reader: correlation with the native tensor 0.875 (IQ1_S) to 0.967 (IQ2_S), under 0.003 for a transposed
+     tensor, a wrong expert or a wrong layer.
+  Encoder: 5 of 5 equivalence tests bit for bit against the block loop; every expert's codes read back and decoded to
+     the reconstruction bit for bit, 1,536 experts in 12 layers, 0 differing weights.
+
+THE READINGS (expert bits *computed* on the layers of the set; KL with its 95 % interval)
+  set {6,7,8}, 3 layers
+  arm          bits     KL                          top-1     NLL arm minus teacher
+  lattice      2.037    0.00961 [0.00780, 0.01135]  96.12 %   +0.00058 [-0.00132, +0.00229]
+  UD-IQ1_S     2.014    0.01477 [0.01244, 0.01699]  94.96 %   +0.00485 [+0.00187, +0.00777]
+  UD-IQ1_M     2.014    0.01443 [0.01232, 0.01654]  95.17 %   +0.00546 [+0.00190, +0.00876]
+  UD-IQ2_XXS   2.264    0.01264 [0.01063, 0.01461]  95.41 %   +0.00273 [+0.00090, +0.00457]
+  UD-Q2_K_XL   2.569    0.01033 [0.00875, 0.01177]  95.87 %   +0.00193 [-0.00093, +0.00449]
+  Ladder at 2.037 bits: 0.01425. Paired by window, the lattice is better than IQ1_S, IQ1_M and IQ2_XXS on 8 of 8 and
+  than Q2_K_XL on 5 of 8.
+
+  set {6..11}, 6 layers
+  lattice      2.037    0.02069 [0.01676, 0.02450]  94.22 %   +0.00744 [+0.00398, +0.01062]
+  UD-IQ1_S     2.250    0.02637 [0.02250, 0.03006]  93.36 %   +0.01644 [+0.01042, +0.02215]
+  UD-IQ1_M     2.375    0.02293 [0.01970, 0.02615]  93.70 %   +0.01546 [+0.00875, +0.02149]
+  UD-IQ2_XXS   2.528    0.02078 [0.01760, 0.02393]  94.12 %   +0.01083 [+0.00765, +0.01420]
+  UD-Q2_K_XL   2.861    0.01514 [0.01267, 0.01755]  95.10 %   +0.00592 [+0.00385, +0.00788]
+  The lattice's bits are under the lowest rung. Paired by window, the lattice is better than IQ1_S on 8 of 8, than
+  IQ1_M on 7 of 8, than IQ2_XXS on 5 of 8, and Q2_K_XL is better on 8 of 8.
+
+  set {6..17}, the 12 layers of the loop: the set the gate is read on
+  lattice      2.037    0.03781 [0.03275, 0.04252]  92.04 %   +0.02237 [+0.01935, +0.02578]
+  UD-IQ1_S     2.229    0.05386 [0.04790, 0.05900]  90.28 %   +0.03501 [+0.02932, +0.04096]
+  UD-IQ1_M     2.368    0.04541 [0.04071, 0.04965]  90.97 %   +0.03295 [+0.02649, +0.03932]
+  UD-IQ2_XXS   2.444    0.04304 [0.03831, 0.04697]  91.34 %   +0.02623 [+0.02086, +0.03100]
+  UD-Q2_K_XL   2.764    0.02895 [0.02547, 0.03201]  92.89 %   +0.01542 [+0.01066, +0.02052]
+  The rule: the lattice's bits are under the lowest rung, so the gate reads PASS when its KL is at or under that
+  rung's. 0.03781 against 0.05386: PASS. No rung has as many bits or fewer, so none can read FAIL. The floor holds,
+  92.04 % against 90 %. Perplexity of the lattice arm over the teacher's: x 1.0226 (*computed* from the paired NLL).
+
+  Outside the rule, paired by window on {6..17} (lattice KL minus rung KL, bootstrap over the 8 windows)
+  UD-IQ1_S     -0.01605 [-0.01824, -0.01400]   lattice better on 8 of 8   ratio of means 0.702
+  UD-IQ1_M     -0.00760 [-0.00921, -0.00585]   8 of 8                     0.833
+  UD-IQ2_XXS   -0.00523 [-0.00697, -0.00349]   8 of 8                     0.878
+  UD-Q2_K_XL   +0.00886 [+0.00669, +0.01156]   0 of 8                     1.306
+  On the ladder, read linearly in log KL against bits, the lattice's KL falls at 2.55 bits on {6..17} and at 2.53
+  on {6..11} (*computed*). The lattice code carries 2.037: about half a bit a weight less for the same KL.
+  The KL of the lattice arm goes 0.0096, 0.0207, 0.0378 for 3, 6 and 12 layers.
+
+  Float16 storage of the reconstructions, layers 6 to 8: KL 0.009614 against 0.009611 in float32, top-1 96.07 %
+  against 96.12 %. The layers outside the loop keep float16 reconstructions for disk space; their codes are exact.
+
+THE ENCODE
+  29 minutes a layer at 10 threads, 13.2 to 13.5 s an expert. No expert fell back to H = I and no factorization
+  failed. Hessian-weighted relative error, median over the experts of a layer, layers 6 to 17: gate 0.010 to 0.020,
+  up 0.012 to 0.024, down 0.026 to 0.049. It is lowest in layers 16 and 17, where the routing is most concentrated.
+  Relative squared error on the weights: 0.125 to 0.138 (gate), 0.113 to 0.146 (down). On Gaussian weights with
+  H = I the same code leaves 0.0854.
+  Experts with fewer than 2,304 tokens over the three passes: 6 to 20 of 128 a layer in 6 to 16, and 34 in layer 17.
+  Their weighted error is lower (median 0.005 on gate in layers 6 to 11), measured on the tokens that calibrated
+  them, so it says nothing of how they do on other tokens.
+
+THE CENSUS (131,072 calibration tokens, 8 experts a token)
+  In one visit of a layer, 27.96 % of the (expert) cells see fewer than 2,304 tokens. Summed over the three passes,
+  11.2 % of the cells of layers 6 to 17 do. By layer, summed: 7.0 to 18.0 % in layers 0 to 5, 4.7 to 26.6 % in 6 to
+  17, 25.0 to 41.4 % in 18 to 23.
+  Passes 1 and 2 concentrate the routing at the end of the loop. The busiest expert is among the 8 of 54 % of the
+  tokens at layer 14 in pass 1, 93 % at layers 15 and 16, and 100 % at layer 17 in both passes (131,029 and 131,066
+  of 131,072). In pass 3 the same layers read 22 to 34 %.
+
+WHAT THIS DOES NOT READ
+  The whole model: attention, tables and router are the teacher's. Generation, GSM8K, any served speed or memory. The
+  gain of row scales, of a calibration on the quantized prefix, of a second calibration draw. The LookAtMyQuant file
+  (QAT, 8.87 GB, *self-reported*), whose runtime was not run. One text, 16,376 positions, one calibration draw.
+
+DEPARTURES AND PREDICTIONS
+  Departure 1: prep_layer.py's manifest did not carry the keys extq reads. The first launch of layer 6 stopped after
+  one minute with no expert encoded. The manifest now carries `num_experts` and `experts: [{tokens, weight_sum}]`,
+  weight_sum being the sum of the squared routing weights over the layer's visits, the weights the Hessian carries.
+  Departure 2: the operator's sentinel exits at once on stale swap; a night copy with a swap-growth criterion ran
+  instead (~/llvq-inkling-mini/logs/sentinel_night.sh). Two memory incidents at 22:50 and 22:52, before any
+  measurement: a mutant test ran with autograd on and took 20 GB of swap; both runs were killed and the loader now
+  turns autograd off.
+  Prediction held: 20 to 50 % of the cells under 2,304 tokens in one visit (27.96 %).
+  Prediction missed: under 5 % after the sum over three passes (11.2 %).
+  Predictions held on {6..17}: lattice KL 0.02 to 0.05 (0.0378); UD-Q2_K_XL 0.025 to 0.045 (0.0290); UD-IQ2_XXS
+  0.030 to 0.055 (0.0430); UD-IQ1_S 0.040 to 0.070 (0.0539). The reading PASS carried a signed probability of 0.45.
+  The departures are also in proofs/preregistration-inkling2-mini-quality-gate-2026-11-21-ECARTS.md.

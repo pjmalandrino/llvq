@@ -1,0 +1,11 @@
+Installed 39 packages in 463ms
+W1121 22:30:14.543000 25153 torch/distributed/elastic/multiprocessing/redirects.py:35] NOTE: Redirects are currently not supported in MacOs.
+  L06 expert 16/128  6s
+  L06 expert 32/128  7s
+  L06 expert 48/128  8s
+  L06 expert 64/128  9s
+  L06 expert 80/128  11s
+  L06 expert 96/128  13s
+  L06 expert 112/128  15s
+  L06 expert 128/128  16s
+{"layer": 6, "out": "/Users/pjmalandrino/llvq-inkling-mini/layers_test/L06", "sec": 16.138387203216553}

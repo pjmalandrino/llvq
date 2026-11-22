@@ -1,0 +1,1142 @@
+{
+ "IQ1_S": {
+  "per_layer": {
+   "0": {
+    "types": {
+     "ffn_gate_up_exps": "IQ1_S+scale",
+     "ffn_down_exps": "Q2_0+scale"
+    },
+    "bytes": 228262912,
+    "weights": 1019215872,
+    "bits": 1.791674704218107
+   },
+   "1": {
+    "types": {
+     "ffn_gate_up_exps": "IQ1_S+scale",
+     "ffn_down_exps": "Q2_0+scale"
+    },
+    "bytes": 228262912,
+    "weights": 1019215872,
+    "bits": 1.791674704218107
+   },
+   "2": {
+    "types": {
+     "ffn_gate_up_exps": "IQ1_S+scale",
+     "ffn_down_exps": "Q2_0+scale"
+    },
+    "bytes": 228262912,
+    "weights": 1019215872,
+    "bits": 1.791674704218107
+   },
+   "3": {
+    "types": {
+     "ffn_gate_up_exps": "IQ1_S+scale",
+     "ffn_down_exps": "Q2_0+scale"
+    },
+    "bytes": 228262912,
+    "weights": 1019215872,
+    "bits": 1.791674704218107
+   },
+   "4": {
+    "types": {
+     "ffn_gate_up_exps": "IQ1_S+scale",
+     "ffn_down_exps": "Q2_0+scale"
+    },
+    "bytes": 228262912,
+    "weights": 1019215872,
+    "bits": 1.791674704218107
+   },
+   "5": {
+    "types": {
+     "ffn_gate_up_exps": "IQ2_XXS+scale",
+     "ffn_down_exps": "Q2_0+scale"
+    },
+    "bytes": 270730240,
+    "weights": 1019215872,
+    "bits": 2.1250080375514404
+   },
+   "6": {
+    "types": {
+     "ffn_gate_up_exps": "IQ1_S+scale",
+     "ffn_down_exps": "Q2_0+scale"
+    },
+    "bytes": 228262912,
+    "weights": 1019215872,
+    "bits": 1.791674704218107
+   },
+   "7": {
+    "types": {
+     "ffn_gate_up_exps": "IQ2_XXS+scale",
+     "ffn_down_exps": "Q2_0+scale"
+    },
+    "bytes": 270730240,
+    "weights": 1019215872,
+    "bits": 2.1250080375514404
+   },
+   "8": {
+    "types": {
+     "ffn_gate_up_exps": "IQ2_XXS+scale",
+     "ffn_down_exps": "Q2_0+scale"
+    },
+    "bytes": 270730240,
+    "weights": 1019215872,
+    "bits": 2.1250080375514404
+   },
+   "9": {
+    "types": {
+     "ffn_gate_up_exps": "IQ2_XS+scale",
+     "ffn_down_exps": "NVFP4+scale"
+    },
+    "bytes": 387515392,
+    "weights": 1019215872,
+    "bits": 3.041674704218107
+   },
+   "10": {
+    "types": {
+     "ffn_gate_up_exps": "IQ2_XXS+scale",
+     "ffn_down_exps": "Q2_0+scale"
+    },
+    "bytes": 270730240,
+    "weights": 1019215872,
+    "bits": 2.1250080375514404
+   },
+   "11": {
+    "types": {
+     "ffn_gate_up_exps": "IQ2_XS+scale",
+     "ffn_down_exps": "Q2_0+scale"
+    },
+    "bytes": 291963904,
+    "weights": 1019215872,
+    "bits": 2.291674704218107
+   },
+   "12": {
+    "types": {
+     "ffn_gate_up_exps": "IQ2_XXS+scale",
+     "ffn_down_exps": "Q2_0+scale"
+    },
+    "bytes": 270730240,
+    "weights": 1019215872,
+    "bits": 2.1250080375514404
+   },
+   "13": {
+    "types": {
+     "ffn_gate_up_exps": "IQ2_XXS+scale",
+     "ffn_down_exps": "Q2_0+scale"
+    },
+    "bytes": 270730240,
+    "weights": 1019215872,
+    "bits": 2.1250080375514404
+   },
+   "14": {
+    "types": {
+     "ffn_gate_up_exps": "IQ2_XXS+scale",
+     "ffn_down_exps": "Q2_0+scale"
+    },
+    "bytes": 270730240,
+    "weights": 1019215872,
+    "bits": 2.1250080375514404
+   },
+   "15": {
+    "types": {
+     "ffn_gate_up_exps": "IQ2_XS+scale",
+     "ffn_down_exps": "Q2_0+scale"
+    },
+    "bytes": 291963904,
+    "weights": 1019215872,
+    "bits": 2.291674704218107
+   },
+   "16": {
+    "types": {
+     "ffn_gate_up_exps": "IQ2_S+scale",
+     "ffn_down_exps": "Q2_0+scale"
+    },
+    "bytes": 313197568,
+    "weights": 1019215872,
+    "bits": 2.4583413708847734
+   },
+   "17": {
+    "types": {
+     "ffn_gate_up_exps": "IQ2_XXS+scale",
+     "ffn_down_exps": "Q2_0+scale"
+    },
+    "bytes": 270730240,
+    "weights": 1019215872,
+    "bits": 2.1250080375514404
+   },
+   "18": {
+    "types": {
+     "ffn_gate_up_exps": "IQ2_XXS+scale",
+     "ffn_down_exps": "Q2_0+scale"
+    },
+    "bytes": 270730240,
+    "weights": 1019215872,
+    "bits": 2.1250080375514404
+   },
+   "19": {
+    "types": {
+     "ffn_gate_up_exps": "IQ2_XS+scale",
+     "ffn_down_exps": "Q2_0+scale"
+    },
+    "bytes": 291963904,
+    "weights": 1019215872,
+    "bits": 2.291674704218107
+   },
+   "20": {
+    "types": {
+     "ffn_gate_up_exps": "IQ2_S",
+     "ffn_down_exps": "Q2_0"
+    },
+    "bytes": 313196544,
+    "weights": 1019215872,
+    "bits": 2.4583333333333335
+   },
+   "21": {
+    "types": {
+     "ffn_gate_up_exps": "IQ2_XXS",
+     "ffn_down_exps": "Q2_0"
+    },
+    "bytes": 270729216,
+    "weights": 1019215872,
+    "bits": 2.125
+   },
+   "22": {
+    "types": {
+     "ffn_gate_up_exps": "IQ2_XXS",
+     "ffn_down_exps": "Q2_0"
+    },
+    "bytes": 270729216,
+    "weights": 1019215872,
+    "bits": 2.125
+   },
+   "23": {
+    "types": {
+     "ffn_gate_up_exps": "IQ2_XS",
+     "ffn_down_exps": "Q2_0"
+    },
+    "bytes": 291962880,
+    "weights": 1019215872,
+    "bits": 2.2916666666666665
+   }
+  },
+  "sets": {
+   "6-8": 2.0138969264403292,
+   "6-11": 2.2500080375514404,
+   "6-17": 2.229174704218107,
+   "0-5": 1.8472302597736625,
+   "18-23": 2.2361137902949246,
+   "all": 2.1354233646262
+  }
+ },
+ "IQ1_M": {
+  "per_layer": {
+   "0": {
+    "types": {
+     "ffn_gate_up_exps": "IQ1_S+scale",
+     "ffn_down_exps": "Q2_0+scale"
+    },
+    "bytes": 228262912,
+    "weights": 1019215872,
+    "bits": 1.791674704218107
+   },
+   "1": {
+    "types": {
+     "ffn_gate_up_exps": "IQ1_S+scale",
+     "ffn_down_exps": "Q2_0+scale"
+    },
+    "bytes": 228262912,
+    "weights": 1019215872,
+    "bits": 1.791674704218107
+   },
+   "2": {
+    "types": {
+     "ffn_gate_up_exps": "IQ1_S+scale",
+     "ffn_down_exps": "Q2_0+scale"
+    },
+    "bytes": 228262912,
+    "weights": 1019215872,
+    "bits": 1.791674704218107
+   },
+   "3": {
+    "types": {
+     "ffn_gate_up_exps": "IQ1_S+scale",
+     "ffn_down_exps": "Q2_0+scale"
+    },
+    "bytes": 228262912,
+    "weights": 1019215872,
+    "bits": 1.791674704218107
+   },
+   "4": {
+    "types": {
+     "ffn_gate_up_exps": "IQ1_S+scale",
+     "ffn_down_exps": "Q2_0+scale"
+    },
+    "bytes": 228262912,
+    "weights": 1019215872,
+    "bits": 1.791674704218107
+   },
+   "5": {
+    "types": {
+     "ffn_gate_up_exps": "IQ2_XXS+scale",
+     "ffn_down_exps": "Q2_0+scale"
+    },
+    "bytes": 270730240,
+    "weights": 1019215872,
+    "bits": 2.1250080375514404
+   },
+   "6": {
+    "types": {
+     "ffn_gate_up_exps": "IQ1_S+scale",
+     "ffn_down_exps": "Q2_0+scale"
+    },
+    "bytes": 228262912,
+    "weights": 1019215872,
+    "bits": 1.791674704218107
+   },
+   "7": {
+    "types": {
+     "ffn_gate_up_exps": "IQ2_XXS+scale",
+     "ffn_down_exps": "Q2_0+scale"
+    },
+    "bytes": 270730240,
+    "weights": 1019215872,
+    "bits": 2.1250080375514404
+   },
+   "8": {
+    "types": {
+     "ffn_gate_up_exps": "IQ2_XXS+scale",
+     "ffn_down_exps": "Q2_0+scale"
+    },
+    "bytes": 270730240,
+    "weights": 1019215872,
+    "bits": 2.1250080375514404
+   },
+   "9": {
+    "types": {
+     "ffn_gate_up_exps": "IQ2_XS+scale",
+     "ffn_down_exps": "NVFP4+scale"
+    },
+    "bytes": 387515392,
+    "weights": 1019215872,
+    "bits": 3.041674704218107
+   },
+   "10": {
+    "types": {
+     "ffn_gate_up_exps": "IQ2_XXS+scale",
+     "ffn_down_exps": "Q2_0+scale"
+    },
+    "bytes": 270730240,
+    "weights": 1019215872,
+    "bits": 2.1250080375514404
+   },
+   "11": {
+    "types": {
+     "ffn_gate_up_exps": "IQ2_XS+scale",
+     "ffn_down_exps": "NVFP4+scale"
+    },
+    "bytes": 387515392,
+    "weights": 1019215872,
+    "bits": 3.041674704218107
+   },
+   "12": {
+    "types": {
+     "ffn_gate_up_exps": "IQ2_XXS+scale",
+     "ffn_down_exps": "Q2_0+scale"
+    },
+    "bytes": 270730240,
+    "weights": 1019215872,
+    "bits": 2.1250080375514404
+   },
+   "13": {
+    "types": {
+     "ffn_gate_up_exps": "IQ2_XXS+scale",
+     "ffn_down_exps": "Q2_0+scale"
+    },
+    "bytes": 270730240,
+    "weights": 1019215872,
+    "bits": 2.1250080375514404
+   },
+   "14": {
+    "types": {
+     "ffn_gate_up_exps": "IQ2_XXS+scale",
+     "ffn_down_exps": "Q2_0+scale"
+    },
+    "bytes": 270730240,
+    "weights": 1019215872,
+    "bits": 2.1250080375514404
+   },
+   "15": {
+    "types": {
+     "ffn_gate_up_exps": "IQ2_XS+scale",
+     "ffn_down_exps": "Q2_0+scale"
+    },
+    "bytes": 291963904,
+    "weights": 1019215872,
+    "bits": 2.291674704218107
+   },
+   "16": {
+    "types": {
+     "ffn_gate_up_exps": "IQ2_S+scale",
+     "ffn_down_exps": "Q2_0+scale"
+    },
+    "bytes": 313197568,
+    "weights": 1019215872,
+    "bits": 2.4583413708847734
+   },
+   "17": {
+    "types": {
+     "ffn_gate_up_exps": "IQ2_XS+scale",
+     "ffn_down_exps": "NVFP4+scale"
+    },
+    "bytes": 387515392,
+    "weights": 1019215872,
+    "bits": 3.041674704218107
+   },
+   "18": {
+    "types": {
+     "ffn_gate_up_exps": "IQ2_XXS+scale",
+     "ffn_down_exps": "Q2_0+scale"
+    },
+    "bytes": 270730240,
+    "weights": 1019215872,
+    "bits": 2.1250080375514404
+   },
+   "19": {
+    "types": {
+     "ffn_gate_up_exps": "IQ2_S+scale",
+     "ffn_down_exps": "Q2_0+scale"
+    },
+    "bytes": 313197568,
+    "weights": 1019215872,
+    "bits": 2.4583413708847734
+   },
+   "20": {
+    "types": {
+     "ffn_gate_up_exps": "IQ2_S",
+     "ffn_down_exps": "Q2_0"
+    },
+    "bytes": 313196544,
+    "weights": 1019215872,
+    "bits": 2.4583333333333335
+   },
+   "21": {
+    "types": {
+     "ffn_gate_up_exps": "IQ2_S",
+     "ffn_down_exps": "Q2_0"
+    },
+    "bytes": 313196544,
+    "weights": 1019215872,
+    "bits": 2.4583333333333335
+   },
+   "22": {
+    "types": {
+     "ffn_gate_up_exps": "IQ2_XXS",
+     "ffn_down_exps": "Q2_0"
+    },
+    "bytes": 270729216,
+    "weights": 1019215872,
+    "bits": 2.125
+   },
+   "23": {
+    "types": {
+     "ffn_gate_up_exps": "IQ2_XS",
+     "ffn_down_exps": "Q2_0"
+    },
+    "bytes": 291962880,
+    "weights": 1019215872,
+    "bits": 2.2916666666666665
+   }
+  },
+  "sets": {
+   "6-8": 2.0138969264403292,
+   "6-11": 2.3750080375514404,
+   "6-17": 2.3680635931069958,
+   "0-5": 1.8472302597736625,
+   "18-23": 2.3194471236282577,
+   "all": 2.225701142403978
+  }
+ },
+ "IQ2_XXS": {
+  "per_layer": {
+   "0": {
+    "types": {
+     "ffn_gate_up_exps": "IQ1_S+scale",
+     "ffn_down_exps": "Q2_0+scale"
+    },
+    "bytes": 228262912,
+    "weights": 1019215872,
+    "bits": 1.791674704218107
+   },
+   "1": {
+    "types": {
+     "ffn_gate_up_exps": "IQ1_S+scale",
+     "ffn_down_exps": "Q2_0+scale"
+    },
+    "bytes": 228262912,
+    "weights": 1019215872,
+    "bits": 1.791674704218107
+   },
+   "2": {
+    "types": {
+     "ffn_gate_up_exps": "IQ1_S+scale",
+     "ffn_down_exps": "Q2_0+scale"
+    },
+    "bytes": 228262912,
+    "weights": 1019215872,
+    "bits": 1.791674704218107
+   },
+   "3": {
+    "types": {
+     "ffn_gate_up_exps": "IQ1_S+scale",
+     "ffn_down_exps": "Q2_0+scale"
+    },
+    "bytes": 228262912,
+    "weights": 1019215872,
+    "bits": 1.791674704218107
+   },
+   "4": {
+    "types": {
+     "ffn_gate_up_exps": "IQ1_S+scale",
+     "ffn_down_exps": "Q2_0+scale"
+    },
+    "bytes": 228262912,
+    "weights": 1019215872,
+    "bits": 1.791674704218107
+   },
+   "5": {
+    "types": {
+     "ffn_gate_up_exps": "IQ2_XXS+scale",
+     "ffn_down_exps": "NVFP4+scale"
+    },
+    "bytes": 366281728,
+    "weights": 1019215872,
+    "bits": 2.8750080375514404
+   },
+   "6": {
+    "types": {
+     "ffn_gate_up_exps": "IQ1_S+scale",
+     "ffn_down_exps": "Q2_0+scale"
+    },
+    "bytes": 228262912,
+    "weights": 1019215872,
+    "bits": 1.791674704218107
+   },
+   "7": {
+    "types": {
+     "ffn_gate_up_exps": "IQ2_XXS+scale",
+     "ffn_down_exps": "Q2_0+scale"
+    },
+    "bytes": 270730240,
+    "weights": 1019215872,
+    "bits": 2.1250080375514404
+   },
+   "8": {
+    "types": {
+     "ffn_gate_up_exps": "IQ2_XXS+scale",
+     "ffn_down_exps": "NVFP4+scale"
+    },
+    "bytes": 366281728,
+    "weights": 1019215872,
+    "bits": 2.8750080375514404
+   },
+   "9": {
+    "types": {
+     "ffn_gate_up_exps": "IQ2_XS+scale",
+     "ffn_down_exps": "NVFP4+scale"
+    },
+    "bytes": 387515392,
+    "weights": 1019215872,
+    "bits": 3.041674704218107
+   },
+   "10": {
+    "types": {
+     "ffn_gate_up_exps": "IQ2_XS+scale",
+     "ffn_down_exps": "Q2_0+scale"
+    },
+    "bytes": 291963904,
+    "weights": 1019215872,
+    "bits": 2.291674704218107
+   },
+   "11": {
+    "types": {
+     "ffn_gate_up_exps": "IQ2_XS+scale",
+     "ffn_down_exps": "NVFP4+scale"
+    },
+    "bytes": 387515392,
+    "weights": 1019215872,
+    "bits": 3.041674704218107
+   },
+   "12": {
+    "types": {
+     "ffn_gate_up_exps": "IQ2_XXS+scale",
+     "ffn_down_exps": "Q2_0+scale"
+    },
+    "bytes": 270730240,
+    "weights": 1019215872,
+    "bits": 2.1250080375514404
+   },
+   "13": {
+    "types": {
+     "ffn_gate_up_exps": "IQ2_XXS+scale",
+     "ffn_down_exps": "Q2_0+scale"
+    },
+    "bytes": 270730240,
+    "weights": 1019215872,
+    "bits": 2.1250080375514404
+   },
+   "14": {
+    "types": {
+     "ffn_gate_up_exps": "IQ2_XXS+scale",
+     "ffn_down_exps": "Q2_0+scale"
+    },
+    "bytes": 270730240,
+    "weights": 1019215872,
+    "bits": 2.1250080375514404
+   },
+   "15": {
+    "types": {
+     "ffn_gate_up_exps": "IQ2_XS+scale",
+     "ffn_down_exps": "Q2_0+scale"
+    },
+    "bytes": 291963904,
+    "weights": 1019215872,
+    "bits": 2.291674704218107
+   },
+   "16": {
+    "types": {
+     "ffn_gate_up_exps": "IQ2_S+scale",
+     "ffn_down_exps": "Q2_0+scale"
+    },
+    "bytes": 313197568,
+    "weights": 1019215872,
+    "bits": 2.4583413708847734
+   },
+   "17": {
+    "types": {
+     "ffn_gate_up_exps": "IQ2_XS+scale",
+     "ffn_down_exps": "NVFP4+scale"
+    },
+    "bytes": 387515392,
+    "weights": 1019215872,
+    "bits": 3.041674704218107
+   },
+   "18": {
+    "types": {
+     "ffn_gate_up_exps": "IQ2_XXS+scale",
+     "ffn_down_exps": "NVFP4+scale"
+    },
+    "bytes": 366281728,
+    "weights": 1019215872,
+    "bits": 2.8750080375514404
+   },
+   "19": {
+    "types": {
+     "ffn_gate_up_exps": "IQ2_S+scale",
+     "ffn_down_exps": "NVFP4+scale"
+    },
+    "bytes": 408749056,
+    "weights": 1019215872,
+    "bits": 3.2083413708847734
+   },
+   "20": {
+    "types": {
+     "ffn_gate_up_exps": "IQ2_S",
+     "ffn_down_exps": "Q2_0"
+    },
+    "bytes": 313196544,
+    "weights": 1019215872,
+    "bits": 2.4583333333333335
+   },
+   "21": {
+    "types": {
+     "ffn_gate_up_exps": "IQ2_S",
+     "ffn_down_exps": "Q2_0"
+    },
+    "bytes": 313196544,
+    "weights": 1019215872,
+    "bits": 2.4583333333333335
+   },
+   "22": {
+    "types": {
+     "ffn_gate_up_exps": "IQ2_XS",
+     "ffn_down_exps": "Q2_0"
+    },
+    "bytes": 291962880,
+    "weights": 1019215872,
+    "bits": 2.2916666666666665
+   },
+   "23": {
+    "types": {
+     "ffn_gate_up_exps": "IQ2_S",
+     "ffn_down_exps": "Q2_0"
+    },
+    "bytes": 313196544,
+    "weights": 1019215872,
+    "bits": 2.4583333333333335
+   }
+  },
+  "sets": {
+   "6-8": 2.2638969264403292,
+   "6-11": 2.527785815329218,
+   "6-17": 2.4444524819958846,
+   "0-5": 1.9722302597736625,
+   "18-23": 2.6250026791838135,
+   "all": 2.3715344757373114
+  }
+ },
+ "Q2_K_XL": {
+  "per_layer": {
+   "0": {
+    "types": {
+     "ffn_gate_up_exps": "IQ1_S+scale",
+     "ffn_down_exps": "Q2_0+scale"
+    },
+    "bytes": 228262912,
+    "weights": 1019215872,
+    "bits": 1.791674704218107
+   },
+   "1": {
+    "types": {
+     "ffn_gate_up_exps": "IQ1_S+scale",
+     "ffn_down_exps": "Q2_0+scale"
+    },
+    "bytes": 228262912,
+    "weights": 1019215872,
+    "bits": 1.791674704218107
+   },
+   "2": {
+    "types": {
+     "ffn_gate_up_exps": "IQ1_S+scale",
+     "ffn_down_exps": "Q2_0+scale"
+    },
+    "bytes": 228262912,
+    "weights": 1019215872,
+    "bits": 1.791674704218107
+   },
+   "3": {
+    "types": {
+     "ffn_gate_up_exps": "IQ1_S+scale",
+     "ffn_down_exps": "Q2_0+scale"
+    },
+    "bytes": 228262912,
+    "weights": 1019215872,
+    "bits": 1.791674704218107
+   },
+   "4": {
+    "types": {
+     "ffn_gate_up_exps": "IQ1_S+scale",
+     "ffn_down_exps": "Q2_0+scale"
+    },
+    "bytes": 228262912,
+    "weights": 1019215872,
+    "bits": 1.791674704218107
+   },
+   "5": {
+    "types": {
+     "ffn_gate_up_exps": "IQ2_XXS+scale",
+     "ffn_down_exps": "NVFP4+scale"
+    },
+    "bytes": 366281728,
+    "weights": 1019215872,
+    "bits": 2.8750080375514404
+   },
+   "6": {
+    "types": {
+     "ffn_gate_up_exps": "IQ1_S+scale",
+     "ffn_down_exps": "Q2_0+scale"
+    },
+    "bytes": 228262912,
+    "weights": 1019215872,
+    "bits": 1.791674704218107
+   },
+   "7": {
+    "types": {
+     "ffn_gate_up_exps": "IQ2_XXS+scale",
+     "ffn_down_exps": "NVFP4+scale"
+    },
+    "bytes": 366281728,
+    "weights": 1019215872,
+    "bits": 2.8750080375514404
+   },
+   "8": {
+    "types": {
+     "ffn_gate_up_exps": "IQ2_XS+scale",
+     "ffn_down_exps": "NVFP4+scale"
+    },
+    "bytes": 387515392,
+    "weights": 1019215872,
+    "bits": 3.041674704218107
+   },
+   "9": {
+    "types": {
+     "ffn_gate_up_exps": "IQ2_S+scale",
+     "ffn_down_exps": "NVFP4+scale"
+    },
+    "bytes": 408749056,
+    "weights": 1019215872,
+    "bits": 3.2083413708847734
+   },
+   "10": {
+    "types": {
+     "ffn_gate_up_exps": "IQ2_XS+scale",
+     "ffn_down_exps": "NVFP4+scale"
+    },
+    "bytes": 387515392,
+    "weights": 1019215872,
+    "bits": 3.041674704218107
+   },
+   "11": {
+    "types": {
+     "ffn_gate_up_exps": "IQ2_S+scale",
+     "ffn_down_exps": "NVFP4+scale"
+    },
+    "bytes": 408749056,
+    "weights": 1019215872,
+    "bits": 3.2083413708847734
+   },
+   "12": {
+    "types": {
+     "ffn_gate_up_exps": "IQ2_XXS+scale",
+     "ffn_down_exps": "Q2_0+scale"
+    },
+    "bytes": 270730240,
+    "weights": 1019215872,
+    "bits": 2.1250080375514404
+   },
+   "13": {
+    "types": {
+     "ffn_gate_up_exps": "IQ2_XXS+scale",
+     "ffn_down_exps": "Q2_0+scale"
+    },
+    "bytes": 270730240,
+    "weights": 1019215872,
+    "bits": 2.1250080375514404
+   },
+   "14": {
+    "types": {
+     "ffn_gate_up_exps": "IQ2_XXS+scale",
+     "ffn_down_exps": "Q2_0+scale"
+    },
+    "bytes": 270730240,
+    "weights": 1019215872,
+    "bits": 2.1250080375514404
+   },
+   "15": {
+    "types": {
+     "ffn_gate_up_exps": "IQ2_S+scale",
+     "ffn_down_exps": "NVFP4+scale"
+    },
+    "bytes": 408749056,
+    "weights": 1019215872,
+    "bits": 3.2083413708847734
+   },
+   "16": {
+    "types": {
+     "ffn_gate_up_exps": "IQ2_S+scale",
+     "ffn_down_exps": "NVFP4+scale"
+    },
+    "bytes": 408749056,
+    "weights": 1019215872,
+    "bits": 3.2083413708847734
+   },
+   "17": {
+    "types": {
+     "ffn_gate_up_exps": "IQ2_S+scale",
+     "ffn_down_exps": "NVFP4+scale"
+    },
+    "bytes": 408749056,
+    "weights": 1019215872,
+    "bits": 3.2083413708847734
+   },
+   "18": {
+    "types": {
+     "ffn_gate_up_exps": "IQ2_S+scale",
+     "ffn_down_exps": "NVFP4+scale"
+    },
+    "bytes": 408749056,
+    "weights": 1019215872,
+    "bits": 3.2083413708847734
+   },
+   "19": {
+    "types": {
+     "ffn_gate_up_exps": "IQ2_S+scale",
+     "ffn_down_exps": "NVFP4+scale"
+    },
+    "bytes": 408749056,
+    "weights": 1019215872,
+    "bits": 3.2083413708847734
+   },
+   "20": {
+    "types": {
+     "ffn_gate_up_exps": "IQ2_S",
+     "ffn_down_exps": "MXFP4"
+    },
+    "bytes": 398131200,
+    "weights": 1019215872,
+    "bits": 3.125
+   },
+   "21": {
+    "types": {
+     "ffn_gate_up_exps": "IQ2_S",
+     "ffn_down_exps": "Q2_0"
+    },
+    "bytes": 313196544,
+    "weights": 1019215872,
+    "bits": 2.4583333333333335
+   },
+   "22": {
+    "types": {
+     "ffn_gate_up_exps": "IQ2_S",
+     "ffn_down_exps": "Q2_0"
+    },
+    "bytes": 313196544,
+    "weights": 1019215872,
+    "bits": 2.4583333333333335
+   },
+   "23": {
+    "types": {
+     "ffn_gate_up_exps": "IQ2_S",
+     "ffn_down_exps": "Q2_0"
+    },
+    "bytes": 313196544,
+    "weights": 1019215872,
+    "bits": 2.4583333333333335
+   }
+  },
+  "sets": {
+   "6-8": 2.5694524819958846,
+   "6-11": 2.8611191486625516,
+   "6-17": 2.7638969264403292,
+   "0-5": 1.9722302597736625,
+   "18-23": 2.8194471236282577,
+   "all": 2.579867809070645
+  }
+ },
+ "BF16": {
+  "per_layer": {
+   "0": {
+    "types": {
+     "ffn_gate_up_exps": "BF16",
+     "ffn_down_exps": "BF16"
+    },
+    "bytes": 2038431744,
+    "weights": 1019215872,
+    "bits": 16.0
+   },
+   "1": {
+    "types": {
+     "ffn_gate_up_exps": "BF16",
+     "ffn_down_exps": "BF16"
+    },
+    "bytes": 2038431744,
+    "weights": 1019215872,
+    "bits": 16.0
+   },
+   "2": {
+    "types": {
+     "ffn_gate_up_exps": "BF16",
+     "ffn_down_exps": "BF16"
+    },
+    "bytes": 2038431744,
+    "weights": 1019215872,
+    "bits": 16.0
+   },
+   "3": {
+    "types": {
+     "ffn_gate_up_exps": "BF16",
+     "ffn_down_exps": "BF16"
+    },
+    "bytes": 2038431744,
+    "weights": 1019215872,
+    "bits": 16.0
+   },
+   "4": {
+    "types": {
+     "ffn_gate_up_exps": "BF16",
+     "ffn_down_exps": "BF16"
+    },
+    "bytes": 2038431744,
+    "weights": 1019215872,
+    "bits": 16.0
+   },
+   "5": {
+    "types": {
+     "ffn_gate_up_exps": "BF16",
+     "ffn_down_exps": "BF16"
+    },
+    "bytes": 2038431744,
+    "weights": 1019215872,
+    "bits": 16.0
+   },
+   "6": {
+    "types": {
+     "ffn_gate_up_exps": "BF16",
+     "ffn_down_exps": "BF16"
+    },
+    "bytes": 2038431744,
+    "weights": 1019215872,
+    "bits": 16.0
+   },
+   "7": {
+    "types": {
+     "ffn_gate_up_exps": "BF16",
+     "ffn_down_exps": "BF16"
+    },
+    "bytes": 2038431744,
+    "weights": 1019215872,
+    "bits": 16.0
+   },
+   "8": {
+    "types": {
+     "ffn_gate_up_exps": "BF16",
+     "ffn_down_exps": "BF16"
+    },
+    "bytes": 2038431744,
+    "weights": 1019215872,
+    "bits": 16.0
+   },
+   "9": {
+    "types": {
+     "ffn_gate_up_exps": "BF16",
+     "ffn_down_exps": "BF16"
+    },
+    "bytes": 2038431744,
+    "weights": 1019215872,
+    "bits": 16.0
+   },
+   "10": {
+    "types": {
+     "ffn_gate_up_exps": "BF16",
+     "ffn_down_exps": "BF16"
+    },
+    "bytes": 2038431744,
+    "weights": 1019215872,
+    "bits": 16.0
+   },
+   "11": {
+    "types": {
+     "ffn_gate_up_exps": "BF16",
+     "ffn_down_exps": "BF16"
+    },
+    "bytes": 2038431744,
+    "weights": 1019215872,
+    "bits": 16.0
+   },
+   "12": {
+    "types": {
+     "ffn_gate_up_exps": "BF16",
+     "ffn_down_exps": "BF16"
+    },
+    "bytes": 2038431744,
+    "weights": 1019215872,
+    "bits": 16.0
+   },
+   "13": {
+    "types": {
+     "ffn_gate_up_exps": "BF16",
+     "ffn_down_exps": "BF16"
+    },
+    "bytes": 2038431744,
+    "weights": 1019215872,
+    "bits": 16.0
+   },
+   "14": {
+    "types": {
+     "ffn_gate_up_exps": "BF16",
+     "ffn_down_exps": "BF16"
+    },
+    "bytes": 2038431744,
+    "weights": 1019215872,
+    "bits": 16.0
+   },
+   "15": {
+    "types": {
+     "ffn_gate_up_exps": "BF16",
+     "ffn_down_exps": "BF16"
+    },
+    "bytes": 2038431744,
+    "weights": 1019215872,
+    "bits": 16.0
+   },
+   "16": {
+    "types": {
+     "ffn_gate_up_exps": "BF16",
+     "ffn_down_exps": "BF16"
+    },
+    "bytes": 2038431744,
+    "weights": 1019215872,
+    "bits": 16.0
+   },
+   "17": {
+    "types": {
+     "ffn_gate_up_exps": "BF16",
+     "ffn_down_exps": "BF16"
+    },
+    "bytes": 2038431744,
+    "weights": 1019215872,
+    "bits": 16.0
+   },
+   "18": {
+    "types": {
+     "ffn_gate_up_exps": "BF16",
+     "ffn_down_exps": "BF16"
+    },
+    "bytes": 2038431744,
+    "weights": 1019215872,
+    "bits": 16.0
+   },
+   "19": {
+    "types": {
+     "ffn_gate_up_exps": "BF16",
+     "ffn_down_exps": "BF16"
+    },
+    "bytes": 2038431744,
+    "weights": 1019215872,
+    "bits": 16.0
+   },
+   "20": {
+    "types": {
+     "ffn_gate_up_exps": "BF16",
+     "ffn_down_exps": "BF16"
+    },
+    "bytes": 2038431744,
+    "weights": 1019215872,
+    "bits": 16.0
+   },
+   "21": {
+    "types": {
+     "ffn_gate_up_exps": "BF16",
+     "ffn_down_exps": "BF16"
+    },
+    "bytes": 2038431744,
+    "weights": 1019215872,
+    "bits": 16.0
+   },
+   "22": {
+    "types": {
+     "ffn_gate_up_exps": "BF16",
+     "ffn_down_exps": "BF16"
+    },
+    "bytes": 2038431744,
+    "weights": 1019215872,
+    "bits": 16.0
+   },
+   "23": {
+    "types": {
+     "ffn_gate_up_exps": "BF16",
+     "ffn_down_exps": "BF16"
+    },
+    "bytes": 2038431744,
+    "weights": 1019215872,
+    "bits": 16.0
+   }
+  },
+  "sets": {
+   "6-8": 16.0,
+   "6-11": 16.0,
+   "6-17": 16.0,
+   "0-5": 16.0,
+   "18-23": 16.0,
+   "all": 16.0
+  }
+ }
+}

@@ -1,0 +1,95 @@
+{
+  "arm": "iq1s_6-8",
+  "spec": "6-8=gguf:/Users/pjmalandrino/llvq-inkling-mini/gguf/Inkling-2-Mini-UD-IQ1_S.gguf",
+  "layers": {
+    "6": "gguf:/Users/pjmalandrino/llvq-inkling-mini/gguf/Inkling-2-Mini-UD-IQ1_S.gguf",
+    "7": "gguf:/Users/pjmalandrino/llvq-inkling-mini/gguf/Inkling-2-Mini-UD-IQ1_S.gguf",
+    "8": "gguf:/Users/pjmalandrino/llvq-inkling-mini/gguf/Inkling-2-Mini-UD-IQ1_S.gguf"
+  },
+  "windows": 8,
+  "ctx": 2048,
+  "tokens_fingerprint": "f1acc067bf1b610c",
+  "positions_per_window": 2047,
+  "kl_mean": 0.014770702691748738,
+  "kl_ci95": [
+    0.012437299871817232,
+    0.01699128965847194
+  ],
+  "top1_agree": 0.9495603442192078,
+  "nll_teacher": 1.8240511566400528,
+  "nll_arm": 1.8288981169462204,
+  "nll_diff_mean": 0.0048469603061676025,
+  "nll_diff_ci95": [
+    0.001874670386314392,
+    0.007774651050567627
+  ],
+  "per_window": [
+    {
+      "window": 0,
+      "kl_mean": 0.008772328495979309,
+      "kl_max": 0.42105698585510254,
+      "top1_agree": 0.966292142868042,
+      "nll_teacher": 1.615234375,
+      "nll_arm": 1.6169612407684326
+    },
+    {
+      "window": 1,
+      "kl_mean": 0.01515529491007328,
+      "kl_max": 0.9393103122711182,
+      "top1_agree": 0.9418661594390869,
+      "nll_teacher": 2.0985589027404785,
+      "nll_arm": 2.103803873062134
+    },
+    {
+      "window": 2,
+      "kl_mean": 0.013152942061424255,
+      "kl_max": 0.6462688446044922,
+      "top1_agree": 0.947239875793457,
+      "nll_teacher": 2.215076208114624,
+      "nll_arm": 2.2265079021453857
+    },
+    {
+      "window": 3,
+      "kl_mean": 0.01583142951130867,
+      "kl_max": 0.598494291305542,
+      "top1_agree": 0.9399120807647705,
+      "nll_teacher": 2.0471668243408203,
+      "nll_arm": 2.053487539291382
+    },
+    {
+      "window": 4,
+      "kl_mean": 0.011492297053337097,
+      "kl_max": 0.4235762357711792,
+      "top1_agree": 0.95652174949646,
+      "nll_teacher": 1.8723208904266357,
+      "nll_arm": 1.8702222108840942
+    },
+    {
+      "window": 5,
+      "kl_mean": 0.016449052840471268,
+      "kl_max": 0.8712871074676514,
+      "top1_agree": 0.9526135921478271,
+      "nll_teacher": 1.7025995254516602,
+      "nll_arm": 1.7030643224716187
+    },
+    {
+      "window": 6,
+      "kl_mean": 0.01702660508453846,
+      "kl_max": 0.6781895756721497,
+      "top1_agree": 0.9487054347991943,
+      "nll_teacher": 1.2642767429351807,
+      "nll_arm": 1.270203948020935
+    },
+    {
+      "window": 7,
+      "kl_mean": 0.020285671576857567,
+      "kl_max": 2.053943634033203,
+      "top1_agree": 0.9433317184448242,
+      "nll_teacher": 1.777175784111023,
+      "nll_arm": 1.7869338989257812
+    }
+  ],
+  "device": "mps",
+  "sec": 235.74104404449463,
+  "bootstrap": "10000 resamples of windows, seed 0, percentile"
+}

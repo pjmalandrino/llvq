@@ -1,0 +1,146 @@
+[
+  {
+    "layer": 0,
+    "expert": 0,
+    "matrix": "w13",
+    "bf16(mine)==ref fraction": 1.0,
+    "max |bf16(mine)-ref| in bf16 ulps": 0.0,
+    "max |mine-ref| / |ref|max": 0.0018696323968470097,
+    "corr": 0.9999986887795587
+  },
+  {
+    "layer": 0,
+    "expert": 0,
+    "matrix": "w2",
+    "bf16(mine)==ref fraction": 1.0,
+    "max |bf16(mine)-ref| in bf16 ulps": 0.0,
+    "max |mine-ref| / |ref|max": 0.0018453868106007576,
+    "corr": 0.9999981639564473
+  },
+  {
+    "layer": 0,
+    "expert": 127,
+    "matrix": "w13",
+    "bf16(mine)==ref fraction": 1.0,
+    "max |bf16(mine)-ref| in bf16 ulps": 0.0,
+    "max |mine-ref| / |ref|max": 0.001856563612818718,
+    "corr": 0.9999986188527161
+  },
+  {
+    "layer": 0,
+    "expert": 127,
+    "matrix": "w2",
+    "bf16(mine)==ref fraction": 1.0,
+    "max |bf16(mine)-ref| in bf16 ulps": 0.0,
+    "max |mine-ref| / |ref|max": 0.002207392593845725,
+    "corr": 0.9999990116540228
+  },
+  {
+    "layer": 0,
+    "expert": 1,
+    "matrix": "w13",
+    "bf16(mine)==ref fraction": 1.0,
+    "max |bf16(mine)-ref| in bf16 ulps": 0.0,
+    "max |mine-ref| / |ref|max": 0.0024864196311682463,
+    "corr": 0.9999990452441903
+  },
+  {
+    "layer": 0,
+    "expert": 1,
+    "matrix": "w2",
+    "bf16(mine)==ref fraction": 1.0,
+    "max |bf16(mine)-ref| in bf16 ulps": 0.0,
+    "max |mine-ref| / |ref|max": 0.0015421598218381405,
+    "corr": 0.9999993538624606
+  },
+  {
+    "layer": 10,
+    "expert": 0,
+    "matrix": "w13",
+    "bf16(mine)==ref fraction": 1.0,
+    "max |bf16(mine)-ref| in bf16 ulps": 0.0,
+    "max |mine-ref| / |ref|max": 0.0028262105770409107,
+    "corr": 0.9999986767553478
+  },
+  {
+    "layer": 10,
+    "expert": 0,
+    "matrix": "w2",
+    "bf16(mine)==ref fraction": 1.0,
+    "max |bf16(mine)-ref| in bf16 ulps": 0.0,
+    "max |mine-ref| / |ref|max": 0.0017482362454757094,
+    "corr": 0.9999987999236143
+  },
+  {
+    "layer": 10,
+    "expert": 1,
+    "matrix": "w13",
+    "bf16(mine)==ref fraction": 1.0,
+    "max |bf16(mine)-ref| in bf16 ulps": 0.0,
+    "max |mine-ref| / |ref|max": 0.0020900908857584,
+    "corr": 0.999999073799325
+  },
+  {
+    "layer": 10,
+    "expert": 1,
+    "matrix": "w2",
+    "bf16(mine)==ref fraction": 1.0,
+    "max |bf16(mine)-ref| in bf16 ulps": 0.0,
+    "max |mine-ref| / |ref|max": 0.002620396902784705,
+    "corr": 0.9999983500545638
+  },
+  {
+    "layer": 10,
+    "expert": 127,
+    "matrix": "w13",
+    "bf16(mine)==ref fraction": 1.0,
+    "max |bf16(mine)-ref| in bf16 ulps": 0.0,
+    "max |mine-ref| / |ref|max": 0.0025196904316544533,
+    "corr": 0.9999984069669773
+  },
+  {
+    "layer": 10,
+    "expert": 127,
+    "matrix": "w2",
+    "bf16(mine)==ref fraction": 1.0,
+    "max |bf16(mine)-ref| in bf16 ulps": 0.0,
+    "max |mine-ref| / |ref|max": 0.0007512773736380041,
+    "corr": 0.9999995620791517
+  },
+  {
+    "layer": 23,
+    "expert": 0,
+    "matrix": "w13",
+    "bf16(mine)==ref fraction": 1.0,
+    "max |bf16(mine)-ref| in bf16 ulps": 0.0,
+    "max |mine-ref| / |ref|max": 0.0,
+    "corr": 1.0
+  },
+  {
+    "layer": 23,
+    "expert": 0,
+    "matrix": "w2",
+    "bf16(mine)==ref fraction": 1.0,
+    "max |bf16(mine)-ref| in bf16 ulps": 0.0,
+    "max |mine-ref| / |ref|max": 0.0,
+    "corr": 1.0
+  },
+  {
+    "layer": 23,
+    "expert": 127,
+    "matrix": "w13",
+    "bf16(mine)==ref fraction": 1.0,
+    "max |bf16(mine)-ref| in bf16 ulps": 0.0,
+    "max |mine-ref| / |ref|max": 0.0,
+    "corr": 1.0
+  },
+  {
+    "layer": 23,
+    "expert": 127,
+    "matrix": "w2",
+    "bf16(mine)==ref fraction": 1.0,
+    "max |bf16(mine)-ref| in bf16 ulps": 0.0,
+    "max |mine-ref| / |ref|max": 0.0,
+    "corr": 1.0
+  }
+]
