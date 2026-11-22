@@ -247,6 +247,21 @@ table in int4 g64 0.0028, the output table 0.0030, two int4 attention matrices o
 2.4 % of the weights and every token crosses all of it, so its type rule is decided on the three arms of the
 whole model (experts; plus attention; plus tables), not on §1's default.
 
+Attention and the tables alone, experts native, on the 8 windows (*measured*, 2026-11-22, the 144 attention
+matrices encoded from the full capture with no fallback):
+
+| what is quantized | weights | GB, against GB in f16 | KL, 95 % interval | top-1 |
+|---|---|---|---|---|
+| the six attention matrices, §1's rule | 644.1 M | 0.279 against 1.288 | 0.0234 [0.0207, 0.0259] | 93.35 % |
+| `wq_du` and `wk_dv` alone, lattice | 226.5 M | 0.057 against 0.453 | 0.0118 [0.0101, 0.0135] | 95.39 % |
+| `wv_dv`, `wo_ud`, `gate_attn`, `wr_du` alone, int4 g128 | 417.6 M | 0.222 against 0.835 | 0.0170 [0.0153, 0.0186] | 94.50 % |
+| the two tables, int4 g64 | 926.3 M | 0.521 against 1.853 | 0.0078 [0.0071, 0.0084] | 96.28 % |
+
+Attention costs about 0.023 to 0.030 KL for each GB it saves, the tables 0.006, and the experts of the loop 0.010
+against their native NVFP4 (*computed*). Even at 4 bits attention is the dearest place to save bytes. Keeping it
+in f16 puts the text model at 8.06 GB instead of 7.05 (*computed*) and removes its 0.023. The rule is not
+settled: the six matrices have not been read one by one, and `wq_du` and `wk_dv` have not been tried in int4.
+
 Order of the week: the file and the whole-model KL first; then the first run on a card (resident GB, tokens, first
 tok/s) and GSM8K on the same card; then the grouped launch for speed, and the row scales if GSM8K leaves a gap worth
 their $17 to $35; then the runtime on Inkling with tools and a real coding-agent session; the card of the model
