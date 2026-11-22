@@ -1,0 +1,6 @@
+bucket inputs present; image b959fa385a7713baba9befc7571e6454d4deb8cc
+  bucket: Pier-Jean/jobs-artifacts → /out
+l4x1 at 0.80 $/h = 0.0133 $/min; ceiling 285m → at worst 3.80 $
+inkling-gsm8k-card on l4x1: https://huggingface.co/jobs/Pier-Jean/6b033fab130a00b5aa80e8db
+  id 6b033fab130a00b5aa80e8db
+follow: uv run ops/run.py monitor 6b033fab130a00b5aa80e8db --flavor l4x1

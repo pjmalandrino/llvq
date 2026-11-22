@@ -5,7 +5,8 @@
 # checkpoint's chat template at reasoning effort `none`, greedy, at most 1,536 new tokens, a completion cut by the cap
 # counted wrong. One job:
 #   (0) controls: the card, no LLVQ_* in the environment, `oracle` MATCH on Qwen3-0.6B, every input at its pin after
-#       it is copied from the bucket to the container's disk (the first-card inputs plus tokenizer.json);
+#       it is copied from the bucket to the container's disk (the first-card inputs plus tokenizer.json, and the
+#       two int4 tables of the sealed file unless TABLES=checkpoint);
 #   (1) `inkgsm run`: the dump is written on local disk, line by line, and copied to the bucket every COPY_EVERY
 #       seconds and at the end; `--deadline-seconds` stops it cleanly before the job's timeout, every written line
 #       whole. RESUME_FROM=<bucket dir of an earlier run> starts from that run's dump: only the missing problems run;
@@ -50,6 +51,12 @@ TEXTONLY_SHA=${TEXTONLY_SHA:-}
 CONFIG_SHA=${CONFIG_SHA:-}
 MANIFEST_SHA=${MANIFEST_SHA:-}
 TOKENIZER_SHA=${TOKENIZER_SHA:-}
+# Which vocabulary tables the model reads. `sealed` (the default): the two int4 g64 tables of the sealed file,
+# staged under tables/ and pinned below, so the run reads the sealed object's own values. `checkpoint`: the
+# checkpoint's BF16 tables, another arm (the experts alone in lattice codes).
+TABLES=${TABLES:-sealed}
+EMBED_TABLE_SHA=${EMBED_TABLE_SHA:-}
+UNEMBED_TABLE_SHA=${UNEMBED_TABLE_SHA:-}
 TEXTONLY_BYTES=3218968280
 # The problems file the image carries, pinned from this tree.
 PROBLEMS_SHA=$( (sha256sum ops/data/spec-gsm8k-200.jsonl 2>/dev/null || shasum -a 256 ops/data/spec-gsm8k-200.jsonl) | cut -d' ' -f1)
@@ -59,12 +66,20 @@ if [ "${PROTOCOL_CHANGE:-0}" != 1 ]; then
   [ "$LIMIT" = 200 ] && [ "$MAX_NEW" = 1536 ] && [ "$EFFORT" = none ] \
     || { echo "refused: LIMIT/MAX_NEW/EFFORT differ from 200/1536/none; PROTOCOL_CHANGE=1 to run another arm" >&2; exit 1; }
 fi
+[ "$TABLES" = sealed ] || [ "$TABLES" = checkpoint ] || { echo "refused: TABLES=$TABLES is neither sealed nor checkpoint" >&2; exit 1; }
 [ "$DEADLINE" -gt 0 ] 2>/dev/null || { echo "refused: DEADLINE=$DEADLINE is not a positive count of seconds" >&2; exit 1; }
 
 if [ "$DRY" != 1 ]; then
   for v in TEXTONLY_SHA CONFIG_SHA MANIFEST_SHA TOKENIZER_SHA; do
     [ -n "${!v}" ] || { echo "refused: $v unset; the staging scripts print it" >&2; exit 1; }
   done
+  if [ "$TABLES" = sealed ]; then
+    for v in EMBED_TABLE_SHA UNEMBED_TABLE_SHA; do
+      [ -n "${!v}" ] || { echo "refused: $v unset; ops/inkling/stage-gsm8k-card.sh prints it" >&2; exit 1; }
+    done
+    NTB=$(hf buckets ls "hf://buckets/$BUCKET/${IN#/out/}/tables/" 2>/dev/null | grep -c 'embed\.q4g64\.llvqraw$' || true)
+    [ "$NTB" = 2 ] || { echo "refused: $NTB of the 2 sealed tables in ${IN#/out/}/tables/" >&2; exit 1; }
+  fi
   { test -f "$PREREG" && test -f "$PREREG.ots"; } || { echo "refused: $PREREG(.ots) missing" >&2; exit 1; }
   LS=$(hf buckets ls "hf://buckets/$BUCKET/${IN#/out/}/" 2>/dev/null || true)
   for f in config.json model.safetensors codes.sha256 tokenizer.json; do
@@ -91,6 +106,7 @@ fi
 PRE=$(printf 'O=%q\nIN=%q\nLAYERS=%q\nLIMIT=%q\nMAX_NEW=%q\nEFFORT=%q\nDEADLINE=%q\nCOPY_EVERY=%q\nRESUME=%q\nTEXTONLY_SHA=%q\nCONFIG_SHA=%q\nMANIFEST_SHA=%q\nTOKENIZER_SHA=%q\nPROBLEMS_SHA=%q\nTEXTONLY_BYTES=%q\nexport HF_HOME=/tmp/hf' \
   "$O" "$IN" "$LAYERS" "$LIMIT" "$MAX_NEW" "$EFFORT" "$DEADLINE" "$COPY_EVERY" "${RESUME_FROM:+/out/$RESUME_FROM}" \
   "$TEXTONLY_SHA" "$CONFIG_SHA" "$MANIFEST_SHA" "$TOKENIZER_SHA" "$PROBLEMS_SHA" "$TEXTONLY_BYTES")
+PRE="$PRE"$'\n'$(printf 'TABLES=%q\nEMBED_TABLE_SHA=%q\nUNEMBED_TABLE_SHA=%q' "$TABLES" "$EMBED_TABLE_SHA" "$UNEMBED_TABLE_SHA")
 
 IFS= read -r -d '' BODY <<'JOB' || true
 mkdir -p "$O"
@@ -114,9 +130,18 @@ test "$(sha256sum "$L/config.json" | cut -d' ' -f1)" = "$CONFIG_SHA"
 test "$(sha256sum "$L/model.safetensors" | cut -d' ' -f1)" = "$TEXTONLY_SHA"
 test "$(sha256sum "$L/codes.sha256" | cut -d' ' -f1)" = "$MANIFEST_SHA"
 test "$(sha256sum "$L/tokenizer.json" | cut -d' ' -f1)" = "$TOKENIZER_SHA"
+TABLES_ARG=()
+if [ "$TABLES" = sealed ]; then
+  mkdir -p "$L/tables"
+  cp "$IN/tables/embed.q4g64.llvqraw" "$IN/tables/unembed.q4g64.llvqraw" "$L/tables/"
+  test "$(sha256sum "$L/tables/embed.q4g64.llvqraw" | cut -d' ' -f1)" = "$EMBED_TABLE_SHA"
+  test "$(sha256sum "$L/tables/unembed.q4g64.llvqraw" | cut -d' ' -f1)" = "$UNEMBED_TABLE_SHA"
+  TABLES_ARG=(--tables "$L/tables")
+fi
 (cd "$L/layers" && sha256sum --quiet -c ../codes.sha256) 2>&1 | tee "$O/codes-check.txt"
 test "$(grep -c . "$L/codes.sha256")" = "$((LAYERS * 129))"
 sha256sum "$L/config.json" "$L/model.safetensors" "$L/codes.sha256" "$L/tokenizer.json" "$P" | tee "$O/files.sha256"
+if [ "$TABLES" = sealed ]; then sha256sum "$L/tables/embed.q4g64.llvqraw" "$L/tables/unembed.q4g64.llvqraw" | tee -a "$O/files.sha256"; fi
 D="$L/inkgsm.jsonl"
 if [ -n "$RESUME" ]; then cp "$RESUME/inkgsm.jsonl" "$D"; echo "resuming from $RESUME: $(($(grep -c . "$D") - 1)) lines"; fi
 date -u
@@ -127,7 +152,7 @@ set +e
 timeout $((DEADLINE + 900)) inkgsm run --config "$L/config.json" --checkpoint "$L/model.safetensors" \
   --layers "$L/layers" --tokenizer "$L/tokenizer.json" --device cuda --require-layers "$LAYERS" \
   --problems "$P" --limit "$LIMIT" --max-new "$MAX_NEW" --effort "$EFFORT" --deadline-seconds "$DEADLINE" \
-  --dump "$D" > "$O/inkgsm.txt" 2>&1
+  "${TABLES_ARG[@]}" --dump "$D" > "$O/inkgsm.txt" 2>&1
 RC=$?
 set -e
 kill "$COPIER" 2>/dev/null || true

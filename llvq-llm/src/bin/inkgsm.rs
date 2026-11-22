@@ -6,6 +6,7 @@
 //!            --tokenizer D/native/tokenizer.json --device metal|cuda --dump out.jsonl \
 //!            [--problems ops/data/spec-gsm8k-200.jsonl] [--limit 200] [--max-new 1536] [--effort none] \
 //!            [--resident verified|none] [--require-layers 24] [--deadline-seconds S] [--parquet <test.parquet>]
+//!            [--tables <dir of embed.q4g64.llvqraw and unembed.q4g64.llvqraw>]
 //! inkgsm prompts --tokenizer <tokenizer.json> --out ids.json [--problems ..] [--limit 3] [--effort none] \
 //!                [--parquet <test.parquet>]
 //! inkgsm score <a.jsonl> [<b.jsonl> ...]
@@ -501,6 +502,8 @@ fn cmd_run(args: &[String], t_start: Instant) -> Result<i32> {
     let require_layers = count(&mut a, "require-layers", 0)?;
     let deadline = a.remove("deadline-seconds").map(|v| v.parse::<f64>()).transpose().context("--deadline-seconds")?;
     let parquet = a.remove("parquet").map(PathBuf::from);
+    // The directory of the sealed file's two int4 tables (`bin/inktable`); absent, the tables are the checkpoint's.
+    let tables_dir = a.remove("tables").map(PathBuf::from);
     no_more(&a)?;
 
     // Everything that can be refused without the model, first.
@@ -523,6 +526,15 @@ fn cmd_run(args: &[String], t_start: Instant) -> Result<i32> {
     let stream: Vec<u32> = prompts.concat();
     let fingerprint = format!("{:016x}", llvq_llm::eval::token_fingerprint(&stream));
 
+    // Which vocabulary tables the model reads: the sealed file's int4 g64 ones, by their sha256, or the checkpoint's.
+    let tables_header: Value = match &tables_dir {
+        Some(d) => json!({
+            "embed_sha256": sha(&d.join(llvq_llm::inkling::tables::EMBED_FILE))?,
+            "unembed_sha256": sha(&d.join(llvq_llm::inkling::tables::UNEMBED_FILE))?,
+            "encoding": "int4 g64, decoded to f32",
+        }),
+        None => json!("checkpoint, BF16"),
+    };
     let base_header = |resident_layers: &Value| -> Result<Value> {
         Ok(json!({
             gsm8k::DUMP_TAG: gsm8k::DUMP_VERSION,
@@ -549,6 +561,7 @@ fn cmd_run(args: &[String], t_start: Instant) -> Result<i32> {
             "tokenizer_sha256": sha(&tokenizer)?,
             "config_sha256": sha(&config)?,
             "template_sha256": llvq_llm::inkchat::TEMPLATE_SHA256,
+            "tables": tables_header,
             "resident_layers": resident_layers,
             "prompt_stream": fingerprint,
         }))
@@ -575,6 +588,17 @@ fn cmd_run(args: &[String], t_start: Instant) -> Result<i32> {
     let mut model = Inkling::load(&config, &checkpoint, &dev)?;
     if resident {
         make_resident(&mut model, &layers, &dev)?;
+    }
+    if let Some(d) = &tables_dir {
+        let t = llvq_llm::inkling::tables::load(d, &model.cfg, &dev)?;
+        eprintln!(
+            "inkgsm: tables of the sealed file from {}: embed {}, unembed {}",
+            d.display(),
+            &t.embed_sha256[..16],
+            &t.unembed_sha256[..16]
+        );
+        model.embed_table = Some(t.embed);
+        model.out_proj = Some(Box::new(t.head));
     }
     dev.synchronize()?;
     let resident_layers = model.substituted_layers();

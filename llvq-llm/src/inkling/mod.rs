@@ -25,6 +25,7 @@ pub mod glue;
 pub mod head;
 pub mod layers;
 pub mod loader;
+pub mod tables;
 #[cfg(all(target_os = "macos", feature = "metal"))]
 pub mod resident;
 #[cfg(all(target_os = "linux", feature = "cuda"))]
@@ -228,6 +229,9 @@ pub struct Inkling {
     /// The output projection, when set: `head` takes its logits instead of
     /// the BF16 `unembed` rows (plan item D4). `None` unless set.
     pub out_proj: Option<Box<dyn head::OutputProjection>>,
+    /// The embedding rows of the sealed file, when set: `forward` takes its rows instead of the
+    /// checkpoint's BF16 ones ([`tables`]). `None` unless set.
+    pub embed_table: Option<tables::EmbedTable>,
     /// Query rows of one attention score tensor ([`layers::DEFAULT_ATTN_CHUNK`]; `0`: one chunk).
     attn_chunk: usize,
     /// Called after every layer visit when set: a measurement reads the device memory there.
@@ -314,6 +318,7 @@ impl Inkling {
             experts,
             moe_timing: std::sync::Mutex::new(None),
             out_proj: None,
+            embed_table: None,
             attn_chunk: layers::DEFAULT_ATTN_CHUNK,
             visit_probe: std::sync::Mutex::new(None),
         })
@@ -426,7 +431,10 @@ impl Inkling {
         }
         let lc = &self.cfg.loop_config;
         layers::phases::mark(&self.dev, layers::phases::Phase::Other)?;
-        let embed = layers::embed(&self.ck, &self.cfg, ids, &self.dev)?;
+        let embed = match &self.embed_table {
+            Some(t) => t.embed(&self.ck, &self.cfg, ids, &self.dev)?,
+            None => layers::embed(&self.ck, &self.cfg, ids, &self.dev)?,
+        };
         layers::phases::mark(&self.dev, layers::phases::Phase::Embed)?;
         let mut visits = vec![];
         let mut h = embed.clone();

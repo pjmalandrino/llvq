@@ -20,8 +20,16 @@ TPL_SHA=$(shasum -a 256 "$D/native/chat_template.jinja" | cut -d' ' -f1)
 test "$TPL_SHA" = 53a9035f3255945704b5857657cfb00c1165090c0641c4f782a0cbf268cc16dc \
   || { echo "refused: chat_template.jinja is $TPL_SHA, not the one llvq_llm::inkchat reproduces" >&2; exit 1; }
 echo "TOKENIZER_SHA=$(shasum -a 256 "$TOK" | cut -d' ' -f1)"
+# The two int4 g64 tables of the sealed file (bin/inktable), which `inkseal verify` checked equal to the sealed copies.
+TE="$D/lot1-b/tables/embed.q4g64.llvqraw"; TU="$D/lot1-b/tables/unembed.q4g64.llvqraw"
+test -f "$TE" && test -f "$TU" || { echo "refused: the sealed tables are not under $D/lot1-b/tables" >&2; exit 1; }
+echo "EMBED_TABLE_SHA=$(shasum -a 256 "$TE" | cut -d' ' -f1)"
+echo "UNEMBED_TABLE_SHA=$(shasum -a 256 "$TU" | cut -d' ' -f1)"
 if [ "$GO" = 1 ]; then
   hf buckets cp "$TOK" "hf://buckets/$BUCKET/$DEST/tokenizer.json"
+  hf buckets cp "$TE" "hf://buckets/$BUCKET/$DEST/tables/embed.q4g64.llvqraw"
+  hf buckets cp "$TU" "hf://buckets/$BUCKET/$DEST/tables/unembed.q4g64.llvqraw"
 else
+  echo "would upload $TE and $TU -> $DEST/tables/ ($(stat -f %z "$TE") and $(stat -f %z "$TU") B)"
   echo "would upload $TOK -> $DEST/tokenizer.json ($(stat -f %z "$TOK") B)"
 fi
