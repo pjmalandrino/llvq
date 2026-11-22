@@ -14,7 +14,7 @@
 
 use candle_core::{Device, IndexOp, Result, Tensor};
 use llvq_llm::inkling::glue::{ConvRing, GateW, Glue, PostAttnInputs, PreInputs};
-use llvq_llm::inkling::layers::{block_attn_res, rms_norm, route, short_conv, MessageGate};
+use llvq_llm::inkling::layers::{block_attn_res, rms_norm, route, short_conv, ConvState, MessageGate};
 
 const EPS: f64 = 1e-6;
 
@@ -81,6 +81,19 @@ impl Gate {
 
 fn mv(t: &Tensor, dev: &Device) -> Tensor {
     t.to_device(dev).unwrap()
+}
+
+/// A convolution state as `SlotCache` holds it: a prompt's block `[K - 1, C]`, or empty (zeros).
+fn conv_state(s: &Option<Tensor>) -> ConvState {
+    match s {
+        Some(t) => ConvState::Block(t.clone()),
+        None => ConvState::Empty,
+    }
+}
+
+/// The state after a step as one block `[K - 1, C]`, oldest row first.
+fn state_block(s: &ConvState, k: usize) -> Tensor {
+    s.block(k).unwrap().expect("a state after a step")
 }
 
 /// One visit's inputs and weights, everything but the attention and the experts.
@@ -208,7 +221,7 @@ impl Visit {
     /// Lines 636-652: the residual, the normed MLP input, the sigmoid scores,
     /// the routing, and the post-attention convolution state after the step.
     fn ref_post_attn(&self) -> Result<(Tensor, Tensor, Tensor, Tensor)> {
-        let mut st = self.conv_attn_state.clone();
+        let mut st = conv_state(&self.conv_attn_state);
         let a = short_conv(&self.attn_out, &self.conv_attn_w, &mut st)?;
         let mut states = self.states.clone();
         let residual = if self.boundary {
@@ -223,7 +236,7 @@ impl Visit {
         }
         let xn = rms_norm(&m_in, &self.post_norm, EPS)?;
         let scores = candle_nn::ops::sigmoid(&xn.matmul(&self.router_w.t()?)?)?.flatten_all()?;
-        Ok((residual, xn, scores, st.expect("a state after a step")))
+        Ok((residual, xn, scores, state_block(&st, self.conv_attn_w.dim(1)?)))
     }
 
     fn post_attn_inputs(&self) -> PostAttnInputs<'_> {
@@ -283,8 +296,8 @@ fn post_mlp_is_bit_exact() -> Result<()> {
             let moes: Vec<Tensor> = (0..3).map(|_| r.t(&[1, d.h], 0.0, 1.0)).collect();
             let gm = v.to(&dev);
             let mut ring = ConvRing::new(&dev, d.k, d.h, gm.conv_mlp_state.as_ref())?;
-            let mut st_cpu = v.conv_mlp_state.clone();
-            let mut st_mtl = gm.conv_mlp_state.clone();
+            let mut st_cpu = conv_state(&v.conv_mlp_state);
+            let mut st_mtl = conv_state(&gm.conv_mlp_state);
             for (step, m) in moes.iter().enumerate() {
                 let want_cpu = (&v.h + short_conv(m, &v.conv_mlp_w, &mut st_cpu)?)?;
                 let mm = mv(m, &dev);
@@ -293,7 +306,7 @@ fn post_mlp_is_bit_exact() -> Result<()> {
                 let (sc, n, gc) = compare(&got, &want_cpu);
                 let (sm, _, gmx) = compare(&got, &want_mtl);
                 let ring_st = ring.state(&glue, &gm.h)?;
-                let (ss, ns, _) = compare(&ring_st, st_cpu.as_ref().unwrap());
+                let (ss, ns, _) = compare(&ring_st, &state_block(&st_cpu, d.k));
                 println!(
                     "post_mlp h {} state {with_state} step {step}: vs cpu {sc}/{n} equal (gap {gc:e}), vs metal {sm}/{n} (gap {gmx:e}), ring {ss}/{ns}",
                     d.h
@@ -485,7 +498,7 @@ fn post_attn_against_layers() -> Result<()> {
 /// The glue of one visit through the layers.rs functions on Metal, as
 /// `LayerWeights::forward` runs it (attention and experts replaced by fixed
 /// tensors): returns the layer output.
-fn candle_visit(v: &Visit, d: Dims, st_a: &mut Option<Tensor>, st_m: &mut Option<Tensor>) -> Result<Tensor> {
+fn candle_visit(v: &Visit, d: Dims, st_a: &mut ConvState, st_m: &mut ConvState) -> Result<Tensor> {
     let x = v.ref_pre()?;
     let _ = &x;
     let a = short_conv(&v.attn_out, &v.conv_attn_w, st_a)?;
@@ -535,8 +548,8 @@ fn glue_timing() -> Result<()> {
         for round in 0..rounds {
             let order: [usize; 3] = if round % 2 == 0 { [0, 1, 2] } else { [2, 1, 0] };
             for arm in order {
-                let mut st_a = g.conv_attn_state.clone();
-                let mut st_m = g.conv_mlp_state.clone();
+                let mut st_a = conv_state(&g.conv_attn_state);
+                let mut st_m = conv_state(&g.conv_mlp_state);
                 let mut ra = ConvRing::new(&dev, d.k, d.h, g.conv_attn_state.as_ref())?;
                 let mut rm = ConvRing::new(&dev, d.k, d.h, g.conv_mlp_state.as_ref())?;
                 dev.synchronize()?;
