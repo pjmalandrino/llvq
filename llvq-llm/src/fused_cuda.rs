@@ -4605,8 +4605,10 @@ impl candle_core::CustomOp1 for MoeActOp<'_> {
         let [cap_g, cap_u, inv_g, inv_u] = self.caps;
         let mut b = self.k.cuda.stream().launch_builder(&self.k.f_act);
         b.arg(x).arg(&mut out).arg(&n32).arg(&inv_g).arg(&cap_g).arg(&inv_u).arg(&cap_u);
-        crate::inkling::count_launch();
+        let probe = crate::inkling::probe_begin(|| self.k.cuda.stream().synchronize().is_ok());
+                crate::inkling::count_launch();
                 unsafe { b.launch(cfg) }.map_err(|e| candle_core::Error::msg(format!("moe_act: {e}")))?;
+                crate::inkling::probe_end(probe, "moe_act", || self.k.cuda.stream().synchronize().is_ok());
         Ok((CudaStorage::wrap_cuda_slice(out, self.rt.device.clone()), Shape::from((self.rows, self.inter))))
     }
 }
@@ -4683,8 +4685,10 @@ impl candle_core::CustomOp2 for MoeOp<'_> {
                 let (x_off, which) = (x0 as u32, down as u32);
                 let mut b = self.k.cuda.stream().launch_builder(&self.k.f_rot);
                 b.arg(x).arg(&l.ptr).arg(sel).arg(&mut out).arg(&n).arg(&m).arg(&k).arg(&inv).arg(&x_off).arg(&stride).arg(&which);
+                let probe = crate::inkling::probe_begin(|| self.k.cuda.stream().synchronize().is_ok());
                 crate::inkling::count_launch();
                 unsafe { b.launch(cfg) }.map_err(|e| candle_core::Error::msg(format!("moe_rot: {e}")))?;
+                crate::inkling::probe_end(probe, "moe_rot", || self.k.cuda.stream().synchronize().is_ok());
                 Ok((CudaStorage::wrap_cuda_slice(out, self.rt.device.clone()), Shape::from((nsel, n as usize))))
             }
             MoeStep::GateUp => {
@@ -4700,8 +4704,10 @@ impl candle_core::CustomOp2 for MoeOp<'_> {
                 let mut b = self.k.cuda.stream().launch_builder(&self.k.f_gu);
                 b.arg(&l.ptr).arg(sel).arg(&stride).arg(&tabs.rows).arg(&tabs.prefixes).arg(&tabs.branches).arg(&tabs.suffixes)
                     .arg(&tabs.invnorm).arg(x).arg(&mut out).arg(&nblocks).arg(&tail_w).arg(&d_out).arg(&nsel32);
+                let probe = crate::inkling::probe_begin(|| self.k.cuda.stream().synchronize().is_ok());
                 crate::inkling::count_launch();
                 unsafe { b.launch(cfg) }.map_err(|e| candle_core::Error::msg(format!("moe_tetra_gu: {e}")))?;
+                crate::inkling::probe_end(probe, "moe_tetra_gu", || self.k.cuda.stream().synchronize().is_ok());
                 Ok((CudaStorage::wrap_cuda_slice(out, self.rt.device.clone()), Shape::from((2, nsel, l.inter))))
             }
             MoeStep::DownSum => {
@@ -4716,8 +4722,10 @@ impl candle_core::CustomOp2 for MoeOp<'_> {
                 let mut b = self.k.cuda.stream().launch_builder(&self.k.f_down);
                 b.arg(&l.ptr).arg(sel).arg(&stride).arg(&tabs.rows).arg(&tabs.prefixes).arg(&tabs.branches).arg(&tabs.suffixes)
                     .arg(&tabs.invnorm).arg(x).arg(&mut out).arg(&nblocks).arg(&tail_w).arg(&nsel32);
+                let probe = crate::inkling::probe_begin(|| self.k.cuda.stream().synchronize().is_ok());
                 crate::inkling::count_launch();
                 unsafe { b.launch(cfg) }.map_err(|e| candle_core::Error::msg(format!("moe_tetra_down: {e}")))?;
+                crate::inkling::probe_end(probe, "moe_tetra_down", || self.k.cuda.stream().synchronize().is_ok());
                 Ok((CudaStorage::wrap_cuda_slice(out, self.rt.device.clone()), Shape::from((1, l.hidden))))
             }
         }
@@ -4837,8 +4845,10 @@ impl candle_core::CustomOp1 for HeadF32Op<'_> {
             let (x_off, y_off) = ((start + r * t.d) as u32, (r * t.rows) as u32);
             let mut b = stream.launch_builder(&t.f);
             b.arg(&t.wq).arg(&t.scales).arg(&t.biases).arg(x).arg(&mut y).arg(&d).arg(&gpr).arg(&x_off).arg(&y_off);
-            crate::inkling::count_launch();
+            let probe = crate::inkling::probe_begin(|| stream.synchronize().is_ok());
+                crate::inkling::count_launch();
                 unsafe { b.launch(cfg) }.map_err(|e| candle_core::Error::msg(format!("tv_emb_q4_xf: {e}")))?;
+                crate::inkling::probe_end(probe, "tv_emb_q4_xf", || stream.synchronize().is_ok());
         }
         let mut dims = layout.dims().to_vec();
         *dims.last_mut().expect("rank >= 1") = t.rows;

@@ -344,6 +344,44 @@ pub fn take_kernel_launches() -> u64 {
     KERNEL_LAUNCHES.swap(0, std::sync::atomic::Ordering::Relaxed)
 }
 
+static KERNEL_PROFILE: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+static KERNEL_TIMES: std::sync::Mutex<std::collections::BTreeMap<&'static str, (u64, f64)>> =
+    std::sync::Mutex::new(std::collections::BTreeMap::new());
+
+/// Time every kernel of the CUDA path on its own: the stream is drained before
+/// and after each launch, so a step under this switch is not a step's time.
+pub fn set_kernel_profile(on: bool) {
+    KERNEL_PROFILE.store(on, std::sync::atomic::Ordering::Relaxed);
+}
+
+/// Drain the stream (`sync`) and start the clock, under [`set_kernel_profile`].
+pub fn probe_begin(sync: impl FnOnce() -> bool) -> Option<std::time::Instant> {
+    if !KERNEL_PROFILE.load(std::sync::atomic::Ordering::Relaxed) {
+        return None;
+    }
+    sync();
+    Some(std::time::Instant::now())
+}
+
+/// Drain the stream and charge the time since [`probe_begin`] to `name`.
+pub fn probe_end(probe: Option<std::time::Instant>, name: &'static str, sync: impl FnOnce() -> bool) {
+    let Some(t) = probe else { return };
+    sync();
+    let s = t.elapsed().as_secs_f64();
+    let mut m = KERNEL_TIMES.lock().expect("kernel times");
+    let e = m.entry(name).or_insert((0, 0.0));
+    e.0 += 1;
+    e.1 += s;
+}
+
+/// The launches and seconds charged to each kernel since the last call.
+pub fn take_kernel_times() -> Vec<(&'static str, u64, f64)> {
+    let mut m = KERNEL_TIMES.lock().expect("kernel times");
+    let v = m.iter().map(|(k, (n, s))| (*k, *n, *s)).collect();
+    m.clear();
+    v
+}
+
 /// Turn cudarc's event tracking off on the device's context: two events an
 /// allocation and one a use, which order nothing while the context holds one
 /// stream, candle's (the reasons are at the served door of

@@ -76,6 +76,10 @@
 //! resident layer's one-row experts in one launch (default), or through
 //! candle's operations as before. Same bits; `candle` is the reference.
 //!
+//! `--kernel-times on`: on CUDA, every kernel timed on its own between two
+//! drains of the stream, summed by name over the decode steps
+//! (`kernel_times` in the report). The step time of such a run is not a
+//! step's time.
 //! `--events on|off`: on CUDA, `off` turns cudarc's event tracking off before
 //! anything is uploaded, as the served door of the Qwen3 path does: two events
 //! an allocation and one a use order nothing on one stream. Default `on`, the
@@ -151,6 +155,7 @@ struct Args {
     moe_four: bool,
     routing_steps_out: Option<PathBuf>,
     events_off: bool,
+    kernel_times: bool,
     score_from: Option<usize>,
     score_prompt: bool,
     nll_out: Option<PathBuf>,
@@ -163,7 +168,7 @@ fn usage() -> ! {
          [--resident verified|none] [--require-layers N] [--logits-out <file>] [--prompt-key <key>] \
          [--prompt-len N] [--phases K] [--attn-chunk N] [--peak-probe on] \
          [--rollback-gate on] [--prefill-rows 1|2|4|8] [--head bf16|int4 --head-table <file>] \
-         [--glue candle|fused] [--attn candle|fused|fused+scores] [--routing device|host] [--moe-act fused|candle] [--moe four|one] [--events on|off] [--routing-steps-out <file>] [--score-from N | --score-prompt on] \
+         [--glue candle|fused] [--attn candle|fused|fused+scores] [--routing device|host] [--moe-act fused|candle] [--moe four|one] [--events on|off] [--kernel-times on|off] [--routing-steps-out <file>] [--score-from N | --score-prompt on] \
          [--nll-out <file>]"
     );
     std::process::exit(2)
@@ -244,6 +249,11 @@ fn parse() -> Result<Args> {
             Some(o) => bail!("--moe {o}: four or one"),
         },
         routing_steps_out: take("routing-steps-out").map(PathBuf::from),
+        kernel_times: match take("kernel-times").as_deref() {
+            None | Some("off") => false,
+            Some("on") => true,
+            Some(o) => bail!("--kernel-times {o}: on or off"),
+        },
         events_off: match take("events").as_deref() {
             None | Some("on") => false,
             Some("off") => true,
@@ -537,6 +547,7 @@ fn main() -> Result<()> {
     let mut step_launches = vec![];
     let mut step_kernel_launches: Vec<u64> = vec![];
     llvq_llm::inkling::take_kernel_launches();
+    llvq_llm::inkling::set_kernel_profile(args.kernel_times);
     let mut phase_rows: Vec<Value> = vec![];
     let mut step_routing: Vec<Value> = vec![];
     for i in 0..args.n {
@@ -577,6 +588,11 @@ fn main() -> Result<()> {
         step_launches.push(model.take_launches());
         step_kernel_launches.push(llvq_llm::inkling::take_kernel_launches());
     }
+    llvq_llm::inkling::set_kernel_profile(false);
+    let kernel_times: Vec<Value> = llvq_llm::inkling::take_kernel_times()
+        .into_iter()
+        .map(|(k, n, s)| json!({"kernel": k, "launches": n, "seconds": s}))
+        .collect();
     let mem_end = memory(&dev);
     if let Some(p) = &args.routing_steps_out {
         std::fs::write(p, serde_json::to_string(&step_routing)?).with_context(|| format!("write {}", p.display()))?;
@@ -641,6 +657,7 @@ fn main() -> Result<()> {
         "lattice_launches_prefill": launches_prefill,
         "lattice_launches_per_step": step_launches,
         "kernel_launches_per_step": step_kernel_launches,
+        "kernel_times": kernel_times,
         "tokens": tokens,
         "margins": margins,
         "min_margin": margins.iter().copied().fold(f32::INFINITY, f32::min),

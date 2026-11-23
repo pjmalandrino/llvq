@@ -419,8 +419,10 @@ impl CustomOp1 for Launch<'_> {
         for w in &self.words {
             b.arg(w);
         }
+        let probe = crate::inkling::probe_begin(|| stream.synchronize().is_ok());
         crate::inkling::count_launch();
         unsafe { b.launch(cfg) }.map_err(|e| candle_core::Error::msg(format!("attn_row: {e}")))?;
+        crate::inkling::probe_end(probe, "attn_row", || stream.synchronize().is_ok());
         drop(bound);
         Ok((CudaStorage::wrap_cuda_slice(out, dev), Shape::from(self.out_elems)))
     }
