@@ -1,0 +1,19 @@
+inkrun base exit 0
+inkrun scores exit 0
+inkrun act exit 0
+inkrun phases exit 0
+base: median step 0.0306 s [0.0294, 0.0402], 32.66 tok/s; prefill of 32 tokens 0.78 s; GB at the end 8.466; tokens equal to the Mac's: False (prefix 4 of 32); attn fused, moe_act candle, min top-2 margin 0.005276
+scores: median step 0.0285 s [0.0274, 0.0380], 35.09 tok/s; prefill of 32 tokens 0.81 s; GB at the end 8.466; tokens equal to the Mac's: False (prefix 4 of 32); attn fused+scores, moe_act candle, min top-2 margin 0.006571
+act: median step 0.0275 s [0.0264, 0.0369], 36.30 tok/s; prefill of 32 tokens 0.80 s; GB at the end 8.466; tokens equal to the Mac's: False (prefix 4 of 32); attn fused+scores, moe_act fused, min top-2 margin 0.006571
+phases: profiled median 0.0328 s, untimed median 0.0274 s
+  attention_products          12.20 ms   37.2 %
+  moe                          8.16 ms   24.9 %
+  norms_gates_residual         7.20 ms   21.9 %
+  attention_scores_softmax     1.32 ms    4.0 %
+  head                         1.15 ms    3.5 %
+  routing                      1.01 ms    3.1 %
+  convolutions                 0.69 ms    2.1 %
+  cache_append_copies          0.64 ms    2.0 %
+  readback                     0.29 ms    0.9 %
+  embed                        0.10 ms    0.3 %
+  other                        0.00 ms    0.0 %

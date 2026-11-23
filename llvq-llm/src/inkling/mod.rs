@@ -331,6 +331,41 @@ pub struct LoadOptions {
 /// P1, each row bit for bit the one-row matvec's.
 pub const DEFAULT_PREFILL_ROWS: usize = 8;
 
+static KERNEL_LAUNCHES: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+/// One more launch of a kernel of this module's CUDA path (glue, attention,
+/// experts, head): what a decode step is bound by on a fast card.
+pub fn count_launch() {
+    KERNEL_LAUNCHES.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+}
+
+/// The launches counted since the last call.
+pub fn take_kernel_launches() -> u64 {
+    KERNEL_LAUNCHES.swap(0, std::sync::atomic::Ordering::Relaxed)
+}
+
+/// Turn cudarc's event tracking off on the device's context: two events an
+/// allocation and one a use, which order nothing while the context holds one
+/// stream, candle's (the reasons are at the served door of
+/// `fused_cuda::load_resolved`). Call it before the first upload: a slice
+/// created while tracking was on keeps recording. Refused on several streams
+/// and on another device.
+#[cfg(all(target_os = "linux", feature = "cuda"))]
+pub fn cuda_events_off(dev: &Device) -> Result<()> {
+    let ctx = dev.as_cuda_device()?.cuda_stream().context().clone();
+    if ctx.is_in_multi_stream_mode() {
+        candle_core::bail!("events off: the context holds several streams, and that is only safe on one");
+    }
+    // Safe: one stream, checked above, orders every access by issue.
+    unsafe { ctx.disable_event_tracking() };
+    Ok(())
+}
+
+#[cfg(not(all(target_os = "linux", feature = "cuda")))]
+pub fn cuda_events_off(_: &Device) -> Result<()> {
+    candle_core::bail!("events off: a CUDA switch, on a CUDA build")
+}
+
 /// The runtime the resident experts launch through: the served tables and
 /// tile, with `prefill_rows` rows a prompt launch (1: one matvec a row, the
 /// path before P1; 2, 4 or 8: the f32 rows kernel).

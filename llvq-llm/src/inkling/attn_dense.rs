@@ -1212,6 +1212,7 @@ impl CustomOp1 for Launch<'_> {
         for w in &words {
             b.arg(w);
         }
+        crate::inkling::count_launch();
         unsafe { b.launch(cfg) }.map_err(|e| candle_core::Error::msg(format!("{}: {e}", self.name)))?;
         drop(bound);
         Ok((CudaStorage::wrap_cuda_slice(out, dev), self.out_shape.clone()))

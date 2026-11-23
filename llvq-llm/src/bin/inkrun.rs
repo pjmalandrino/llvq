@@ -76,6 +76,10 @@
 //! resident layer's one-row experts in one launch (default), or through
 //! candle's operations as before. Same bits; `candle` is the reference.
 //!
+//! `--events on|off`: on CUDA, `off` turns cudarc's event tracking off before
+//! anything is uploaded, as the served door of the Qwen3 path does: two events
+//! an allocation and one a use order nothing on one stream. Default `on`, the
+//! protocol of every run before 2026-11-23. Refused on another device.
 //! `--moe four|one`: on CUDA, the routed experts of a one-row visit in four
 //! launches (`kernels/moe_tetra.cu`, default) or one expert at a time, as
 //! before. Meant to be the same bits; `one` is the reference.
@@ -146,6 +150,7 @@ struct Args {
     moe_act: bool,
     moe_four: bool,
     routing_steps_out: Option<PathBuf>,
+    events_off: bool,
     score_from: Option<usize>,
     score_prompt: bool,
     nll_out: Option<PathBuf>,
@@ -158,7 +163,7 @@ fn usage() -> ! {
          [--resident verified|none] [--require-layers N] [--logits-out <file>] [--prompt-key <key>] \
          [--prompt-len N] [--phases K] [--attn-chunk N] [--peak-probe on] \
          [--rollback-gate on] [--prefill-rows 1|2|4|8] [--head bf16|int4 --head-table <file>] \
-         [--glue candle|fused] [--attn candle|fused|fused+scores] [--routing device|host] [--moe-act fused|candle] [--moe four|one] [--routing-steps-out <file>] [--score-from N | --score-prompt on] \
+         [--glue candle|fused] [--attn candle|fused|fused+scores] [--routing device|host] [--moe-act fused|candle] [--moe four|one] [--events on|off] [--routing-steps-out <file>] [--score-from N | --score-prompt on] \
          [--nll-out <file>]"
     );
     std::process::exit(2)
@@ -239,6 +244,11 @@ fn parse() -> Result<Args> {
             Some(o) => bail!("--moe {o}: four or one"),
         },
         routing_steps_out: take("routing-steps-out").map(PathBuf::from),
+        events_off: match take("events").as_deref() {
+            None | Some("on") => false,
+            Some("off") => true,
+            Some(o) => bail!("--events {o}: on or off"),
+        },
         score_from: take("score-from").map(|v| v.parse()).transpose().context("--score-from")?,
         score_prompt: match take("score-prompt").as_deref() {
             None | Some("off") => false,
@@ -421,6 +431,10 @@ fn main() -> Result<()> {
     let reference = ids(&tok_json, "reference")?;
 
     let dev = device(&args.device)?;
+    if args.events_off {
+        llvq_llm::inkling::cuda_events_off(&dev)?;
+        eprintln!("inkrun: cudarc event tracking off (one stream, ordered by issue), before any upload");
+    }
     let mem_before = memory(&dev);
     let t = Instant::now();
     let opts = llvq_llm::inkling::LoadOptions { int4_head: args.head_table.clone() };
@@ -458,7 +472,7 @@ fn main() -> Result<()> {
     let provenance = json!({"prefill_rows": args.prefill_rows, "glue": model.glue().name(),
         "head": if args.head_table.is_some() { "int4" } else { "bf16" }, "head_table": args.head_table,
         "bf16_head_on_device": model.has_bf16_head(), "attn": model.attn().name(),
-        "routing_on_device": model.routing_on_device(), "moe": if args.moe_four { "four" } else { "one" }, "moe_act": if args.moe_act { "fused" } else { "candle" },
+        "routing_on_device": model.routing_on_device(), "moe": if args.moe_four { "four" } else { "one" }, "events": if args.events_off { "off" } else { "on" }, "moe_act": if args.moe_act { "fused" } else { "candle" },
         "attention_matrix_bytes": {"f32": model.attention_matrix_bytes().0, "bf16": model.attention_matrix_bytes().1}});
     if args.score_from.is_some() || args.score_prompt {
         return score(&model, &args, &dev, &prompt, provenance,
@@ -521,6 +535,8 @@ fn main() -> Result<()> {
     let mut margins = vec![];
     let mut step_seconds = vec![];
     let mut step_launches = vec![];
+    let mut step_kernel_launches: Vec<u64> = vec![];
+    llvq_llm::inkling::take_kernel_launches();
     let mut phase_rows: Vec<Value> = vec![];
     let mut step_routing: Vec<Value> = vec![];
     for i in 0..args.n {
@@ -559,6 +575,7 @@ fn main() -> Result<()> {
         }
         step_seconds.push(t.elapsed().as_secs_f64());
         step_launches.push(model.take_launches());
+        step_kernel_launches.push(llvq_llm::inkling::take_kernel_launches());
     }
     let mem_end = memory(&dev);
     if let Some(p) = &args.routing_steps_out {
@@ -623,6 +640,7 @@ fn main() -> Result<()> {
         "tokens_per_second_median_step": median.map(|m| 1.0 / m),
         "lattice_launches_prefill": launches_prefill,
         "lattice_launches_per_step": step_launches,
+        "kernel_launches_per_step": step_kernel_launches,
         "tokens": tokens,
         "margins": margins,
         "min_margin": margins.iter().copied().fold(f32::INFINITY, f32::min),

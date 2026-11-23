@@ -4605,7 +4605,8 @@ impl candle_core::CustomOp1 for MoeActOp<'_> {
         let [cap_g, cap_u, inv_g, inv_u] = self.caps;
         let mut b = self.k.cuda.stream().launch_builder(&self.k.f_act);
         b.arg(x).arg(&mut out).arg(&n32).arg(&inv_g).arg(&cap_g).arg(&inv_u).arg(&cap_u);
-        unsafe { b.launch(cfg) }.map_err(|e| candle_core::Error::msg(format!("moe_act: {e}")))?;
+        crate::inkling::count_launch();
+                unsafe { b.launch(cfg) }.map_err(|e| candle_core::Error::msg(format!("moe_act: {e}")))?;
         Ok((CudaStorage::wrap_cuda_slice(out, self.rt.device.clone()), Shape::from((self.rows, self.inter))))
     }
 }
@@ -4682,6 +4683,7 @@ impl candle_core::CustomOp2 for MoeOp<'_> {
                 let (x_off, which) = (x0 as u32, down as u32);
                 let mut b = self.k.cuda.stream().launch_builder(&self.k.f_rot);
                 b.arg(x).arg(&l.ptr).arg(sel).arg(&mut out).arg(&n).arg(&m).arg(&k).arg(&inv).arg(&x_off).arg(&stride).arg(&which);
+                crate::inkling::count_launch();
                 unsafe { b.launch(cfg) }.map_err(|e| candle_core::Error::msg(format!("moe_rot: {e}")))?;
                 Ok((CudaStorage::wrap_cuda_slice(out, self.rt.device.clone()), Shape::from((nsel, n as usize))))
             }
@@ -4698,6 +4700,7 @@ impl candle_core::CustomOp2 for MoeOp<'_> {
                 let mut b = self.k.cuda.stream().launch_builder(&self.k.f_gu);
                 b.arg(&l.ptr).arg(sel).arg(&stride).arg(&tabs.rows).arg(&tabs.prefixes).arg(&tabs.branches).arg(&tabs.suffixes)
                     .arg(&tabs.invnorm).arg(x).arg(&mut out).arg(&nblocks).arg(&tail_w).arg(&d_out).arg(&nsel32);
+                crate::inkling::count_launch();
                 unsafe { b.launch(cfg) }.map_err(|e| candle_core::Error::msg(format!("moe_tetra_gu: {e}")))?;
                 Ok((CudaStorage::wrap_cuda_slice(out, self.rt.device.clone()), Shape::from((2, nsel, l.inter))))
             }
@@ -4713,6 +4716,7 @@ impl candle_core::CustomOp2 for MoeOp<'_> {
                 let mut b = self.k.cuda.stream().launch_builder(&self.k.f_down);
                 b.arg(&l.ptr).arg(sel).arg(&stride).arg(&tabs.rows).arg(&tabs.prefixes).arg(&tabs.branches).arg(&tabs.suffixes)
                     .arg(&tabs.invnorm).arg(x).arg(&mut out).arg(&nblocks).arg(&tail_w).arg(&nsel32);
+                crate::inkling::count_launch();
                 unsafe { b.launch(cfg) }.map_err(|e| candle_core::Error::msg(format!("moe_tetra_down: {e}")))?;
                 Ok((CudaStorage::wrap_cuda_slice(out, self.rt.device.clone()), Shape::from((1, l.hidden))))
             }
@@ -4833,7 +4837,8 @@ impl candle_core::CustomOp1 for HeadF32Op<'_> {
             let (x_off, y_off) = ((start + r * t.d) as u32, (r * t.rows) as u32);
             let mut b = stream.launch_builder(&t.f);
             b.arg(&t.wq).arg(&t.scales).arg(&t.biases).arg(x).arg(&mut y).arg(&d).arg(&gpr).arg(&x_off).arg(&y_off);
-            unsafe { b.launch(cfg) }.map_err(|e| candle_core::Error::msg(format!("tv_emb_q4_xf: {e}")))?;
+            crate::inkling::count_launch();
+                unsafe { b.launch(cfg) }.map_err(|e| candle_core::Error::msg(format!("tv_emb_q4_xf: {e}")))?;
         }
         let mut dims = layout.dims().to_vec();
         *dims.last_mut().expect("rank >= 1") = t.rows;
