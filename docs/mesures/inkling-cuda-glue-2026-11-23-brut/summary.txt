@@ -1,0 +1,7 @@
+inkrun --glue candle exit 0
+inkrun --glue fused exit 0
+logits: 32 rows, largest |candle - fused| 1.02218, largest |logit| 29.1809, identical False
+candle: median step 0.1103 s [0.1065, 0.1157], 9.07 tok/s; lattice launches a step [192]; GB at the end 10.446; tokens equal to the Mac's: True (prefix 32 of 32); provenance glue candle, routing on device True
+candle tokens [151172, 149881, 149876, 220, 68286, 22, 151848, 149917, 220, 37558, 196981, 150266, 149884, 150056, 151304, 149887, 150085, 151172, 149891, 220, 37402, 220, 38028, 220, 46099, 149881, 149876, 220, 68286, 23, 151848, 149917]
+fused: median step 0.0658 s [0.0654, 0.0836], 15.21 tok/s; lattice launches a step [192]; GB at the end 10.446; tokens equal to the Mac's: True (prefix 32 of 32); provenance glue fused, routing on device True
+fused tokens [151172, 149881, 149876, 220, 68286, 22, 151848, 149917, 220, 37558, 196981, 150266, 149884, 150056, 151304, 149887, 150085, 151172, 149891, 220, 37402, 220, 38028, 220, 46099, 149881, 149876, 220, 68286, 23, 151848, 149917]
