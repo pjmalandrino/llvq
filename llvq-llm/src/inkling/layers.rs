@@ -356,7 +356,7 @@ pub struct AttnWeights {
     /// loader chose them ([`LayerWeights::load_with`]): a one-row forward runs
     /// them, and the seven matrices above are then empty, held once in BF16
     /// in these buffers and widened for a several-row call.
-    #[cfg(all(target_os = "macos", feature = "metal"))]
+    #[cfg(ink_glue)]
     pub dense: Option<super::attn_dense::FusedAttn>,
 }
 
@@ -625,7 +625,7 @@ pub struct SlotCache {
     /// live in these device rings and `conv_k` / `conv_v` are stale. A
     /// several-row attention settles them first ([`Self::settle_attn`]); a
     /// clone and a mark read them back; a rollback drops them.
-    #[cfg(all(target_os = "macos", feature = "metal"))]
+    #[cfg(ink_glue)]
     attn: Option<super::attn_dense::AttnSlot>,
 }
 
@@ -644,7 +644,7 @@ impl Clone for SlotCache {
             conv_mlp,
             #[cfg(ink_glue)]
             fused: None,
-            #[cfg(all(target_os = "macos", feature = "metal"))]
+            #[cfg(ink_glue)]
             attn: None,
         }
     }
@@ -684,7 +684,7 @@ impl SlotCache {
     /// The four convolution states (key, value, post-attention, post-MLP),
     /// the last two read back from the rings when the fused glue holds them.
     fn conv_states(&self) -> Result<[ConvState; 4]> {
-        #[cfg(all(target_os = "macos", feature = "metal"))]
+        #[cfg(ink_glue)]
         let (conv_k, conv_v) = match &self.attn {
             Some(a) => {
                 let (k, v) = a.states()?;
@@ -692,7 +692,7 @@ impl SlotCache {
             }
             None => (self.conv_k.clone(), self.conv_v.clone()),
         };
-        #[cfg(not(all(target_os = "macos", feature = "metal")))]
+        #[cfg(not(ink_glue))]
         let (conv_k, conv_v) = (self.conv_k.clone(), self.conv_v.clone());
         #[cfg(ink_glue)]
         if let Some(r) = &self.fused {
@@ -705,7 +705,7 @@ impl SlotCache {
     /// Bring the key and value states back from the attention kernels'
     /// rings, if they hold them; the rings are dropped. Nothing changes otherwise.
     pub fn settle_attn(&mut self) -> Result<()> {
-        #[cfg(all(target_os = "macos", feature = "metal"))]
+        #[cfg(ink_glue)]
         if let Some(a) = self.attn.take() {
             let (k, v) = a.states()?;
             self.conv_k = ConvState::Block(k);
@@ -716,9 +716,9 @@ impl SlotCache {
 
     /// Whether the attention kernels' rings hold the key and value states.
     pub fn has_attn_rings(&self) -> bool {
-        #[cfg(all(target_os = "macos", feature = "metal"))]
+        #[cfg(ink_glue)]
         return self.attn.is_some();
-        #[cfg(not(all(target_os = "macos", feature = "metal")))]
+        #[cfg(not(ink_glue))]
         false
     }
 
@@ -755,9 +755,6 @@ impl SlotCache {
         #[cfg(ink_glue)]
         {
             self.fused = None;
-        }
-        #[cfg(all(target_os = "macos", feature = "metal"))]
-        {
             self.attn = None;
         }
         self.len = m.len;
@@ -879,7 +876,7 @@ impl AttnWeights {
         cache: &mut SlotCache,
         chunk: usize,
     ) -> Result<Tensor> {
-        #[cfg(all(target_os = "macos", feature = "metal"))]
+        #[cfg(ink_glue)]
         if let Some(d) = &self.dense {
             if xq.dim(0)? == 1 {
                 return self.forward_dense(cfg, d, xq, xk, xv, cache, chunk);
@@ -1019,7 +1016,7 @@ impl AttnWeights {
     /// for the gated output. The key and value states move into the slot's
     /// rings, filled from what it held (a prompt's block, a candle step's
     /// ring, or zeros). Class B against the candle attention.
-    #[cfg(all(target_os = "macos", feature = "metal"))]
+    #[cfg(ink_glue)]
     #[allow(clippy::too_many_arguments)]
     fn forward_dense(
         &self,
@@ -1048,6 +1045,9 @@ impl AttnWeights {
         let a = match &d.row {
             // One launch over the cache in place (`super::attn_scores`): no
             // repeat of the key-value heads, no mask built on the host.
+            #[cfg(not(all(target_os = "macos", feature = "metal")))]
+            Some(_) => candle_core::bail!("the score kernel has no CUDA twin"),
+            #[cfg(all(target_os = "macos", feature = "metal"))]
             Some(row) => {
                 let window = if self.sliding { Some(cfg.sliding_window_size) } else { None };
                 let keys = kt.transpose(1, 2)?;
@@ -1085,7 +1085,7 @@ struct MatRefs<'a> {
     wo: &'a Tensor,
 }
 
-#[cfg(all(target_os = "macos", feature = "metal"))]
+#[cfg(ink_glue)]
 impl AttnMats {
     fn refs(&self) -> MatRefs<'_> {
         MatRefs { wq: &self.wq, wr: &self.wr, sink: &self.sink, gate: &self.gate, wk: &self.wk, wv: &self.wv, wo: &self.wo }
@@ -1166,14 +1166,14 @@ impl LayerWeights {
     /// attention matrices are read from the file in BF16 straight into the
     /// kernels' buffers, and no f32 copy of them is put on `dev`. With `row`,
     /// the scores over the cache run through `super::attn_scores` too.
-    #[cfg(all(target_os = "macos", feature = "metal"))]
+    #[cfg(ink_glue)]
     pub fn load_dense(
         ck: &NativeCheckpoint,
         cfg: &InklingConfig,
         l: usize,
         dev: &Device,
         kernels: &std::sync::Arc<super::attn_dense::AttnDense>,
-        row: Option<&std::sync::Arc<super::attn_scores::AttnRow>>,
+        row: Option<&std::sync::Arc<super::attn_dense::RowKernel>>,
     ) -> Result<Self> {
         let mut lw = Self::load_impl(ck, cfg, l, dev, true)?;
         let a = &mut lw.attn;
@@ -1227,7 +1227,7 @@ impl LayerWeights {
             wr: big("attn.wr_du.weight")?,
             rel_scale: f("attn.rel_l2_clip.scale")?,
             rel_proj: f("attn.rel_logits_proj.proj")?,
-            #[cfg(all(target_os = "macos", feature = "metal"))]
+            #[cfg(ink_glue)]
             dense: None,
         };
         // `attn_res.attn_queries.{i}` is layer i+1's (Inkling2IndexOffsetWeightRename, offset 1).
@@ -1615,7 +1615,7 @@ mod tests {
                 wr: r(&[nh * cfg.d_rel, h]),
                 rel_scale: r(&[nh, cfg.d_rel]),
                 rel_proj: r(&[cfg.d_rel, cfg.layer_rel_extent(l)]),
-                #[cfg(all(target_os = "macos", feature = "metal"))]
+                #[cfg(ink_glue)]
                 dense: None,
             },
             post_attention_convolution: r(&[h, 4]),
@@ -1762,7 +1762,7 @@ mod tests {
                 wr: mv(&lw.attn.wr),
                 rel_scale: mv(&lw.attn.rel_scale),
                 rel_proj: mv(&lw.attn.rel_proj),
-                #[cfg(all(target_os = "macos", feature = "metal"))]
+                #[cfg(ink_glue)]
                 dense: None,
             },
             post_attention_convolution: mv(&lw.post_attention_convolution),

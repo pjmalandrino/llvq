@@ -484,19 +484,28 @@ impl Inkling {
         let n = cfg.num_hidden_layers;
         match attn {
             AttnKind::Candle => Ok((0..n).map(|l| LayerWeights::load(ck, cfg, l, dev)).collect::<Result<Vec<_>>>()?),
-            #[cfg(all(target_os = "macos", feature = "metal"))]
+            #[cfg(ink_glue)]
             AttnKind::Fused | AttnKind::FusedScores => {
-                anyhow::ensure!(dev.is_metal(), "the fused attention runs on Metal only, the model is on {dev:?}");
+                anyhow::ensure!(
+                    dev.is_metal() || dev.is_cuda(),
+                    "the fused attention runs on Metal and on CUDA, the model is on {dev:?}"
+                );
                 let k = std::sync::Arc::new(attn_dense::AttnDense::new(dev)?);
+                #[cfg(all(target_os = "macos", feature = "metal"))]
                 let row = match attn {
                     AttnKind::FusedScores => Some(std::sync::Arc::new(attn_scores::AttnRow::new(dev)?)),
                     _ => None,
                 };
+                #[cfg(not(all(target_os = "macos", feature = "metal")))]
+                let row: Option<std::sync::Arc<attn_dense::RowKernel>> = match attn {
+                    AttnKind::FusedScores => anyhow::bail!("fused+scores: the score kernel has no CUDA twin, ask --attn fused"),
+                    _ => None,
+                };
                 Ok((0..n).map(|l| LayerWeights::load_dense(ck, cfg, l, dev, &k, row.as_ref())).collect::<Result<Vec<_>>>()?)
             }
-            #[cfg(not(all(target_os = "macos", feature = "metal")))]
+            #[cfg(not(ink_glue))]
             AttnKind::Fused | AttnKind::FusedScores => {
-                anyhow::bail!("the fused attention needs a macOS build with the metal feature")
+                anyhow::bail!("the fused attention needs a macOS build with metal or a Linux build with cuda")
             }
         }
     }
@@ -519,7 +528,7 @@ impl Inkling {
                     f32_bytes += 4 * t.elem_count();
                 }
             }
-            #[cfg(all(target_os = "macos", feature = "metal"))]
+            #[cfg(ink_glue)]
             if let Some(d) = &a.dense {
                 bf16_bytes += d.w.matrix_bytes();
             }

@@ -46,14 +46,67 @@
 //! `crate::fused_metal` (its header) and `inkling::glue`: the compile runs
 //! under `catch_unwind`; the weight and ring buffers are OWNED, so the
 //! allocator never hands them out as scratch; every output word is written.
-#![cfg(all(target_os = "macos", feature = "metal"))]
+#![cfg(ink_glue)]
 
 use std::sync::{Arc, RwLockReadGuard};
 
+#[cfg(all(target_os = "macos", feature = "metal"))]
 use candle_core::backend::BackendStorage;
-use candle_core::{CpuStorage, CustomOp1, DType, Device, Layout, MetalStorage, Result, Shape, Storage, Tensor};
+#[cfg(all(target_os = "macos", feature = "metal"))]
+use candle_core::MetalStorage;
+use candle_core::{CpuStorage, CustomOp1, DType, Device, Layout, Result, Shape, Storage, Tensor};
+#[cfg(all(target_os = "macos", feature = "metal"))]
 use candle_metal_kernels::metal::{Buffer, ComputePipeline};
+#[cfg(all(target_os = "macos", feature = "metal"))]
 use objc2_metal::{MTLResourceUsage, MTLSize};
+
+#[cfg(all(target_os = "linux", feature = "cuda"))]
+use candle_core::cuda_backend::cudarc::driver::{CudaFunction, CudaSlice, DevicePtr, LaunchConfig, PushKernelArg};
+#[cfg(all(target_os = "linux", feature = "cuda"))]
+use candle_core::CudaStorage;
+
+/// The score kernel of `super::attn_scores`. It has no CUDA twin yet: there
+/// the type is never built.
+#[cfg(all(target_os = "macos", feature = "metal"))]
+pub type RowKernel = super::attn_scores::AttnRow;
+#[cfg(all(target_os = "linux", feature = "cuda"))]
+pub struct RowKernel;
+
+/// A compiled kernel.
+#[cfg(all(target_os = "macos", feature = "metal"))]
+type Pipe = ComputePipeline;
+#[cfg(all(target_os = "linux", feature = "cuda"))]
+type Pipe = CudaFunction;
+
+/// A buffer this module owns on the device: BF16 weights or an f32 ring.
+#[cfg(all(target_os = "macos", feature = "metal"))]
+type Buf = Arc<Buffer>;
+#[cfg(all(target_os = "linux", feature = "cuda"))]
+pub enum Buf {
+    U16(CudaSlice<u16>),
+    F32(CudaSlice<f32>),
+}
+
+#[cfg(all(target_os = "macos", feature = "metal"))]
+fn up_u16(device: &Device, v: &[u16]) -> Result<Buf> {
+    let Device::Metal(dev) = device else { candle_core::bail!("attn_dense wants a Metal device") };
+    dev.new_buffer_with_data(v)
+}
+#[cfg(all(target_os = "macos", feature = "metal"))]
+fn up_f32(device: &Device, v: &[f32]) -> Result<Buf> {
+    let Device::Metal(dev) = device else { candle_core::bail!("attn_dense wants a Metal device") };
+    dev.new_buffer_with_data(v)
+}
+#[cfg(all(target_os = "linux", feature = "cuda"))]
+fn up_u16(device: &Device, v: &[u16]) -> Result<Buf> {
+    let Device::Cuda(dev) = device else { candle_core::bail!("attn_dense wants a CUDA device") };
+    Ok(Buf::U16(dev.cuda_stream().clone_htod(v).map_err(|e| candle_core::Error::msg(format!("attn_dense: upload: {e}")))?))
+}
+#[cfg(all(target_os = "linux", feature = "cuda"))]
+fn up_f32(device: &Device, v: &[f32]) -> Result<Buf> {
+    let Device::Cuda(dev) = device else { candle_core::bail!("attn_dense wants a CUDA device") };
+    Ok(Buf::F32(dev.cuda_stream().clone_htod(v).map_err(|e| candle_core::Error::msg(format!("attn_dense: upload: {e}")))?))
+}
 
 use super::config::InklingConfig;
 use super::layers::{AttnMats, AttnWeights, KvConv};
@@ -72,6 +125,10 @@ pub const MAX_TAPS: usize = 8;
 /// The epsilon `layers::l2_clip` adds to the norm, fixed whatever the config.
 const CLIP_EPS: f64 = 1e-6;
 
+#[cfg(all(target_os = "linux", feature = "cuda"))]
+const SRC_CUDA: &str = include_str!("../../kernels/ink_attn.cu");
+
+#[cfg(all(target_os = "macos", feature = "metal"))]
 const SRC: &str = r#"
 #include <metal_stdlib>
 using namespace metal;
@@ -429,11 +486,11 @@ pub struct AttnDenseWeights {
     log_alpha: f64,
     log_floor: f64,
     /// Every row read from an attention input, in launch-1 order.
-    rows: Arc<Buffer>,
+    rows: Buf,
     /// `wo` `[hidden, heads * head_dim]`.
-    wo: Arc<Buffer>,
+    wo: Buf,
     /// `q_scale | rel_scale | rel_proj | key conv | value conv`.
-    small: Arc<Buffer>,
+    small: Buf,
     lay: Offsets,
 }
 
@@ -518,7 +575,6 @@ impl AttnDenseWeights {
     /// BF16 values, on any device: what the loader hands when no f32 copy of
     /// the matrices is to be kept.
     pub fn from_parts(w: &DenseParts, cfg: &InklingConfig, device: &Device) -> Result<Self> {
-        let Device::Metal(dev) = device else { candle_core::bail!("AttnDenseWeights wants a Metal device") };
         let (nh, nkv, hd) = (w.heads, w.kv_heads, w.head_dim);
         let (hidden, din) = (w.wq.dim(1)?, nh * hd);
         let dr = w.rel_scale.dim(1)?;
@@ -645,9 +701,9 @@ impl AttnDenseWeights {
             eps: cfg.rms_norm_eps as f32,
             log_alpha: cfg.log_scaling_alpha,
             log_floor: cfg.log_scaling_n_floor,
-            rows: dev.new_buffer_with_data(&rows)?,
-            wo: dev.new_buffer_with_data(&bf16_bits("wo", w.wo)?)?,
-            small: dev.new_buffer_with_data(&small)?,
+            rows: up_u16(device, &rows)?,
+            wo: up_u16(device, &bf16_bits("wo", w.wo)?)?,
+            small: up_u16(device, &small)?,
             lay,
         })
     }
@@ -677,7 +733,7 @@ impl AttnDenseWeights {
 /// A key or value convolution state: `taps - 1` rows of `channels` on the
 /// device, read and rewritten in place by `ad_finish`, oldest row replaced.
 pub struct KvRing {
-    buf: Arc<Buffer>,
+    buf: Buf,
     taps: usize,
     c: usize,
     /// The physical row of the oldest input.
@@ -688,7 +744,6 @@ impl KvRing {
     /// A ring from a state `[taps - 1, c]` oldest row first (what `SlotCache`
     /// holds after a prompt), or zeros (an empty slot).
     pub fn new(device: &Device, taps: usize, c: usize, state: Option<&Tensor>) -> Result<Self> {
-        let Device::Metal(dev) = device else { candle_core::bail!("KvRing wants a Metal device") };
         if taps < 2 {
             candle_core::bail!("KvRing: kernel size {taps} has no state");
         }
@@ -701,7 +756,7 @@ impl KvRing {
             }
             None => vec![0f32; (taps - 1) * c],
         };
-        Ok(Self { buf: dev.new_buffer_with_data(&host)?, taps, c, pos: 0 })
+        Ok(Self { buf: up_f32(device, &host)?, taps, c, pos: 0 })
     }
 
     /// The state `[taps - 1, c]`, oldest row first, as a new tensor on the
@@ -745,7 +800,7 @@ pub struct FusedAttn {
     /// The score kernel of `super::attn_scores`, when the loader chose it
     /// (`AttnKind::FusedScores`): a one-row visit then reads the keys and
     /// the values where the cache holds them, in one launch.
-    pub row: Option<Arc<super::attn_scores::AttnRow>>,
+    pub row: Option<Arc<RowKernel>>,
     dev: Device,
 }
 
@@ -762,7 +817,7 @@ impl FusedAttn {
         let w = &self.w;
         let l = &w.lay;
         let (h, din, c) = (w.hidden, w.heads * w.head_dim, w.kv_heads * w.head_dim);
-        let one = |buf: &Buffer, first_row: usize, rows: usize, cols: usize| -> Result<Tensor> {
+        let one = |buf: &Buf, first_row: usize, rows: usize, cols: usize| -> Result<Tensor> {
             let n = rows * cols;
             let op = Launch {
                 name: "attn-dense-widen",
@@ -833,18 +888,24 @@ pub struct StageIn {
 
 /// The compiled kernels.
 pub struct AttnDense {
-    products: ComputePipeline,
-    finish: ComputePipeline,
-    out: ComputePipeline,
-    ring_state: ComputePipeline,
-    widen: ComputePipeline,
+    products: Pipe,
+    finish: Pipe,
+    out: Pipe,
+    ring_state: Pipe,
+    widen: Pipe,
+    /// The module the functions live in.
+    #[cfg(all(target_os = "linux", feature = "cuda"))]
+    _module: llvq_cuda::gpu::Cuda,
 }
 
+const NAMES: [&str; 5] = ["ad_products", "ad_finish", "ad_out", "ad_ring_state", "ad_widen"];
+
+#[cfg(all(target_os = "macos", feature = "metal"))]
 fn compile(dev: &candle_core::MetalDevice) -> Result<Vec<ComputePipeline>> {
     use objc2_metal::{MTLCompileOptions, MTLMathFloatingPointFunctions, MTLMathMode};
     let raw = dev.device().clone();
     let src = format!("#define MV_TG {MV_TG}u\n#define FIN_TG {FIN_TG}u\n{SRC}");
-    let names = ["ad_products", "ad_finish", "ad_out", "ad_ring_state", "ad_widen"];
+    let names = NAMES;
     let built = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
         let opts = MTLCompileOptions::new();
         opts.setMathMode(MTLMathMode::Safe);
@@ -870,7 +931,26 @@ fn compile(dev: &candle_core::MetalDevice) -> Result<Vec<ComputePipeline>> {
 }
 
 impl AttnDense {
+    /// Compile the kernels for a CUDA device (`kernels/ink_attn.cu`, NVRTC),
+    /// a module of its own on the device's stream.
+    #[cfg(all(target_os = "linux", feature = "cuda"))]
+    pub fn new(device: &Device) -> Result<Self> {
+        let Device::Cuda(dev) = device else { candle_core::bail!("the attn_dense kernels want a CUDA device") };
+        let define = format!("#define MV_TG {MV_TG}u\n#define FIN_TG {FIN_TG}u\n");
+        let src = llvq_cuda::gpu::KernelSource::new(&[define.as_str(), SRC_CUDA]);
+        println!("NVRTC attn unit: {} bytes, sha256 {}", src.text.len(), src.sha256);
+        let module = llvq_cuda::gpu::Cuda::on_stream(dev.cuda_stream(), &src).map_err(candle_core::Error::msg)?;
+        let mut p = NAMES
+            .iter()
+            .map(|n| module.func(n).map_err(candle_core::Error::msg))
+            .collect::<Result<Vec<_>>>()?
+            .into_iter();
+        let mut next = || p.next().expect("five functions");
+        Ok(Self { products: next(), finish: next(), out: next(), ring_state: next(), widen: next(), _module: module })
+    }
+
     /// Compile the kernels for a Metal device.
+    #[cfg(all(target_os = "macos", feature = "metal"))]
     pub fn new(device: &Device) -> Result<Self> {
         let Device::Metal(dev) = device else { candle_core::bail!("the attn_dense kernels want a Metal device") };
         let mut p = compile(dev)?.into_iter();
@@ -1017,13 +1097,15 @@ impl AttnDense {
 }
 
 /// One buffer argument of a launch, in buffer-index order.
+// On CUDA a pointer carries no usage, so `Owned`'s flag is read on Metal only.
+#[cfg_attr(all(target_os = "linux", feature = "cuda"), allow(dead_code))]
 enum Arg<'a> {
     /// The tensor the op is applied to.
     Primary,
     /// Another f32 tensor on the device, contiguous, of this many elements.
     Tensor(&'a Tensor, usize),
     /// A buffer this module owns; `true` if the kernel writes it.
-    Owned(&'a Buffer, bool),
+    Owned(&'a Buf, bool),
     /// The output.
     Out,
     /// A small constant struct.
@@ -1033,7 +1115,7 @@ enum Arg<'a> {
 /// One kernel launch as a candle op; `grid` is (threadgroups, threads a group).
 struct Launch<'a> {
     name: &'static str,
-    pipe: &'a ComputePipeline,
+    pipe: &'a Pipe,
     args: Vec<Arg<'a>>,
     out_elems: usize,
     out_shape: Shape,
@@ -1045,6 +1127,7 @@ struct Bound<'a> {
     offset: usize,
 }
 
+#[cfg(all(target_os = "macos", feature = "metal"))]
 impl Bound<'_> {
     fn buffer(&self) -> &Buffer {
         match &*self.guard {
@@ -1065,8 +1148,12 @@ fn bind<'a>(op: &str, i: usize, t: &'a Tensor, want: usize) -> Result<Bound<'a>>
     if t.elem_count() != want {
         candle_core::bail!("{op}: buffer {i} has {} elements, want {want}", t.elem_count());
     }
-    if !matches!(&*guard, Storage::Metal(_)) {
-        candle_core::bail!("{op}: buffer {i} is not on the Metal device");
+    #[cfg(all(target_os = "macos", feature = "metal"))]
+    let here = matches!(&*guard, Storage::Metal(_));
+    #[cfg(all(target_os = "linux", feature = "cuda"))]
+    let here = matches!(&*guard, Storage::Cuda(_));
+    if !here {
+        candle_core::bail!("{op}: buffer {i} is not on the device of the kernels");
     }
     let offset = layout.start_offset() * DType::F32.size_in_bytes();
     Ok(Bound { guard, offset })
@@ -1078,9 +1165,63 @@ impl CustomOp1 for Launch<'_> {
     }
 
     fn cpu_fwd(&self, _: &CpuStorage, _: &Layout) -> Result<(CpuStorage, Shape)> {
-        candle_core::bail!("{}: Metal only; its CPU reference is the layers.rs functions", self.name)
+        candle_core::bail!("{}: GPU only; its CPU reference is the layers.rs functions", self.name)
     }
 
+    #[cfg(all(target_os = "linux", feature = "cuda"))]
+    fn cuda_fwd(&self, storage: &CudaStorage, layout: &Layout) -> Result<(CudaStorage, Shape)> {
+        if !layout.is_contiguous() {
+            candle_core::bail!("{}: the primary input must be contiguous", self.name);
+        }
+        let dev = storage.device.clone();
+        let stream = dev.cuda_stream();
+        let f32_addr = |s: &CudaStorage, elems_off: usize| -> Result<u64> {
+            Ok(s.as_cuda_slice::<f32>()?.device_ptr(&stream).0 + 4 * elems_off as u64)
+        };
+        let mut bound: Vec<Option<Bound>> = Vec::with_capacity(self.args.len());
+        for (i, a) in self.args.iter().enumerate() {
+            bound.push(match a {
+                Arg::Tensor(t, want) => Some(bind(self.name, i, t, *want)?),
+                _ => None,
+            });
+        }
+        // Uninitialised: every kernel writes every word of its output.
+        let out = unsafe { stream.alloc::<f32>(self.out_elems) }
+            .map_err(|e| candle_core::Error::msg(format!("{}: alloc of the output: {e}", self.name)))?;
+        // Pointers as their device addresses, the constant struct as its words: one kernel parameter each.
+        let mut ptrs: Vec<u64> = Vec::new();
+        let mut words: Vec<u32> = Vec::new();
+        for (i, a) in self.args.iter().enumerate() {
+            match a {
+                Arg::Primary => ptrs.push(f32_addr(storage, layout.start_offset())?),
+                Arg::Tensor(..) => {
+                    let b = bound[i].as_ref().expect("bound above");
+                    let Storage::Cuda(c) = &*b.guard else { unreachable!("checked at bind") };
+                    ptrs.push(f32_addr(c, b.offset / 4)?);
+                }
+                Arg::Owned(b, _) => ptrs.push(match b {
+                    Buf::U16(s) => s.device_ptr(&stream).0,
+                    Buf::F32(s) => s.device_ptr(&stream).0,
+                }),
+                Arg::Out => ptrs.push(out.device_ptr(&stream).0),
+                Arg::Bytes(w) => words.extend_from_slice(&w.0),
+            }
+        }
+        let (groups, threads) = self.grid;
+        let cfg = LaunchConfig { grid_dim: (groups as u32, 1, 1), block_dim: (threads as u32, 1, 1), shared_mem_bytes: 0 };
+        let mut b = stream.launch_builder(self.pipe);
+        for p in &ptrs {
+            b.arg(p);
+        }
+        for w in &words {
+            b.arg(w);
+        }
+        unsafe { b.launch(cfg) }.map_err(|e| candle_core::Error::msg(format!("{}: {e}", self.name)))?;
+        drop(bound);
+        Ok((CudaStorage::wrap_cuda_slice(out, dev), self.out_shape.clone()))
+    }
+
+    #[cfg(all(target_os = "macos", feature = "metal"))]
     fn metal_fwd(&self, storage: &MetalStorage, layout: &Layout) -> Result<(MetalStorage, Shape)> {
         if storage.dtype() != DType::F32 || !layout.is_contiguous() {
             candle_core::bail!("{}: the primary input must be contiguous f32", self.name);
@@ -1110,10 +1251,11 @@ impl CustomOp1 for Launch<'_> {
                     enc.use_resource(b.buffer(), MTLResourceUsage::Read);
                 }
                 Arg::Owned(b, writes) => {
+                    let b: &Buffer = b;
                     enc.set_buffer(i, Some(b), 0);
                     let usage =
                         if *writes { MTLResourceUsage::Read | MTLResourceUsage::Write } else { MTLResourceUsage::Read };
-                    enc.use_resource(*b, usage);
+                    enc.use_resource(b, usage);
                 }
                 Arg::Out => {
                     enc.set_buffer(i, Some(&out), 0);
