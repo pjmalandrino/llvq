@@ -269,6 +269,7 @@ fn capture_before_cpu() {
 }
 
 #[test]
+#[ignore = "needs the golden lot3-e/golden/wave1_tiny_cpu.f32 of the data directory, captured once from the code before wave 1; fails naming it when it is missing"]
 fn tiny_matches_before_cpu() {
     compare(&Device::Cpu, "cpu");
 }

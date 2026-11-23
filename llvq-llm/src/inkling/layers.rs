@@ -1544,7 +1544,10 @@ mod tests {
             "mlp_gate_softcap": 4.0, "mlp_up_softcap": 25.0, "route_scale": 8.0,
             "loop_config": {"core_start": 6, "core_end": 12, "num_passes": 3, "gate_rank": 4}
         });
-        let path = std::env::temp_dir().join(format!("inkling_tiny_{}.json", std::process::id()));
+        // One file a call: the tests of this module run in parallel threads of one process.
+        static CALL: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+        let n = CALL.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        let path = std::env::temp_dir().join(format!("inkling_tiny_{}_{n}.json", std::process::id()));
         std::fs::write(&path, v.to_string()).unwrap();
         let c = InklingConfig::from_file(&path).unwrap();
         let _ = std::fs::remove_file(&path);
