@@ -356,6 +356,24 @@ fn fused_rings_mark_rollback_clone_metal() {
     assert_eq!(differing, 0, "{differing} of 5 fused steps differ after a rollback into rings");
 }
 
+/// With the routing handed to the MoE on the device (the default) a source
+/// that has no such path, as these dense experts, is called through the
+/// routing read back: the logits are those of the switch off, bit for bit.
+#[test]
+fn routing_on_device_falls_back_to_the_host_metal() {
+    let dev = metal();
+    let mut m = tiny_model(&dev);
+    m.set_glue(GlueKind::Fused).unwrap();
+    assert!(m.routing_on_device(), "on by default");
+    for p in prompts() {
+        let (on, fed) = rows_fed(&m, &p, None);
+        m.set_routing_on_device(false);
+        let (off, _) = rows_fed(&m, &p, Some(&fed));
+        m.set_routing_on_device(true);
+        assert_eq!(on, off, "prompt {}: routing on the device against read back", p.len());
+    }
+}
+
 #[test]
 fn fused_glue_is_refused_on_the_cpu() {
     let mut m = tiny_model(&Device::Cpu);

@@ -452,6 +452,55 @@ fn d3_fused_is_one_row_at_model_shapes() {
     assert!(layer.forward_one_row_fused(&x, &r, &cfg).unwrap().is_none(), "and no fused call");
 }
 
+/// D9, first half: the routing handed to the MoE on the device. On a slab
+/// layer of 128 synthetic experts at the model's shapes, for 16 score rows:
+/// `Glue::sel` after `Glue::top8` holds, read back, the ids ascending and the
+/// bits of the weights that `Top8::read` gives the host; and
+/// `forward_one_row_routed_on_device` on it is bit for bit
+/// `forward_one_row_fused` on the routing read back. A buffer of another
+/// type, another expert count and the fused switch off send the caller back
+/// to the host path.
+#[test]
+fn d9_routing_on_device_is_the_host_routing() {
+    let _g = gpu();
+    let dev = Device::new_metal(0).expect("Metal");
+    let cfg = config();
+    let rt = Arc::new(runtime(&dev));
+    let (n, k) = (cfg.n_routed_experts, cfg.num_experts_per_tok);
+    let hs = hosts(n, cfg.hidden_size, cfg.intermediate_size, 0, 0xD900);
+    let mut layer = ResidentExperts::from_host(rt, &dev, 6, &hs).expect("slab layer");
+    drop(hs);
+    let glue = llvq_llm::inkling::glue::Glue::new(&dev).expect("glue kernels");
+    let mut last = None;
+    for i in 0..16u64 {
+        let sig: Vec<f32> = values(0xD910 + i, n).iter().map(|v| 1.0 / (1.0 + (-v).exp())).collect();
+        let bias: Vec<f32> = values(0xD950 + i, n).iter().map(|v| 0.01 * v).collect();
+        let scores = Tensor::from_slice(&sig, n, &dev).unwrap();
+        let bias = Tensor::from_slice(&bias, n, &dev).unwrap();
+        let top = glue.top8(&scores, &bias, k, cfg.route_scale).unwrap();
+        let r = top.read(k).unwrap();
+        assert!(r.ids.windows(2).all(|p| p[0] < p[1]), "row {i}: ids {:?} not ascending", r.ids);
+        let sel = glue.sel(&top, k).unwrap();
+        let mut want = r.ids.clone();
+        want.extend(r.weights.iter().map(|w| w.to_bits()));
+        assert_eq!(sel.to_vec1::<u32>().unwrap(), want, "row {i}: the device routing is not the host's");
+        let routing =
+            Routing { indices: vec![r.ids.clone()], weights: vec![r.weights.clone()], margin: vec![r.margin], scores: vec![vec![]] };
+        let x = Tensor::from_slice(&values(0xD990 + i, cfg.hidden_size), (1, cfg.hidden_size), &dev).unwrap();
+        let host = to_vec(&layer.forward_one_row_fused(&x, &routing, &cfg).unwrap().expect("the fused path runs"));
+        let device = layer.forward_one_row_routed_on_device(&x, &sel, n, &cfg).unwrap().expect("the device path runs");
+        assert!(host.iter().any(|v| *v != 0.0), "zeros would pass every equality");
+        assert_eq!(first_difference(&to_vec(&device), &host), None, "row {i} {:?}: device routing against host routing", r.ids);
+        last = Some((x, sel));
+    }
+    let (x, sel) = last.expect("16 rows");
+    assert!(layer.forward_one_row_routed_on_device(&x, &sel, n + 1, &cfg).unwrap().is_none(), "another expert count");
+    let as_f32 = sel.to_dtype(DType::F32).unwrap();
+    assert!(layer.forward_one_row_routed_on_device(&x, &as_f32, n, &cfg).unwrap().is_none(), "a buffer that is not u32");
+    layer.set_fused(false);
+    assert!(layer.forward_one_row_routed_on_device(&x, &sel, n, &cfg).unwrap().is_none(), "the fused switch off");
+}
+
 /// D3 on small layers: 12 experts at two other shapes, one with tails, so the
 /// offsets of every record kind, the tail loop and the odd-block mix with
 /// another k are exercised; 1 to 12 experts a call.

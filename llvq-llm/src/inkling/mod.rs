@@ -245,6 +245,9 @@ pub struct Inkling {
     glue: Option<std::sync::Arc<glue::Glue>>,
     /// The attention chosen at load ([`Self::load_with_attn`]).
     attn: AttnKind,
+    /// Whether a fused one-row visit hands its routing to the MoE on the
+    /// device ([`Self::set_routing_on_device`]); on by default.
+    routing_on_device: bool,
 }
 
 /// The small steps of a one-row visit: candle's operations (the default) or
@@ -366,6 +369,25 @@ impl MoeSource for TimedMoe<'_> {
         Ok(y)
     }
 
+    fn moe_routed_on_device(
+        &self,
+        x: &Tensor,
+        sel: &Tensor,
+        experts: usize,
+        cfg: &InklingConfig,
+    ) -> Result<Option<Tensor>> {
+        self.dev.synchronize()?;
+        let t = std::time::Instant::now();
+        let y = self.inner.moe_routed_on_device(x, sel, experts, cfg)?;
+        self.dev.synchronize()?;
+        if y.is_some() {
+            if let Some(v) = self.out.lock().expect("no panic holds this lock").as_mut() {
+                v.push((self.layer, t.elapsed().as_secs_f64()));
+            }
+        }
+        Ok(y)
+    }
+
     fn take_launches(&self) -> usize {
         self.inner.take_launches()
     }
@@ -452,6 +474,7 @@ impl Inkling {
             #[cfg(all(target_os = "macos", feature = "metal"))]
             glue: None,
             attn,
+            routing_on_device: true,
         })
     }
 
@@ -543,6 +566,22 @@ impl Inkling {
             #[cfg(not(all(target_os = "macos", feature = "metal")))]
             GlueKind::Fused => candle_core::bail!("the fused glue needs a macOS build with the metal feature"),
         }
+    }
+
+    /// With the fused glue, hand the routing of a one-row visit to the MoE
+    /// on the device instead of reading it back to the host (plan item D9,
+    /// its first half): the same ids and weights reach the same kernels, so
+    /// the logits are the same bits, and the host waits on nothing inside a
+    /// visit. On by default; a forward that records its visits reads the
+    /// routing back whatever this says. Off is the path before it, kept as
+    /// the reference of its gate.
+    pub fn set_routing_on_device(&mut self, on: bool) {
+        self.routing_on_device = on;
+    }
+
+    /// Whether [`Self::set_routing_on_device`] is on.
+    pub fn routing_on_device(&self) -> bool {
+        self.routing_on_device
     }
 
     /// The glue a one-row forward runs.
@@ -704,7 +743,10 @@ impl Inkling {
             let slot = &mut cache.slots[self.slot(layer, pass)];
             #[cfg(all(target_os = "macos", feature = "metal"))]
             let (next, routing) = match &self.glue {
-                Some(g) if ids.len() == 1 => lw.forward_fused(&self.cfg, &h, &bs, messages.as_deref(), src, slot, g)?,
+                Some(g) if ids.len() == 1 => {
+                    let want_routing = record || !self.routing_on_device;
+                    lw.forward_fused(&self.cfg, &h, &bs, messages.as_deref(), src, slot, g, want_routing)?
+                }
                 _ => lw.forward_chunked(&self.cfg, &h, &bs, messages.as_deref(), src, slot, self.attn_chunk)?,
             };
             #[cfg(not(all(target_os = "macos", feature = "metal")))]

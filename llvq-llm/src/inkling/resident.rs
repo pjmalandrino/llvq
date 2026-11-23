@@ -533,19 +533,64 @@ impl ResidentExperts {
         let mut sel: Vec<u32> = order.iter().map(|p| p.0).collect();
         sel.extend(order.iter().map(|p| p.1.to_bits()));
         let sel = Tensor::from_vec(sel, 2 * k, &self.dev)?;
+        self.fused_launches(slab, x, &sel, cfg).map(Some)
+    }
+
+    /// [`Self::forward_one_row_fused`] with the routing still on the device:
+    /// `sel` is `[2k]` u32, the ids of the routed experts, ascending and
+    /// distinct, chosen among `experts`, then the bits of their weights (what
+    /// `glue::Glue::sel` writes). The same four launches on the same words,
+    /// so the same bits, and the host reads nothing. `None` when the fused
+    /// path is off or does not apply: the caller reads the routing back.
+    pub fn forward_one_row_routed_on_device(
+        &self,
+        x: &Tensor,
+        sel: &Tensor,
+        experts: usize,
+        cfg: &InklingConfig,
+    ) -> Result<Option<Tensor>> {
+        let Some(slab) = self.slab.as_ref() else {
+            return Ok(None);
+        };
+        let Some(shape) = slab.shape() else {
+            return Ok(None);
+        };
+        if !self.fused
+            || !self.rt.moe_fused_eligible()
+            || x.dims() != [1, shape.hidden]
+            || shape.inter != cfg.intermediate_size
+        {
+            return Ok(None);
+        }
+        let k = sel.elem_count() / 2;
+        if sel.dtype() != DType::U32
+            || sel.elem_count() != 2 * k
+            || k == 0
+            || k > MOE_MAX_SELECTED
+            || experts != self.experts.len()
+            || !sel.device().same_device(&self.dev)
+        {
+            return Ok(None);
+        }
+        self.fused_launches(slab, x, sel, cfg).map(Some)
+    }
+
+    /// The four launches of the fused one-row MoE and the activation between
+    /// them, for the routing `sel` (`[2k]` u32 on the device).
+    fn fused_launches(&self, slab: &MetalMoeSlab, x: &Tensor, sel: &Tensor, cfg: &InklingConfig) -> Result<Tensor> {
         let xd = x.to_device(&self.dev)?.to_dtype(DType::F32)?.contiguous()?;
         self.bump(4);
-        let xr = self.rt.moe_rotate(slab, false, &xd.to_dtype(DType::F16)?, &sel)?;
-        let gu = self.rt.moe_gate_up(slab, &xr, &sel)?;
+        let xr = self.rt.moe_rotate(slab, false, &xd.to_dtype(DType::F16)?, sel)?;
+        let gu = self.rt.moe_gate_up(slab, &xr, sel)?;
         let (g, u) = (gu.get(0)?, gu.get(1)?);
         // line 771: softcap(gate) * sigmoid(gate) * softcap(up)
         let act = softcap(&g, cfg.mlp_gate_softcap)?
             .mul(&candle_nn::ops::sigmoid(&g)?)?
             .mul(&softcap(&u, cfg.mlp_up_softcap)?)?
             .contiguous()?;
-        let ar = self.rt.moe_rotate(slab, true, &act.to_dtype(DType::F16)?, &sel)?;
-        let y = self.rt.moe_down_sum(slab, &ar, &sel)?;
-        Ok(Some(y.to_device(x.device())?))
+        let ar = self.rt.moe_rotate(slab, true, &act.to_dtype(DType::F16)?, sel)?;
+        let y = self.rt.moe_down_sum(slab, &ar, sel)?;
+        y.to_device(x.device())
     }
 
     /// The MoE for any number of rows: per expert that received tokens,
@@ -611,6 +656,16 @@ impl MoeSource for ResidentExperts {
 
     fn take_launches(&self) -> usize {
         ResidentExperts::take_launches(self)
+    }
+
+    fn moe_routed_on_device(
+        &self,
+        x: &Tensor,
+        sel: &Tensor,
+        experts: usize,
+        cfg: &InklingConfig,
+    ) -> Result<Option<Tensor>> {
+        self.forward_one_row_routed_on_device(x, sel, experts, cfg)
     }
 }
 

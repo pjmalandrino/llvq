@@ -402,6 +402,22 @@ pub trait MoeSource {
     fn take_launches(&self) -> usize {
         0
     }
+
+    /// The MoE of one row whose routing is still on the device: `sel` is
+    /// `[2k]` u32, the ids of the `k` routed experts, ascending and distinct,
+    /// chosen among `experts`, then the bits of their weights. The same
+    /// result as [`Self::moe`] on that routing, bit for bit. `None` when this
+    /// source has no such path: the caller then reads the routing back and
+    /// calls [`Self::moe`].
+    fn moe_routed_on_device(
+        &self,
+        _x: &Tensor,
+        _sel: &Tensor,
+        _experts: usize,
+        _cfg: &InklingConfig,
+    ) -> Result<Option<Tensor>> {
+        Ok(None)
+    }
 }
 
 impl<S: ExpertSource> MoeSource for S {
@@ -1369,8 +1385,10 @@ impl LayerWeights {
     /// for the block residual, message gates and input norms; the attention
     /// as candle runs it; `post_attn` for the post-attention convolution, the
     /// residual, the MLP input and the router scores; `top8` for the routing,
-    /// read back once; the MoE as the source runs it; `post_mlp` for the
-    /// post-MLP convolution and the residual.
+    /// read back once when `want_routing` asks for it and handed to the MoE
+    /// on the device otherwise (the returned routing is then empty); the MoE
+    /// as the source runs it; `post_mlp` for the post-MLP convolution and the
+    /// residual.
     ///
     /// The post-attention and post-MLP states move into two device rings,
     /// filled from what the slot held (a prompt's block, a candle step's
@@ -1387,6 +1405,7 @@ impl LayerWeights {
         experts: &dyn MoeSource,
         cache: &mut SlotCache,
         glue: &std::sync::Arc<super::glue::Glue>,
+        want_routing: bool,
     ) -> Result<(Tensor, Routing)> {
         use super::glue::{FusedRings, GateW, PostAttnInputs, PreInputs};
         fn gw(g: &MessageGate) -> GateW<'_> {
@@ -1458,10 +1477,25 @@ impl LayerWeights {
         mark(dev, Phase::NormsGates)?;
         let k = cfg.num_experts_per_tok;
         let top = glue.top8(&pa.scores, &self.router_bias, k, cfg.route_scale)?;
-        let r = top.read(k)?;
-        let routing = Routing { indices: vec![r.ids], weights: vec![r.weights], margin: vec![r.margin], scores: vec![r.sel] };
-        mark(dev, Phase::Routing)?;
-        let m = experts.moe(&pa.xn, &routing, cfg)?.contiguous()?;
+        // Without a caller for the routing, hand it to the MoE on the device:
+        // the host waits on nothing in this visit. Same ids, same weights.
+        let on_device = if want_routing {
+            None
+        } else {
+            let sel = glue.sel(&top, k)?;
+            mark(dev, Phase::Routing)?;
+            experts.moe_routed_on_device(&pa.xn, &sel, pa.scores.elem_count(), cfg)?
+        };
+        let (m, routing) = match on_device {
+            Some(m) => (m.contiguous()?, Routing { indices: vec![], weights: vec![], margin: vec![], scores: vec![] }),
+            None => {
+                let r = top.read(k)?;
+                let routing =
+                    Routing { indices: vec![r.ids], weights: vec![r.weights], margin: vec![r.margin], scores: vec![r.sel] };
+                mark(dev, Phase::Routing)?;
+                (experts.moe(&pa.xn, &routing, cfg)?.contiguous()?, routing)
+            }
+        };
         mark(dev, Phase::Moe)?;
         let rings = cache.fused.as_mut().expect("filled above");
         let out = glue.post_mlp(&m, &pa.residual, &self.post_mlp_convolution, &mut rings.mlp)?;

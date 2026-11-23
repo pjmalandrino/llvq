@@ -369,6 +369,21 @@ kernel void glue_top8(
     }
 }
 
+// The routed experts as the MoE kernels read them: the ids [k], ascending as
+// glue_top8 wrote them, then the bits of their weights [k].
+kernel void glue_sel(
+    device const float *top [[buffer(0)]],
+    device uint *out [[buffer(1)]],
+    constant TopArgs &a [[buffer(2)]],
+    uint i [[thread_position_in_grid]])
+{
+    const uint e = a.experts;
+    const uint k = a.k;
+    if (i >= k) { return; }
+    out[i] = uint(top[e + k + 1u + i]);
+    out[k + i] = as_type<uint>(top[e + i]);
+}
+
 kernel void glue_post_mlp(
     device const float *m [[buffer(0)]],
     device float *ring [[buffer(1)]],
@@ -599,6 +614,7 @@ impl ConvRing {
             args: vec![Arg::Owned(&self.buf, false), Arg::Out, Arg::Bytes(args)],
             out_elems: n,
             out_shape: Shape::from((self.k - 1, self.c)),
+            out_dtype: DType::F32,
             grid: Grid::Threads(n),
         };
         like.apply_op1_no_bwd(&op)
@@ -612,13 +628,14 @@ pub struct Glue {
     top8: ComputePipeline,
     post_mlp: ComputePipeline,
     ring_state: ComputePipeline,
+    sel: ComputePipeline,
 }
 
 fn compile(dev: &candle_core::MetalDevice) -> Result<Vec<ComputePipeline>> {
     use objc2_metal::{MTLCompileOptions, MTLMathFloatingPointFunctions, MTLMathMode};
     let raw = dev.device().clone();
     let src = format!("#define GLUE_TG {TG}u\n{SRC}");
-    let names = ["glue_pre", "glue_post_attn", "glue_top8", "glue_post_mlp", "glue_ring_state"];
+    let names = ["glue_pre", "glue_post_attn", "glue_top8", "glue_post_mlp", "glue_ring_state", "glue_sel"];
     let built = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
         let opts = MTLCompileOptions::new();
         opts.setMathMode(MTLMathMode::Safe);
@@ -648,8 +665,8 @@ impl Glue {
     pub fn new(device: &Device) -> Result<Self> {
         let Device::Metal(dev) = device else { candle_core::bail!("the glue kernels want a Metal device") };
         let mut p = compile(dev)?.into_iter();
-        let mut next = || p.next().expect("five pipelines");
-        let g = Self { pre: next(), post_attn: next(), top8: next(), post_mlp: next(), ring_state: next() };
+        let mut next = || p.next().expect("six pipelines");
+        let g = Self { pre: next(), post_attn: next(), top8: next(), post_mlp: next(), ring_state: next(), sel: next() };
         for (name, pipe) in [("glue_pre", &g.pre), ("glue_post_attn", &g.post_attn), ("glue_top8", &g.top8)] {
             let max = pipe.max_total_threads_per_threadgroup();
             if max < TG {
@@ -736,6 +753,7 @@ impl Glue {
             args: v,
             out_elems: nout * h,
             out_shape: Shape::from((nout, h)),
+            out_dtype: DType::F32,
             grid: Grid::Groups(nout),
         };
         a.h.apply_op1_no_bwd(&op)
@@ -809,6 +827,7 @@ impl Glue {
             args: v,
             out_elems: n,
             out_shape: Shape::from(n),
+            out_dtype: DType::F32,
             grid: Grid::Groups(1),
         };
         let out = a.attn_out.apply_op1_no_bwd(&op)?;
@@ -834,6 +853,7 @@ impl Glue {
             args: vec![Arg::Primary, Arg::Tensor(bias, e), Arg::Out, Arg::Bytes(args)],
             out_elems: n,
             out_shape: Shape::from(n),
+            out_dtype: DType::F32,
             grid: Grid::Groups(1),
         };
         let out = scores.apply_op1_no_bwd(&op)?;
@@ -844,6 +864,27 @@ impl Glue {
             ids: out.narrow(0, e + k + 1, k)?,
             raw: out,
         })
+    }
+
+    /// The routing of [`Self::top8`] as the fused MoE kernels read it, without
+    /// a read back to the host: `[2k]` u32 on the device, the `k` expert ids
+    /// ascending, then the bits of their weights.
+    pub fn sel(&self, top: &Top8, k: usize) -> Result<Tensor> {
+        let n = top.raw.elem_count();
+        if k == 0 || n < 2 * k + 2 {
+            candle_core::bail!("sel: a top8 output of {n} values for k = {k}");
+        }
+        let e = n - 2 * k - 1;
+        let op = Launch {
+            name: "glue-sel",
+            pipe: &self.sel,
+            args: vec![Arg::Primary, Arg::Out, Arg::Bytes(Words::default().u(e).u(k).f(0.0))],
+            out_elems: 2 * k,
+            out_shape: Shape::from(2 * k),
+            out_dtype: DType::U32,
+            grid: Grid::Threads(k),
+        };
+        top.raw.apply_op1_no_bwd(&op)
     }
 
     /// `residual + short_conv(moe)` on the post-MLP ring, `[1, H]`.
@@ -865,6 +906,7 @@ impl Glue {
             ],
             out_elems: h,
             out_shape: Shape::from((1, h)),
+            out_dtype: DType::F32,
             grid: Grid::Threads(h),
         };
         let out = moe.apply_op1_no_bwd(&op)?;
@@ -923,6 +965,7 @@ struct Launch<'a> {
     args: Vec<Arg<'a>>,
     out_elems: usize,
     out_shape: Shape,
+    out_dtype: DType,
     grid: Grid,
 }
 
@@ -980,7 +1023,7 @@ impl CustomOp1 for Launch<'_> {
                 _ => None,
             });
         }
-        let out = dev.new_buffer(self.out_elems, DType::F32, self.name)?;
+        let out = dev.new_buffer(self.out_elems, self.out_dtype, self.name)?;
         let enc = dev.command_encoder()?;
         enc.set_compute_pipeline_state(self.pipe);
         for (i, a) in self.args.iter().enumerate() {
@@ -1020,6 +1063,6 @@ impl CustomOp1 for Launch<'_> {
         }
         drop(enc);
         drop(bound);
-        Ok((MetalStorage::new(out, dev, self.out_elems, DType::F32), self.out_shape.clone()))
+        Ok((MetalStorage::new(out, dev, self.out_elems, self.out_dtype), self.out_shape.clone()))
     }
 }
