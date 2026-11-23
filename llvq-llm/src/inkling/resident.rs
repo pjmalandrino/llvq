@@ -126,7 +126,20 @@ pub struct ResidentExperts {
     /// One row takes the four fused launches ([`Self::forward_one_row_fused`])
     /// when the slab and the runtime allow them.
     fused: bool,
+    /// The activation between those launches through `super::moe_act`, one
+    /// launch in place of candle's eleven: the same bits. Compiled at the
+    /// first fused call; holds `None` when the device or candle's compile
+    /// options refuse it, and candle's operations run.
+    act: std::sync::OnceLock<Option<super::moe_act::MoeAct>>,
+    /// Whether the fused path uses that launch ([`Self::set_fused_act`]).
+    fused_act: bool,
 }
+
+/// Whether the fused one-row path runs its activation through
+/// `super::moe_act` by default. Set from its class A gate, green on
+/// 2026-11-23: candle's bits on every f32 value of each factor and on the
+/// products (`tests/inkling_moe_act.rs`).
+pub const FUSED_ACT_DEFAULT: bool = true;
 
 /// Whether a layer loaded with a slab takes the fused one-row path by
 /// default. Set from the class A gate of plan item D3, green on 2026-11-22:
@@ -309,7 +322,7 @@ impl ResidentExperts {
         };
         stats.seconds_upload += t.elapsed().as_secs_f64();
         stats.experts = experts.len();
-        Ok(Self { layer, rt, dev: dev.clone(), experts, stats, launches: AtomicUsize::new(0), slab, fused: FUSED_DEFAULT })
+        Ok(Self { layer, rt, dev: dev.clone(), experts, stats, launches: AtomicUsize::new(0), slab, fused: FUSED_DEFAULT, act: std::sync::OnceLock::new(), fused_act: FUSED_ACT_DEFAULT })
     }
 
     /// Upload `hosts` into one placement heap and wrap the aliases.
@@ -336,7 +349,7 @@ impl ResidentExperts {
             stats,
             launches: AtomicUsize::new(0),
             slab: Some(slab),
-            fused: FUSED_DEFAULT,
+            fused: FUSED_DEFAULT, act: std::sync::OnceLock::new(), fused_act: FUSED_ACT_DEFAULT,
         })
     }
 
@@ -351,7 +364,7 @@ impl ResidentExperts {
             stats: UploadStats::default(),
             launches: AtomicUsize::new(0),
             slab: None,
-            fused: FUSED_DEFAULT,
+            fused: FUSED_DEFAULT, act: std::sync::OnceLock::new(), fused_act: FUSED_ACT_DEFAULT,
         }
     }
 
@@ -365,6 +378,26 @@ impl ResidentExperts {
     /// Whether one row takes the fused path when it can.
     pub fn fused(&self) -> bool {
         self.fused
+    }
+
+    /// Run the activation of the fused path through `super::moe_act`
+    /// (`true`) or through candle's operations, its reference.
+    pub fn set_fused_act(&mut self, on: bool) {
+        self.fused_act = on;
+    }
+
+    /// The activation kernel, if the switch is on and it compiled here.
+    fn act_kernel(&self) -> Option<&super::moe_act::MoeAct> {
+        if !self.fused_act {
+            return None;
+        }
+        self.act.get_or_init(|| super::moe_act::MoeAct::new(&self.dev).ok()).as_ref()
+    }
+
+    /// Whether the fused path runs its activation in one launch: the switch
+    /// is on and the kernel compiled on this device.
+    pub fn fused_act_active(&self) -> bool {
+        self.act_kernel().is_some()
     }
 
     /// Whether this layer can take the fused path: a slab whose experts share
@@ -582,13 +615,19 @@ impl ResidentExperts {
         self.bump(4);
         let xr = self.rt.moe_rotate(slab, false, &xd.to_dtype(DType::F16)?, sel)?;
         let gu = self.rt.moe_gate_up(slab, &xr, sel)?;
-        let (g, u) = (gu.get(0)?, gu.get(1)?);
-        // line 771: softcap(gate) * sigmoid(gate) * softcap(up)
-        let act = softcap(&g, cfg.mlp_gate_softcap)?
-            .mul(&candle_nn::ops::sigmoid(&g)?)?
-            .mul(&softcap(&u, cfg.mlp_up_softcap)?)?
-            .contiguous()?;
-        let ar = self.rt.moe_rotate(slab, true, &act.to_dtype(DType::F16)?, sel)?;
+        // line 771: softcap(gate) * sigmoid(gate) * softcap(up), as f16 for the rotation
+        let act = match self.act_kernel() {
+            Some(k) => k.forward(&gu.contiguous()?, cfg.mlp_gate_softcap, cfg.mlp_up_softcap)?,
+            None => {
+                let (g, u) = (gu.get(0)?, gu.get(1)?);
+                softcap(&g, cfg.mlp_gate_softcap)?
+                    .mul(&candle_nn::ops::sigmoid(&g)?)?
+                    .mul(&softcap(&u, cfg.mlp_up_softcap)?)?
+                    .contiguous()?
+                    .to_dtype(DType::F16)?
+            }
+        };
+        let ar = self.rt.moe_rotate(slab, true, &act, sel)?;
         let y = self.rt.moe_down_sum(slab, &ar, sel)?;
         y.to_device(x.device())
     }
@@ -666,6 +705,10 @@ impl MoeSource for ResidentExperts {
         cfg: &InklingConfig,
     ) -> Result<Option<Tensor>> {
         self.forward_one_row_routed_on_device(x, sel, experts, cfg)
+    }
+
+    fn set_fused_act(&mut self, on: bool) {
+        ResidentExperts::set_fused_act(self, on)
     }
 }
 

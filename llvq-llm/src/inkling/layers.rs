@@ -418,6 +418,11 @@ pub trait MoeSource {
     ) -> Result<Option<Tensor>> {
         Ok(None)
     }
+
+    /// For a source with a fused one-row path: run its activation in one
+    /// launch (`true`) or through candle's operations, the reference of that
+    /// launch's gate. The same bits either way; nothing to do elsewhere.
+    fn set_fused_act(&mut self, _on: bool) {}
 }
 
 impl<S: ExpertSource> MoeSource for S {

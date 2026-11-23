@@ -27,6 +27,7 @@ pub mod glue;
 pub mod head;
 pub mod layers;
 pub mod loader;
+pub mod moe_act;
 pub mod tables;
 #[cfg(all(target_os = "macos", feature = "metal"))]
 pub mod resident;
@@ -577,6 +578,17 @@ impl Inkling {
     /// the reference of its gate.
     pub fn set_routing_on_device(&mut self, on: bool) {
         self.routing_on_device = on;
+    }
+
+    /// Tell every layer's expert source to run the activation of its fused
+    /// one-row path in one launch (`true`, the default of a resident layer)
+    /// or through candle's operations, the reference of that launch's gate.
+    pub fn set_moe_act(&mut self, on: bool) {
+        for e in self.experts.iter_mut() {
+            if let LayerExperts::Source(s) = e {
+                s.set_fused_act(on);
+            }
+        }
     }
 
     /// Whether [`Self::set_routing_on_device`] is on.

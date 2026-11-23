@@ -501,6 +501,33 @@ fn d9_routing_on_device_is_the_host_routing() {
     assert!(layer.forward_one_row_routed_on_device(&x, &sel, n, &cfg).unwrap().is_none(), "the fused switch off");
 }
 
+/// The activation of the fused path in one launch (`inkling::moe_act`)
+/// against candle's operations, inside the MoE: on a slab layer of 128
+/// synthetic experts at the model's shapes, 16 routings, the output of
+/// `forward_one_row_fused` with the launch is bit for bit its output without.
+#[test]
+fn fused_activation_launch_is_candle_activation() {
+    let _g = gpu();
+    let dev = Device::new_metal(0).expect("Metal");
+    let cfg = config();
+    let rt = Arc::new(runtime(&dev));
+    let hs = hosts(cfg.n_routed_experts, cfg.hidden_size, cfg.intermediate_size, 0, 0xAC70);
+    let mut layer = ResidentExperts::from_host(rt, &dev, 6, &hs).expect("slab layer");
+    drop(hs);
+    assert!(layer.fused_act_active(), "the activation kernel compiled and is on by default");
+    for i in 0..16u64 {
+        let r = routing(0xAC80 + i, 1, layer.count(), cfg.num_experts_per_tok);
+        let x = Tensor::from_slice(&values(0xAC90 + i, cfg.hidden_size), (1, cfg.hidden_size), &dev).unwrap();
+        layer.set_fused_act(false);
+        assert!(!layer.fused_act_active());
+        let candle = to_vec(&layer.forward_one_row_fused(&x, &r, &cfg).unwrap().expect("the fused path runs"));
+        layer.set_fused_act(true);
+        let kernel = to_vec(&layer.forward_one_row_fused(&x, &r, &cfg).unwrap().expect("the fused path runs"));
+        assert!(candle.iter().any(|v| *v != 0.0), "zeros would pass every equality");
+        assert_eq!(first_difference(&kernel, &candle), None, "routing {i} {:?}: one launch against candle's operations", r.indices[0]);
+    }
+}
+
 /// D3 on small layers: 12 experts at two other shapes, one with tails, so the
 /// offsets of every record kind, the tail loop and the odd-block mix with
 /// another k are exercised; 1 to 12 experts a call.
