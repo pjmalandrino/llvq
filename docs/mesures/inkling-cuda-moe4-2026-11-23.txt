@@ -1,0 +1,38 @@
+INKLING 2 MINI ON CUDA, THE ROUTED EXPERTS OF A DECODED TOKEN IN FOUR LAUNCHES, 2026-11-23
+
+RESULT
+  PASS on the rule of `proofs/preregistration-inkling-cuda-moe4-2026-11-23.md` (timestamped before the run).
+  `inkrun --moe four` gives the logits of `inkrun --moe one` byte for byte: the two files of 33 rows have the same
+  sha256 (59b16ca9...). Median decode step on the L4 (*measured*, 31 steps each, one job):
+    one   0.1636 s [0.1603, 0.1724]   6.11 tok/s   1,920 lattice launches a step
+    four  0.1093 s [0.1062, 0.1222]   9.15 tok/s     192 lattice launches a step
+  Both arms generate the 32 tokens of the Mac's resident run. 10.446 GB on the card at the end in both.
+
+THE OBJECT
+  The object of the first card run: the text model in this engine, the experts of the 24 layers resident in lattice
+  codes, every other tensor from the text-only checkpoint, eager path, attention and glue through candle. Not the
+  sealed file's tables. Not a served speed.
+
+THE RUN
+  Job `6b04189f7a38dcb7ff6e8e3a`, `l4x1`, image `Pier-Jean/llvq-runner-cuda` at Space sha
+  8eb7dffcc44be877c74daf0136e790d593bdd4df, built from commit b6b7df3. 4 minutes billed, $0.05
+  (`ops/run.py monitor`). Card spend on this model after it: $2.87 of $25. Raw files: `inkling-cuda-moe4-2026-11-23-brut/`.
+
+CONTROLS
+  1. `oracle` MATCH. 2. Every input at its pin. 3. `NVRTC moe unit` printed, no fallback line, `provenance.moe`
+  four, 192 launches a step. 4. 24 resident layers in both arms.
+
+READING TABLE, against the prediction signed before the run
+  quantity                               predicted          measured     inside
+  NVRTC accepts the source, first try    probability 0.6    yes          yes
+  logits identical byte for byte         probability 0.7    yes          yes
+  median step, one                       0.155 to 0.170 s   0.1636 s     yes
+  median step, four                      0.055 to 0.095 s   0.1093 s     no, slower
+  billed                                 0.2 to 0.35 h      0.06 h       no, under
+
+  The four-launch step came out slower than predicted. The coordinator had charged the experts with two thirds of
+  the step; they held one third (0.054 s of 0.164). What remains, 0.109 s, is the attention, the glue, the routing
+  read back to the host at each of the 48 visits and candle's activation, none of them touched here.
+
+WHAT THIS DOES NOT READ
+  A served speed, a quality figure, any rival. Rule 5: these tok/s are not compared with the Mac's.

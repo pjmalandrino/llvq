@@ -1,0 +1,7 @@
+inkrun --moe one exit 0
+inkrun --moe four exit 0
+logits: IDENTICAL byte for byte
+one: median step 0.1636 s [0.1603, 0.1724], 6.11 tok/s; lattice launches a step [1920]; GB at the end 10.446; tokens equal to the Mac's: True (prefix 32 of 32); provenance moe one
+one tokens [151172, 149881, 149876, 220, 68286, 22, 151848, 149917, 220, 37558, 196981, 150266, 149884, 150056, 151304, 149887, 150085, 151172, 149891, 220, 37402, 220, 38028, 220, 46099, 149881, 149876, 220, 68286, 23, 151848, 149917]
+four: median step 0.1093 s [0.1062, 0.1222], 9.15 tok/s; lattice launches a step [192]; GB at the end 10.446; tokens equal to the Mac's: True (prefix 32 of 32); provenance moe four
+four tokens [151172, 149881, 149876, 220, 68286, 22, 151848, 149917, 220, 37558, 196981, 150266, 149884, 150056, 151304, 149887, 150085, 151172, 149891, 220, 37402, 220, 38028, 220, 46099, 149881, 149876, 220, 68286, 23, 151848, 149917]
