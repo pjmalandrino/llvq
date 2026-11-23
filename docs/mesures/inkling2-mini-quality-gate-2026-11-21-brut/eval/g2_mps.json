@@ -1,0 +1,12 @@
+{
+  "gate": "G2",
+  "device": "mps",
+  "ntok": 256,
+  "max_abs_diff_logits": 0.0,
+  "mean_abs_diff_logits": 0.0,
+  "top1_same_all": true,
+  "top1_same_count": 256,
+  "logit_absmax": 29.742517471313477,
+  "sec_executor": 69.96035504341125,
+  "sec_library": 54.65404915809631
+}

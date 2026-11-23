@@ -1,0 +1,14 @@
+{
+ "window": 1,
+ "kl_mean": 0.08056052774190903,
+ "kl_max": 2.268273115158081,
+ "top1_agree": 0.8720077872276306,
+ "nll_teacher": 2.0985589027404785,
+ "nll_arm": 2.1595187187194824,
+ "spec": "experts:all=dir:/Users/pjmalandrino/llvq-inkling-mini/layers;model.embed_tokens.weight=table:/Users/pjmalandrino/llvq-inkling-mini/lot1-b/tables/embed.q4g64.llvqraw;lm_head.weight=table:/Users/pjmalandrino/llvq-inkling-mini/lot1-b/tables/unembed.q4g64.llvqraw",
+ "spec_sha": "1d5b68e75097fbf6",
+ "tokens_fingerprint_of_8": "f1acc067bf1b610c",
+ "device": "mps",
+ "n_substituted": 2,
+ "sec_job": 101.6836507320404
+}

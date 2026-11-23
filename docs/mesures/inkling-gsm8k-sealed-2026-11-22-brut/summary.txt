@@ -1,0 +1,6 @@
+inkgsm exit 0 (0 finished, 3 deadline: resume with RESUME_FROM=inkling-gsm8k-card-2026-11-22-r2)
+rows in the dump: 201 lines after the header, the trailer included when finished
+/out/inkling-gsm8k-card-2026-11-22-r2/inkgsm.jsonl: 1 rows re-graded by llvq_llm::gsm8k, 4 cut by the cap counted wrong
+    thinkingmachines/Inkling-2-Mini | llvq engine, routed experts resident in lattice codes | effort none | max_new 1536
+    191/200 right = 95.50 % ± 1.47 (binomial SE), cut by the cap (1536) 4 (counted wrong); generated mean 369.4 tokens; decode 0.157 s a token, prefill 1.43 s a problem, 59.6 s a problem in all
+200 problems: median step 0.1570 s, generated mean 369.4 max 1536, cut by the cap 4, seconds a problem mean 59.6, turns refused by the parser 4

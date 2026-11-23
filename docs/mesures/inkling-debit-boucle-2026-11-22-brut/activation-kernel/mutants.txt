@@ -1,0 +1,65 @@
+== am1_product_order
+sites 1
+exit 101
+test act_is_candle_on_pairs ... FAILED
+test act_refuses_another_shape ... ok
+test probe_is_candle_on_every_f32 ... ok
+test probe_is_candle_on_structured_values ... ok
+test result: FAILED. 3 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 15.38s
+error: test failed, to rerun pass `-p llvq-llm --test inkling_moe_act`
+sites 1
+restored, sha 1149b686ac647320ed41afa1f06f121f85da4b3a96f668cbbc6a4f56f02e792a
+== am2_caps_swapped
+sites 1
+exit 101
+test act_is_candle_on_pairs ... FAILED
+test act_refuses_another_shape ... ok
+test probe_is_candle_on_every_f32 ... ok
+test probe_is_candle_on_structured_values ... ok
+test result: FAILED. 3 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 15.50s
+error: test failed, to rerun pass `-p llvq-llm --test inkling_moe_act`
+sites 1
+restored, sha 1149b686ac647320ed41afa1f06f121f85da4b3a96f668cbbc6a4f56f02e792a
+== am3_precise_exp
+sites 1
+exit 101
+test act_is_candle_on_pairs ... FAILED
+test act_refuses_another_shape ... ok
+test probe_is_candle_on_every_f32 ... FAILED
+test probe_is_candle_on_structured_values ... FAILED
+test result: FAILED. 1 passed; 3 failed; 0 ignored; 0 measured; 0 filtered out; finished in 15.47s
+error: test failed, to rerun pass `-p llvq-llm --test inkling_moe_act`
+sites 1
+restored, sha 1149b686ac647320ed41afa1f06f121f85da4b3a96f668cbbc6a4f56f02e792a
+== am4_ieee_division
+sites 1
+exit 101
+test act_is_candle_on_pairs ... FAILED
+test act_refuses_another_shape ... ok
+test probe_is_candle_on_every_f32 ... FAILED
+test probe_is_candle_on_structured_values ... FAILED
+test result: FAILED. 1 passed; 3 failed; 0 ignored; 0 measured; 0 filtered out; finished in 15.49s
+error: test failed, to rerun pass `-p llvq-llm --test inkling_moe_act`
+sites 1
+restored, sha 1149b686ac647320ed41afa1f06f121f85da4b3a96f668cbbc6a4f56f02e792a
+== am5_scaling_by_division
+sites 1
+exit 101
+test act_is_candle_on_pairs ... FAILED
+test act_refuses_another_shape ... ok
+test probe_is_candle_on_every_f32 ... FAILED
+test probe_is_candle_on_structured_values ... FAILED
+test result: FAILED. 1 passed; 3 failed; 0 ignored; 0 measured; 0 filtered out; finished in 15.69s
+error: test failed, to rerun pass `-p llvq-llm --test inkling_moe_act`
+sites 1
+restored, sha 1149b686ac647320ed41afa1f06f121f85da4b3a96f668cbbc6a4f56f02e792a
+end 03:01:41
+-- am3_precise_exp
+probe on every f32 value (2^32) in 15 s: differing softcap gate 0, sigmoid 41009467, softcap up 0
+probe on 2359791 values: differing softcap gate 0, sigmoid 536626, softcap up 0
+-- am4_ieee_division
+probe on every f32 value (2^32) in 15 s: differing softcap gate 0, sigmoid 28368028, softcap up 0
+probe on 2359791 values: differing softcap gate 0, sigmoid 93696, softcap up 0
+-- am5_scaling_by_division
+probe on every f32 value (2^32) in 15 s: differing softcap gate 0, sigmoid 0, softcap up 408088450
+probe on 2359791 values: differing softcap gate 0, sigmoid 0, softcap up 300439

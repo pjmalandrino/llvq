@@ -1,0 +1,2 @@
+native: thinkingmachines/Inkling-2-Mini @ ed40e7da625f594fc9c4990f5f66be24873c22d7
+rivals: unsloth/Inkling-2-Mini-GGUF @ ae9327c5fbc7333116ba32eee78bb5d2bbefae4f

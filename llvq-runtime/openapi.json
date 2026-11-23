@@ -4,7 +4,11 @@
       "AssistantMessage": {
         "properties": {
           "content": {
-            "type": "string"
+            "description": "Null when the answer is tool calls only.",
+            "type": [
+              "string",
+              "null"
+            ]
           },
           "reasoning": {
             "type": [
@@ -14,11 +18,19 @@
           },
           "role": {
             "type": "string"
+          },
+          "tool_calls": {
+            "items": {
+              "$ref": "#/components/schemas/OaiToolCall"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
           }
         },
         "required": [
-          "role",
-          "content"
+          "role"
         ],
         "type": "object"
       },
@@ -131,6 +143,13 @@
                   "null"
                 ]
               },
+              "parallel_tool_calls": {
+                "description": "`false` is refused: the decode cannot be held to one call.",
+                "type": [
+                  "boolean",
+                  "null"
+                ]
+              },
               "reasoning_effort": {
                 "description": "Absent or `\"none\"`: no reasoning; any other level turns it on.",
                 "type": [
@@ -180,7 +199,15 @@
                   "null"
                 ]
               },
+              "tool_choice": {
+                "description": "`\"auto\"` (the default) or `\"none\"`, which offers no tool. `\"required\"`\nand a named function are refused: the decode is not constrained.",
+                "type": [
+                  "object",
+                  "null"
+                ]
+              },
               "tools": {
+                "description": "Functions the model may call, `{\"type\": \"function\", \"function\":\n{\"name\", \"description\", \"parameters\"}}`. Served for the qwen3 family.",
                 "items": {
                   "type": "object"
                 },
@@ -220,7 +247,7 @@
             ]
           },
           "role": {
-            "description": "`system`, `user` or `assistant`.",
+            "description": "`system`, `user`, `assistant` or `tool`.",
             "type": "string"
           },
           "thinking": {
@@ -230,11 +257,19 @@
             ]
           },
           "tool_calls": {
+            "description": "The calls of an assistant message, `[{\"function\": {\"name\",\n\"arguments\"}}]`, `arguments` an object.",
             "items": {
               "type": "object"
             },
             "type": [
               "array",
+              "null"
+            ]
+          },
+          "tool_name": {
+            "description": "The function a `tool` message answers, when the client names it.",
+            "type": [
+              "string",
               "null"
             ]
           }
@@ -297,6 +332,7 @@
             ]
           },
           "tools": {
+            "description": "Functions the model may call, `{\"type\": \"function\", \"function\":\n{\"name\", \"description\", \"parameters\"}}`. Served for the qwen3 family.",
             "items": {
               "type": "object"
             },
@@ -659,6 +695,22 @@
         ],
         "type": "object"
       },
+      "FunctionCall": {
+        "properties": {
+          "arguments": {
+            "description": "The arguments object as a JSON string.",
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "arguments"
+        ],
+        "type": "object"
+      },
       "GenerateRequest": {
         "properties": {
           "context": {
@@ -937,11 +989,49 @@
             "type": "object"
           },
           "role": {
+            "description": "`system` (or `developer`), `user`, `assistant` or `tool`.",
             "type": "string"
+          },
+          "tool_call_id": {
+            "description": "The call a `tool` message answers: required on a `tool` message.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "tool_calls": {
+            "description": "An assistant message's calls, `[{\"id\", \"type\": \"function\", \"function\":\n{\"name\", \"arguments\"}}]`, `arguments` a JSON string.",
+            "items": {
+              "type": "object"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
           }
         },
         "required": [
           "role"
+        ],
+        "type": "object"
+      },
+      "OaiToolCall": {
+        "properties": {
+          "function": {
+            "$ref": "#/components/schemas/FunctionCall"
+          },
+          "id": {
+            "type": "string"
+          },
+          "type": {
+            "description": "`function`.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "type",
+          "function"
         ],
         "type": "object"
       },

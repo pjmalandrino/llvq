@@ -1,0 +1,42 @@
+NVIDIA L4, 8.9, 23034 MiB, 0 MiB, 620.70.06
+Filesystem      Size  Used Avail Use% Mounted on
+overlay         419G   40G  380G  10% /
+overlay         419G   40G  380G  10% /
+== control 1: oracle on this backend ==
+Qwen/Qwen3-0.6B on Cuda(CudaDevice(DeviceId(1))) — max |Δhidden| = 0.000e0   (relative to max|h| = 8.550e1) → 0.000e0
+MATCH — the observable forward reproduces candle's Qwen3
+== control 2: inputs to local disk, at their pins ==
+Sun Nov 22 19:08:57 UTC 2026
+Sun Nov 22 19:10:12 UTC 2026
+3d271ca52a039a63a68758520c0a8279f1f861016b32e0112221486239baf5ff  /scratch/inkling/config.json
+aaa23ae8b86c57c9198e102729cac6efcdb8fda2e42d4d8dd06bee50ce5576e8  /scratch/inkling/model.safetensors
+0f09e3e902b72965d8b2e146cda116b901273861a56ea13e2aeb5f886c216cdf  /scratch/inkling/tokens.json
+2d8d702ff0885dde9a46f3422d167ed13f65b1ea50892a9af2df0a4380cf5eb1  /scratch/inkling/codes.sha256
+Sun Nov 22 19:10:57 UTC 2026
+== (1) inkrun: 24 layers resident, 32 greedy tokens ==
+inkrun: dense weights on cuda in 0.3 s
+NVRTC source: 89305 bytes, sha256 b7b40685cb269c0111e2ed04d1a24927e39bbd607e366831dbf26c8b5ae379b7 (9 parts), tile 64 (served: measured optimum for sm_89), prefill 4x128 (served pair), 49152 B staged of 49152, target compute_89
+inkrun: 24 layers resident in 37.8 s: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23]
+inkrun: prefill of 32 tokens in 0.79 s
+inkrun: 32 tokens, median step 0.166 s, equal to the reference: Some(true) (first mismatch None), report /out/inkling-first-card-2026-11-22/inkrun.json
+0 MiB, 23034 MiB
+inkrun exit 0
+resident layers 24: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23]
+GB used (driver): before 0.214, after dense 4.106, after experts 10.112, end 10.446
+load: dense 0.3 s, experts 37.8 s; prefill of 32 tokens 0.79 s
+steps: 31, median 0.1656 s [0.1616, 0.1742], 6.04 tok/s at the median step
+lattice launches: prefill 22210, a step [1920]
+tokens equal to the Mac's resident run: True (equal prefix 32 of 32); min top-2 margin 0.006298
+tokens [151172, 149881, 149876, 220, 68286, 22, 151848, 149917, 220, 37558, 196981, 150266, 149884, 150056, 151304, 149887, 150085, 151172, 149891, 220, 37402, 220, 38028, 220, 46099, 149881, 149876, 220, 68286, 23, 151848, 149917]
+total 17
+drwxr-xr-x.   2 root   root        0 Nov 22 19:11 .
+drwxrwxrwx. 278 nobody nogroup     0 Nov 22 19:08 ..
+-rw-r--r--.   1 root   root        0 Nov 22 19:10 codes-check.txt
+-rw-r--r--.   1 root   root      129 Nov 22 19:08 disk.txt
+-rw-r--r--.   1 root   root      387 Nov 22 19:11 files.sha256
+-rw-r--r--.   1 root   root       17 Nov 22 19:11 gpu-after.txt
+-rw-r--r--.   1 root   root       44 Nov 22 19:08 gpu-before.txt
+-rw-r--r--.   1 root   root    12209 Nov 22 19:11 inkrun.json
+-rw-r--r--.   1 root   root      583 Nov 22 19:10 inkrun.txt
+-rw-r--r--.   1 root   root      377 Nov 22 19:08 oracle.txt
+-rw-r--r--.   1 root   root      718 Nov 22 19:11 summary.txt

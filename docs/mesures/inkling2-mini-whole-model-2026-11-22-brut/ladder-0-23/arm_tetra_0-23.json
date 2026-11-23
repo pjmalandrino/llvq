@@ -1,0 +1,116 @@
+{
+  "arm": "tetra_0-23",
+  "spec": "0-23=dir:/Users/pjmalandrino/llvq-inkling-mini/layers",
+  "layers": {
+    "0": "dir:/Users/pjmalandrino/llvq-inkling-mini/layers",
+    "1": "dir:/Users/pjmalandrino/llvq-inkling-mini/layers",
+    "2": "dir:/Users/pjmalandrino/llvq-inkling-mini/layers",
+    "3": "dir:/Users/pjmalandrino/llvq-inkling-mini/layers",
+    "4": "dir:/Users/pjmalandrino/llvq-inkling-mini/layers",
+    "5": "dir:/Users/pjmalandrino/llvq-inkling-mini/layers",
+    "6": "dir:/Users/pjmalandrino/llvq-inkling-mini/layers",
+    "7": "dir:/Users/pjmalandrino/llvq-inkling-mini/layers",
+    "8": "dir:/Users/pjmalandrino/llvq-inkling-mini/layers",
+    "9": "dir:/Users/pjmalandrino/llvq-inkling-mini/layers",
+    "10": "dir:/Users/pjmalandrino/llvq-inkling-mini/layers",
+    "11": "dir:/Users/pjmalandrino/llvq-inkling-mini/layers",
+    "12": "dir:/Users/pjmalandrino/llvq-inkling-mini/layers",
+    "13": "dir:/Users/pjmalandrino/llvq-inkling-mini/layers",
+    "14": "dir:/Users/pjmalandrino/llvq-inkling-mini/layers",
+    "15": "dir:/Users/pjmalandrino/llvq-inkling-mini/layers",
+    "16": "dir:/Users/pjmalandrino/llvq-inkling-mini/layers",
+    "17": "dir:/Users/pjmalandrino/llvq-inkling-mini/layers",
+    "18": "dir:/Users/pjmalandrino/llvq-inkling-mini/layers",
+    "19": "dir:/Users/pjmalandrino/llvq-inkling-mini/layers",
+    "20": "dir:/Users/pjmalandrino/llvq-inkling-mini/layers",
+    "21": "dir:/Users/pjmalandrino/llvq-inkling-mini/layers",
+    "22": "dir:/Users/pjmalandrino/llvq-inkling-mini/layers",
+    "23": "dir:/Users/pjmalandrino/llvq-inkling-mini/layers"
+  },
+  "windows": 8,
+  "ctx": 2048,
+  "tokens_fingerprint": "f1acc067bf1b610c",
+  "positions_per_window": 2047,
+  "kl_mean": 0.08336472604423761,
+  "kl_ci95": [
+    0.0736763970926404,
+    0.09189206953160464
+  ],
+  "top1_agree": 0.8896556124091148,
+  "nll_teacher": 1.8240511566400528,
+  "nll_arm": 1.88358373939991,
+  "nll_diff_mean": 0.05953258275985718,
+  "nll_diff_ci95": [
+    0.05380892753601074,
+    0.06518957018852234
+  ],
+  "per_window": [
+    {
+      "window": 0,
+      "kl_mean": 0.06434604525566101,
+      "kl_max": 3.944139003753662,
+      "top1_agree": 0.9174401760101318,
+      "nll_teacher": 1.615234375,
+      "nll_arm": 1.6852529048919678
+    },
+    {
+      "window": 1,
+      "kl_mean": 0.0767572894692421,
+      "kl_max": 2.1526827812194824,
+      "top1_agree": 0.8754274845123291,
+      "nll_teacher": 2.0985589027404785,
+      "nll_arm": 2.155257225036621
+    },
+    {
+      "window": 2,
+      "kl_mean": 0.06300278753042221,
+      "kl_max": 2.8814620971679688,
+      "top1_agree": 0.898876428604126,
+      "nll_teacher": 2.215076208114624,
+      "nll_arm": 2.2629547119140625
+    },
+    {
+      "window": 3,
+      "kl_mean": 0.10332649946212769,
+      "kl_max": 4.982637405395508,
+      "top1_agree": 0.8744503855705261,
+      "nll_teacher": 2.0471668243408203,
+      "nll_arm": 2.109844207763672
+    },
+    {
+      "window": 4,
+      "kl_mean": 0.09102035313844681,
+      "kl_max": 5.624096393585205,
+      "top1_agree": 0.8788471221923828,
+      "nll_teacher": 1.8723208904266357,
+      "nll_arm": 1.9323655366897583
+    },
+    {
+      "window": 5,
+      "kl_mean": 0.08965195715427399,
+      "kl_max": 2.448852300643921,
+      "top1_agree": 0.893991231918335,
+      "nll_teacher": 1.7025995254516602,
+      "nll_arm": 1.7741401195526123
+    },
+    {
+      "window": 6,
+      "kl_mean": 0.08911772072315216,
+      "kl_max": 2.622195243835449,
+      "top1_agree": 0.8915486335754395,
+      "nll_teacher": 1.2642767429351807,
+      "nll_arm": 1.323788046836853
+    },
+    {
+      "window": 7,
+      "kl_mean": 0.08969515562057495,
+      "kl_max": 3.7450079917907715,
+      "top1_agree": 0.8866634368896484,
+      "nll_teacher": 1.777175784111023,
+      "nll_arm": 1.825067162513733
+    }
+  ],
+  "device": "mps",
+  "sec": 175.49535703659058,
+  "bootstrap": "10000 resamples of windows, seed 0, percentile"
+}

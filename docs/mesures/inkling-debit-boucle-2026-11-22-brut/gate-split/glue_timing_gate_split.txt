@@ -1,0 +1,7 @@
+timing sliding, no messages / kernels, ids on device: 1000 visits, median 87.6 ms [87.3, 88.3] over 5 rounds, 87.6 us a visit
+timing full, messages / kernels, ids on device: 1000 visits, median 221.1 ms [210.0, 221.4] over 5 rounds, 221.1 us a visit
+timing full, no messages / kernels, ids on device: 1000 visits, median 92.9 ms [92.4, 93.3] over 5 rounds, 92.9 us a visit
+timing sliding, messages / kernels, ids on device: 1000 visits, median 211.1 ms [202.9, 216.4] over 5 rounds, 211.1 us a visit
+test pre_gate_split_is_bit_exact ... ok
+test router_split_is_bit_exact ... ok
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 43.19s

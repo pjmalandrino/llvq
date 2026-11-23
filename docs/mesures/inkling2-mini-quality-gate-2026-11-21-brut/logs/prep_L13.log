@@ -1,0 +1,10 @@
+W1122 03:26:24.597000 62100 torch/distributed/elastic/multiprocessing/redirects.py:35] NOTE: Redirects are currently not supported in MacOs.
+  L13 expert 16/128  9s
+  L13 expert 32/128  12s
+  L13 expert 48/128  16s
+  L13 expert 64/128  23s
+  L13 expert 80/128  29s
+  L13 expert 96/128  34s
+  L13 expert 112/128  39s
+  L13 expert 128/128  44s
+{"layer": 13, "out": "/Users/pjmalandrino/llvq-inkling-mini/layers/L13", "sec": 43.53145503997803}

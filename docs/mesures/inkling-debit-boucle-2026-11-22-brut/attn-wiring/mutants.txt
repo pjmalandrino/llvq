@@ -1,0 +1,61 @@
+== aw1_kv_states_swapped
+sites 1
+exit 101
+test fused_attn_from_an_empty_cache_metal ... ok
+test fused_attn_holds_no_f32_matrices_metal ... ok
+test fused_attn_is_refused_on_the_cpu ... ok
+test fused_attn_rings_mark_rollback_clone_metal ... FAILED
+test fused_attn_tracks_candle_attn_metal ... FAILED
+test result: FAILED. 3 passed; 2 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.68s
+error: test failed, to rerun pass `-p llvq-llm --test inkling_wave3_attn`
+sites 1
+restored, sha ff7c1bf314599d3376211470bb5394c58a0c65fad33e68a96e9a7b8aaf1281d5
+== aw2_position_late
+sites 1
+exit 101
+test fused_attn_from_an_empty_cache_metal ... FAILED
+test fused_attn_holds_no_f32_matrices_metal ... ok
+test fused_attn_is_refused_on_the_cpu ... ok
+test fused_attn_rings_mark_rollback_clone_metal ... ok
+test fused_attn_tracks_candle_attn_metal ... FAILED
+test result: FAILED. 3 passed; 2 failed; 0 ignored; 0 measured; 0 filtered out; finished in 3.65s
+error: test failed, to rerun pass `-p llvq-llm --test inkling_wave3_attn`
+sites 1
+restored, sha ff7c1bf314599d3376211470bb5394c58a0c65fad33e68a96e9a7b8aaf1281d5
+== aw3_prompt_reads_stale_states
+sites 1
+exit 101
+test fused_attn_from_an_empty_cache_metal ... ok
+test fused_attn_holds_no_f32_matrices_metal ... ok
+test fused_attn_is_refused_on_the_cpu ... ok
+test fused_attn_rings_mark_rollback_clone_metal ... FAILED
+test fused_attn_tracks_candle_attn_metal ... ok
+test result: FAILED. 4 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 3.81s
+error: test failed, to rerun pass `-p llvq-llm --test inkling_wave3_attn`
+sites 1
+restored, sha ff7c1bf314599d3376211470bb5394c58a0c65fad33e68a96e9a7b8aaf1281d5
+== aw4_rollback_keeps_rings
+sites 1
+exit 101
+test fused_attn_from_an_empty_cache_metal ... ok
+test fused_attn_holds_no_f32_matrices_metal ... ok
+test fused_attn_is_refused_on_the_cpu ... ok
+test fused_attn_rings_mark_rollback_clone_metal ... FAILED
+test fused_attn_tracks_candle_attn_metal ... ok
+test result: FAILED. 4 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 4.14s
+error: test failed, to rerun pass `-p llvq-llm --test inkling_wave3_attn`
+sites 1
+restored, sha ff7c1bf314599d3376211470bb5394c58a0c65fad33e68a96e9a7b8aaf1281d5
+== aw5_rings_not_filled
+sites 1
+exit 101
+test fused_attn_from_an_empty_cache_metal ... ok
+test fused_attn_holds_no_f32_matrices_metal ... ok
+test fused_attn_is_refused_on_the_cpu ... ok
+test fused_attn_rings_mark_rollback_clone_metal ... FAILED
+test fused_attn_tracks_candle_attn_metal ... FAILED
+test result: FAILED. 3 passed; 2 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.57s
+error: test failed, to rerun pass `-p llvq-llm --test inkling_wave3_attn`
+sites 1
+restored, sha ff7c1bf314599d3376211470bb5394c58a0c65fad33e68a96e9a7b8aaf1281d5
+end 23:57:07

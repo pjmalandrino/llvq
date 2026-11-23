@@ -1,0 +1,18 @@
+[stage] RUNNING 
+[0 min billed · 0.00 $]
+NVIDIA L4, 8.9, 23034 MiB, 0 MiB, 620.70.06
+Filesystem      Size  Used Avail Use% Mounted on
+overlay         419G   40G  380G  10% /
+overlay         419G   40G  380G  10% /
+== control 1: oracle on this backend ==
+[metrics] stream attached
+[2 min billed · 0.03 $]
+[4 min billed · 0.06 $]
+[stage] CANCELED 
+[0 min billed · 0.00 $]
+
+[end] CANCELED: 0.00 h billed, 0.00 $
+
+[VRAM] peak 10.506 GB · mean 7.064 GB · p50 10.378 · p95 10.506
+       73 samples over 343 s (4.76 s apart)
+       series written to /Users/pjmalandrino/llvq-inkling-mini/lot4-coord/gsm8k_card_metrics.json

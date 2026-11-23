@@ -1,0 +1,13 @@
+[stage] SCHEDULING Pulling container image
+[0 min billed · 0.00 $]
+[metrics] stream attached
+[stage] RUNNING 
+[2 min billed · 0.03 $]
+[stage] COMPLETED 
+[3 min billed · 0.04 $]
+
+[end] COMPLETED: 0.05 h billed, 0.04 $
+
+[VRAM] peak 9.930 GB · mean 3.493 GB · p50 5.964 · p95 9.930
+       19 samples over 177 s (9.86 s apart)
+       series written to /Users/pjmalandrino/llvq-inkling-mini/lot4-coord/first_card_metrics.json

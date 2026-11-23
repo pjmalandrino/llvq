@@ -1,0 +1,10 @@
+{
+  "probe_seqs": 2,
+  "len": 2048,
+  "device": "cpu",
+  "threads": 10,
+  "sec": 179.16533398628235,
+  "tok_per_s": 22.86156539810099,
+  "projected_capture_h_131072": 1.592580746544732,
+  "projected_eval_arm_min_16384": 11.94435559908549
+}

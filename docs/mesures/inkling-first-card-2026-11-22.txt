@@ -1,0 +1,43 @@
+INKLING 2 MINI, FIRST RUN ON A CARD, 2026-11-22
+
+RESULT
+  PASSES, on the rule of `proofs/preregistration-inkling-first-card-2026-11-22.md` (timestamped before the run).
+  On one L4 the engine generates the 32 tokens of the Mac's resident run, 32 of 32, with the 24 layers of experts
+  resident in lattice codes, in 10.11 GB after the experts, at 0.166 s a token (*measured*). First launch.
+
+THE RUN
+  Job `6b033da68d268c0fbd2272e7`, `l4x1` (NVIDIA L4, 23,034 MiB, sm_89), image `Pier-Jean/llvq-runner-cuda` at Space
+  sha b959fa385a7713baba9befc7571e6454d4deb8cc, built from commit f05dc6e. 3 minutes billed, $0.04
+  (`ops/run.py monitor`). Raw files: `inkling-first-card-2026-11-22-brut/card/` (the job log, `inkrun.json`,
+  `summary.txt`, the monitor's log and its memory series, the staging log), and `mac-reference/` for the Mac's run.
+
+CONTROLS
+  1. `oracle` on this backend: MATCH, largest hidden gap 0.
+  2. Inputs at their pinned sha256: config, text-only checkpoint, tokens file, manifest; the 24 x 129 manifest lines
+     checked with no failure line.
+  3. 24 resident layers, no native layer.
+  4. Report complete.
+
+THE READING (*measured*)
+  quantity                          predicted (signed)         measured                      inside
+  job ends on its first launch      probability 0.55           yes
+  32 of 32 tokens equal the Mac's   probability 0.6            yes, equal prefix 32 of 32
+  GB after the experts (driver)     11.5 to 12.5               10.112                        no, lower
+  median step                       0.10 to 0.30 s             0.1656 s [0.1616, 0.1742]     yes
+  first tok/s                       3 to 10                    6.04                          yes
+  verdict                           PASSES or near-tie, 0.5    PASSES
+
+  GB the driver reports: before load 0.214, after the dense weights 4.106, after the experts 10.112, at the end
+  10.446. The monitor's series peaks at 9.930 GB (19 samples, 9.86 s apart).
+  Load: dense weights 0.3 s, the 3,072 experts 37.8 s. Prefill of 32 tokens 0.79 s, 22,210 lattice launches.
+  Steps: 31, 1,920 lattice launches each. Smallest top-2 margin of the run 0.0063.
+  The prediction of memory missed low: the dense half takes 3.89 GB on the card where Metal allocated 5.09 GB.
+
+WHAT THIS DOES NOT READ
+  A served speed: it is the eager path, about 1,920 lattice launches and several thousand others a token, with
+  the dense half in f32. Rule 5: this tok/s is not compared with the Mac's, with a Qwen3 figure or with another
+  stack. The whole-model b/param: the dense half is f32 here, not the sealed file's encoding. A prompt longer than
+  32 tokens. Any task.
+
+COST
+  $0.04 for this run. Card spend on this model so far: $0.04 of the $25 the operator set on 2026-11-22.

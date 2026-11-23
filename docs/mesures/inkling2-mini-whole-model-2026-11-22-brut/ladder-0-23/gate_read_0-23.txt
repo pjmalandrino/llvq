@@ -1,0 +1,13 @@
+set {0-23}, 24 layers, 8 windows of 2048, fingerprint f1acc067bf1b610c
+lattice     2.037  KL 0.08336 [0.07368, 0.09189]  top1  88.97 %  dNLL +0.05953 [+0.05381, +0.06519]  ppl x1.0613
+IQ1_S       2.135  KL 0.11393 [0.10250, 0.12640]  top1  86.63 %  dNLL +0.08688 [+0.08266, +0.09198]  ppl x1.0908
+IQ1_M       2.226  KL 0.10014 [0.09094, 0.10996]  top1  87.79 %  dNLL +0.07886 [+0.07315, +0.08563]  ppl x1.0821
+IQ2_XXS     2.372  KL 0.08409 [0.07633, 0.09261]  top1  88.43 %  dNLL +0.06287 [+0.05770, +0.06741]  ppl x1.0649
+Q2_K_XL     2.580  KL 0.06454 [0.05822, 0.07182]  top1  89.85 %  dNLL +0.04236 [+0.03759, +0.04634]  ppl x1.0433
+ladder at 2.0371 bits: 0.11393 (under the lowest rung (IQ1_S)); lattice KL 0.08336; top-1 88.97 %
+GATE on {0-23}: FAIL (top-1 floor)
+outside the rule, paired by window (lattice KL minus rung KL; negative = lattice better):
+  vs IQ1_S    mean -0.03056, lattice better on 8/8 windows, ratio of means 0.732
+  vs IQ1_M    mean -0.01677, lattice better on 8/8 windows, ratio of means 0.832
+  vs IQ2_XXS  mean -0.00072, lattice better on 6/8 windows, ratio of means 0.991
+  vs Q2_K_XL  mean +0.01882, lattice better on 0/8 windows, ratio of means 1.292

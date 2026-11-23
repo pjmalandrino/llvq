@@ -313,6 +313,10 @@ fn source_of(name: &str) -> Result<&'static str> {
         | "tv_q4_metal_rows" => Ok(SRC_Q4_PF),
         "emb_q8_gather_metal" | "tv_q8_metal" => Ok(SRC_Q8),
         "emb_q4_gather_metal" | "tv_emb_q4_metal" => Ok(SRC_E4),
+        "tv_tetra48_metal_lutdrf" => Ok(SRC_TETRA_ROWS_F32),
+        "tv_emb_q4_metal_xf" => Ok(SRC_E4_XF),
+        "moe_rot_metal" => Ok(SRC_MOE_ROT),
+        "moe_tetra_gu_metal" | "moe_tetra_down_metal" => Ok(SRC_MOE_TETRA),
         other => candle_core::bail!("no Metal source carries {other}"),
     }
 }
@@ -2375,6 +2379,1244 @@ fn finish(
         runtime_bytes,
         carried_bytes,
     })
+}
+
+// ---------------------------------------------------------------------------
+// Wave 1 of the Inkling 2 Mini throughput plan (`docs/plan-debit-inkling2-mini.md`).
+//
+// Three additions, none of which touches a served path:
+//   - K1: resident data allocated by the Metal device itself, outside
+//     candle's buffer pool, with the pool's storage mode.
+//   - P1: `tv_tetra48_metal_lutdrf`, the prefill rows kernel storing f32.
+//   - D4: `tv_emb_q4_metal_xf`, the int4 g64 head reading an f32 activation.
+//
+// The two kernels are new text appended to a shipped unit and compiled as a
+// library of their own (`source_of`), so the served pipelines keep their
+// source bytes and their register allocation.
+// ---------------------------------------------------------------------------
+
+/// `tv_tetra48_metal_lutdr` storing f32: the same loop, the same per-row
+/// arithmetic, and the served f32 epilogue `tetra48_rows_epilogue` instead of
+/// the half one. Row r of a chunk is therefore the f32 the served matvec
+/// returns for that row alone. Gated: `tests/inkling_wave1_kernels.rs`.
+macro_rules! tetra_rows_f32_msl {
+    () => {
+        r#"
+// ---------------------------------------------------------------------------
+// tv_tetra48_metal_lutdrf: tv_tetra48_metal_lutdr with f32 rows (plan item P1).
+// ---------------------------------------------------------------------------
+kernel void tv_tetra48_metal_lutdrf(const device uint*   words          [[buffer(0)]],
+                                    constant uint&       row_stride_u32 [[buffer(1)]],
+                                    const device uint*   rows           [[buffer(2)]],
+                                    const device uchar*  prefixes       [[buffer(3)]],
+                                    const device ushort* branches       [[buffer(4)]],
+                                    const device uchar*  suffixes       [[buffer(5)]],
+                                    const device float*  gscale         [[buffer(6)]],
+                                    const device float*  invnorm        [[buffer(7)]],
+                                    const device float*  rscale         [[buffer(8)]],
+                                    const device half*   tail           [[buffer(9)]],
+                                    const device float*  x              [[buffer(10)]],
+                                    device float*        y              [[buffer(11)]],
+                                    constant uint&       nblocks        [[buffer(12)]],
+                                    constant uint&       tail_w         [[buffer(13)]],
+                                    constant uint&       nrows          [[buffer(15)]],
+                                    constant uint&       d_out          [[buffer(16)]],
+                                    uint gid  [[thread_position_in_grid]],
+                                    uint lane [[thread_index_in_simdgroup]])
+{
+    uint row = gid >> 5;
+    const device uint* wrow = words + row * row_stride_u32;
+    F1rTables tab = { rows, prefixes, branches, suffixes };
+    uint d_in = nblocks * 24u + tail_w;
+    float acc[TETRA48_PREFILL_MAX];
+    for (uint r = 0u; r < TETRA48_PREFILL_MAX; ++r) {
+        acc[r] = 0.0f;
+    }
+    for (uint j = lane; j < nblocks; j += 32u) {
+        uint lo, hi16;
+        f1r_load(wrow, j, lo, hi16);
+        F1rV3Block b = f1r_v3_fetch(lo, hi16, tab);
+        uint cs[3] = { b.c1, b.c2, b.c3 };
+        uint rs[3] = { b.row1, b.row2, b.row3 };
+        float v[24];
+        float n2 = 0.0f;
+        for (uint sec = 0u; sec < 3u; ++sec) {
+            uint c = cs[sec];
+            uint rw = rs[sec];
+            for (uint k = 0u; k < 8u; ++k) {
+                uint o = b.p + 2u * ((c >> k) & 1u);
+                uint rho = (rw >> (4u * k)) & 15u;
+                float vv = F1R_VAL[(o << 4) | rho];
+                v[sec * 8u + k] = vv;
+                n2 = fma(vv, vv, n2);
+            }
+        }
+        uint m = (uint(n2) >> 4) & (TETRA48_SHELLS - 1u);
+        uint g = (hi16 >> 15) & 1u;
+        float gs = gscale[g];
+        float inv = invnorm[m];
+        for (uint r = 0u; r < TETRA48_PREFILL_MAX; ++r) {
+            if (r < nrows) {
+                const device float* xb = x + r * d_in + j * 24u;
+                float a = 0.0f;
+                for (uint i = 0u; i < 24u; ++i) {
+                    a = fma(v[i], xb[TETRA48_ORDER[i]], a);
+                }
+                acc[r] += a * gs * inv;
+            }
+        }
+    }
+    for (uint r = 0u; r < TETRA48_PREFILL_MAX; ++r) {
+        if (r < nrows) {
+            tetra48_rows_epilogue(acc[r], row, lane, rscale, tail, x + r * d_in, y + r * d_out,
+                                  nblocks, tail_w);
+        }
+    }
+}
+"#
+    };
+}
+
+/// `tv_emb_q4_metal` reading an f32 activation: the int4 g64 head of a model
+/// that runs in f32 (Inkling 2 Mini), so the hidden state is not narrowed to
+/// f16 on its way in. The staging, the lane order, the dequantization and the
+/// butterfly are `tv_emb_q4_metal`'s text; only the type of `x` changes.
+macro_rules! emb_q4_xf_msl {
+    () => {
+        r#"
+// ---------------------------------------------------------------------------
+// tv_emb_q4_metal_xf: tv_emb_q4_metal with an f32 activation (plan item D4).
+// ---------------------------------------------------------------------------
+kernel void tv_emb_q4_metal_xf(const device uint*  wq     [[buffer(0)]],
+                               const device half*  scales [[buffer(1)]],
+                               const device half*  biases [[buffer(2)]],
+                               const device float* x      [[buffer(3)]],
+                               device float*       y      [[buffer(4)]],
+                               constant uint&      d      [[buffer(5)]],
+                               constant uint&      gpr    [[buffer(6)]],
+                               constant uint&      x_off  [[buffer(7)]],
+                               constant uint&      y_off  [[buffer(8)]],
+                               threadgroup float*  xs     [[threadgroup(0)]],
+                               uint tid  [[thread_position_in_threadgroup]],
+                               uint gid  [[thread_position_in_grid]],
+                               uint tgs  [[threads_per_threadgroup]],
+                               uint lane [[thread_index_in_simdgroup]])
+{
+    uint row = gid >> 5;
+    for (uint i = tid; i < d; i += tgs) {
+        xs[i] = x[x_off + i];
+    }
+    threadgroup_barrier(mem_flags::mem_threadgroup);
+
+    uint nwords = d >> 3;
+    uint w0 = row * nwords;
+    uint s0 = row * gpr;
+    float acc = 0.0f;
+    for (uint wi = lane; wi < nwords; wi += 32u) {
+        uint p = wq[w0 + wi];
+        uint c = wi << 3;
+        half sb = scales[s0 + (c >> 6)];
+        half bb = biases[s0 + (c >> 6)];
+        for (uint k = 0; k < 8u; ++k) {
+            acc = fma(e4_deq((p >> (4u * k)) & 0xfu, sb, bb), xs[c + k], acc);
+        }
+    }
+    acc = e4_warp_sum(acc);
+    if (lane == 0u) {
+        y[y_off + row] = acc;
+    }
+}
+"#
+    };
+}
+
+const SRC_TETRA_ROWS_F32: &str = concat!(
+    include_str!("../kernels/llvq_tetra48.metal"),
+    include_str!("../kernels/llvq_tetra48_rows.metal"),
+    tetra_rows_f32_msl!()
+);
+const SRC_E4_XF: &str = concat!(include_str!("../kernels/emb_q4.metal"), emb_q4_xf_msl!());
+
+impl MetalRuntime {
+    /// A buffer holding `data`, made by the Metal device itself, in the
+    /// storage mode candle's pool uses (`StorageModeShared`), and NOT
+    /// registered in that pool (plan item K1).
+    ///
+    /// candle 0.9.2 registers every `new_buffer_with_data` in its pool, and
+    /// walks the pool at every output allocation (`find_available_buffer`)
+    /// and at every command-buffer flush (`drop_unused_buffers`). A resident
+    /// Inkling layer puts 2,048 buffers there, 49,152 for 24 layers. A buffer
+    /// made here is freed when its last `Arc` drops, and the allocator can
+    /// never hand it out as scratch (trap 3 of this file's header).
+    fn buffer_outside_pool<T>(&self, data: &[T]) -> Result<Arc<Buffer>> {
+        let size = core::mem::size_of_val(data);
+        if size == 0 {
+            candle_core::bail!("Metal refuses a zero-length buffer");
+        }
+        let b = self
+            .device
+            .device()
+            .new_buffer_with_data(data.as_ptr().cast(), size, objc2_metal::MTLResourceOptions::StorageModeShared)
+            .map_err(|e| candle_core::Error::msg(format!("a buffer of {size} B outside the pool: {e:?}")))?;
+        Ok(Arc::new(b))
+    }
+
+    /// [`Self::upload_stream`] with every buffer outside candle's pool: the
+    /// same checks, the same bytes, another allocator. The resident Inkling
+    /// experts use it; no served path does.
+    #[allow(clippy::too_many_arguments)]
+    pub fn upload_stream_unpooled(
+        &self,
+        name: &str,
+        d_out: usize,
+        d_in: usize,
+        nblocks: usize,
+        row_stride_u32: usize,
+        words: &[u32],
+        gscale: &[f32; 2],
+        rscale: &[f32],
+        tail: &[u16],
+    ) -> Result<MetalTetraProj> {
+        // The checks of `upload`, in its order and with its messages.
+        let rows_per_group = GROUP / LANES;
+        if !d_out.is_multiple_of(rows_per_group) {
+            candle_core::bail!(
+                "{name}: d_out {d_out} is not a multiple of {rows_per_group}. The kernel \
+                 carries no row guard, so a partial threadgroup would compute and STORE \
+                 rows past the output"
+            );
+        }
+        if nblocks * llvq_core::DIM > d_in {
+            candle_core::bail!("{name}: {nblocks} blocks for d_in {d_in}");
+        }
+        let tail_w = d_in - nblocks * llvq_core::DIM;
+        if rscale.len() != d_out {
+            candle_core::bail!("{name}: {} row scales for {d_out} rows", rscale.len());
+        }
+        if tail.len() != d_out * tail_w {
+            candle_core::bail!("{name}: {} tail values for {d_out}x{tail_w}", tail.len());
+        }
+        let want_stride = llvq_artifact::tetra48::stride_u32(nblocks);
+        if row_stride_u32 != want_stride {
+            candle_core::bail!(
+                "{name}: row stride {row_stride_u32} for {nblocks} blocks, which wants \
+                 {want_stride}"
+            );
+        }
+        let want_words = d_out * row_stride_u32;
+        if words.len() != want_words && words.len() != want_words + 1 {
+            candle_core::bail!(
+                "{name}: {} stream words for {d_out} rows of {row_stride_u32} words, which \
+                 wants {want_words} or {want_words} plus one guard word",
+                words.len()
+            );
+        }
+        let dummy = [0u16];
+        let tail_src = if tail.is_empty() { &dummy[..] } else { tail };
+        // The words as the reader hands them back: on this little-endian
+        // machine the same bytes `upload_stream` builds by hand.
+        Ok(MetalTetraProj {
+            name: name.to_string(),
+            d_out,
+            d_in,
+            nblocks,
+            tail_w,
+            row_stride_u32,
+            words: self.buffer_outside_pool(words)?,
+            gscale: self.buffer_outside_pool(gscale)?,
+            rscale: self.buffer_outside_pool(rscale)?,
+            tail: self.buffer_outside_pool(tail_src)?,
+            host: self.tables.host.is_some().then(|| HostProj {
+                words: words.iter().flat_map(|w| w.to_le_bytes()).collect(),
+                gscale: gscale.to_vec(),
+                rscale: rscale.to_vec(),
+                tail: tail.to_vec(),
+            }),
+        })
+    }
+
+    /// [`Self::upload_rotation`] with both tables outside candle's pool.
+    pub fn upload_rotation_unpooled(&self, t: &crate::fused::RotationTables) -> Result<MetalRotation> {
+        let dummy = [0f32];
+        let small = if t.small.is_empty() { &dummy[..] } else { &t.small };
+        Ok(MetalRotation {
+            signbits: self.buffer_outside_pool(&t.signbits)?,
+            small: self.buffer_outside_pool(small)?,
+            n: t.n as u32,
+            m: t.m as u32,
+            k: t.k as u32,
+            inv: t.inv,
+            threads: (t.n as u32).next_power_of_two().clamp(32, 1024) as usize,
+        })
+    }
+
+    /// `Y = W X` for `n_rows` rotated rows `[n_rows, d_in]` in f32, one launch
+    /// of `tv_tetra48_metal_lutdrf`, as f32 `[n_rows, d_out]`. Row r is the
+    /// served matvec of row r, bit for bit (plan item P1). Same bounds as
+    /// [`Self::matvec_rows`].
+    pub fn matvec_rows_f32(&self, proj: &MetalTetraProj, x: &Tensor, n_rows: usize) -> Result<Tensor> {
+        if n_rows == 0 || n_rows > self.prefill_rows.max(1) || n_rows > TETRA_PREFILL_MAX {
+            candle_core::bail!(
+                "{}: {n_rows} rows for a prefill launch of at most {} (kernel bound {TETRA_PREFILL_MAX})",
+                proj.name,
+                self.prefill_rows
+            );
+        }
+        x.apply_op1_no_bwd(&TetraRowsF32 { rt: self, proj, n_rows })
+    }
+
+    /// Logits `h W^T` of an int4 g64 table for `h` `[rows, d]` in f32, as f32
+    /// `[rows, vocab]`: one launch of `tv_emb_q4_metal_xf` a row, the f32
+    /// activation staged as it arrives (plan item D4).
+    pub fn head_q4_f32(&self, t: &MetalEmbedTable, h: &Tensor) -> Result<Tensor> {
+        if t.bits != 4 {
+            candle_core::bail!("{}: int{}, the f32 head reads int4", t.name, t.bits);
+        }
+        let d = *h.dims().last().expect("rank >= 1");
+        if d != t.d {
+            candle_core::bail!("{}: hidden of {d} for d={}", t.name, t.d);
+        }
+        let h = h.to_dtype(DType::F32)?.contiguous()?;
+        h.apply_op1_no_bwd(&HeadF32Op { rt: self, t })
+    }
+}
+
+impl MetalTetraProj {
+    /// Device bytes of the four buffers (words, gain scales, row scales,
+    /// tail): what a report counts.
+    pub fn device_bytes(&self) -> u64 {
+        (self.words.length() + self.gscale.length() + self.rscale.length() + self.tail.length()) as u64
+    }
+}
+
+/// One launch of `tv_tetra48_metal_lutdrf`, as a candle op.
+struct TetraRowsF32<'a> {
+    rt: &'a MetalRuntime,
+    proj: &'a MetalTetraProj,
+    n_rows: usize,
+}
+
+impl CustomOp1 for TetraRowsF32<'_> {
+    fn name(&self) -> &'static str {
+        "tetra48-rows-f32"
+    }
+
+    fn cpu_fwd(&self, _: &CpuStorage, _: &Layout) -> Result<(CpuStorage, Shape)> {
+        candle_core::bail!(
+            "{}: the f32 prefill kernel runs on Metal only; its reference is the matvec, row by row",
+            self.proj.name
+        )
+    }
+
+    fn metal_fwd(&self, storage: &MetalStorage, layout: &Layout) -> Result<(MetalStorage, Shape)> {
+        let p = self.proj;
+        if storage.dtype() != DType::F32 {
+            candle_core::bail!("{}: prefill rows in f32 only, got {:?}", p.name, storage.dtype());
+        }
+        if !layout.is_contiguous() {
+            candle_core::bail!("{}: prefill rows must be contiguous", p.name);
+        }
+        if layout.dims() != [self.n_rows, p.d_in] {
+            candle_core::bail!(
+                "{}: prefill activation {:?} for [{}, {}]",
+                p.name,
+                layout.dims(),
+                self.n_rows,
+                p.d_in
+            );
+        }
+        if !p.d_out.is_multiple_of(GROUP / LANES) {
+            candle_core::bail!("{}: d_out {} is not a multiple of {} rows", p.name, p.d_out, GROUP / LANES);
+        }
+        let dev = storage.device().clone();
+        let pipe = self.rt.pipeline("tv_tetra48_metal_lutdrf")?;
+        let out = dev.new_buffer(self.n_rows * p.d_out, DType::F32, "tetra48-rows-f32")?;
+        let enc = dev.command_encoder()?;
+        enc.set_compute_pipeline_state(&pipe);
+        let x_off = layout.start_offset() * DType::F32.size_in_bytes();
+        use candle_metal_kernels::utils::set_param;
+        set_param(&enc, 0, (&*p.words, 0usize));
+        set_param(&enc, 1, p.row_stride_u32 as u32);
+        set_param(&enc, 2, (&*self.rt.tables.rows, 0usize));
+        set_param(&enc, 3, (&*self.rt.tables.prefixes, 0usize));
+        set_param(&enc, 4, (&*self.rt.tables.branches, 0usize));
+        set_param(&enc, 5, (&*self.rt.tables.suffixes, 0usize));
+        set_param(&enc, 6, (&*p.gscale, 0usize));
+        set_param(&enc, 7, (&*self.rt.tables.invnorm, 0usize));
+        set_param(&enc, 8, (&*p.rscale, 0usize));
+        set_param(&enc, 9, (&*p.tail, 0usize));
+        set_param(&enc, 10, (storage.buffer(), x_off));
+        set_param(&enc, 11, (&*out, 0usize));
+        set_param(&enc, 12, p.nblocks as u32);
+        set_param(&enc, 13, p.tail_w as u32);
+        set_param(&enc, 15, self.n_rows as u32);
+        set_param(&enc, 16, p.d_out as u32);
+        for b in [
+            &*p.words,
+            &*self.rt.tables.rows,
+            &*self.rt.tables.prefixes,
+            &*self.rt.tables.branches,
+            &*self.rt.tables.suffixes,
+            &*p.gscale,
+            &*self.rt.tables.invnorm,
+            &*p.rscale,
+            &*p.tail,
+            storage.buffer(),
+        ] {
+            enc.use_resource(b, objc2_metal::MTLResourceUsage::Read);
+        }
+        enc.use_resource(&*out, objc2_metal::MTLResourceUsage::Write);
+        enc.dispatch_threads(
+            objc2_metal::MTLSize { width: p.d_out * LANES, height: 1, depth: 1 },
+            objc2_metal::MTLSize { width: GROUP, height: 1, depth: 1 },
+        );
+        Ok((
+            MetalStorage::new(out, dev, self.n_rows * p.d_out, DType::F32),
+            Shape::from((self.n_rows, p.d_out)),
+        ))
+    }
+}
+
+/// `tv_emb_q4_metal_xf`, one launch a row, as a candle op.
+struct HeadF32Op<'a> {
+    rt: &'a MetalRuntime,
+    t: &'a MetalEmbedTable,
+}
+
+impl CustomOp1 for HeadF32Op<'_> {
+    fn name(&self) -> &'static str {
+        "llvq-metal-q4-head-f32"
+    }
+    fn cpu_fwd(&self, _: &CpuStorage, _: &Layout) -> Result<(CpuStorage, Shape)> {
+        candle_core::bail!("{}: the int4 f32 head has no CPU path", self.t.name)
+    }
+    fn metal_fwd(&self, storage: &MetalStorage, layout: &Layout) -> Result<(MetalStorage, Shape)> {
+        let t = self.t;
+        if storage.dtype() != DType::F32 {
+            candle_core::bail!("{}: the f32 head reads f32, got {:?}", t.name, storage.dtype());
+        }
+        let (start, end) = layout
+            .contiguous_offsets()
+            .ok_or_else(|| candle_core::Error::msg(format!("{}: non-contiguous hidden", t.name)))?;
+        let rows = (end - start) / t.d;
+        if rows == 0 || rows * t.d != end - start {
+            candle_core::bail!("{}: {} values is not a whole number of rows of {}", t.name, end - start, t.d);
+        }
+        // The kernel's own limits: no row guard (8 rows a threadgroup), the
+        // activation staged whole, every index a u32.
+        if !t.vocab.is_multiple_of(GROUP / LANES) {
+            candle_core::bail!("{}: {} rows is not a multiple of {}", t.name, t.vocab, GROUP / LANES);
+        }
+        let staged = t.d * DType::F32.size_in_bytes();
+        if staged > THREADGROUP_LIMIT {
+            candle_core::bail!("{}: staging d={} wants {staged} B against {THREADGROUP_LIMIT}", t.name, t.d);
+        }
+        let reach = [rows * t.vocab, t.vocab * (t.d / 8), t.vocab * t.gpr, start + rows * t.d];
+        if reach.iter().any(|&v| v > u32::MAX as usize) || t.vocab * LANES > u32::MAX as usize {
+            candle_core::bail!("{}: an index past u32 ({reach:?})", t.name);
+        }
+        let pipe = self.rt.pipeline("tv_emb_q4_metal_xf")?;
+        let dev = storage.device().clone();
+        let out = dev.new_buffer(rows * t.vocab, DType::F32, "llvq-metal-q4-head-f32")?;
+        use candle_metal_kernels::utils::set_param;
+        for r in 0..rows {
+            let enc = dev.command_encoder()?;
+            enc.set_compute_pipeline_state(&pipe);
+            set_param(&enc, 0, (&*t.wq, 0usize));
+            set_param(&enc, 1, (&*t.scales, 0usize));
+            set_param(&enc, 2, (&*t.biases, 0usize));
+            set_param(&enc, 3, (storage.buffer(), 0usize));
+            set_param(&enc, 4, (&*out, 0usize));
+            set_param(&enc, 5, t.d as u32);
+            set_param(&enc, 6, t.gpr as u32);
+            set_param(&enc, 7, (start + r * t.d) as u32);
+            set_param(&enc, 8, (r * t.vocab) as u32);
+            enc.set_threadgroup_memory_length(0, staged);
+            for b in [&*t.wq, &*t.scales, &*t.biases, storage.buffer()] {
+                enc.use_resource(b, objc2_metal::MTLResourceUsage::Read);
+            }
+            enc.use_resource(&*out, objc2_metal::MTLResourceUsage::Write);
+            enc.dispatch_threads(
+                objc2_metal::MTLSize { width: t.vocab * LANES, height: 1, depth: 1 },
+                objc2_metal::MTLSize { width: GROUP, height: 1, depth: 1 },
+            );
+        }
+        let mut dims = layout.dims().to_vec();
+        *dims.last_mut().expect("rank >= 1") = t.vocab;
+        Ok((MetalStorage::new(out, dev, rows * t.vocab, DType::F32), Shape::from(dims)))
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Wave 2 of the Inkling 2 Mini throughput plan, item D3: the routed experts
+// of one decoded token in four launches.
+//
+// The layout. Every record of a layer's experts (Tetra48 words, gain scales,
+// row scales, tails, rotation sign bits and odd blocks) sits in ONE Metal
+// placement heap, outside candle's pool. Two kinds of buffers alias it:
+//   - one slab buffer over the whole heap, which the new kernels index with
+//     the per-expert offsets of a small table (`MoeExpertOff` in the MSL);
+//   - one buffer per record, at the record's offset, which is what a
+//     `MetalTetraProj` or a `MetalRotation` holds, so the one-expert-at-a-time
+//     path reads the same bytes through the served host ops, unchanged.
+// One copy of the bytes, at a 256-byte alignment a record
+// (`heapBufferSizeAndAlignWithLength`, measured on the M3 Max).
+//
+// The four launches, each reading the routed ids and weights from one small
+// device buffer (`sel`: ids ascending, then the weights' f32 bits):
+//   a. `moe_rot_metal`: the input rotation of the selected experts, one
+//      threadgroup an expert, the body of `rot_apply_rows_metal`;
+//   b. `moe_tetra_gu_metal`: gate and up of the selected experts, one
+//      simdgroup a row, the body of the served `tv_tetra48_metal_lut`;
+//   c. `moe_rot_metal` again, on the activation, into the basis of `down`;
+//   d. `moe_tetra_down_metal`: down of each selected expert, the same body,
+//      each row times its routing weight and summed in ascending expert
+//      order in f32, from +0, with the two roundings of the separate
+//      `mul` and `add` (the unit compiles under `fp contract(off)`).
+// The activation between b and c stays the caller's (candle ops), so its
+// bits are candle's.
+//
+// The new text is appended to a shipped unit and compiled as a library of its
+// own (`source_of`), as wave 1 did, so no served pipeline changes source.
+// ---------------------------------------------------------------------------
+
+/// The per-expert offset record both new libraries read. 16 `u32`, offsets
+/// from the slab base in 4-byte words, tails in 2-byte halves.
+macro_rules! moe_off_msl {
+    () => {
+        r#"
+// ---------------------------------------------------------------------------
+// Plan item D3: where one expert's records sit in its layer's slab.
+// ---------------------------------------------------------------------------
+struct MoeExpertOff {
+    uint words[3];
+    uint rscale[3];
+    uint gscale[3];
+    uint tail[3];
+    uint sign_in;
+    uint small_in;
+    uint sign_down;
+    uint small_down;
+};
+"#
+    };
+}
+
+/// `rot_apply_rows_metal` with the sign bits and the odd block of each row
+/// taken from the routed expert of that row.
+macro_rules! moe_rot_msl {
+    () => {
+        r#"
+// moe_rot_metal: one threadgroup a selected expert, the stages of
+// rot_apply_rows_metal. `which` 0 reads the expert's input rotation, 1 its
+// down rotation. `row_stride` 0 rotates the same input row for every expert.
+kernel void moe_rot_metal(const device ushort*       xin        [[buffer(0)]],
+                          const device uint*         slab       [[buffer(1)]],
+                          const device float*        slabf      [[buffer(2)]],
+                          const device MoeExpertOff* off        [[buffer(3)]],
+                          const device uint*         sel        [[buffer(4)]],
+                          device float*              xout       [[buffer(5)]],
+                          device float*              scratch    [[buffer(6)]],
+                          constant uint&             n          [[buffer(7)]],
+                          constant uint&             m          [[buffer(8)]],
+                          constant uint&             k          [[buffer(9)]],
+                          constant float&            inv        [[buffer(10)]],
+                          constant uint&             x_off      [[buffer(11)]],
+                          constant uint&             row_stride [[buffer(12)]],
+                          constant uint&             which      [[buffer(13)]],
+                          uint tid      [[thread_position_in_threadgroup]],
+                          uint nthreads [[threads_per_threadgroup]],
+                          uint r        [[threadgroup_position_in_grid]])
+{
+    MoeExpertOff o = off[sel[r]];
+    const device uint* signbits = slab + (which == 0u ? o.sign_in : o.sign_down);
+    const device float* small = slabf + (which == 0u ? o.small_in : o.small_down);
+    device float* s = scratch + (ulong)r * (ulong)n;
+
+    rot_load(xin, signbits, s, n, x_off + r * row_stride, tid, nthreads);
+    threadgroup_barrier(mem_flags::mem_device);
+
+    for (uint len = 1u; len < m; len <<= 1) {
+        rot_wht_step(s, n, len, tid, nthreads);
+        threadgroup_barrier(mem_flags::mem_device);
+    }
+
+    device float* out = xout + (ulong)r * (ulong)n;
+    if (k == 1u) {
+        rot_scale_out(s, out, n, inv, tid, nthreads);
+    } else {
+        rot_mix(s, small, out, m, k, inv, tid, nthreads);
+    }
+}
+"#
+    };
+}
+
+/// Gate and up, then down with the weighted sum: the body of the served
+/// `tv_tetra48_metal_lut`, one output row a simdgroup, its pointers taken
+/// from the routed expert.
+macro_rules! moe_tetra_msl {
+    () => {
+        r#"
+// moe_tetra_gu_metal: gate (mat 0) and up (mat 1) of every selected expert.
+// Simdgroup g computes row `row` of matrix `mat` of selected expert `kk`,
+// g = (mat * nsel + kk) * d_out + row, and stores it at y[g], so the output
+// is [2, nsel, d_out]. d_out is a multiple of 8, so the 8 simdgroups of a
+// threadgroup share one expert and one activation row, which is what the
+// staging needs.
+kernel void moe_tetra_gu_metal(const device uint*         slab           [[buffer(0)]],
+                               const device float*        slabf          [[buffer(1)]],
+                               const device half*         slabh          [[buffer(2)]],
+                               const device MoeExpertOff* off            [[buffer(3)]],
+                               const device uint*         sel            [[buffer(4)]],
+                               const device uint*         rows           [[buffer(5)]],
+                               const device uchar*        prefixes       [[buffer(6)]],
+                               const device ushort*       branches       [[buffer(7)]],
+                               const device uchar*        suffixes       [[buffer(8)]],
+                               const device float*        invnorm        [[buffer(9)]],
+                               const device float*        xall           [[buffer(10)]],
+                               device float*              y              [[buffer(11)]],
+                               constant uint&             row_stride_u32 [[buffer(12)]],
+                               constant uint&             nblocks        [[buffer(13)]],
+                               constant uint&             tail_w         [[buffer(14)]],
+                               constant uint&             d_out          [[buffer(15)]],
+                               constant uint&             nsel           [[buffer(16)]],
+                               threadgroup float*         xs             [[threadgroup(0)]],
+                               uint tid  [[thread_position_in_threadgroup]],
+                               uint gid  [[thread_position_in_grid]],
+                               uint tgs  [[threads_per_threadgroup]],
+                               uint lane [[thread_index_in_simdgroup]])
+{
+    uint g = gid >> 5;
+    uint per_mat = nsel * d_out;
+    uint mat = g / per_mat;
+    uint kk = (g - mat * per_mat) / d_out;
+    uint row = g - mat * per_mat - kk * d_out;
+    MoeExpertOff o = off[sel[kk]];
+    const device uint* words = slab + o.words[mat];
+    const device float* gscale = slabf + o.gscale[mat];
+    const device float* rscale = slabf + o.rscale[mat];
+    const device half* tail = slabh + o.tail[mat];
+    const device float* x = xall + kk * (nblocks * 24u + tail_w);
+
+    const device uint* wrow = words + row * row_stride_u32;
+    F1rTables tab = { rows, prefixes, branches, suffixes };
+    float acc = 0.0f;
+
+    uint ntiles = (nblocks + LLVQ_TILE_BLOCKS - 1u) / LLVQ_TILE_BLOCKS;
+    for (uint t = 0u; t < ntiles; ++t) {
+        uint jlo = t * LLVQ_TILE_BLOCKS;
+        uint jhi = min(jlo + LLVQ_TILE_BLOCKS, nblocks);
+        uint n = (jhi - jlo) * 24u;
+        threadgroup_barrier(mem_flags::mem_threadgroup);
+        for (uint i = tid; i < n; i += tgs) {
+            xs[i] = x[jlo * 24u + i];
+        }
+        threadgroup_barrier(mem_flags::mem_threadgroup);
+
+        for (uint j = jlo + lane; j < jhi; j += 32u) {
+            uint lo, hi16;
+            f1r_load(wrow, j, lo, hi16);
+            acc += tetra48_dot_lut(lo, hi16, tab, xs + (j - jlo) * 24u, gscale, invnorm);
+        }
+    }
+
+    acc = warp_sum(acc);
+    if (lane == 0u) {
+        float tv = 0.0f;
+        const device float* xt = x + nblocks * 24u;
+        for (uint i = 0u; i < tail_w; ++i) {
+            tv = fma(float(tail[row * tail_w + i]), xt[i], tv);
+        }
+        y[g] = fma(acc, rscale[row], tv);
+    }
+}
+
+/// `+0.0f + p` with the IEEE sign rule spelled in integers: under fast math
+/// the compiler may assume no signed zeros and drop a written `0.0f + p`,
+/// which would hand back -0 where the separate `add` returns +0.
+inline float moe_zero_plus(float p)
+{
+    return as_type<uint>(p) == 0x80000000u ? 0.0f : p;
+}
+
+// moe_tetra_down_metal: down (mat 2) of every selected expert, in ascending
+// slot order, each row times its routing weight (the f32 bits at
+// sel[nsel + kk]) and added to the running row, from +0. One simdgroup an
+// output row; `nsel` is uniform, so every barrier is reached by every thread.
+kernel void moe_tetra_down_metal(const device uint*         slab           [[buffer(0)]],
+                                 const device float*        slabf          [[buffer(1)]],
+                                 const device half*         slabh          [[buffer(2)]],
+                                 const device MoeExpertOff* off            [[buffer(3)]],
+                                 const device uint*         sel            [[buffer(4)]],
+                                 const device uint*         rows           [[buffer(5)]],
+                                 const device uchar*        prefixes       [[buffer(6)]],
+                                 const device ushort*       branches       [[buffer(7)]],
+                                 const device uchar*        suffixes       [[buffer(8)]],
+                                 const device float*        invnorm        [[buffer(9)]],
+                                 const device float*        xall           [[buffer(10)]],
+                                 device float*              y              [[buffer(11)]],
+                                 constant uint&             row_stride_u32 [[buffer(12)]],
+                                 constant uint&             nblocks        [[buffer(13)]],
+                                 constant uint&             tail_w         [[buffer(14)]],
+                                 constant uint&             d_out          [[buffer(15)]],
+                                 constant uint&             nsel           [[buffer(16)]],
+                                 threadgroup float*         xs             [[threadgroup(0)]],
+                                 uint tid  [[thread_position_in_threadgroup]],
+                                 uint gid  [[thread_position_in_grid]],
+                                 uint tgs  [[threads_per_threadgroup]],
+                                 uint lane [[thread_index_in_simdgroup]])
+{
+    uint row = gid >> 5;
+    F1rTables tab = { rows, prefixes, branches, suffixes };
+    uint ntiles = (nblocks + LLVQ_TILE_BLOCKS - 1u) / LLVQ_TILE_BLOCKS;
+    float out = 0.0f;
+
+    for (uint kk = 0u; kk < nsel; ++kk) {
+        MoeExpertOff o = off[sel[kk]];
+        const device uint* words = slab + o.words[2];
+        const device float* gscale = slabf + o.gscale[2];
+        const device float* rscale = slabf + o.rscale[2];
+        const device half* tail = slabh + o.tail[2];
+        const device float* x = xall + kk * (nblocks * 24u + tail_w);
+        const device uint* wrow = words + row * row_stride_u32;
+        float acc = 0.0f;
+
+        for (uint t = 0u; t < ntiles; ++t) {
+            uint jlo = t * LLVQ_TILE_BLOCKS;
+            uint jhi = min(jlo + LLVQ_TILE_BLOCKS, nblocks);
+            uint n = (jhi - jlo) * 24u;
+            threadgroup_barrier(mem_flags::mem_threadgroup);
+            for (uint i = tid; i < n; i += tgs) {
+                xs[i] = x[jlo * 24u + i];
+            }
+            threadgroup_barrier(mem_flags::mem_threadgroup);
+
+            for (uint j = jlo + lane; j < jhi; j += 32u) {
+                uint lo, hi16;
+                f1r_load(wrow, j, lo, hi16);
+                acc += tetra48_dot_lut(lo, hi16, tab, xs + (j - jlo) * 24u, gscale, invnorm);
+            }
+        }
+
+        acc = warp_sum(acc);
+        if (lane == 0u) {
+            float tv = 0.0f;
+            const device float* xt = x + nblocks * 24u;
+            for (uint i = 0u; i < tail_w; ++i) {
+                tv = fma(float(tail[row * tail_w + i]), xt[i], tv);
+            }
+            float yv = fma(acc, rscale[row], tv);
+            float p = yv * as_type<float>(sel[nsel + kk]);
+            out = kk == 0u ? moe_zero_plus(p) : out + p;
+        }
+    }
+    if (lane == 0u) {
+        y[row] = out;
+    }
+}
+"#
+    };
+}
+
+use candle_core::CustomOp2;
+
+const SRC_MOE_ROT: &str = concat!(include_str!("../kernels/llvq_rot.metal"), moe_off_msl!(), moe_rot_msl!());
+const SRC_MOE_TETRA: &str = concat!(include_str!("../kernels/llvq_tetra48.metal"), moe_off_msl!(), moe_tetra_msl!());
+
+/// Words of one `MoeExpertOff`.
+const MOE_OFF_WORDS: usize = 16;
+/// Routed experts a call can name: the bound of the `sel` buffer.
+pub const MOE_MAX_SELECTED: usize = 32;
+
+/// One record of an expert, on the host, as the resident loader reads it.
+pub struct MoeHostProj {
+    pub name: String,
+    pub d_out: usize,
+    pub d_in: usize,
+    pub nblocks: usize,
+    pub row_stride_u32: usize,
+    pub words: Vec<u32>,
+    pub gscale: [f32; 2],
+    pub rscale: Vec<f32>,
+    pub tail: Vec<u16>,
+}
+
+/// One expert on the host: gate, up, down, and its two rotations.
+pub struct MoeHostExpert {
+    pub projs: [MoeHostProj; 3],
+    pub rot_in: crate::fused::RotationTables,
+    pub rot_down: crate::fused::RotationTables,
+}
+
+/// One expert of a slab, as the one-expert path reads it: aliases of the
+/// slab's records.
+pub struct MoeSlabExpert {
+    pub gate: MetalTetraProj,
+    pub up: MetalTetraProj,
+    pub down: MetalTetraProj,
+    pub rot_in: MetalRotation,
+    pub rot_down: MetalRotation,
+}
+
+/// What the four launches need to know, the same for every expert of a
+/// layer. `None` on a slab whose experts differ, which the fused path then
+/// refuses.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct MoeShape {
+    pub hidden: usize,
+    pub inter: usize,
+    nb_in: usize,
+    nb_down: usize,
+    tail_in: usize,
+    tail_down: usize,
+    stride_in: usize,
+    stride_down: usize,
+    rot_in: (u32, u32, u32, u32, usize),
+    rot_down: (u32, u32, u32, u32, usize),
+}
+
+/// Owns a Metal object whose type this crate cannot name (`objc2` is not
+/// one of its dependencies), so the object lives as long as its owner.
+trait MoeHold: Send + Sync {}
+struct MoeHeld<T>(#[allow(dead_code)] T);
+// SAFETY: the held heap is never used through this handle, only kept alive;
+// Metal objects may be retained and released from any thread.
+unsafe impl<T> Send for MoeHeld<T> {}
+unsafe impl<T> Sync for MoeHeld<T> {}
+impl<T> MoeHold for MoeHeld<T> {}
+
+/// A layer's experts in one placement heap, and the offset table.
+pub struct MetalMoeSlab {
+    // Held so the heap outlives every alias, whatever the drop order.
+    _heap: Box<dyn MoeHold>,
+    slab: Arc<Buffer>,
+    offsets: Arc<Buffer>,
+    experts: usize,
+    shape: Option<MoeShape>,
+    bytes: u64,
+    records: usize,
+}
+
+impl MetalMoeSlab {
+    /// Experts in the slab.
+    pub fn experts(&self) -> usize {
+        self.experts
+    }
+
+    /// Bytes of the heap: the records, each at a 256-byte alignment.
+    pub fn device_bytes(&self) -> u64 {
+        self.bytes
+    }
+
+    /// Records the heap holds (each one aliased by one buffer).
+    pub fn records(&self) -> usize {
+        self.records
+    }
+
+    /// The shape the fused launches read, if every expert has it.
+    pub fn shape(&self) -> Option<MoeShape> {
+        self.shape
+    }
+}
+
+/// The checks of `upload_stream_unpooled`, in its order, for a record that
+/// goes into a slab. Returns the tail width.
+fn moe_check_proj(p: &MoeHostProj) -> Result<usize> {
+    let name = &p.name;
+    let rows_per_group = GROUP / LANES;
+    if !p.d_out.is_multiple_of(rows_per_group) {
+        candle_core::bail!("{name}: d_out {} is not a multiple of {rows_per_group}", p.d_out);
+    }
+    if p.nblocks * llvq_core::DIM > p.d_in {
+        candle_core::bail!("{name}: {} blocks for d_in {}", p.nblocks, p.d_in);
+    }
+    let tail_w = p.d_in - p.nblocks * llvq_core::DIM;
+    if p.rscale.len() != p.d_out {
+        candle_core::bail!("{name}: {} row scales for {} rows", p.rscale.len(), p.d_out);
+    }
+    if p.tail.len() != p.d_out * tail_w {
+        candle_core::bail!("{name}: {} tail values for {}x{tail_w}", p.tail.len(), p.d_out);
+    }
+    let want_stride = llvq_artifact::tetra48::stride_u32(p.nblocks);
+    if p.row_stride_u32 != want_stride {
+        candle_core::bail!("{name}: row stride {} for {} blocks, which wants {want_stride}", p.row_stride_u32, p.nblocks);
+    }
+    let want_words = p.d_out * p.row_stride_u32;
+    if p.words.len() != want_words && p.words.len() != want_words + 1 {
+        candle_core::bail!("{name}: {} stream words, which wants {want_words} or one more", p.words.len());
+    }
+    Ok(tail_w)
+}
+
+fn moe_rot_params(t: &crate::fused::RotationTables) -> (u32, u32, u32, u32, usize) {
+    (t.n as u32, t.m as u32, t.k as u32, t.inv.to_bits(), (t.n as u32).next_power_of_two().clamp(32, 1024) as usize)
+}
+
+impl MetalRuntime {
+    /// Whether the fused MoE launches reproduce what this runtime launches
+    /// one expert at a time: the served matvec (`_lut`, f32 store) and the
+    /// device-staged rotation. Any other tuning keeps the one-expert path.
+    pub fn moe_fused_eligible(&self) -> bool {
+        self.kernel == SERVED_TETRA && !self.half_io && !self.rot_tg
+    }
+
+    /// Upload a layer's experts into one placement heap outside candle's
+    /// pool, and hand back the slab and, per expert, the aliases the
+    /// one-expert path reads. Every record passes the checks of
+    /// [`Self::upload_stream_unpooled`]; the bytes are the bytes it uploads.
+    pub fn upload_moe_layer(&self, experts: &[MoeHostExpert]) -> Result<(MetalMoeSlab, Vec<MoeSlabExpert>)> {
+        use objc2_metal::{MTLDevice as _, MTLHeap as _};
+        if experts.is_empty() {
+            candle_core::bail!("a slab of zero experts");
+        }
+        let opts = objc2_metal::MTLResourceOptions::StorageModeShared;
+        let mtl = self.device.device().as_ref();
+        // Byte views of every record, in slab order, with dummies where the
+        // one-record path uploads one.
+        let dummy_tail = [0u16];
+        let dummy_small = [0f32];
+        let mut items: Vec<&[u8]> = Vec::with_capacity(experts.len() * 16);
+        let mut tails = Vec::with_capacity(experts.len() * 3);
+        fn bytes<T>(v: &[T]) -> &[u8] {
+            // SAFETY: plain numbers (u32, u16, f32), read as bytes.
+            unsafe { std::slice::from_raw_parts(v.as_ptr().cast::<u8>(), core::mem::size_of_val(v)) }
+        }
+        for e in experts {
+            for p in &e.projs {
+                tails.push(moe_check_proj(p)?);
+            }
+            for p in &e.projs {
+                items.push(bytes(&p.words));
+            }
+            for p in &e.projs {
+                items.push(bytes(&p.gscale));
+            }
+            for p in &e.projs {
+                items.push(bytes(&p.rscale));
+            }
+            for p in &e.projs {
+                items.push(bytes(if p.tail.is_empty() { &dummy_tail[..] } else { &p.tail[..] }));
+            }
+            for t in [&e.rot_in, &e.rot_down] {
+                if t.signbits.is_empty() {
+                    candle_core::bail!("a rotation of width {} with no sign bits", t.n);
+                }
+                items.push(bytes(&t.signbits));
+                items.push(bytes(if t.small.is_empty() { &dummy_small[..] } else { &t.small[..] }));
+            }
+        }
+        // Placement: each record at its heap alignment.
+        let mut offs = Vec::with_capacity(items.len());
+        let mut cursor = 0usize;
+        for it in &items {
+            let sa = mtl.heapBufferSizeAndAlignWithLength_options(it.len(), opts);
+            let align = sa.align.max(4);
+            cursor = cursor.div_ceil(align) * align;
+            offs.push(cursor);
+            cursor += sa.size.max(it.len());
+        }
+        let total = mtl.heapBufferSizeAndAlignWithLength_options(cursor, opts).size.max(cursor);
+        if total / 4 > u32::MAX as usize {
+            candle_core::bail!("a slab of {total} B: its word offsets pass u32");
+        }
+        let desc = objc2_metal::MTLHeapDescriptor::new();
+        desc.setType(objc2_metal::MTLHeapType::Placement);
+        desc.setStorageMode(objc2_metal::MTLStorageMode::Shared);
+        desc.setHazardTrackingMode(objc2_metal::MTLHazardTrackingMode::Untracked);
+        desc.setSize(total);
+        let heap = mtl
+            .newHeapWithDescriptor(&desc)
+            .ok_or_else(|| candle_core::Error::msg(format!("Metal refused a placement heap of {total} B")))?;
+        let alias = |off: usize, len: usize| -> Result<Arc<Buffer>> {
+            // SAFETY: `off` and `len` lie inside the heap, at its alignment.
+            let raw = unsafe { heap.newBufferWithLength_options_offset(len, opts, off) }
+                .ok_or_else(|| candle_core::Error::msg(format!("a heap buffer of {len} B at {off}")))?;
+            Ok(Arc::new(Buffer::new(raw)))
+        };
+        let slab = alias(0, total)?;
+        let base = slab.contents();
+        for (it, &off) in items.iter().zip(&offs) {
+            // SAFETY: the record fits at `off` by construction of `offs`, and
+            // nothing reads the heap yet.
+            unsafe { std::ptr::copy_nonoverlapping(it.as_ptr(), base.add(off), it.len()) };
+        }
+        let keep_host = self.tables.host.is_some();
+        let mut table = Vec::with_capacity(experts.len() * MOE_OFF_WORDS);
+        let mut out = Vec::with_capacity(experts.len());
+        let first_shape = |e: &MoeHostExpert, t: &[usize]| MoeShape {
+            hidden: e.projs[0].d_in,
+            inter: e.projs[0].d_out,
+            nb_in: e.projs[0].nblocks,
+            nb_down: e.projs[2].nblocks,
+            tail_in: t[0],
+            tail_down: t[2],
+            stride_in: e.projs[0].row_stride_u32,
+            stride_down: e.projs[2].row_stride_u32,
+            rot_in: moe_rot_params(&e.rot_in),
+            rot_down: moe_rot_params(&e.rot_down),
+        };
+        let mut shape = Some(first_shape(&experts[0], &tails[0..3]));
+        for (ei, e) in experts.iter().enumerate() {
+            let o = &offs[ei * 16..ei * 16 + 16];
+            let it = &items[ei * 16..ei * 16 + 16];
+            let t = &tails[ei * 3..ei * 3 + 3];
+            let [g, u, d] = &e.projs;
+            let gate_up_alike = g.d_out == u.d_out && g.d_in == u.d_in && g.nblocks == u.nblocks && t[0] == t[1];
+            let fits = d.d_in == g.d_out && d.d_out == g.d_in && e.rot_in.n == g.d_in && e.rot_down.n == d.d_in;
+            if !gate_up_alike || !fits || shape != Some(first_shape(e, t)) {
+                shape = None;
+            }
+            for w in [o[0] / 4, o[1] / 4, o[2] / 4, o[6] / 4, o[7] / 4, o[8] / 4, o[3] / 4, o[4] / 4, o[5] / 4] {
+                table.push(w as u32);
+            }
+            for &h in &o[9..12] {
+                table.push((h / 2) as u32);
+            }
+            for w in [o[12] / 4, o[13] / 4, o[14] / 4, o[15] / 4] {
+                table.push(w as u32);
+            }
+            let mut projs = Vec::with_capacity(3);
+            for (m, p) in e.projs.iter().enumerate() {
+                projs.push(MetalTetraProj {
+                    name: p.name.clone(),
+                    d_out: p.d_out,
+                    d_in: p.d_in,
+                    nblocks: p.nblocks,
+                    tail_w: t[m],
+                    row_stride_u32: p.row_stride_u32,
+                    words: alias(o[m], it[m].len())?,
+                    gscale: alias(o[3 + m], it[3 + m].len())?,
+                    rscale: alias(o[6 + m], it[6 + m].len())?,
+                    tail: alias(o[9 + m], it[9 + m].len())?,
+                    host: keep_host.then(|| HostProj {
+                        words: p.words.iter().flat_map(|w| w.to_le_bytes()).collect(),
+                        gscale: p.gscale.to_vec(),
+                        rscale: p.rscale.clone(),
+                        tail: p.tail.clone(),
+                    }),
+                });
+            }
+            let rot = |t: &crate::fused::RotationTables, i: usize| -> Result<MetalRotation> {
+                Ok(MetalRotation {
+                    signbits: alias(o[i], it[i].len())?,
+                    small: alias(o[i + 1], it[i + 1].len())?,
+                    n: t.n as u32,
+                    m: t.m as u32,
+                    k: t.k as u32,
+                    inv: t.inv,
+                    threads: (t.n as u32).next_power_of_two().clamp(32, 1024) as usize,
+                })
+            };
+            let rot_in = rot(&e.rot_in, 12)?;
+            let rot_down = rot(&e.rot_down, 14)?;
+            let down = projs.pop().expect("three");
+            let up = projs.pop().expect("three");
+            let gate = projs.pop().expect("three");
+            out.push(MoeSlabExpert { gate, up, down, rot_in, rot_down });
+        }
+        let offsets = self.buffer_outside_pool(&table)?;
+        Ok((
+            MetalMoeSlab {
+                _heap: Box::new(MoeHeld(heap)),
+                slab,
+                offsets,
+                experts: experts.len(),
+                shape,
+                bytes: total as u64,
+                records: items.len(),
+            },
+            out,
+        ))
+    }
+
+    /// Launch a or c: rotate the selected experts' rows into the basis of
+    /// their input rotation (`down == false`, `x` one f16 row `[1, hidden]`
+    /// shared by every expert) or of their down rotation (`down == true`, `x`
+    /// f16 `[nsel, inter]`, one row an expert). f32 `[nsel, n]`; row r is
+    /// what `rotate` returns for slot r's expert alone.
+    ///
+    /// `sel` is the routing buffer: `nsel` expert ids, ascending and distinct,
+    /// then their weights' f32 bits, as u32. The kernel does not bound the
+    /// ids: the caller checks them against [`MetalMoeSlab::experts`].
+    pub fn moe_rotate(&self, slab: &MetalMoeSlab, down: bool, x: &Tensor, sel: &Tensor) -> Result<Tensor> {
+        x.apply_op2_no_bwd(sel, &MoeRotOp { rt: self, slab, down })
+    }
+
+    /// Launch b: gate and up of the selected experts on their rotated rows
+    /// `xr` f32 `[nsel, hidden]`. f32 `[2, nsel, inter]`, gate first; each row
+    /// is what `matvec` returns for that expert alone.
+    pub fn moe_gate_up(&self, slab: &MetalMoeSlab, xr: &Tensor, sel: &Tensor) -> Result<Tensor> {
+        xr.apply_op2_no_bwd(sel, &MoeTetraOp { rt: self, slab, down: false })
+    }
+
+    /// Launch d: down of the selected experts on their rotated rows `ar` f32
+    /// `[nsel, inter]`, each times its weight, summed in ascending slot order
+    /// from +0. f32 `[1, hidden]`.
+    pub fn moe_down_sum(&self, slab: &MetalMoeSlab, ar: &Tensor, sel: &Tensor) -> Result<Tensor> {
+        ar.apply_op2_no_bwd(sel, &MoeTetraOp { rt: self, slab, down: true })
+    }
+}
+
+/// The selected count, from the routing buffer `sel` (`2 * nsel` u32).
+fn moe_nsel(sel: &MetalStorage, l: &Layout) -> Result<(usize, usize)> {
+    if sel.dtype() != DType::U32 {
+        candle_core::bail!("moe: the routing buffer is u32, got {:?}", sel.dtype());
+    }
+    let (start, end) =
+        l.contiguous_offsets().ok_or_else(|| candle_core::Error::msg("moe: a strided routing buffer"))?;
+    let len = end - start;
+    if len == 0 || !len.is_multiple_of(2) || len / 2 > MOE_MAX_SELECTED {
+        candle_core::bail!("moe: a routing buffer of {len} words, which wants 2 x 1..={MOE_MAX_SELECTED}");
+    }
+    Ok((len / 2, start * 4))
+}
+
+fn moe_shape(slab: &MetalMoeSlab) -> Result<MoeShape> {
+    slab.shape.ok_or_else(|| candle_core::Error::msg("moe: the experts of this slab differ in shape; no fused path"))
+}
+
+struct MoeRotOp<'a> {
+    rt: &'a MetalRuntime,
+    slab: &'a MetalMoeSlab,
+    down: bool,
+}
+
+impl CustomOp2 for MoeRotOp<'_> {
+    fn name(&self) -> &'static str {
+        "llvq-metal-moe-rot"
+    }
+
+    fn cpu_fwd(&self, _: &CpuStorage, _: &Layout, _: &CpuStorage, _: &Layout) -> Result<(CpuStorage, Shape)> {
+        candle_core::bail!("moe rotation: Metal only; its reference is `rotate`, one expert at a time")
+    }
+
+    fn metal_fwd(&self, x: &MetalStorage, lx: &Layout, sel: &MetalStorage, ls: &Layout) -> Result<(MetalStorage, Shape)> {
+        let s = moe_shape(self.slab)?;
+        let (nsel, sel_off) = moe_nsel(sel, ls)?;
+        if x.dtype() != DType::F16 {
+            candle_core::bail!("moe rotation: the rotation reads f16, got {:?}", x.dtype());
+        }
+        let (start, end) = lx
+            .contiguous_offsets()
+            .ok_or_else(|| candle_core::Error::msg("moe rotation: a strided activation"))?;
+        let (n, m, k, inv, threads) = if self.down { s.rot_down } else { s.rot_in };
+        let n = n as usize;
+        let (rows_in, row_stride) = if self.down { (nsel, n) } else { (1, 0) };
+        if end - start != rows_in * n {
+            candle_core::bail!("moe rotation: {} values for {rows_in} rows of {n}", end - start);
+        }
+        let dev = x.device().clone();
+        let pipe = self.rt.pipeline("moe_rot_metal")?;
+        let out = dev.new_buffer(nsel * n, DType::F32, "llvq-moe-rot")?;
+        let scratch = dev.new_buffer(nsel * n, DType::F32, "llvq-moe-rot-scratch")?;
+        let enc = dev.command_encoder()?;
+        enc.set_compute_pipeline_state(&pipe);
+        use candle_metal_kernels::utils::set_param;
+        set_param(&enc, 0, (x.buffer(), 0usize));
+        set_param(&enc, 1, (&*self.slab.slab, 0usize));
+        set_param(&enc, 2, (&*self.slab.slab, 0usize));
+        set_param(&enc, 3, (&*self.slab.offsets, 0usize));
+        set_param(&enc, 4, (sel.buffer(), sel_off));
+        set_param(&enc, 5, (&*out, 0usize));
+        set_param(&enc, 6, (&*scratch, 0usize));
+        set_param(&enc, 7, n as u32);
+        set_param(&enc, 8, m);
+        set_param(&enc, 9, k);
+        set_param(&enc, 10, f32::from_bits(inv));
+        set_param(&enc, 11, start as u32);
+        set_param(&enc, 12, row_stride as u32);
+        set_param(&enc, 13, u32::from(self.down));
+        for b in [x.buffer(), &*self.slab.slab, &*self.slab.offsets, sel.buffer()] {
+            enc.use_resource(b, objc2_metal::MTLResourceUsage::Read);
+        }
+        for b in [&*out, &*scratch] {
+            enc.use_resource(b, objc2_metal::MTLResourceUsage::Write);
+        }
+        enc.dispatch_threads(
+            objc2_metal::MTLSize { width: threads * nsel, height: 1, depth: 1 },
+            objc2_metal::MTLSize { width: threads, height: 1, depth: 1 },
+        );
+        Ok((MetalStorage::new(out, dev, nsel * n, DType::F32), Shape::from((nsel, n))))
+    }
+}
+
+struct MoeTetraOp<'a> {
+    rt: &'a MetalRuntime,
+    slab: &'a MetalMoeSlab,
+    down: bool,
+}
+
+impl CustomOp2 for MoeTetraOp<'_> {
+    fn name(&self) -> &'static str {
+        "llvq-metal-moe-tetra"
+    }
+
+    fn cpu_fwd(&self, _: &CpuStorage, _: &Layout, _: &CpuStorage, _: &Layout) -> Result<(CpuStorage, Shape)> {
+        candle_core::bail!("moe products: Metal only; their reference is `matvec`, one expert at a time")
+    }
+
+    fn metal_fwd(&self, x: &MetalStorage, lx: &Layout, sel: &MetalStorage, ls: &Layout) -> Result<(MetalStorage, Shape)> {
+        let s = moe_shape(self.slab)?;
+        let (nsel, sel_off) = moe_nsel(sel, ls)?;
+        if x.dtype() != DType::F32 {
+            candle_core::bail!("moe products: f32 rows only, got {:?}", x.dtype());
+        }
+        if !lx.is_contiguous() {
+            candle_core::bail!("moe products: the rows must be contiguous");
+        }
+        let (d_in, d_out, nb, tw, stride) = if self.down {
+            (s.inter, s.hidden, s.nb_down, s.tail_down, s.stride_down)
+        } else {
+            (s.hidden, s.inter, s.nb_in, s.tail_in, s.stride_in)
+        };
+        if lx.dims() != [nsel, d_in] {
+            candle_core::bail!("moe products: rows {:?} for [{nsel}, {d_in}]", lx.dims());
+        }
+        if !d_out.is_multiple_of(GROUP / LANES) {
+            candle_core::bail!("moe products: d_out {d_out} is not a multiple of {} rows", GROUP / LANES);
+        }
+        let (kname, out_len, shape) = if self.down {
+            ("moe_tetra_down_metal", d_out, Shape::from((1, d_out)))
+        } else {
+            ("moe_tetra_gu_metal", 2 * nsel * d_out, Shape::from((2, nsel, d_out)))
+        };
+        let dev = x.device().clone();
+        let pipe = self.rt.pipeline(kname)?;
+        let out = dev.new_buffer(out_len, DType::F32, "llvq-moe-tetra")?;
+        let enc = dev.command_encoder()?;
+        enc.set_compute_pipeline_state(&pipe);
+        use candle_metal_kernels::utils::set_param;
+        let t = &self.rt.tables;
+        set_param(&enc, 0, (&*self.slab.slab, 0usize));
+        set_param(&enc, 1, (&*self.slab.slab, 0usize));
+        set_param(&enc, 2, (&*self.slab.slab, 0usize));
+        set_param(&enc, 3, (&*self.slab.offsets, 0usize));
+        set_param(&enc, 4, (sel.buffer(), sel_off));
+        set_param(&enc, 5, (&*t.rows, 0usize));
+        set_param(&enc, 6, (&*t.prefixes, 0usize));
+        set_param(&enc, 7, (&*t.branches, 0usize));
+        set_param(&enc, 8, (&*t.suffixes, 0usize));
+        set_param(&enc, 9, (&*t.invnorm, 0usize));
+        set_param(&enc, 10, (x.buffer(), lx.start_offset() * DType::F32.size_in_bytes()));
+        set_param(&enc, 11, (&*out, 0usize));
+        set_param(&enc, 12, stride as u32);
+        set_param(&enc, 13, nb as u32);
+        set_param(&enc, 14, tw as u32);
+        set_param(&enc, 15, d_out as u32);
+        set_param(&enc, 16, nsel as u32);
+        enc.set_threadgroup_memory_length(0, self.rt.tile * llvq_core::DIM * DType::F32.size_in_bytes());
+        for b in [&*self.slab.slab, &*self.slab.offsets, sel.buffer(), &*t.rows, &*t.prefixes, &*t.branches, &*t.suffixes, &*t.invnorm, x.buffer()] {
+            enc.use_resource(b, objc2_metal::MTLResourceUsage::Read);
+        }
+        enc.use_resource(&*out, objc2_metal::MTLResourceUsage::Write);
+        let rows = if self.down { d_out } else { 2 * nsel * d_out };
+        enc.dispatch_threads(
+            objc2_metal::MTLSize { width: rows * LANES, height: 1, depth: 1 },
+            objc2_metal::MTLSize { width: GROUP, height: 1, depth: 1 },
+        );
+        Ok((MetalStorage::new(out, dev, out_len, DType::F32), shape))
+    }
 }
 
 #[cfg(test)]

@@ -388,7 +388,8 @@ impl V5Rate {
 /// class statistic, no layout projection and no traffic model, because none of
 /// them has a meaning for a map that names no class — and printing a plausible
 /// one would be worse than printing nothing.
-fn report_v5(path: &str, r: &mut impl Read, h: &llvq_artifact::Header) {
+fn report_v5(path: &str, r: &mut impl Read, h: &llvq_artifact::Header, sidecar: Option<&str>) {
+    let mut whole = Whole::default();
     let mut a = V5Rate {
         lattice: Shapes::default(),
         lattice_stream_bits: 0,
@@ -409,8 +410,10 @@ fn report_v5(path: &str, r: &mut impl Read, h: &llvq_artifact::Header) {
                 a.lattice_stream_bits += (m.d_out * (m.d_in / DIM)) as u64 * per_block;
                 a.lattice_matrices += 1;
                 gain_widths.insert(m.centroids.len());
+                whole.push_lattice(&m);
             }
             llvq_artifact::Record::Int4(q) => {
+                whole.int4.add((q.d_out * q.d_in) as u64, q.bits());
                 a.int4_weights += (q.d_out * q.d_in) as u64;
                 // The three arrays as they are stored, not a nominal 4.25:
                 // a shape whose `d_in` is not a multiple of the group would
@@ -435,10 +438,31 @@ fn report_v5(path: &str, r: &mut impl Read, h: &llvq_artifact::Header) {
             let t = llvq_artifact::read_raw(r, h.version).expect("valid raw tensor");
             carried_params += t.len() as u64;
             carried_bits += t.bytes() * 8;
+            whole.raw.add(t.len() as u64, t.bytes() * 8);
             if matches!(t.name.as_str(), "model.embed_tokens.weight" | "lm_head.weight") {
                 carried_embed += t.len() as u64;
             }
         }
+        // The blobs, for the seal's own description: a partial seal says
+        // there how many native parameters it did not carry.
+        r.read_exact(&mut b).expect("blob count");
+        for _ in 0..u32::from_le_bytes(b) {
+            let blob = llvq_artifact::read_blob(r).expect("valid blob");
+            if blob.name == "inkling-seal.json" {
+                let v = json::parse(&String::from_utf8_lossy(&blob.bytes)).expect("inkling-seal.json");
+                // A text-only seal omits the vision tower by design; only an
+                // omitted text tensor makes the seal partial.
+                whole.omitted = v
+                    .get("omitted_text_elements")
+                    .or_else(|| v.get("omitted_elements"))
+                    .and_then(json::Value::as_u64)
+                    .unwrap_or(0);
+                whole.seal_blob = true;
+            }
+        }
+    }
+    if let Some(sc) = sidecar {
+        whole.read_sidecar(sc);
     }
 
     let lat_w = a.lattice.weights;
@@ -507,9 +531,391 @@ fn report_v5(path: &str, r: &mut impl Read, h: &llvq_artifact::Header) {
         println!("\n  projections-only file: no whole-model b/param without an embedding.");
     }
 
+    whole.print(sidecar);
+
     println!(
         "\n  NO CLASS STATISTIC IS PRINTED. Every accumulator of this tool keys on a v1\n           class — masks, level histograms, slot strides, the Planes14 and E1c projections —\n           and a Tetra word names none. A plausible-looking histogram here would be worse\n           than its absence."
     );
+}
+
+/// One part of a model: parameters, and the bits they occupy.
+#[derive(Default, Clone, Copy)]
+struct Part {
+    params: u64,
+    bits: u64,
+}
+
+impl Part {
+    fn add(&mut self, params: u64, bits: u64) {
+        self.params += params;
+        self.bits += bits;
+    }
+    fn bpp(&self) -> f64 {
+        self.bits as f64 / self.params.max(1) as f64
+    }
+}
+
+/// The whole-model accounting over the sealed file **and** a sidecar
+/// safetensors (the Inkling seal, `llvq_llm::inkseal`), every count read
+/// from the files.
+///
+/// Lattice records are counted twice, in two accountings that are never
+/// blended: **archive** is the record as stored (48-bit words, f64 row
+/// scales, f64 centroids, f32 tail), the accounting of `bin/extq`'s
+/// `archive_bpw`; **kernel** is words plus an f32 row scale and an f32 tail,
+/// the accounting of [`V5Rate::kernel_bpw`]`(true)`. The expert records
+/// (`.mlp.experts.` in the name) are kept apart from the other lattice
+/// records. Sidecar tensors are charged at their stored dtype width, and
+/// `model.visual.*` is kept apart, so the text model and the model with
+/// vision are both stated.
+#[derive(Default)]
+struct Whole {
+    expert_archive: Part,
+    expert_kernel: Part,
+    lattice_archive: Part,
+    lattice_kernel: Part,
+    int4: Part,
+    raw: Part,
+    sidecar_text: Part,
+    sidecar_vision: Part,
+    sidecar_tensors: u64,
+    /// Native parameters a partial seal did not carry (`inkling-seal.json`).
+    omitted: u64,
+    seal_blob: bool,
+}
+
+impl Whole {
+    fn push_lattice(&mut self, m: &llvq_artifact::RawMatrix) {
+        let (ib, gb) = llvq_artifact::code_widths(m.kind, &m.name, m.shell_cap, m.centroids.len())
+            .expect("lattice widths");
+        let words = m.indices.len() as u64 * (ib + gb) as u64;
+        let weights = (m.d_out * m.d_in) as u64;
+        let archive = words
+            + m.row_scales.len() as u64 * 64
+            + m.centroids.len() as u64 * 64
+            + m.tail.len() as u64 * F32_BITS;
+        let kernel = words + m.row_scales.len() as u64 * F32_BITS + m.tail.len() as u64 * F32_BITS;
+        if m.name.contains(".mlp.experts.") {
+            self.expert_archive.add(weights, archive);
+            self.expert_kernel.add(weights, kernel);
+        } else {
+            self.lattice_archive.add(weights, archive);
+            self.lattice_kernel.add(weights, kernel);
+        }
+    }
+
+    fn read_sidecar(&mut self, path: &str) {
+        let mut f = File::open(path).unwrap_or_else(|e| panic!("open {path}: {e}"));
+        let mut b = [0u8; 8];
+        f.read_exact(&mut b).expect("sidecar header length");
+        let n = u64::from_le_bytes(b) as usize;
+        let mut h = vec![0u8; n];
+        f.read_exact(&mut h).expect("sidecar header");
+        let v = json::parse(&String::from_utf8_lossy(&h)).expect("sidecar header JSON");
+        let json::Value::Object(obj) = v else { panic!("{path}: header is not an object") };
+        for (name, t) in obj {
+            if name == "__metadata__" {
+                continue;
+            }
+            let dtype = t.get("dtype").and_then(json::Value::as_str).expect("dtype");
+            let width = match dtype {
+                "F64" | "I64" => 64,
+                "F32" | "I32" => 32,
+                "F16" | "BF16" => 16,
+                "U8" | "I8" | "F8_E4M3" | "F8_E5M2" => 8,
+                other => panic!("{path}: {name}: dtype {other}"),
+            };
+            let params: u64 = match t.get("shape") {
+                Some(json::Value::Array(d)) => d.iter().map(|x| x.as_u64().expect("shape")).product(),
+                _ => panic!("{path}: {name}: shape"),
+            };
+            self.sidecar_tensors += 1;
+            if name.starts_with("model.visual.") {
+                self.sidecar_vision.add(params, params * width);
+            } else {
+                self.sidecar_text.add(params, params * width);
+            }
+        }
+    }
+
+    fn print(&self, sidecar: Option<&str>) {
+        if !self.seal_blob && sidecar.is_none() {
+            return;
+        }
+        println!("\n  ── whole model over the sealed file{} ──", if sidecar.is_some() { " and its sidecar" } else { "" });
+        let row = |name: &str, p: &Part| {
+            println!(
+                "  {name:<34}{:>16}{:>18}{:>12.6}{:>10.4}",
+                p.params,
+                p.bits,
+                p.bpp(),
+                p.bits as f64 / 8e9
+            );
+        };
+        println!("  {:<34}{:>16}{:>18}{:>12}{:>10}", "part", "parameters", "bits", "b/param", "GB");
+        row("experts, lattice, archive", &self.expert_archive);
+        row("experts, lattice, kernel", &self.expert_kernel);
+        row("other lattice, archive", &self.lattice_archive);
+        row("other lattice, kernel", &self.lattice_kernel);
+        row("int4 g128 records", &self.int4);
+        row("raw tensors (file, as stored)", &self.raw);
+        row("sidecar, text model", &self.sidecar_text);
+        row("sidecar, model.visual.*", &self.sidecar_vision);
+        if let Some(s) = sidecar {
+            println!("  sidecar {s}: {} tensors", self.sidecar_tensors);
+        }
+        for (acc, ex, la) in [
+            ("archive", self.expert_archive, self.lattice_archive),
+            ("kernel", self.expert_kernel, self.lattice_kernel),
+        ] {
+            let mut text = Part::default();
+            for p in [ex, la, self.int4, self.raw, self.sidecar_text] {
+                text.add(p.params, p.bits);
+            }
+            let mut all = text;
+            all.add(self.sidecar_vision.params, self.sidecar_vision.bits);
+            println!(
+                "  b/param, lattice at {acc:<8}: text model {:.6} over {} parameters; with vision {:.6} over {}",
+                text.bpp(),
+                text.params,
+                all.bpp(),
+                all.params
+            );
+        }
+        self.print_plan();
+        if self.omitted > 0 {
+            println!(
+                "  PARTIAL SEAL: {} native tensor elements are not carried (inkling-seal.json; an NVFP4\n           byte holds two weights); the b/param above covers the carried parameters only and\n           is not a whole-model figure.",
+                self.omitted
+            );
+        }
+    }
+}
+
+impl Whole {
+    /// The rows of `docs/plan-inkling2-mini.md` section 1 (*computed*
+    /// estimates from the checkpoint header), beside the same rows read from
+    /// the files, lattice at the kernel accounting as the plan has it. The
+    /// plan's rows map one to one: experts = expert records; attention Tetra
+    /// = the other lattice records; attention int4 = the int4 records; tables
+    /// = the raw tensors; the 16-bit rest = the sidecar's text tensors.
+    fn print_plan(&self) {
+        let plan: [(&str, u64, f64, Part); 5] = [
+            ("experts (Tetra)", 24_461_180_928, 6.172, self.expert_kernel),
+            ("attention, Tetra", 226_492_416, 0.057, self.lattice_kernel),
+            ("attention, int4 g128", 417_595_392, 0.222, self.int4),
+            ("embed + unembed, int4 g64", 926_318_592, 0.521, self.raw),
+            ("rest as shipped (sidecar)", 38_797_824, 0.078, self.sidecar_text),
+        ];
+        println!("\n  against plan section 1 (plan figures computed; file figures measured, lattice at kernel)");
+        println!(
+            "  {:<28}{:>16}{:>16}{:>9}{:>9}{:>10}{:>10}",
+            "row", "params plan", "params file", "GB plan", "GB file", "b/p plan", "b/p file"
+        );
+        let mut text = Part::default();
+        for (name, pp, gb, p) in plan {
+            text.add(p.params, p.bits);
+            println!(
+                "  {name:<28}{pp:>16}{:>16}{gb:>9.3}{:>9.3}{:>10.4}{:>10.4}",
+                p.params,
+                p.bits as f64 / 8e9,
+                gb * 8e9 / pp as f64,
+                p.bpp()
+            );
+        }
+        let line = |name: &str, pp: u64, gb: f64, bpp: f64, p: &Part| {
+            println!(
+                "  {name:<28}{pp:>16}{:>16}{gb:>9.3}{:>9.3}{bpp:>10.4}{:>10.4}",
+                p.params,
+                p.bits as f64 / 8e9,
+                p.bpp()
+            );
+        };
+        line("text model", 26_070_385_152, 7.049, 2.163, &text);
+        line("vision tower (sidecar)", 318_256_128, 0.637, 16.0, &self.sidecar_vision);
+        let mut all = text;
+        all.add(self.sidecar_vision.params, self.sidecar_vision.bits);
+        line("with vision", 26_388_641_280, 7.686, 2.330, &all);
+    }
+}
+
+/// A minimal JSON reader for the two documents this bench meets (a
+/// safetensors header and `inkling-seal.json`): `llvq-bench` stays free of
+/// external dependencies, so no `serde_json`.
+mod json {
+    #[derive(Debug, Clone)]
+    pub enum Value {
+        Null,
+        /// A boolean; its value is not read by this bench.
+        Bool,
+        Num(f64),
+        Str(String),
+        Array(Vec<Value>),
+        Object(Vec<(String, Value)>),
+    }
+
+    impl Value {
+        pub fn get(&self, key: &str) -> Option<&Value> {
+            match self {
+                Value::Object(kv) => kv.iter().find(|(k, _)| k == key).map(|(_, v)| v),
+                _ => None,
+            }
+        }
+        pub fn as_str(&self) -> Option<&str> {
+            match self {
+                Value::Str(s) => Some(s),
+                _ => None,
+            }
+        }
+        pub fn as_u64(&self) -> Option<u64> {
+            match self {
+                Value::Num(x) if *x >= 0.0 && x.fract() == 0.0 => Some(*x as u64),
+                _ => None,
+            }
+        }
+    }
+
+    pub fn parse(s: &str) -> Result<Value, String> {
+        let b = s.as_bytes();
+        let mut i = 0;
+        let v = value(b, &mut i)?;
+        ws(b, &mut i);
+        if i != b.len() {
+            return Err(format!("trailing data at byte {i}"));
+        }
+        Ok(v)
+    }
+
+    fn ws(b: &[u8], i: &mut usize) {
+        while *i < b.len() && b[*i].is_ascii_whitespace() {
+            *i += 1;
+        }
+    }
+
+    fn value(b: &[u8], i: &mut usize) -> Result<Value, String> {
+        ws(b, i);
+        match b.get(*i) {
+            Some(b'{') => {
+                *i += 1;
+                let mut kv = Vec::new();
+                ws(b, i);
+                if b.get(*i) == Some(&b'}') {
+                    *i += 1;
+                    return Ok(Value::Object(kv));
+                }
+                loop {
+                    ws(b, i);
+                    let k = string(b, i)?;
+                    ws(b, i);
+                    if b.get(*i) != Some(&b':') {
+                        return Err(format!("expected ':' at byte {i}"));
+                    }
+                    *i += 1;
+                    kv.push((k, value(b, i)?));
+                    ws(b, i);
+                    match b.get(*i) {
+                        Some(b',') => *i += 1,
+                        Some(b'}') => {
+                            *i += 1;
+                            return Ok(Value::Object(kv));
+                        }
+                        _ => return Err(format!("expected ',' or '}}' at byte {i}")),
+                    }
+                }
+            }
+            Some(b'[') => {
+                *i += 1;
+                let mut a = Vec::new();
+                ws(b, i);
+                if b.get(*i) == Some(&b']') {
+                    *i += 1;
+                    return Ok(Value::Array(a));
+                }
+                loop {
+                    a.push(value(b, i)?);
+                    ws(b, i);
+                    match b.get(*i) {
+                        Some(b',') => *i += 1,
+                        Some(b']') => {
+                            *i += 1;
+                            return Ok(Value::Array(a));
+                        }
+                        _ => return Err(format!("expected ',' or ']' at byte {i}")),
+                    }
+                }
+            }
+            Some(b'"') => Ok(Value::Str(string(b, i)?)),
+            Some(b't') if b[*i..].starts_with(b"true") => {
+                *i += 4;
+                Ok(Value::Bool)
+            }
+            Some(b'f') if b[*i..].starts_with(b"false") => {
+                *i += 5;
+                Ok(Value::Bool)
+            }
+            Some(b'n') if b[*i..].starts_with(b"null") => {
+                *i += 4;
+                Ok(Value::Null)
+            }
+            Some(_) => {
+                let start = *i;
+                while *i < b.len() && matches!(b[*i], b'-' | b'+' | b'.' | b'e' | b'E' | b'0'..=b'9') {
+                    *i += 1;
+                }
+                std::str::from_utf8(&b[start..*i])
+                    .ok()
+                    .and_then(|t| t.parse::<f64>().ok())
+                    .map(Value::Num)
+                    .ok_or_else(|| format!("bad value at byte {start}"))
+            }
+            None => Err("unexpected end".into()),
+        }
+    }
+
+    fn string(b: &[u8], i: &mut usize) -> Result<String, String> {
+        if b.get(*i) != Some(&b'"') {
+            return Err(format!("expected a string at byte {i}"));
+        }
+        *i += 1;
+        let mut out = String::new();
+        loop {
+            match b.get(*i) {
+                Some(b'"') => {
+                    *i += 1;
+                    return Ok(out);
+                }
+                Some(b'\\') => {
+                    let c = *b.get(*i + 1).ok_or("unterminated escape")?;
+                    *i += 2;
+                    match c {
+                        b'n' => out.push('\n'),
+                        b't' => out.push('\t'),
+                        b'r' => out.push('\r'),
+                        b'b' => out.push('\u{8}'),
+                        b'f' => out.push('\u{c}'),
+                        b'u' => {
+                            let h = std::str::from_utf8(b.get(*i..*i + 4).ok_or("short \\u")?)
+                                .map_err(|_| "bad \\u")?;
+                            let cp = u32::from_str_radix(h, 16).map_err(|_| "bad \\u")?;
+                            out.push(char::from_u32(cp).unwrap_or('\u{fffd}'));
+                            *i += 4;
+                        }
+                        other => out.push(other as char),
+                    }
+                }
+                Some(_) => {
+                    // A whole UTF-8 sequence at once.
+                    let start = *i;
+                    *i += 1;
+                    while *i < b.len() && (b[*i] & 0xC0) == 0x80 {
+                        *i += 1;
+                    }
+                    out.push_str(std::str::from_utf8(&b[start..*i]).map_err(|_| "bad UTF-8")?);
+                }
+                None => return Err("unterminated string".into()),
+            }
+        }
+    }
 }
 
 /// Bits per parameter of the **whole model**: a weighted mean of `(count,
@@ -656,7 +1062,19 @@ fn levels_of_point(p: &[i32; DIM]) -> ClassLevels {
 }
 
 fn main() {
-    let path = std::env::args().nth(1);
+    // `rtbits [model.llvq] [--sidecar model.sidecar.safetensors]`: the sidecar
+    // joins the whole-model accounting of a v5 file (the Inkling seal).
+    let mut path = None;
+    let mut sidecar: Option<String> = None;
+    let mut args = std::env::args().skip(1);
+    while let Some(a) = args.next() {
+        if a == "--sidecar" {
+            sidecar = Some(args.next().expect("--sidecar needs a path"));
+        } else {
+            assert!(!a.starts_with("--"), "unknown flag {a}");
+            path = Some(a);
+        }
+    }
     let fd = FastDecoder::new();
 
     let mut odd = Acc::default();
@@ -709,9 +1127,10 @@ fn main() {
         // arithmetic, with no class histogram and no claim to one — and this
         // function ends there.
         if llvq_artifact::runtime::require_ball_kinds(h.kinds(), "rtbits").is_err() {
-            report_v5(&path, &mut r, &h);
+            report_v5(&path, &mut r, &h, sidecar.as_deref());
             return;
         }
+        assert!(sidecar.is_none(), "--sidecar is read for a v5 file only");
         source = format!("{path} — {} matrices", h.matrices);
         for _ in 0..h.matrices {
             let m = llvq_artifact::read_matrix_raw(&mut r, h.version).expect("valid matrix");

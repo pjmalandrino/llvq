@@ -1,0 +1,14 @@
+{
+ "window": 1,
+ "kl_mean": 0.08044999092817307,
+ "kl_max": 1.8055819272994995,
+ "top1_agree": 0.8754274845123291,
+ "nll_teacher": 2.0985589027404785,
+ "nll_arm": 2.1669325828552246,
+ "spec": "experts:all=gguf:/Users/pjmalandrino/llvq-inkling-mini/gguf/Inkling-2-Mini-UD-IQ2_XXS.gguf;nonexperts=gguf:/Users/pjmalandrino/llvq-inkling-mini/gguf/Inkling-2-Mini-UD-IQ2_XXS.gguf",
+ "spec_sha": "ab24cff1a7a506ed",
+ "tokens_fingerprint_of_8": "f1acc067bf1b610c",
+ "device": "mps",
+ "n_substituted": 645,
+ "sec_job": 337.163526058197
+}

@@ -1,0 +1,13 @@
+a1_def_32 rc=0
+default path, prompt 32: logits BIT FOR BIT those of the head before the night's work (a76a44b)
+a1_all_fused_32 rc=0
+a1_all_candle_32 rc=0
+every switch, prompt 32: --moe-act fused against candle BIT FOR BIT
+  step: act candle 0.0776, act fused 0.0761, default path 0.1826 | moe_act candle fused | GB end 8.91 8.91
+a1_def_600 rc=0
+default path, prompt 600: logits BIT FOR BIT those of the head before the night's work (a76a44b)
+a1_all_fused_600 rc=0
+a1_all_candle_600 rc=0
+every switch, prompt 600: --moe-act fused against candle BIT FOR BIT
+  step: act candle 0.0791, act fused 0.0771, default path 0.2271 | moe_act candle fused | GB end 10.33 10.33
+end 02:05:32

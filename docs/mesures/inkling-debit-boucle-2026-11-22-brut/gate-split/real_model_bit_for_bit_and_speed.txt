@@ -1,0 +1,14 @@
+build exit 0
+gs_a1_all_32 rc=0
+gs_g1_all_32 rc=0
+every switch, prompt 32: the split against the head before it BIT FOR BIT, 13603944 bytes
+  tokens equal True | step before 0.0557, split 0.0484 | GB end 9.16 9.16
+gs_a1_all_600 rc=0
+gs_g1_all_600 rc=0
+every switch, prompt 600: the split against the head before it BIT FOR BIT, 13603944 bytes
+  tokens equal True | step before 0.0565, split 0.0491 | GB end 10.59 10.59
+gs_g1_def_32 rc=0
+default path, prompt 32: BIT FOR BIT the logits of a76a44b
+gatesplit-all-int4head: median of 3 rounds 0.0361 s a token [0.0361, 0.0362] = 27.70 tok/s
+gatesplit-all: median of 3 rounds 0.0483 s a token [0.0482, 0.0483] = 20.70 tok/s
+end 04:24:31

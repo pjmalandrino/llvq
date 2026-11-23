@@ -101,6 +101,7 @@ modes set together (`ALONE` in that file).
 | `LLVQ_P4T_DUMP` | `llvq-cuda/src/pers.rs`, a lib test of the tree modules | directory: writes the tree module texts NVRTC compiles (`tree_rows.cu`, `tree_tiled.cu`, `tree_stream.cu`), for an offline nvcc SASS probe; moves no output |
 | `LLVQ_TOKENIZER` | `llvq-runtime/examples/overhead.rs` | tokenizer file when no path is given |
 | `LLVQ_UPDATE_OPENAPI` | `llvq-runtime/tests/openapi.rs` | rewrite the committed OpenAPI document |
+| `LLVQ_QWEN3_TOKENIZER` | `llvq-runtime/src/tools.rs`, an ignored lib test | Qwen3's `tokenizer.json`, for the test that holds the per-piece ids of a tool prompt to `transformers`'; default, the Qwen3-4B snapshot of the Hub cache |
 
 ## Python
 

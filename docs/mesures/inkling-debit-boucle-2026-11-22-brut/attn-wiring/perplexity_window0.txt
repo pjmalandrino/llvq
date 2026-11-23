@@ -1,0 +1,5 @@
+positions paired 2047 (0..2046); only in a 0, only in b 0
+ppl a 5.39559  ppl b 5.39556  ratio b/a - 1 = -0.0006 %
+paired: mean diff -6.087e-06 nats, sd 2.361e-02, se 5.218e-04 -> ratio -0.0006 % +- 0.1023 % (95 %)
+positions with |diff| > 0: 2047; largest |diff| 2.891e-01 at 555
+band +-0.12 %: inside; separated from zero at 95 %: False

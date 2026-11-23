@@ -10,3 +10,6 @@ proofs/*.ots.bak
 # Local secrets, never committed: PyPI and TestPyPI tokens for llvq-tetra.
 .env
 dist/
+
+# Per-agent build directories of a worktree (CARGO_TARGET_DIR=target-<name>).
+/target-*/

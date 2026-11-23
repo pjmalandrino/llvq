@@ -22,6 +22,7 @@
 use crate::chat::{self, Msg, Role, Scan, Segment, TextStream};
 use crate::library::{Backend, ModelName};
 use crate::store::{Manifest, Store};
+use crate::tools::{ToolDef, ToolFormat, ToolMsg};
 use llvq_llm::chatfmt::{open_assistant, Marks};
 use llvq_llm::model::Qwen3;
 use llvq_llm::repl::{Sampler, CLOSE_LEN};
@@ -192,6 +193,9 @@ fn batch_engine(_: &Qwen3, _: llvq_llm::served::BatchServe, _: &mut Vec<String>)
 pub enum Prompt {
     /// `/api/chat`: messages through Qwen3's template.
     Chat(Vec<Msg>),
+    /// A chat with tools offered, or with tool calls in its history: the
+    /// family's format renders it ([`crate::tools::ToolFormat`]).
+    ToolChat(ToolPrompt),
     /// `/api/generate` with the template: an optional system turn and a user
     /// turn.
     Templated { system: Option<String>, prompt: String },
@@ -199,6 +203,16 @@ pub enum Prompt {
     Raw(String),
     /// An empty `/api/generate`: load the model, answer nothing.
     Load,
+}
+
+/// A conversation with tools, and the format that renders it.
+#[derive(Debug, Clone)]
+pub struct ToolPrompt {
+    pub format: ToolFormat,
+    /// The functions offered; empty when none is (a history with tool calls,
+    /// or `tool_choice: "none"`).
+    pub tools: Vec<ToolDef>,
+    pub msgs: Vec<ToolMsg>,
 }
 
 /// The options the engine reads. Anything else a client sends is listed in
@@ -585,6 +599,7 @@ impl Worker {
         let marks = &self.marks;
         let (segments, close) = match &req.prompt {
             Prompt::Chat(msgs) => (chat::render(tok, marks, memo, msgs)?, true),
+            Prompt::ToolChat(p) => (chat::render_pieces(tok, memo, &p.format.render(&p.tools, &p.msgs))?, true),
             Prompt::Templated { system, prompt } => {
                 let mut msgs = Vec::new();
                 if let Some(s) = system {
@@ -595,7 +610,7 @@ impl Worker {
             }
             Prompt::Raw(text) => {
                 let ids = tok.encode(text.as_str(), false).map_err(|e| anyhow::anyhow!("{e}"))?.get_ids().to_vec();
-                (vec![Segment { msg: None, ids }], false)
+                (vec![Segment { msg: None, key: None, ids }], false)
             }
             Prompt::Load => unreachable!("answered before"),
         };
@@ -757,8 +772,16 @@ impl Worker {
                 self.memo.clear();
                 return Ok(());
             }
+            // In a conversation with tools the next request finds the answer by
+            // the piece it renders: the calls the client sends back render to
+            // the text the model wrote when it wrote them as the template does.
+            let key = match &req.prompt {
+                Prompt::ToolChat(p) => Some(p.format.answer_piece(&router.content.sent)),
+                _ => None,
+            };
             self.memo.push(Segment {
                 msg: Some(Msg { role: Role::Assistant, content: router.content.sent.clone() }),
+                key,
                 ids: self.session.ids()[messages_end..].to_vec(),
             });
         }

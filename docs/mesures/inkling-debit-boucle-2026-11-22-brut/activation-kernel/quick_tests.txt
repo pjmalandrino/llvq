@@ -1,0 +1,5 @@
+test act_is_candle_on_pairs ... activation: 834849 pairs, f16 out, candle's bits
+test act_refuses_another_shape ... ok
+test probe_is_candle_on_every_f32 ... ignored, every f32 value through the GPU, about a minute; run by name under the lock
+test probe_is_candle_on_structured_values ... probe on 2359791 values: differing softcap gate 0, sigmoid 0, softcap up 0
+test result: ok. 3 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.22s

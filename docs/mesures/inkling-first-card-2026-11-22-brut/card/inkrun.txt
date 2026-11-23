@@ -1,0 +1,5 @@
+inkrun: dense weights on cuda in 0.3 s
+NVRTC source: 89305 bytes, sha256 b7b40685cb269c0111e2ed04d1a24927e39bbd607e366831dbf26c8b5ae379b7 (9 parts), tile 64 (served: measured optimum for sm_89), prefill 4x128 (served pair), 49152 B staged of 49152, target compute_89
+inkrun: 24 layers resident in 37.8 s: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23]
+inkrun: prefill of 32 tokens in 0.79 s
+inkrun: 32 tokens, median step 0.166 s, equal to the reference: Some(true) (first mismatch None), report /out/inkling-first-card-2026-11-22/inkrun.json

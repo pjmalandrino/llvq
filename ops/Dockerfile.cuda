@@ -59,6 +59,14 @@ RUN cargo build --release --locked -p llvq-llm --features ${FEATURES} \
 # under LLVQ_BATCH, ops/batch_serve_bench.py). Its own package, with only the
 # `cuda` feature it carries through to llvq-llm.
 RUN cargo build --release --locked -p llvq-runtime --features cuda --bin llvq
+# `inkrun` (2026-11-22): Inkling 2 Mini generating with its experts resident in lattice codes
+# (`llvq-llm/src/inkling/resident_cuda.rs`). Its own RUN, same package, features and profile as the first, so cargo
+# reuses every compiled crate and adds one compile and one link; a failure here names this line in the build log.
+# The first RUN already takes most of the builder's 30 minutes (28 min for the whole build on 2026-11-13). BOTH lists.
+RUN cargo build --release --locked -p llvq-llm --features ${FEATURES} --bin inkrun
+# `inkgsm` (2026-11-22): GSM8K for Inkling 2 Mini through the same resident path (`llvq-llm/src/bin/inkgsm.rs`,
+# ops/jobs/inkling-gsm8k-card.sh). Its own RUN for the reason above. BOTH lists.
+RUN cargo build --release --locked -p llvq-llm --features ${FEATURES} --bin inkgsm
 # 🕳️ `seal` se construit SANS `cuda`, et ça se paie sinon.
 #
 # Bâti avec la feature comme les autres, il se lie à `libcuda.so.1` — que seule
@@ -157,6 +165,8 @@ COPY --from=build \
       /src/target/release/prefillbench \
       /src/target/release/dflashcheck \
       /src/target/release/llvq \
+      /src/target/release/inkrun \
+      /src/target/release/inkgsm \
       /src/target/release/seal \
       /src/target/release/embedq \
       /src/target/release/export \

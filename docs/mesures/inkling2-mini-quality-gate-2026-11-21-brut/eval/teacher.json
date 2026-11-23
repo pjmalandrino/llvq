@@ -1,0 +1,24 @@
+{
+  "windows": 8,
+  "ctx": 2048,
+  "tokens_fingerprint": "f1acc067bf1b610c",
+  "corpus": {
+    "tokens": 311539,
+    "file": "/Users/pjmalandrino/.cache/huggingface/hub/datasets--Salesforce--wikitext/snapshots/b08601e04326c79dfdd32d625aee71d232d685c3/wikitext-2-raw-v1/test-00000-of-00001.parquet"
+  },
+  "vocab": 200058,
+  "nll_per_window": [
+    1.615234375,
+    2.0985589027404785,
+    2.215076208114624,
+    2.0471668243408203,
+    1.8723208904266357,
+    1.7025995254516602,
+    1.2642767429351807,
+    1.777175784111023
+  ],
+  "ppl_window0": 5.029066472806668,
+  "ppl_all": 6.196912329554683,
+  "device": "mps",
+  "sec": 210.8582820892334
+}

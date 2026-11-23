@@ -1,0 +1,116 @@
+{
+  "arm": "iq1m_0-23",
+  "spec": "0-23=gguf:/Users/pjmalandrino/llvq-inkling-mini/gguf/Inkling-2-Mini-UD-IQ1_M.gguf",
+  "layers": {
+    "0": "gguf:/Users/pjmalandrino/llvq-inkling-mini/gguf/Inkling-2-Mini-UD-IQ1_M.gguf",
+    "1": "gguf:/Users/pjmalandrino/llvq-inkling-mini/gguf/Inkling-2-Mini-UD-IQ1_M.gguf",
+    "2": "gguf:/Users/pjmalandrino/llvq-inkling-mini/gguf/Inkling-2-Mini-UD-IQ1_M.gguf",
+    "3": "gguf:/Users/pjmalandrino/llvq-inkling-mini/gguf/Inkling-2-Mini-UD-IQ1_M.gguf",
+    "4": "gguf:/Users/pjmalandrino/llvq-inkling-mini/gguf/Inkling-2-Mini-UD-IQ1_M.gguf",
+    "5": "gguf:/Users/pjmalandrino/llvq-inkling-mini/gguf/Inkling-2-Mini-UD-IQ1_M.gguf",
+    "6": "gguf:/Users/pjmalandrino/llvq-inkling-mini/gguf/Inkling-2-Mini-UD-IQ1_M.gguf",
+    "7": "gguf:/Users/pjmalandrino/llvq-inkling-mini/gguf/Inkling-2-Mini-UD-IQ1_M.gguf",
+    "8": "gguf:/Users/pjmalandrino/llvq-inkling-mini/gguf/Inkling-2-Mini-UD-IQ1_M.gguf",
+    "9": "gguf:/Users/pjmalandrino/llvq-inkling-mini/gguf/Inkling-2-Mini-UD-IQ1_M.gguf",
+    "10": "gguf:/Users/pjmalandrino/llvq-inkling-mini/gguf/Inkling-2-Mini-UD-IQ1_M.gguf",
+    "11": "gguf:/Users/pjmalandrino/llvq-inkling-mini/gguf/Inkling-2-Mini-UD-IQ1_M.gguf",
+    "12": "gguf:/Users/pjmalandrino/llvq-inkling-mini/gguf/Inkling-2-Mini-UD-IQ1_M.gguf",
+    "13": "gguf:/Users/pjmalandrino/llvq-inkling-mini/gguf/Inkling-2-Mini-UD-IQ1_M.gguf",
+    "14": "gguf:/Users/pjmalandrino/llvq-inkling-mini/gguf/Inkling-2-Mini-UD-IQ1_M.gguf",
+    "15": "gguf:/Users/pjmalandrino/llvq-inkling-mini/gguf/Inkling-2-Mini-UD-IQ1_M.gguf",
+    "16": "gguf:/Users/pjmalandrino/llvq-inkling-mini/gguf/Inkling-2-Mini-UD-IQ1_M.gguf",
+    "17": "gguf:/Users/pjmalandrino/llvq-inkling-mini/gguf/Inkling-2-Mini-UD-IQ1_M.gguf",
+    "18": "gguf:/Users/pjmalandrino/llvq-inkling-mini/gguf/Inkling-2-Mini-UD-IQ1_M.gguf",
+    "19": "gguf:/Users/pjmalandrino/llvq-inkling-mini/gguf/Inkling-2-Mini-UD-IQ1_M.gguf",
+    "20": "gguf:/Users/pjmalandrino/llvq-inkling-mini/gguf/Inkling-2-Mini-UD-IQ1_M.gguf",
+    "21": "gguf:/Users/pjmalandrino/llvq-inkling-mini/gguf/Inkling-2-Mini-UD-IQ1_M.gguf",
+    "22": "gguf:/Users/pjmalandrino/llvq-inkling-mini/gguf/Inkling-2-Mini-UD-IQ1_M.gguf",
+    "23": "gguf:/Users/pjmalandrino/llvq-inkling-mini/gguf/Inkling-2-Mini-UD-IQ1_M.gguf"
+  },
+  "windows": 8,
+  "ctx": 2048,
+  "tokens_fingerprint": "f1acc067bf1b610c",
+  "positions_per_window": 2047,
+  "kl_mean": 0.10013782046735287,
+  "kl_ci95": [
+    0.09094113577157259,
+    0.10996216349303722
+  ],
+  "top1_agree": 0.8778700605034828,
+  "nll_teacher": 1.8240511566400528,
+  "nll_arm": 1.9029114246368408,
+  "nll_diff_mean": 0.07886026799678802,
+  "nll_diff_ci95": [
+    0.07314559817314148,
+    0.0856328584253788
+  ],
+  "per_window": [
+    {
+      "window": 0,
+      "kl_mean": 0.08616070449352264,
+      "kl_max": 5.202911853790283,
+      "top1_agree": 0.898876428604126,
+      "nll_teacher": 1.615234375,
+      "nll_arm": 1.6881088018417358
+    },
+    {
+      "window": 1,
+      "kl_mean": 0.09667573124170303,
+      "kl_max": 2.437676191329956,
+      "top1_agree": 0.8573521971702576,
+      "nll_teacher": 2.0985589027404785,
+      "nll_arm": 2.1679940223693848
+    },
+    {
+      "window": 2,
+      "kl_mean": 0.07915395498275757,
+      "kl_max": 2.344850778579712,
+      "top1_agree": 0.8768930435180664,
+      "nll_teacher": 2.215076208114624,
+      "nll_arm": 2.283531904220581
+    },
+    {
+      "window": 3,
+      "kl_mean": 0.12489297986030579,
+      "kl_max": 3.4167237281799316,
+      "top1_agree": 0.8563751578330994,
+      "nll_teacher": 2.0471668243408203,
+      "nll_arm": 2.14457631111145
+    },
+    {
+      "window": 4,
+      "kl_mean": 0.11399515718221664,
+      "kl_max": 3.153428792953491,
+      "top1_agree": 0.8715192675590515,
+      "nll_teacher": 1.8723208904266357,
+      "nll_arm": 1.955604076385498
+    },
+    {
+      "window": 5,
+      "kl_mean": 0.10620152950286865,
+      "kl_max": 3.353640079498291,
+      "top1_agree": 0.8778700828552246,
+      "nll_teacher": 1.7025995254516602,
+      "nll_arm": 1.7806228399276733
+    },
+    {
+      "window": 6,
+      "kl_mean": 0.09807606786489487,
+      "kl_max": 3.710916042327881,
+      "top1_agree": 0.8935027122497559,
+      "nll_teacher": 1.2642767429351807,
+      "nll_arm": 1.3496308326721191
+    },
+    {
+      "window": 7,
+      "kl_mean": 0.09594643861055374,
+      "kl_max": 2.9431309700012207,
+      "top1_agree": 0.8905715942382812,
+      "nll_teacher": 1.777175784111023,
+      "nll_arm": 1.8532226085662842
+    }
+  ],
+  "device": "mps",
+  "sec": 472.9565649032593,
+  "bootstrap": "10000 resamples of windows, seed 0, percentile"
+}

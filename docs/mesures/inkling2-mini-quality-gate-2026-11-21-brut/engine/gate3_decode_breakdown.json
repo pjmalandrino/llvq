@@ -1,0 +1,107 @@
+{
+  "median": {
+    "native_moe": 0.228111083,
+    "resident_moe": 0.07227275100000002,
+    "rest": 0.22470387500000003,
+    "total": 0.525715709
+  },
+  "resident_layers": [
+    0,
+    1,
+    2,
+    6,
+    7,
+    8,
+    9,
+    10,
+    11,
+    12,
+    13,
+    14,
+    15,
+    16,
+    17
+  ],
+  "steps": [
+    {
+      "lattice_launches": 1560,
+      "native_calls": 9,
+      "native_moe": 0.236138415,
+      "resident_calls": 39,
+      "resident_moe": 0.07534962499999999,
+      "rest": 0.28417500100000004,
+      "step": 0,
+      "total": 0.595663041
+    },
+    {
+      "lattice_launches": 1560,
+      "native_calls": 9,
+      "native_moe": 0.229931416,
+      "resident_calls": 39,
+      "resident_moe": 0.077690835,
+      "rest": 0.24293945700000003,
+      "step": 1,
+      "total": 0.550561708
+    },
+    {
+      "lattice_launches": 1560,
+      "native_calls": 9,
+      "native_moe": 0.22559754200000004,
+      "resident_calls": 39,
+      "resident_moe": 0.07050725299999998,
+      "rest": 0.21673553799999995,
+      "step": 2,
+      "total": 0.512840333
+    },
+    {
+      "lattice_launches": 1560,
+      "native_calls": 9,
+      "native_moe": 0.229736959,
+      "resident_calls": 39,
+      "resident_moe": 0.07227275100000002,
+      "rest": 0.23227320599999998,
+      "step": 3,
+      "total": 0.534282916
+    },
+    {
+      "lattice_launches": 1560,
+      "native_calls": 9,
+      "native_moe": 0.22761825,
+      "resident_calls": 39,
+      "resident_moe": 0.070387084,
+      "rest": 0.220838791,
+      "step": 4,
+      "total": 0.518844125
+    },
+    {
+      "lattice_launches": 1560,
+      "native_calls": 9,
+      "native_moe": 0.226324289,
+      "resident_calls": 39,
+      "resident_moe": 0.07064645799999998,
+      "rest": 0.21760425300000003,
+      "step": 5,
+      "total": 0.514575
+    },
+    {
+      "lattice_launches": 1560,
+      "native_calls": 9,
+      "native_moe": 0.228111083,
+      "resident_calls": 39,
+      "resident_moe": 0.07301987700000001,
+      "rest": 0.22458474899999997,
+      "step": 6,
+      "total": 0.525715709
+    },
+    {
+      "lattice_launches": 1560,
+      "native_calls": 9,
+      "native_moe": 0.227434124,
+      "resident_calls": 39,
+      "resident_moe": 0.071818043,
+      "rest": 0.22470387500000003,
+      "step": 7,
+      "total": 0.523956042
+    }
+  ]
+}

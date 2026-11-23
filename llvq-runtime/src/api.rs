@@ -11,7 +11,8 @@
 #![allow(clippy::result_large_err)]
 
 use crate::chat::{Msg, Role};
-use crate::engine::{Event, KeepAlive, Models, Options, Prompt, Request, State as EngineState, Stats};
+use crate::engine::{Event, KeepAlive, Models, Options, Prompt, Request, State as EngineState, Stats, ToolPrompt};
+use crate::tools::{self, Args, Calls, HistCall, OrderedJson, Piece, ToolDef, ToolFormat, ToolMsg, ToolRole};
 use crate::library::{self, ModelName};
 use crate::store::{Manifest, PullEvent};
 use axum::body::{Body, Bytes};
@@ -153,15 +154,12 @@ pub fn stop_list(v: &Value) -> Result<Vec<String>, String> {
 }
 
 /// Refuse what the engine does not do, by name.
-fn refuse_unsupported(images: bool, format: &Option<Value>, tools: bool) -> Result<(), Response> {
+fn refuse_unsupported(images: bool, format: &Option<Value>) -> Result<(), Response> {
     if images {
         return Err(error(400, "images: the served models read text only"));
     }
     if format.as_ref().is_some_and(|f| !f.is_null() && f != "") {
         return Err(error(400, "format: structured output is not implemented by llvq"));
-    }
-    if tools {
-        return Err(error(400, "tools: tool calls are not served by llvq"));
     }
     Ok(())
 }
@@ -349,24 +347,31 @@ pub struct CopyRequest {
 
 #[derive(Serialize, Deserialize, ToSchema, Clone)]
 pub struct ChatMessage {
-    /// `system`, `user` or `assistant`.
+    /// `system`, `user`, `assistant` or `tool`.
     pub role: String,
     pub content: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub thinking: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub images: Option<Vec<String>>,
+    /// The calls of an assistant message, `[{"function": {"name",
+    /// "arguments"}}]`, `arguments` an object.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schema(value_type = Option<Vec<Object>>)]
-    pub tool_calls: Option<Vec<Value>>,
+    pub tool_calls: Option<Vec<OrderedJson>>,
+    /// The function a `tool` message answers, when the client names it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tool_name: Option<String>,
 }
 
 #[derive(Serialize, Deserialize, ToSchema)]
 pub struct ChatRequest {
     pub model: String,
     pub messages: Vec<ChatMessage>,
+    /// Functions the model may call, `{"type": "function", "function":
+    /// {"name", "description", "parameters"}}`. Served for the qwen3 family.
     #[schema(value_type = Option<Vec<Object>>)]
-    pub tools: Option<Vec<Value>>,
+    pub tools: Option<Vec<OrderedJson>>,
     #[schema(value_type = Option<Object>)]
     pub format: Option<Value>,
     /// `temperature`, `top_p`, `seed`, `num_predict`, `stop` and `num_ctx`
@@ -551,7 +556,8 @@ pub async fn ps(State(st): State<AppState>) -> Json<PsResponse> {
 
 /// Qwen3's chat format, as `chatfmt` builds it from ids.
 const TEMPLATE: &str = "<|im_start|>{{role}}\n{{content}}<|im_end|>\n ... <|im_start|>assistant\n\
-(<think>\n\n</think>\n\n when think is off). Built from token ids by llvq_llm::chatfmt, not from this text.";
+(<think>\n\n</think>\n\n when think is off). Built from token ids by llvq_llm::chatfmt, not from this text. \
+With tools, the official Qwen3 template's text (llvq_runtime::tools), encoded piece by piece.";
 
 /// A model's manifest, details and served config.
 #[utoipa::path(post, path = "/api/show", tag = "ollama", request_body = ShowRequest,
@@ -577,6 +583,9 @@ pub async fn show(State(st): State<AppState>, body: Bytes) -> Response {
     info.insert("llvq.bits_per_param".into(), json!(m.bits_per_param));
     let mut capabilities = vec!["completion".to_string()];
     capabilities.push("thinking".into());
+    if ToolFormat::of_family(&m.family).is_ok() {
+        capabilities.push("tools".into());
+    }
     Json(ShowResponse {
         modelfile: String::new(),
         parameters: String::new(),
@@ -702,6 +711,7 @@ fn chunk_chat(model: &str, content: String, thinking: String, done: Option<DoneF
         thinking: (!thinking.is_empty()).then_some(thinking),
         images: None,
         tool_calls: None,
+        tool_name: None,
     };
     serde_json::to_value(ChatResponse {
         model: model.into(),
@@ -783,9 +793,13 @@ pub async fn chat(State(st): State<AppState>, body: Bytes) -> Response {
         Err(r) => return r,
     };
     let images = req.messages.iter().any(|m| m.images.as_ref().is_some_and(|i| !i.is_empty()));
-    if let Err(r) = refuse_unsupported(images, &req.format, req.tools.as_ref().is_some_and(|t| !t.is_empty())) {
+    if let Err(r) = refuse_unsupported(images, &req.format) {
         return r;
     }
+    let tool_prompt = match tool_prompt(&st, &name, &req) {
+        Ok(p) => p,
+        Err(r) => return r,
+    };
     let mut warnings = Vec::new();
     if req.logprobs == Some(true) {
         warnings.push("logprobs are not implemented by llvq and were ignored".into());
@@ -798,6 +812,11 @@ pub async fn chat(State(st): State<AppState>, body: Bytes) -> Response {
         (Ok(t), Ok(k)) => (t, k),
         (Err(r), _) | (_, Err(r)) => return r,
     };
+    if let Some(p) = tool_prompt {
+        let parse = (!p.tools.is_empty()).then_some(p.format);
+        let request = Request { prompt: Prompt::ToolChat(p), think, options };
+        return answer_tools(&st, name, request, keep, req.stream.unwrap_or(true), warnings, parse).await;
+    }
     let mut msgs = Vec::with_capacity(req.messages.len());
     for m in &req.messages {
         match Role::parse(&m.role) {
@@ -813,6 +832,183 @@ pub async fn chat(State(st): State<AppState>, body: Bytes) -> Response {
     answer(&st, name, request, keep, req.stream.unwrap_or(true), warnings, chunk_chat).await
 }
 
+/// The conversation with tools of an `/api/chat` request, or `None` when it
+/// offers none and its history holds no tool call (the plain chat path).
+fn tool_prompt(st: &AppState, name: &ModelName, req: &ChatRequest) -> Result<Option<ToolPrompt>, Response> {
+    let offered = req.tools.as_deref().unwrap_or_default();
+    let in_history =
+        req.messages.iter().any(|m| m.role == "tool" || m.tool_calls.as_ref().is_some_and(|c| !c.is_empty()));
+    if offered.is_empty() && !in_history {
+        return Ok(None);
+    }
+    let format = crate::openai::family_format(st, name).map_err(|(s, m)| error(s, m))?;
+    let mut tools = Vec::with_capacity(offered.len());
+    for (i, t) in offered.iter().enumerate() {
+        tools.push(ToolDef::parse(i, t).map_err(|e| error(400, e))?);
+    }
+    let mut msgs = Vec::with_capacity(req.messages.len());
+    for (i, m) in req.messages.iter().enumerate() {
+        let role = match m.role.as_str() {
+            "system" => ToolRole::System,
+            "user" => ToolRole::User,
+            "assistant" => ToolRole::Assistant,
+            "tool" => ToolRole::Tool,
+            o => return Err(error(400, format!("messages[{i}]: role {o:?}: the roles are system, user, assistant and tool"))),
+        };
+        let mut calls = Vec::new();
+        for (k, c) in m.tool_calls.iter().flatten().enumerate() {
+            if role != ToolRole::Assistant {
+                return Err(error(400, format!("messages[{i}]: only an assistant message carries tool_calls")));
+            }
+            calls.push(ollama_call(c).map_err(|e| error(400, format!("messages[{i}].tool_calls[{k}]: {e}")))?);
+        }
+        let name = m.tool_name.clone().filter(|_| role == ToolRole::Tool);
+        msgs.push(ToolMsg { role, content: m.content.clone(), calls, name });
+    }
+    // Ollama's calls carry no id: a result is checked to follow a call only.
+    tools::check_results(&msgs, &[]).map_err(|e| error(400, e))?;
+    Ok(Some(ToolPrompt { format, tools, msgs }))
+}
+
+/// A call of an assistant message, Ollama's shape: `arguments` an object,
+/// written into the prompt through `tojson` in the client's key order.
+fn ollama_call(c: &OrderedJson) -> Result<HistCall, String> {
+    let f = c.get("function").ok_or("a function object")?;
+    let name = f.get("name").and_then(OrderedJson::as_str).filter(|n| !n.is_empty()).ok_or("function.name, a string")?;
+    let arguments = match f.get("arguments") {
+        None | Some(OrderedJson::Null) => Args::Object(OrderedJson::Obj(Vec::new())),
+        Some(o @ OrderedJson::Obj(_)) => Args::Object(o.clone()),
+        Some(OrderedJson::Str(s)) => Args::Text(s.clone()),
+        Some(_) => return Err("function.arguments, an object".into()),
+    };
+    Ok(HistCall { id: c.get("id").and_then(OrderedJson::as_str).map(str::to_string), name: name.to_string(), arguments })
+}
+
+/// A call the model made, Ollama's shape.
+fn ollama_tool_call(c: &tools::Call) -> OrderedJson {
+    OrderedJson::Obj(vec![(
+        "function".into(),
+        OrderedJson::Obj(vec![("name".into(), OrderedJson::Str(c.name.clone())), ("arguments".into(), c.arguments.clone())]),
+    )])
+}
+
+/// One `/api/chat` chunk of an answer with tools.
+fn chunk_tools(model: &str, content: String, thinking: String, calls: Vec<OrderedJson>, done: Option<DoneFields>) -> Value {
+    let message = ChatMessage {
+        role: "assistant".into(),
+        content,
+        thinking: (!thinking.is_empty()).then_some(thinking),
+        images: None,
+        tool_calls: (!calls.is_empty()).then_some(calls),
+        tool_name: None,
+    };
+    serde_json::to_value(ChatResponse {
+        model: model.into(),
+        created_at: rfc3339(SystemTime::now()),
+        message,
+        done: done.is_some(),
+        stats: done.unwrap_or_default(),
+    })
+    .expect("a chunk serializes")
+}
+
+/// [`answer`] for a conversation with tools: the answer read for calls when
+/// `parse` names a format (tools offered), streamed a piece a chunk.
+async fn answer_tools(
+    st: &AppState,
+    name: ModelName,
+    request: Request,
+    keep: Option<KeepAlive>,
+    stream: bool,
+    warnings: Vec<String>,
+    parse: Option<ToolFormat>,
+) -> Response {
+    let mut rx = match st.models.submit(&name, request, keep) {
+        Ok(rx) => rx,
+        Err(r) => return error(r.status, r.message),
+    };
+    if let Err((status, message)) = accepted(&mut rx).await {
+        return error(status, message);
+    }
+    let model = name.to_string();
+    let mut calls = parse.map(Calls::new);
+    // What a piece adds to a message: content, reasoning, calls.
+    fn split(ps: Vec<Piece>) -> (String, String, Vec<OrderedJson>) {
+        let (mut c, mut r, mut k) = (String::new(), String::new(), Vec::new());
+        for p in ps {
+            match p {
+                Piece::Content(t) | Piece::Malformed { text: t, .. } => c.push_str(&t),
+                Piece::Reasoning(t) => r.push_str(&t),
+                Piece::Call(call) => k.push(ollama_tool_call(&call)),
+            }
+        }
+        (c, r, k)
+    }
+    if stream {
+        return ndjson(events(rx).flat_map(move |e| {
+            let out: Vec<Value> = match e {
+                Event::Delta { content, thinking } => {
+                    let ps = match calls.as_mut() {
+                        Some(k) => k.delta(&content, &thinking),
+                        None => vec![Piece::Reasoning(thinking), Piece::Content(content)],
+                    };
+                    ps.into_iter()
+                        .filter(|p| !matches!(p, Piece::Content(t) | Piece::Reasoning(t) if t.is_empty()))
+                        .map(|p| {
+                            let (c, r, k) = split(vec![p]);
+                            chunk_tools(&model, c, r, k, None)
+                        })
+                        .collect()
+                }
+                Event::Done(s) => {
+                    let mut out: Vec<Value> = Vec::new();
+                    let mut w = warnings.clone();
+                    if let Some(k) = calls.as_mut() {
+                        for p in k.finish() {
+                            let (c, r, calls) = split(vec![p]);
+                            out.push(chunk_tools(&model, c, r, calls, None));
+                        }
+                        w.extend(k.warnings.iter().cloned());
+                    }
+                    out.push(chunk_tools(&model, String::new(), String::new(), Vec::new(), Some(DoneFields::of(&s, &w))));
+                    out
+                }
+                Event::Error { message, .. } => vec![json!({ "error": message })],
+                Event::Accepted { .. } => vec![json!({ "error": "accepted twice" })],
+            };
+            futures_util::stream::iter(out)
+        }));
+    }
+    let (mut content, mut thinking, mut made) = (String::new(), String::new(), Vec::new());
+    let mut ev = Box::pin(events(rx));
+    while let Some(e) = ev.next().await {
+        let ps = match e {
+            Event::Delta { content: c, thinking: t } => match calls.as_mut() {
+                Some(k) => k.delta(&c, &t),
+                None => vec![Piece::Reasoning(t), Piece::Content(c)],
+            },
+            Event::Done(s) => {
+                let mut w = warnings.clone();
+                if let Some(k) = calls.as_mut() {
+                    let (c, r, m) = split(k.finish());
+                    content.push_str(&c);
+                    thinking.push_str(&r);
+                    made.extend(m);
+                    w.extend(k.warnings.iter().cloned());
+                }
+                return Json(chunk_tools(&model, content, thinking, made, Some(DoneFields::of(&s, &w)))).into_response();
+            }
+            Event::Error { status, message } => return error(status, message),
+            Event::Accepted { .. } => continue,
+        };
+        let (c, r, m) = split(ps);
+        content.push_str(&c);
+        thinking.push_str(&r);
+        made.extend(m);
+    }
+    error(500, "the engine stopped before the end of the answer")
+}
+
 /// A completion of one prompt, through the template or raw.
 #[utoipa::path(post, path = "/api/generate", tag = "ollama", request_body = GenerateRequest,
     responses((status = 200, description = "NDJSON of GenerateResponse, or one when stream is false", body = GenerateResponse),
@@ -826,7 +1022,7 @@ pub async fn generate(State(st): State<AppState>, body: Bytes) -> Response {
         Ok(n) => n,
         Err(r) => return r,
     };
-    if let Err(r) = refuse_unsupported(req.images.as_ref().is_some_and(|i| !i.is_empty()), &req.format, false) {
+    if let Err(r) = refuse_unsupported(req.images.as_ref().is_some_and(|i| !i.is_empty()), &req.format) {
         return r;
     }
     if req.suffix.as_ref().is_some_and(|s| !s.is_empty()) {

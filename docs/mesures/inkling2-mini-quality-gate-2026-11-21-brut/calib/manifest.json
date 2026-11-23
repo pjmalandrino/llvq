@@ -1,0 +1,346 @@
+{
+  "model": "thinkingmachines/Inkling-2-Mini@ed40e7da625f594fc9c4990f5f66be24873c22d7",
+  "transformers": "5.24.0.dev0 (git 046bdb8cc2)",
+  "arm": "native (float32 dequantized experts, unrounded)",
+  "dtype": "float32",
+  "device": "mps",
+  "threads": 10,
+  "corpus": "HuggingFaceTB/dclm-edu data/000_00000.parquet, rows in file order joined by blank lines, budget n*len*6 UTF-8 bytes, tokenized once with add_special_tokens=False (no BOS), contiguous windows from token 0 (llvq-llm corpus.rs rule, seed None)",
+  "corpus_stats": {
+    "rows_read": 127,
+    "bytes": 825408,
+    "budget": 786432,
+    "file": "/Users/pjmalandrino/.cache/huggingface/hub/datasets--HuggingFaceTB--dclm-edu/snapshots/dbad8ad71224482740cd9c9d353591adbf62fe04/data/000_00000.parquet",
+    "tokens": 206728,
+    "windows_available": 100
+  },
+  "n_seqs": 64,
+  "seq_len": 2048,
+  "n_tokens": 131072,
+  "token_order": "sequence-major, then position",
+  "group": 32,
+  "micro": 1,
+  "files": {
+    "x.f16": [
+      131072,
+      2304
+    ],
+    "topk_idx.u8": [
+      131072,
+      8
+    ],
+    "topk_w.f32": [
+      131072,
+      8
+    ]
+  },
+  "pass_convention": "0 = layers outside the loop; 1..3 = passes over layers 6-17",
+  "visits": [
+    {
+      "visit": 0,
+      "layer": 0,
+      "pass": 0,
+      "dir": "v00_L00_p0"
+    },
+    {
+      "visit": 1,
+      "layer": 1,
+      "pass": 0,
+      "dir": "v01_L01_p0"
+    },
+    {
+      "visit": 2,
+      "layer": 2,
+      "pass": 0,
+      "dir": "v02_L02_p0"
+    },
+    {
+      "visit": 3,
+      "layer": 3,
+      "pass": 0,
+      "dir": "v03_L03_p0"
+    },
+    {
+      "visit": 4,
+      "layer": 4,
+      "pass": 0,
+      "dir": "v04_L04_p0"
+    },
+    {
+      "visit": 5,
+      "layer": 5,
+      "pass": 0,
+      "dir": "v05_L05_p0"
+    },
+    {
+      "visit": 6,
+      "layer": 6,
+      "pass": 1,
+      "dir": "v06_L06_p1"
+    },
+    {
+      "visit": 7,
+      "layer": 7,
+      "pass": 1,
+      "dir": "v07_L07_p1"
+    },
+    {
+      "visit": 8,
+      "layer": 8,
+      "pass": 1,
+      "dir": "v08_L08_p1"
+    },
+    {
+      "visit": 9,
+      "layer": 9,
+      "pass": 1,
+      "dir": "v09_L09_p1"
+    },
+    {
+      "visit": 10,
+      "layer": 10,
+      "pass": 1,
+      "dir": "v10_L10_p1"
+    },
+    {
+      "visit": 11,
+      "layer": 11,
+      "pass": 1,
+      "dir": "v11_L11_p1"
+    },
+    {
+      "visit": 12,
+      "layer": 12,
+      "pass": 1,
+      "dir": "v12_L12_p1"
+    },
+    {
+      "visit": 13,
+      "layer": 13,
+      "pass": 1,
+      "dir": "v13_L13_p1"
+    },
+    {
+      "visit": 14,
+      "layer": 14,
+      "pass": 1,
+      "dir": "v14_L14_p1"
+    },
+    {
+      "visit": 15,
+      "layer": 15,
+      "pass": 1,
+      "dir": "v15_L15_p1"
+    },
+    {
+      "visit": 16,
+      "layer": 16,
+      "pass": 1,
+      "dir": "v16_L16_p1"
+    },
+    {
+      "visit": 17,
+      "layer": 17,
+      "pass": 1,
+      "dir": "v17_L17_p1"
+    },
+    {
+      "visit": 18,
+      "layer": 6,
+      "pass": 2,
+      "dir": "v18_L06_p2"
+    },
+    {
+      "visit": 19,
+      "layer": 7,
+      "pass": 2,
+      "dir": "v19_L07_p2"
+    },
+    {
+      "visit": 20,
+      "layer": 8,
+      "pass": 2,
+      "dir": "v20_L08_p2"
+    },
+    {
+      "visit": 21,
+      "layer": 9,
+      "pass": 2,
+      "dir": "v21_L09_p2"
+    },
+    {
+      "visit": 22,
+      "layer": 10,
+      "pass": 2,
+      "dir": "v22_L10_p2"
+    },
+    {
+      "visit": 23,
+      "layer": 11,
+      "pass": 2,
+      "dir": "v23_L11_p2"
+    },
+    {
+      "visit": 24,
+      "layer": 12,
+      "pass": 2,
+      "dir": "v24_L12_p2"
+    },
+    {
+      "visit": 25,
+      "layer": 13,
+      "pass": 2,
+      "dir": "v25_L13_p2"
+    },
+    {
+      "visit": 26,
+      "layer": 14,
+      "pass": 2,
+      "dir": "v26_L14_p2"
+    },
+    {
+      "visit": 27,
+      "layer": 15,
+      "pass": 2,
+      "dir": "v27_L15_p2"
+    },
+    {
+      "visit": 28,
+      "layer": 16,
+      "pass": 2,
+      "dir": "v28_L16_p2"
+    },
+    {
+      "visit": 29,
+      "layer": 17,
+      "pass": 2,
+      "dir": "v29_L17_p2"
+    },
+    {
+      "visit": 30,
+      "layer": 6,
+      "pass": 3,
+      "dir": "v30_L06_p3"
+    },
+    {
+      "visit": 31,
+      "layer": 7,
+      "pass": 3,
+      "dir": "v31_L07_p3"
+    },
+    {
+      "visit": 32,
+      "layer": 8,
+      "pass": 3,
+      "dir": "v32_L08_p3"
+    },
+    {
+      "visit": 33,
+      "layer": 9,
+      "pass": 3,
+      "dir": "v33_L09_p3"
+    },
+    {
+      "visit": 34,
+      "layer": 10,
+      "pass": 3,
+      "dir": "v34_L10_p3"
+    },
+    {
+      "visit": 35,
+      "layer": 11,
+      "pass": 3,
+      "dir": "v35_L11_p3"
+    },
+    {
+      "visit": 36,
+      "layer": 12,
+      "pass": 3,
+      "dir": "v36_L12_p3"
+    },
+    {
+      "visit": 37,
+      "layer": 13,
+      "pass": 3,
+      "dir": "v37_L13_p3"
+    },
+    {
+      "visit": 38,
+      "layer": 14,
+      "pass": 3,
+      "dir": "v38_L14_p3"
+    },
+    {
+      "visit": 39,
+      "layer": 15,
+      "pass": 3,
+      "dir": "v39_L15_p3"
+    },
+    {
+      "visit": 40,
+      "layer": 16,
+      "pass": 3,
+      "dir": "v40_L16_p3"
+    },
+    {
+      "visit": 41,
+      "layer": 17,
+      "pass": 3,
+      "dir": "v41_L17_p3"
+    },
+    {
+      "visit": 42,
+      "layer": 18,
+      "pass": 0,
+      "dir": "v42_L18_p0"
+    },
+    {
+      "visit": 43,
+      "layer": 19,
+      "pass": 0,
+      "dir": "v43_L19_p0"
+    },
+    {
+      "visit": 44,
+      "layer": 20,
+      "pass": 0,
+      "dir": "v44_L20_p0"
+    },
+    {
+      "visit": 45,
+      "layer": 21,
+      "pass": 0,
+      "dir": "v45_L21_p0"
+    },
+    {
+      "visit": 46,
+      "layer": 22,
+      "pass": 0,
+      "dir": "v46_L22_p0"
+    },
+    {
+      "visit": 47,
+      "layer": 23,
+      "pass": 0,
+      "dir": "v47_L23_p0"
+    }
+  ],
+  "sec": 1072.6420741081238,
+  "tok_per_s": 122.195467774265,
+  "groups": [
+    {
+      "sequences": [
+        0,
+        31
+      ],
+      "sec": 557.9302048683167
+    },
+    {
+      "sequences": [
+        32,
+        63
+      ],
+      "sec": 514.7096619606018
+    }
+  ]
+}

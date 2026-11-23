@@ -1,0 +1,3 @@
+2026-11-21 22:50:30 coordinator: killed pgid 34005 (inkling-teacher G2 mutant) after sentinel CRITICAL swap=26520M
+2026-11-21 22:52:14 coordinator: killed pgid 34547 (inkling-teacher G2 mutant, second run) after night sentinel CRITICAL swap +21 GB
+2026-11-22 06:30:02 gate {6-17} PASS (KL 0.03781 vs IQ1_S 0.05386); f16 check on {6-8}: KL 0.009614 vs 0.009611; loop captures (36 visit dirs) and layers_f16check removed to free disk; stage C (layers outside the loop, 8 threads, f16 hats) starts

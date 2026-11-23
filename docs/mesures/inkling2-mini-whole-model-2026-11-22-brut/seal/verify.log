@@ -1,0 +1,34 @@
+verify inkling2-mini.llvq: 9216 records, 9216 lattice decoded, 0 decode failures
+  experts vs f32 hats (bit for bit): 4608 records, 12230590464 weights, 0 differing
+  experts vs f16 hats (decode narrowed to f16, then bit for bit): 4608 records, 12230590464 weights, 0 differing
+  inkwh records (bytes = file, decode = reconstruction): 0 records, 0 weights, 0 differing, 0 byte mismatches
+  layer 0: f16 hats, decode narrowed to f16 then bit for bit
+  layer 1: f16 hats, decode narrowed to f16 then bit for bit
+  layer 2: f16 hats, decode narrowed to f16 then bit for bit
+  layer 3: f16 hats, decode narrowed to f16 then bit for bit
+  layer 4: f16 hats, decode narrowed to f16 then bit for bit
+  layer 5: f16 hats, decode narrowed to f16 then bit for bit
+  layer 6: f32 hats, bit for bit
+  layer 7: f32 hats, bit for bit
+  layer 8: f32 hats, bit for bit
+  layer 9: f32 hats, bit for bit
+  layer 10: f32 hats, bit for bit
+  layer 11: f32 hats, bit for bit
+  layer 12: f32 hats, bit for bit
+  layer 13: f32 hats, bit for bit
+  layer 14: f32 hats, bit for bit
+  layer 15: f32 hats, bit for bit
+  layer 16: f32 hats, bit for bit
+  layer 17: f32 hats, bit for bit
+  layer 18: f16 hats, decode narrowed to f16 then bit for bit
+  layer 19: f16 hats, decode narrowed to f16 then bit for bit
+  layer 20: f16 hats, decode narrowed to f16 then bit for bit
+  layer 21: f16 hats, decode narrowed to f16 then bit for bit
+  layer 22: f16 hats, decode narrowed to f16 then bit for bit
+  layer 23: f16 hats, decode narrowed to f16 then bit for bit
+  raw tensors: 2 in the file, 2 compared with their files, 0 differ
+  blobs: 5, no trailing byte
+  sidecar: 644 tensors, 1366256640 bytes equal to the native file
+  native accounting: 1244 tensors, each in exactly one place: {"expert records": 176, "omitted": 422, "raw tensor": 2, "sidecar": 644}; 0 errors; text-model tensors omitted: 0
+verify: 278.3 s
+PASS

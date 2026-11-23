@@ -1,0 +1,4 @@
+/opt/homebrew/Caskroom/miniconda/base/lib/python3.12/site-packages/huggingface_hub/cli/download.py:187: UserWarning: Ignoring `--include` since filenames have been explicitly set.
+  warnings.warn("Ignoring `--include` since filenames have been explicitly set.")
+path=/Users/pjmalandrino/llvq-inkling-mini/gguf
+GGUF_DONE rc=0

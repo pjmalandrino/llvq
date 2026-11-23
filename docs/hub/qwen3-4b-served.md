@@ -5,6 +5,7 @@ base_model_relation: quantized
 language:
   - en
 library_name: llvq
+pipeline_tag: text-generation
 inference: false
 tags:
   - qwen3
@@ -152,8 +153,8 @@ the Rust engine only.
 
 ## Citation
 
-- Paper 2, *Tetra: Serving Leech-Lattice Quantized LLMs at 2.7 Bits per
-  Parameter*, in the repository under `paper2/`. It publishes the digest of
+- Paper 2, [*Tetra: Serving Leech-Lattice Quantized LLMs at 2.7 Bits per
+  Parameter*](https://huggingface.co/papers/2609.35465), in the repository under `paper2/`. It publishes the digest of
   this file at the
   [sealed repository](https://huggingface.co/Pier-Jean/Qwen3-4B-LLVQ-Tetra-sealed);
   cite that one, not this one.

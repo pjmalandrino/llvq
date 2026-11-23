@@ -1,0 +1,69 @@
+INKLING 2 MINI, GSM8K ON 200 PROBLEMS, THE SEALED FILE'S VALUES THROUGH OUR ENGINE, 2026-11-22
+
+RESULT
+  191 of 200 right, 95.5 %, exact 95 % interval [91.6 %, 97.9 %] (*measured*), under the cap rule: a completion
+  cut by the cap counts wrong. 4 completions were cut by the cap of 1,536 tokens.
+  Reading: READ with one deviation, on the rule of `proofs/preregistration-inkling-gsm8k-sealed-2026-11-22.md`
+  (timestamped before the run). The deviation is the coordinator's error in the prereg, not a fault of the run:
+  the prompt fingerprint printed in the prereg is the two-problem pilot's. It is written in the `-ECARTS.md` beside
+  the prereg, and whether the reading stands is the operator's decision.
+  This count stands alone. No rival arm has run, so nothing is concluded about any other file or model, and it is
+  not compared with a GSM8K figure of any model card: another harness, another prompt, another subset.
+
+THE OBJECT
+  The experts of the 24 layers resident on the card in lattice codes, 2.037 bits a weight. The embedding and output
+  tables with the sealed file's int4 g64 values, decoded at load (the header of the dump carries their two sha256,
+  equal to the prereg's). Every other tensor as the sealed file's sidecar holds it. These are the values of
+  `inkling2-mini.llvq` and its sidecar, the arm `experts24_tables` of the whole-model journal (KL 0.0880).
+  Two precisions. The engine reads the code files and the two table files the seal was built from, not the `.llvq`
+  container itself. The tables are held decoded, so the memory of this run is not the sealed object's.
+
+THE RUN
+  Job `6b0347de130a00b5aa8100d2`, `l4x1` (NVIDIA L4, 23,034 MiB), image `Pier-Jean/llvq-runner-cuda` at Space sha
+  ee94f304677295370cb0dbe24bc45672e75048ef, built from commit d4c60ca. Waited 881 s for the card, ran 12,155 s.
+  3.38 h billed, $2.70 (`ops/run.py monitor`). Card spend on this model after it: $2.82 of $25.
+  Raw files: `inkling-gsm8k-sealed-2026-11-22-brut/` (the dump, the job log, the job's own summary, the control
+  files, the monitor's log and its memory series).
+
+CONTROLS
+  1. `oracle` MATCH on CUDA (max difference 0).
+  2. Every input at its pinned sha256, the two tables included (`files.sha256`, the job log).
+  3. On this image and this card, `inkrun` generates the 32 tokens of the Mac's resident run, 32 of 32, median step
+     0.1625 s. The engine changes merged since the first card run hold on CUDA.
+  4. 24 resident layers, no native layer; the two tables' sha256 in the header.
+  5. The header carries the protocol (200, 1,536, `none`); 200 rows in order. Its prompt fingerprint is
+     `6d4d8fa2207c0146`, not the value printed in the prereg: deviation E1. Checked beside it (*computed*): each of
+     the 200 rows carries the hash and the prompt length of the `transformers` reference for its problem.
+  6. `inkgsm score` and `gsm8kpair` both read the dump. `gsm8kpair` counts 192 right because it does not apply the
+     cap rule: row 157 was cut by the cap after it had written the right value.
+
+READING TABLE, against the prediction signed before the run
+  quantity                                  predicted          measured            inside
+  control 3 passes, 32 of 32                probability 0.8    32 of 32            yes
+  200 rows before the deadline, 1st launch  probability 0.75   200 rows            yes
+  count right of 200                        164 to 186         191                 no, above
+  completions cut by the cap                at most 10         4                   yes
+  mean generated tokens a problem           220 to 320         369.4 (median 288)  no, above
+  median step                               0.16 to 0.19 s     0.157 s             no, just under
+  billed                                    2.3 to 3.3 h       3.38 h              no, above
+
+  The count came out above the signed range. The coordinator had set the range from two Mac problems and the size
+  of the KL; it underestimated the model. The tokens came out above because four problems ran to the cap and a
+  tail of long answers pulls the mean; that is also why the bill is above.
+
+WHAT ELSE THE RUN SHOWS (*measured*)
+  Speed on the L4, eager path of commit d4c60ca: 0.157 s a token, 6.4 tok/s, range of the per-problem medians
+  [0.151, 0.162]. Prompt reading 1.43 s a problem. 59.6 s a problem in all.
+  Memory on the card: peak 12.87 GB, mean 12.57 GB over 3,992 samples (dense f32 tables included).
+
+THE NINE WRONG ROWS (an observation, the count is not changed)
+  4 cut by the cap (119, 139, 157, 186); 157 had written the gold value before the cut.
+  2 hold the gold value in their box, written with a LaTeX thousands separator the grader reads as 0:
+  row 62 (`25{,}000`, gold 25000) and row 88 (`8{,}000`, gold 8000).
+  3 are wrong answers (93: 400/11 for 36; 182: 24 for 23; 184: 100 % for 25).
+  The grader is `llvq_llm::gsm8k`, unchanged, as the prereg fixes it. It will read every arm of the comparison the
+  same way, and the rival files are the same model, so they write in the same style.
+
+WHAT THIS DOES NOT READ
+  Any rival. The original model. The full test set: 200 problems separate a gap of about 7 points and no less.
+  The sealed object's memory, or a served speed.

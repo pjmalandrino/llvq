@@ -259,8 +259,14 @@ The code runs each decision as proposed below until the operator rules. Each one
 
 ## Out of scope
 
-Embeddings, `create` and the Modelfile, `push`, images, tool calls, architectures other than Qwen3, batched decoding,
-and Windows. Each is answered `501` or refused by name rather than half-implemented.
+Embeddings, `create` and the Modelfile, `push`, images, architectures other than Qwen3, batched decoding, and
+Windows. Each is answered `501` or refused by name rather than half-implemented.
+
+Tool calls left this list on 2026-11-22. They are served on `/v1/chat/completions` and `/api/chat` for the qwen3
+family, in its official template's format (`llvq-runtime/src/tools.rs`). `tool_choice` `required`, a named function
+and `parallel_tool_calls: false` are refused by name, because the decode is not constrained. On the sealed 4B on
+Metal the model listed a directory, read a file and answered from it, on the three routes (*measured*, a scripted
+client, 2026-11-22). No coding agent has been run against it yet.
 
 ## Limits a user will meet
 

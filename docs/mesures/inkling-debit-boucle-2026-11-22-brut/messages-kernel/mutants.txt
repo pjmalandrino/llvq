@@ -1,0 +1,24 @@
+== nm1_every_query_the_first
+sites 1
+exit 101
+test messages_against_layers ... FAILED
+test post_attn_against_layers ... ok
+test post_mlp_is_bit_exact ... ok
+test pre_against_layers ... ok
+test top8_matches_route_with_ties ... ok
+test result: FAILED. 4 passed; 1 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.49s
+error: test failed, to rerun pass `-p llvq-llm --test inkling_glue`
+sites 1
+restored, sha fb4ba49d2f24c67c416dbaa11af876c386c8e75ad9cce8123117379dc551a99c
+== nm2_partial_replaced_by_a_state
+sites 1
+exit 101
+test messages_against_layers ... FAILED
+test post_attn_against_layers ... ok
+test post_mlp_is_bit_exact ... ok
+test pre_against_layers ... ok
+test top8_matches_route_with_ties ... ok
+test result: FAILED. 4 passed; 1 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.49s
+error: test failed, to rerun pass `-p llvq-llm --test inkling_glue`
+sites 1
+restored, sha fb4ba49d2f24c67c416dbaa11af876c386c8e75ad9cce8123117379dc551a99c

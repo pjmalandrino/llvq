@@ -1,0 +1,5 @@
+w0: 2047 positions, ppl no switch 5.39369, every switch 5.39120, ratio -0.0462 % [-0.1819, +0.0897]
+w1: 2047 positions, ppl no switch 8.63091, every switch 8.62264, ratio -0.0958 % [-0.1889, -0.0026]
+w2: 2047 positions, ppl no switch 9.60843, every switch 9.61880, ratio +0.1079 % [-0.0481, +0.2642]
+three windows pooled: 6141 positions, ratio -0.0114 % [-0.0870, +0.0643] (95 %, paired positions)
+band +-0.12 %: point inside, interval inside
