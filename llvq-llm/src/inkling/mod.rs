@@ -723,7 +723,19 @@ impl Inkling {
             let messages = if pass >= 2 {
                 let (pbs, ph) = prev.as_ref().expect("previous pass");
                 // line 1407: `message_input`, the four queries of this loop layer
-                let m = block_attn_res(&self.message_queries[layer - lc.core_start], pbs, ph)?;
+                let queries = &self.message_queries[layer - lc.core_start];
+                #[cfg(all(target_os = "macos", feature = "metal"))]
+                let m = match &self.glue {
+                    // One launch for the four queries, with the fused glue's sums (class B, as `pre`).
+                    Some(g) if ids.len() == 1 && pbs.len() <= glue::MAX_STATES => {
+                        let states = pbs.iter().map(|s| s.contiguous()).collect::<Result<Vec<_>>>()?;
+                        let out = g.messages(&queries.contiguous()?, &states, &ph.contiguous()?)?;
+                        (0..queries.dim(0)?).map(|i| out.narrow(0, i, 1)).collect::<Result<Vec<_>>>()?
+                    }
+                    _ => block_attn_res(queries, pbs, ph)?,
+                };
+                #[cfg(not(all(target_os = "macos", feature = "metal")))]
+                let m = block_attn_res(queries, pbs, ph)?;
                 layers::phases::mark(&self.dev, layers::phases::Phase::NormsGates)?;
                 Some(m)
             } else {

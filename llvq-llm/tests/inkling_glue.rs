@@ -444,6 +444,46 @@ fn pre_against_layers() -> Result<()> {
     Ok(())
 }
 
+// ---------- messages: class B, the sums of pre's block residual ----------
+
+/// The message inputs of a loop visit through `Glue::messages` against
+/// `block_attn_res` on the CPU and on Metal, four queries over 0, 1, 3 and 6
+/// states at the real and the tiny widths: every row within the class B
+/// bound. The states are drawn at different sizes so the softmax is not flat.
+#[test]
+fn messages_against_layers() -> Result<()> {
+    let dev = metal();
+    let glue = Glue::new(&dev)?;
+    for d in [REAL, TINY] {
+        for (case, n_states) in [0usize, 1, 3, 6].into_iter().enumerate() {
+            let mut rng = Rng(0x4d53_4700 ^ ((d.h as u64) << 8) ^ case as u64);
+            let queries = rng.t(&[4, d.h], 0.0, 1.0);
+            let states: Vec<Tensor> = (0..n_states).map(|i| rng.t(&[1, d.h], 0.0, 0.5 + i as f32)).collect();
+            let partial = rng.t(&[1, d.h], 0.1, 2.0);
+            let want_cpu = block_attn_res(&queries, &states, &partial)?;
+            let (qm, pm) = (mv(&queries, &dev), mv(&partial, &dev));
+            let sm: Vec<Tensor> = states.iter().map(|t| mv(t, &dev)).collect();
+            let want_mtl = block_attn_res(&qm, &sm, &pm)?;
+            let got = glue.messages(&qm, &sm, &pm)?;
+            assert_eq!(got.dims(), &[4, d.h], "h {} states {n_states}: outputs", d.h);
+            let mut distinct = 0;
+            for (j, (wc, wm)) in want_cpu.iter().zip(&want_mtl).enumerate() {
+                let row = got.i(j)?;
+                let (sc, n, gc) = compare(&row, wc);
+                let (_, _, gm) = compare(&row, wm);
+                println!("messages h {} states {n_states} query {j}: vs cpu {sc}/{n} equal gap {gc:.3e}; vs metal gap {gm:.3e}", d.h);
+                assert!(gc <= B_REL && gm <= B_REL, "h {} states {n_states} query {j}: gap {gc:e} / {gm:e} over {B_REL:e}", d.h);
+                if j > 0 && host(&row) != host(&got.i(0)?) {
+                    distinct += 1;
+                }
+            }
+            // with a single source every query gets that source; with more, the queries must differ
+            assert!(n_states == 0 || distinct == 3, "h {} states {n_states}: the queries give {distinct} distinct rows of 3", d.h);
+        }
+    }
+    Ok(())
+}
+
 // ---------- post_attn: residual class A, the rest class B ----------
 
 #[test]

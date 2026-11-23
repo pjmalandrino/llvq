@@ -231,6 +231,32 @@ kernel void glue_pre(
     for (uint c = tid; c < h; c += GLUE_TG) { float v = X[c] * inv; out[j * h + c] = v * w[c]; }
 }
 
+// The message queries of a loop visit: block_attn_res of each query over the
+// previous pass's block states and its hidden state. One threadgroup a query.
+kernel void glue_msg(
+    device const float *partial [[buffer(0)]],
+    device const float *s0 [[buffer(1)]], device const float *s1 [[buffer(2)]],
+    device const float *s2 [[buffer(3)]], device const float *s3 [[buffer(4)]],
+    device const float *s4 [[buffer(5)]], device const float *s5 [[buffer(6)]],
+    device const float *queries [[buffer(7)]],
+    device float *out [[buffer(8)]],
+    constant PreArgs &a [[buffer(9)]],
+    uint j [[threadgroup_position_in_grid]],
+    uint tid [[thread_index_in_threadgroup]],
+    uint lane [[thread_index_in_simdgroup]],
+    uint sg [[simdgroup_index_in_threadgroup]])
+{
+    threadgroup float X[MAX_H];
+    threadgroup float scr[32];
+    const uint h = a.h;
+    device const float *src[MAX_STATES + 2];
+    device const float *st[MAX_STATES] = { s0, s1, s2, s3, s4, s5 };
+    for (uint i = 0; i < a.n_states; i++) { src[i] = st[i]; }
+    src[a.n_states] = partial;
+    bar_one(queries + j * h, src, a.n_states + 1u, h, a.inv_h, a.bar_eps, a.bar_scale, X, scr, tid, lane, sg);
+    for (uint c = tid; c < h; c += GLUE_TG) { out[j * h + c] = X[c]; }
+}
+
 // One channel of short_conv on the ring: taps oldest first, then x; the
 // residual and the output scale. The newest input replaces the oldest row.
 static float conv_ring(device float *ring, device const float *w, float x, uint c, uint h, uint k, uint pos,
@@ -629,13 +655,14 @@ pub struct Glue {
     post_mlp: ComputePipeline,
     ring_state: ComputePipeline,
     sel: ComputePipeline,
+    msg: ComputePipeline,
 }
 
 fn compile(dev: &candle_core::MetalDevice) -> Result<Vec<ComputePipeline>> {
     use objc2_metal::{MTLCompileOptions, MTLMathFloatingPointFunctions, MTLMathMode};
     let raw = dev.device().clone();
     let src = format!("#define GLUE_TG {TG}u\n{SRC}");
-    let names = ["glue_pre", "glue_post_attn", "glue_top8", "glue_post_mlp", "glue_ring_state", "glue_sel"];
+    let names = ["glue_pre", "glue_post_attn", "glue_top8", "glue_post_mlp", "glue_ring_state", "glue_sel", "glue_msg"];
     let built = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
         let opts = MTLCompileOptions::new();
         opts.setMathMode(MTLMathMode::Safe);
@@ -665,15 +692,63 @@ impl Glue {
     pub fn new(device: &Device) -> Result<Self> {
         let Device::Metal(dev) = device else { candle_core::bail!("the glue kernels want a Metal device") };
         let mut p = compile(dev)?.into_iter();
-        let mut next = || p.next().expect("six pipelines");
-        let g = Self { pre: next(), post_attn: next(), top8: next(), post_mlp: next(), ring_state: next(), sel: next() };
-        for (name, pipe) in [("glue_pre", &g.pre), ("glue_post_attn", &g.post_attn), ("glue_top8", &g.top8)] {
+        let mut next = || p.next().expect("seven pipelines");
+        let g = Self { pre: next(), post_attn: next(), top8: next(), post_mlp: next(), ring_state: next(), sel: next(), msg: next() };
+        for (name, pipe) in
+            [("glue_pre", &g.pre), ("glue_post_attn", &g.post_attn), ("glue_top8", &g.top8), ("glue_msg", &g.msg)]
+        {
             let max = pipe.max_total_threads_per_threadgroup();
             if max < TG {
                 candle_core::bail!("{name}: the pipeline takes {max} threads a threadgroup, the kernel needs {TG}");
             }
         }
         Ok(g)
+    }
+
+    /// The message inputs of a loop visit, `[nq, H]`: `layers::block_attn_res`
+    /// of each of the `nq` rows of `queries` over the previous pass's block
+    /// `states` and its hidden state `partial`, each `[1, H]`. One launch, a
+    /// threadgroup a query, the sums of `pre`'s block residual.
+    pub fn messages(&self, queries: &Tensor, states: &[Tensor], partial: &Tensor) -> Result<Tensor> {
+        let h = partial.elem_count();
+        check_h(h)?;
+        let n_states = states.len();
+        if n_states > MAX_STATES {
+            candle_core::bail!("messages: {n_states} block states, at most {MAX_STATES}");
+        }
+        let (nq, qh) = queries.dims2()?;
+        if nq == 0 || qh != h {
+            candle_core::bail!("messages: queries {:?} for a hidden size of {h}", queries.dims());
+        }
+        // PreArgs: h, n_states, nq, has_msg, n_norms, rank, eps, bar_eps, inv_h, bar_scale.
+        let args = Words::default()
+            .u(h)
+            .u(n_states)
+            .u(nq)
+            .u(0)
+            .u(0)
+            .u(0)
+            .f(0.0)
+            .f(BAR_EPS as f32)
+            .f((1.0 / h as f64) as f32)
+            .f((h as f64).powf(-0.5) as f32);
+        let mut v: Vec<Arg> = vec![Arg::Primary];
+        for i in 0..MAX_STATES {
+            v.push(Arg::Tensor(states.get(i).unwrap_or(partial), h));
+        }
+        v.push(Arg::Tensor(queries, nq * h));
+        v.push(Arg::Out);
+        v.push(Arg::Bytes(args));
+        let op = Launch {
+            name: "glue-msg",
+            pipe: &self.msg,
+            args: v,
+            out_elems: nq * h,
+            out_shape: Shape::from((nq, h)),
+            out_dtype: DType::F32,
+            grid: Grid::Groups(nq),
+        };
+        partial.apply_op1_no_bwd(&op)
     }
 
     /// The normed attention inputs `[n, H]`: `n` is 1 for a sliding visit
