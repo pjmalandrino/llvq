@@ -1,6 +1,6 @@
 # Plan: Inkling 2 Mini throughput
 
-Decode runs at 23.1 tokens a second on the Mac (*measured* on 2026-11-23, 0.0433 s a token, 24 layers resident,
+Decode runs at 27.7 tokens a second on the Mac (*measured* on 2026-11-23, 0.0361 s a token, 24 layers resident,
 8.03 GB after load), from 1.9 on 2026-11-21. With no switch, every step bit for bit, it runs at 5.9. None of the
 items changes the file, its bits per parameter or its quality criteria, and they lowered the memory in use.
 
@@ -24,14 +24,18 @@ bit for bit; the others and the CUDA twins are not started.
 | D2 end: the routing stays on the device | done, default with the fused glue | A against the fused glue | 0.0472 s |
 | message inputs in one launch | done, with the fused glue | B | 0.0442 s |
 | activation of the experts in one launch | done, default | A | 0.0433 s |
+| message gates and router scores over threadgroups | done, with the fused glue | A against the fused glue | 0.0361 s |
 | P1, P2: prompt rows 8 at a time, read in chunks | done, default | A | 600 tokens read in 6.0 s |
 | K2, D8, D9, D5 ring, P3 to P7 | not started | | |
 
 Class B was read on one WikiText-2 window for each switch and on three for the whole stack; the journal has the
 figures. The switches are not defaults: making one a default is the operator's decision.
 What the last steps showed: once the host no longer waits on the device inside a visit, removing small launches
-buys little, and the token is the device's time in the large kernels. The next item with a figure is the message
-gates of the fused glue, one threadgroup a gate today: up to 6 ms a token (*estimated*).
+buys little, and the token is the device's time in the large kernels: the experts about 13 ms, the attention's
+products about 10 ms near their bandwidth floor, the fused glue about 9 ms (*estimated* from a drained profile).
+A kernel that reads weights from one threadgroup runs at a tenth of the device's bandwidth: no kernel of the
+decode step does that any more. The prompt path is the next item with a figure: 2,000 tokens take 24.8 s to
+read and leave 12.87 GB on the device (*measured*), and nothing has been done to it since P1 and P2.
 
 The items have two sources, named row by row. "ours" comes from reading our own engine, the library under it and
 our earlier journals. The others were read in the MIT-licensed runtime of LookAtMyQuant

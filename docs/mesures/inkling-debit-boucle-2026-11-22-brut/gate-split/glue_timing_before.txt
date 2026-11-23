@@ -1,0 +1,5 @@
+timing sliding, no messages / kernels, ids on device: 1000 visits, median 113.3 ms [112.8, 114.2] over 5 rounds, 113.3 us a visit
+timing full, messages / kernels, ids on device: 1000 visits, median 442.7 ms [435.4, 445.8] over 5 rounds, 442.7 us a visit
+timing full, no messages / kernels, ids on device: 1000 visits, median 116.6 ms [111.6, 118.0] over 5 rounds, 116.6 us a visit
+timing sliding, messages / kernels, ids on device: 1000 visits, median 449.7 ms [446.9, 451.1] over 5 rounds, 449.7 us a visit
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 5 filtered out; finished in 48.30s

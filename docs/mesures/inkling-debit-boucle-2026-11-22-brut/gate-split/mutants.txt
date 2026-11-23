@@ -1,0 +1,85 @@
+== gm1_message_factor_in_down
+sites 1
+exit 101
+test messages_against_layers ... ok
+test post_attn_against_layers ... FAILED
+test post_mlp_is_bit_exact ... ok
+test pre_against_layers ... FAILED
+test pre_gate_split_is_bit_exact ... FAILED
+test router_split_is_bit_exact ... FAILED
+test top8_matches_route_with_ties ... ok
+test result: FAILED. 3 passed; 4 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.67s
+error: test failed, to rerun pass `-p llvq-llm --test inkling_glue`
+sites 1
+restored, sha 34dd25334a6e1fae6b02f82a0fb4e85a8cb8597b51028cc41d47df4ab8a1b573
+== gm2_every_gate_reads_the_first_projection
+sites 1
+exit 101
+test messages_against_layers ... ok
+test post_attn_against_layers ... ok
+test post_mlp_is_bit_exact ... ok
+test pre_against_layers ... FAILED
+test pre_gate_split_is_bit_exact ... FAILED
+test router_split_is_bit_exact ... ok
+test top8_matches_route_with_ties ... ok
+test result: FAILED. 5 passed; 2 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.69s
+error: test failed, to rerun pass `-p llvq-llm --test inkling_glue`
+sites 1
+restored, sha 34dd25334a6e1fae6b02f82a0fb4e85a8cb8597b51028cc41d47df4ab8a1b573
+== gm3_one_norm_for_every_row
+sites 1
+exit 101
+test messages_against_layers ... ok
+test post_attn_against_layers ... ok
+test post_mlp_is_bit_exact ... ok
+test pre_against_layers ... FAILED
+test pre_gate_split_is_bit_exact ... FAILED
+test router_split_is_bit_exact ... ok
+test top8_matches_route_with_ties ... ok
+test result: FAILED. 5 passed; 2 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.72s
+error: test failed, to rerun pass `-p llvq-llm --test inkling_glue`
+sites 1
+restored, sha 34dd25334a6e1fae6b02f82a0fb4e85a8cb8597b51028cc41d47df4ab8a1b573
+== gm4_router_reads_shifted_input
+sites 1
+exit 101
+test messages_against_layers ... ok
+test post_attn_against_layers ... FAILED
+test post_mlp_is_bit_exact ... ok
+test pre_against_layers ... ok
+test pre_gate_split_is_bit_exact ... ok
+test router_split_is_bit_exact ... FAILED
+test top8_matches_route_with_ties ... ok
+test result: FAILED. 5 passed; 2 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.68s
+error: test failed, to rerun pass `-p llvq-llm --test inkling_glue`
+sites 1
+restored, sha 34dd25334a6e1fae6b02f82a0fb4e85a8cb8597b51028cc41d47df4ab8a1b573
+== gm5_stage_a_hands_the_row_factor_twice
+sites 1
+exit 101
+test messages_against_layers ... ok
+test post_attn_against_layers ... ok
+test post_mlp_is_bit_exact ... ok
+test pre_against_layers ... FAILED
+test pre_gate_split_is_bit_exact ... FAILED
+test router_split_is_bit_exact ... ok
+test top8_matches_route_with_ties ... ok
+test result: FAILED. 5 passed; 2 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.73s
+error: test failed, to rerun pass `-p llvq-llm --test inkling_glue`
+sites 1
+restored, sha 34dd25334a6e1fae6b02f82a0fb4e85a8cb8597b51028cc41d47df4ab8a1b573
+== gm6_post_stage_a_hands_the_row_factor_twice
+sites 1
+exit 101
+test messages_against_layers ... ok
+test post_attn_against_layers ... FAILED
+test post_mlp_is_bit_exact ... ok
+test pre_against_layers ... ok
+test pre_gate_split_is_bit_exact ... ok
+test router_split_is_bit_exact ... FAILED
+test top8_matches_route_with_ties ... ok
+test result: FAILED. 5 passed; 2 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.71s
+error: test failed, to rerun pass `-p llvq-llm --test inkling_glue`
+sites 1
+restored, sha 34dd25334a6e1fae6b02f82a0fb4e85a8cb8597b51028cc41d47df4ab8a1b573
+end 05:02:45
