@@ -1,0 +1,9 @@
+0a60565-all-int4head: median of 3 rounds 0.0433 s a token [0.0433, 0.0433] = 23.09 tok/s
+0a60565-all: median of 3 rounds 0.0555 s a token [0.0555, 0.0555] = 18.02 tok/s
+0a60565-default: median of 3 rounds 0.1699 s a token [0.1698, 0.1818] = 5.89 tok/s
+context 600 r1: step 0.0441 s = 22.67 tok/s, prompt read in 6.02 s, GB after load 8.03 end 9.65
+context 600 r2: step 0.0441 s = 22.67 tok/s, prompt read in 6.01 s, GB after load 8.03 end 9.65
+context 600 r3: step 0.0441 s = 22.68 tok/s, prompt read in 5.98 s, GB after load 8.03 end 9.65
+context 2000 r1: step 0.0450 s = 22.20 tok/s, prompt read in 24.74 s, GB after load 8.03 end 12.87
+context 2000 r2: step 0.0450 s = 22.21 tok/s, prompt read in 24.65 s, GB after load 8.03 end 12.87
+context 2000 r3: step 0.0450 s = 22.21 tok/s, prompt read in 24.71 s, GB after load 8.03 end 12.87

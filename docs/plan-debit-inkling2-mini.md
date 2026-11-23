@@ -1,12 +1,37 @@
 # Plan: Inkling 2 Mini throughput
 
-Decode runs at 1.9 tokens a second on the Mac today (*measured*, 0.526 s a token, 15 of 24 layers resident). The
-items below reach 5 to 7 tokens a second with no new glue kernel and 10 to 30 with them (*estimated*). None of them
-changes the file, its bits per parameter or its quality criteria, and most of them lower the memory in use.
+Decode runs at 23.1 tokens a second on the Mac (*measured* on 2026-11-23, 0.0433 s a token, 24 layers resident,
+8.03 GB after load), from 1.9 on 2026-11-21. With no switch, every step bit for bit, it runs at 5.9. None of the
+items changes the file, its bits per parameter or its quality criteria, and they lowered the memory in use.
 
-This is a plan. Nothing in it has been launched, compiled or timed. Every gain is *estimated* until its row is
-timed. It does not move the week's order in `docs/plan-inkling2-mini.md`: the encode, the whole-model reading and
-the seal come first.
+The rows below are the plan as written on 2026-11-22, with its estimates. What was built and timed since is in
+§0; the readings and their gates are in `docs/mesures/inkling-debit-boucle-2026-11-22.txt`. A gain in a row
+stays *estimated* until §0 names it. Of the prompt items (§4) the 8-row path and the chunked read are in, both
+bit for bit; the others and the CUDA twins are not started.
+
+## 0. State on 2026-11-23 (*measured*, Mac, Metal, 32-token prompt, three rounds a line)
+
+| item | state | class | reading |
+|---|---|---|---|
+| D0, all 24 layers resident | done | A | with K1: 0.205 s a token |
+| K1, resident data out of the library's pool | done | A | in the line above |
+| D1, D10, D5 in place: one-row visit, cache written in place | done | A | 0.195 s |
+| D3, the 8 experts in four launches | done, default | A | 0.176 s with no switch |
+| D7, fused glue | done, `--glue fused` | B | 0.141 s |
+| D4, int4 head | done, `--head int4` | the file's own values | 0.121 s |
+| attention products in three launches, BF16 held once | done, `--attn fused` | B | 0.0737 s, and 2.65 GB less |
+| D5 grouped and D6: scores of the row in one launch | done, `--attn fused+scores` | B | 0.0646 s |
+| D2 end: the routing stays on the device | done, default with the fused glue | A against the fused glue | 0.0472 s |
+| message inputs in one launch | done, with the fused glue | B | 0.0442 s |
+| activation of the experts in one launch | done, default | A | 0.0433 s |
+| P1, P2: prompt rows 8 at a time, read in chunks | done, default | A | 600 tokens read in 6.0 s |
+| K2, D8, D9, D5 ring, P3 to P7 | not started | | |
+
+Class B was read on one WikiText-2 window for each switch and on three for the whole stack; the journal has the
+figures. The switches are not defaults: making one a default is the operator's decision.
+What the last steps showed: once the host no longer waits on the device inside a visit, removing small launches
+buys little, and the token is the device's time in the large kernels. The next item with a figure is the message
+gates of the fused glue, one threadgroup a gate today: up to 6 ms a token (*estimated*).
 
 The items have two sources, named row by row. "ours" comes from reading our own engine, the library under it and
 our earlier journals. The others were read in the MIT-licensed runtime of LookAtMyQuant

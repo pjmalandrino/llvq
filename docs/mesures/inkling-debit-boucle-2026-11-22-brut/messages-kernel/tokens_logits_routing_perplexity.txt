@@ -1,0 +1,40 @@
+=== prompt 32: every switch (glue with messages, attention, scores) against no switch (candle)
+tokens equal: True; first difference at token None
+largest logit gap over rows 0..16: 5.9206e-03; per row: 0.00e+00, 2.58e-03, 3.19e-03, 3.45e-03, 3.12e-03, 3.40e-03, 3.18e-03, 3.08e-03, 4.87e-03, 5.92e-03, 5.37e-03, 3.05e-03, 3.37e-03, 3.64e-03, 3.38e-03, 3.05e-03, 3.64e-03
+routing compared on 16 steps x 48 visits = 768 pairs; flips 0
+smallest candle margin among the compared steps: 7.62939453125e-06
+=== prompt 32: with the message kernel against without it (same other switches)
+tokens equal: True; first difference at token None
+largest logit gap over rows 0..16: 5.3772e-03; per row: 0.00e+00, 2.31e-03, 2.98e-03, 2.77e-03, 2.50e-03, 3.24e-03, 2.84e-03, 3.48e-03, 5.38e-03, 4.98e-03, 5.09e-03, 2.95e-03, 3.95e-03, 4.38e-03, 3.45e-03, 3.35e-03, 3.60e-03
+routing compared on 16 steps x 48 visits = 768 pairs; flips 0
+smallest candle margin among the compared steps: 9.335577487945557e-06
+=== prompt 600: every switch (glue with messages, attention, scores) against no switch (candle)
+tokens equal: False; first difference at token 15
+  candle margin there 0.00047, fused margin 0.00122
+largest logit gap over rows 0..15: 1.4856e-01; per row: 0.00e+00, 2.79e-03, 2.89e-03, 3.29e-03, 4.68e-03, 4.12e-03, 3.82e-03, 3.31e-03, 2.65e-03, 7.49e-03, 2.10e-03, 3.34e-03, 3.64e-03, 3.13e-03, 6.64e-02, 1.49e-01
+routing compared on 15 steps x 48 visits = 720 pairs; flips 7
+  step 13 layer 6 pass 2: margin candle 1.474e-05 fused 1.505e-06, experts swapped [23, 77]
+  step 13 layer 10 pass 3: margin candle 2.602e-05 fused 7.153e-07, experts swapped [42, 85]
+  step 14 layer 11 pass 2: margin candle 5.457e-04 fused 1.584e-04, experts swapped [44, 124]
+  step 14 layer 14 pass 2: margin candle 3.937e-03 fused 9.394e-03, experts swapped [45, 55]
+  step 14 layer 6 pass 3: margin candle 1.790e-03 fused 4.233e-04, experts swapped [74, 126]
+  step 14 layer 7 pass 3: margin candle 1.626e-04 fused 2.723e-02, experts swapped [46, 49]
+  step 14 layer 8 pass 3: margin candle 9.787e-03 fused 2.649e-03, experts swapped [54, 84]
+smallest candle margin among the compared steps: 1.4737248420715332e-05
+=== prompt 600: with the message kernel against without it (same other switches)
+tokens equal: True; first difference at token None
+largest logit gap over rows 0..16: 5.1093e-03; per row: 0.00e+00, 3.11e-03, 2.53e-03, 2.34e-03, 4.31e-03, 5.11e-03, 3.43e-03, 3.69e-03, 2.83e-03, 3.33e-03, 1.76e-03, 2.73e-03, 3.57e-03, 3.36e-03, 2.19e-03, 1.84e-03, 2.18e-03
+routing compared on 16 steps x 48 visits = 768 pairs; flips 0
+smallest candle margin among the compared steps: 8.046627044677734e-07
+=== perplexity, every switch against no switch
+positions paired 2047 (0..2046); only in a 0, only in b 0
+ppl a 5.39369  ppl b 5.39120  ratio b/a - 1 = -0.0462 %
+paired: mean diff -4.617e-04 nats, sd 3.136e-02, se 6.932e-04 -> ratio -0.0462 % +- 0.1359 % (95 %)
+positions with |diff| > 0: 2047; largest |diff| 5.148e-01 at 1675
+band +-0.12 %: inside; separated from zero at 95 %: False
+=== perplexity, with the message kernel against without it
+positions paired 2047 (0..2046); only in a 0, only in b 0
+ppl a 5.39278  ppl b 5.39120  ratio b/a - 1 = -0.0292 %
+paired: mean diff -2.923e-04 nats, sd 1.400e-02, se 3.094e-04 -> ratio -0.0292 % +- 0.0606 % (95 %)
+positions with |diff| > 0: 2047; largest |diff| 4.992e-01 at 1675
+band +-0.12 %: inside; separated from zero at 95 %: False

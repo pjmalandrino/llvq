@@ -1,8 +1,10 @@
 INKLING 2 MINI, DECODE SPEED ON THE MAC, THE LOOP OF 2026-11-22
 
 RESULT SO FAR
-  Decode went from 0.526 s a token in the morning to 0.0472 s in the night, 1.9 to 21.19 tok/s (*measured*), with
-  the 24 layers of experts resident in lattice codes. Device memory after load went from 11.37 to 8.03 GB. The file, its bits and its values did not change: every
+  Decode went from 0.526 s a token in the morning to 0.0433 s in the night, 1.9 to 23.09 tok/s (*measured*), with
+  the 24 layers of experts resident in lattice codes. Device memory after load went from 11.37 to 8.03 GB.
+  With 600 tokens of context the same setting reads 22.67 tok/s. With no switch at all, every step bit for bit,
+  the engine reads 5.89 tok/s. The file, its bits and its values did not change: every
   step below is bit for bit, or class B with its gate, as `docs/plan-debit-inkling2-mini.md` defines them.
 
 HOW A LINE IS READ
@@ -31,7 +33,18 @@ THE LADDER (*measured* by the coordinator unless said)
   589f925   every switch, the checkpoint's head     0.0592 [0.0591, 0.0593]       16.89   8.70            yes
   589f925   no switch at all (the default)          0.1727 [0.1726, 0.1729]       5.79    11.34           yes
 
+  0a60565   + messages in one launch, activation    0.0433 [0.0433, 0.0433]       23.09   8.03            no, see below
+  0a60565   every switch, the checkpoint's head     0.0555 [0.0555, 0.0555]       18.02   8.70            yes
+  0a60565   no switch at all (the default)          0.1699 [0.1698, 0.1818]       5.89    11.34           yes
+  0a60565   every switch, 600 tokens of context     0.0441 [0.0441, 0.0441]       22.67   8.03            other prompt
+  0a60565   every switch, 2,000 tokens of context   0.0450 [0.0450, 0.0450]       22.21   8.03            other prompt
+
   The fastest setting is `--glue fused --attn fused+scores --head int4 --head-table <the file's output table>`.
+  The two context lines are three runs each of 32 decoded tokens after a WikiText-2 prompt (`context/`). Decode
+  barely moves with the context: 0.0433, 0.0441 and 0.0450 s at 32, 600 and 2,000 tokens. Reading the prompt
+  does not follow: 6.0 s for 600 tokens and 24.7 s for 2,000, about 81 tokens a second, and the device holds
+  9.65 GB after the 600-token prompt and 12.87 GB after the 2,000-token one, for 8.03 GB after load. The prompt
+  path is candle's, eight rows at a time; nothing of this night touched it.
   The three lines of 23ae6a1 and every line under them were read after midnight on a quiet machine (load 1.6 to 2.7), the lines above them
   beside agents' builds (load 4.6 to 7.0). The repeated line (8.25 then 8.22) says the load moved it by 0.3 %.
 
@@ -65,6 +78,14 @@ WHAT IS A DEFAULT AND WHAT IS NOT
   A default with the fused glue, bit for bit: the routing of a visit goes to the experts on the device, and the
   host no longer waits on the device 48 times a token. `--routing host` is the path before it and its reference:
   same logits on four runs of 17 rows (`routing-on-device/`), two mutants of the hand-off kernel seen red.
+  With the fused glue, class B as the glue is: the four message inputs of a loop visit in one launch
+  (`messages-kernel/`). With the kernel against without it, the other switches equal: equal greedy tokens on the
+  32- and 600-token prompts, no routing flip of 768, one window -0.029 % +- 0.061 %. Two mutants seen red. It is
+  worth 7 % (0.0472 to 0.0442 s).
+  A default of a resident layer, bit for bit: the activation between the experts' launches in one launch instead
+  of eleven (`activation-kernel/`). Each of its three factors equals candle's on every one of the 2^32 f32 values,
+  the whole activation on 834,849 pairs, and the real model's logits are those of candle's operations; the default
+  path still gives the logits of commit a76a44b. Five mutants seen red. It is worth 2 % (0.0442 to 0.0433 s).
   Memory with `--attn fused` (*measured*): 5.14 to 2.49 GB after the dense load, 11.34 to 8.70 GB after the experts,
   peak of a 600-token prompt 13.63 to 10.46 GB, prompt time unchanged (6.2 s for 600 tokens).
 
@@ -81,7 +102,32 @@ WHERE THE TIME OF ONE TOKEN GOES, head 10edfc5, every switch on, routing still r
   With the drains taken out (*estimated*, 0.18 ms a boundary): norms, gates and residuals 18 ms, experts 17 ms,
   attention products 12 ms, the routing read 12 ms, scores 3 ms. The routing read is what 589f925 removed.
 
+THE WHOLE STACK AGAINST NO SWITCH, perplexity (*measured*, `context/perplexity_three_windows.txt`)
+  Every switch on (fused glue with the message kernel, attention products and scores in their kernels, the
+  checkpoint's head) against no switch, the path that is bit for bit. Three WikiText-2 test windows of 2,047
+  teacher-forced positions through the one-row path, paired by position.
+    window 0   5.39369 against 5.39120   -0.046 % [-0.182, +0.090]
+    window 1   8.63091 against 8.62264   -0.096 % [-0.189, -0.003]
+    window 2   9.60843 against 9.61880   +0.108 % [-0.048, +0.264]
+    pooled, 6,141 positions              -0.011 % [-0.087, +0.064]
+  The pooled point and its 95 % interval are inside the band of +-0.12 %. One window alone does not settle it:
+  its interval is wider than the band. The int4 head is not in this pair: it reads other values, the file's.
+  Greedy tokens of the whole stack against no switch, 17 rows: equal on the 32-token prompt, no routing flip;
+  on the 600-token prompt they part at row 15 on a near-tie (top-2 margins 0.0005 and 0.0012) after routing
+  flips that start at margins of 1.5e-5 (`messages-kernel/`).
+
+WHAT THE LAST TWO STEPS SAY ABOUT WHAT IS LEFT
+  Before the routing stayed on the device, a small launch cost the host a wait. Since then the host encodes ahead
+  of the device, and removing small launches buys little: ten launches fewer a call of the experts, 480 a token,
+  moved the token by 2 %. What is left is the device's own time in the large kernels (*estimated* from the
+  agents' synthetic timings, not from a profile of this head): the experts about 16 ms a token, the attention's
+  products about 11 ms, near the 8 ms their 54 MB a visit cost at this Mac's bandwidth, and the fused glue about
+  13 ms, of which 8 ms in the 24 visits that carry message gates: there one threadgroup a gate reads 2.4 MB of
+  gate weights, at about 28 GB/s. Spreading a gate over many threadgroups, in the same order of additions, is the
+  next step with a figure: up to 6 ms a token (*estimated*), bit for bit against the fused glue.
+
 WHAT THIS DOES NOT READ
-  A long context: every line is 32 tokens of prompt and 32 of decode. The prompt's own speed. A quiet machine
-  before midnight: agents were building and measuring beside every round until 22:37. Anything on CUDA beyond the first card run,
-  0.166 s a token on the eager path of commit f05dc6e.
+  A context beyond 2,000 tokens. A served speed: these are steps of `inkrun`, not of the runtime. A quiet
+  machine before midnight: agents were building and measuring beside every round until 22:37. Any of these
+  kernels on CUDA: they are Metal only. The card's last reading is the GSM8K run, 0.157 s a token on the eager
+  path of commit d4c60ca (`inkling-gsm8k-sealed-2026-11-22.txt`).
