@@ -1,0 +1,79 @@
+INKLING 2 MINI ON CUDA: THE WHOLE STACK ON AN L40S AND AN L4, AND ITS PERPLEXITY (2026-11-23)
+
+RESULT (*measured*, 32 greedy tokens after a 32-token prompt, median decode step and its range)
+  Every arm: experts in four launches, fused glue, dense attention products, int4 g64 output head.
+  card   arm      scores    activation   step, s                    tok/s    GB at the end
+  L40S   base     candle    candle       0.0182 [0.0178, 0.0344]    55.00    8.762
+  L40S   scores   kernel    candle       0.0147 [0.0147, 0.0260]    68.03    8.762
+  L40S   act      kernel    one launch   0.0139 [0.0139, 0.0248]    72.07    8.762
+  L4     base     candle    candle       0.0306 [0.0294, 0.0402]    32.66    8.466
+  L4     scores   kernel    candle       0.0285 [0.0274, 0.0380]    35.09    8.466
+  L4     act      kernel    one launch   0.0275 [0.0264, 0.0369]    36.30    8.466
+  The two cards are two readings, not a ratio. On the L4 the same day: 0.1636 s with one expert at a time and
+  candle everywhere, 0.0466 s before the head (`inkling-cuda-glue-attn-2026-11-23.txt`).
+
+TOKENS
+  The eight runs (four arms, two cards) generate the same 32 tokens. They are not the reference's: the prefix is 4
+  of 32, at a top-2 margin of 0.089. The reference is the checkpoint head's; the int4 head reads the sealed file's
+  output table, other values, as on the Mac (`inkling-debit-boucle-2026-11-22.txt`). The decision rule of the stack
+  prereg names "the 32 tokens of the Mac's run" and did not say which head: read to the letter it fails, and the
+  cause is the head, not the two new kernels, which leave the tokens of `base` unchanged.
+
+WHERE THE STEP GOES (*measured*, arm `act` with `--phases 12`; the profile drains the device at every boundary)
+                               L40S               L4
+  profiled step, untimed step  0.0202, 0.0139 s   0.0328, 0.0274 s
+  norms, gates, residuals      6.12 ms  30.3 %    7.20 ms  21.9 %
+  attention products           5.18 ms  25.7 %   12.20 ms  37.2 %
+  experts                      4.67 ms  23.1 %    8.16 ms  24.9 %
+  scores and softmax           1.17 ms   5.8 %    1.32 ms   4.0 %
+  routing                      0.90 ms   4.5 %    1.01 ms   3.1 %
+  convolutions                 0.67 ms   3.3 %    0.69 ms   2.1 %
+  cache copies                 0.62 ms   3.1 %    0.64 ms   2.0 %
+  head                         0.42 ms   2.1 %    1.15 ms   3.5 %
+  readback                     0.29 ms   1.4 %    0.29 ms   0.9 %
+  The parts that do no arithmetic to speak of (glue, routing, convolutions, copies) cost the same on both cards:
+  they are host time. The attention products read 1.29 GB of BF16 weights a token and follow the card.
+
+PERPLEXITY (*measured*, L40S, three WikiText-2 test windows of 2,048 tokens, 2,047 teacher-forced positions each
+through the one-row path, paired by position; 95 % interval of the mean paired difference)
+  `ref`: no switch (one expert at a time, candle's glue, attention and activation, the checkpoint's head).
+  `all`: experts in four launches with the one-launch activation, fused glue, attention products and scores.
+  `head`: `all` with the int4 g64 output head.
+  window   ppl ref    ppl all    all against ref               ppl head   head against ref
+  w0       5.39732    5.40033    +0.056 % [-0.120, +0.232]     5.41896    +0.401 % [+0.020, +0.783]
+  w1       8.63285    8.63209    -0.009 % [-0.143, +0.125]     8.67363    +0.472 % [+0.066, +0.880]
+  w2       9.61192    9.61514    +0.034 % [-0.112, +0.179]     9.64718    +0.367 % [-0.052, +0.787]
+  pooled, 6,141 positions        +0.027 % [-0.061, +0.115]                +0.413 % [+0.181, +0.646]
+  `all`: PASS on the rule of the prereg, the pooled point and its interval are inside +-0.12 %.
+  `head`: no verdict in the prereg. The sealed output table costs 0.41 % of perplexity against the checkpoint's
+  head. That cost belongs to the sealed file at 2.47 b/param, not to a kernel.
+  Seconds for 2,047 one-row steps: 303 to 307 (`ref`), 42 (`all`), 31 (`head`): the checkpoint's head through
+  candle costs about 5 ms a step on this card, *computed* from the last two.
+  The Mac's reference perplexities on the same windows are 5.39369, 8.63091, 9.60843.
+
+THE OBJECT
+  Experts of the 24 layers in lattice codes, every other tensor from the text-only checkpoint in BF16, the output
+  head from the sealed int4 table where an arm says so. The embedding is the checkpoint's, not the sealed table.
+  Not a served speed: no chat, no long prompt, no GSM8K through this path on a card.
+
+THE RUNS
+  `inkling-cuda-head`, job 6b0498c2c97b8ed4fcd63b1c, `l4x1`: 50 minutes in SCHEDULING, canceled, $0
+    (`proofs/preregistration-inkling-cuda-head-2026-11-23-ECARTS.md`). The `base` arm above is its `head` arm.
+  `inkling-cuda-stack`, job 6b04a9b3c97b8ed4fcd66a55, `l40sx1`, 0.08 h, $0.14.
+  `inkling-cuda-stack`, job 6b04ac50ca8b51043c3a652f, `l4x1`, 0.09 h, $0.07.
+  `inkling-cuda-ppl`, job 6b04a9a3c97b8ed4fcd66a3c, `l40sx1`, 0.44 h, $0.79.
+  Image at commit d2b163d (Space sha 6bca7580c2378aa470376b5780ae1afb10aabc82). Card spend on this model after
+  them: $4.05 of $25. Raw files: `inkling-cuda-stack-2026-11-23-brut/`, `inkling-cuda-ppl-2026-11-23-brut/`.
+
+AGAINST THE SIGNED PREDICTIONS
+  quantity                                      predicted            measured     inside
+  head: step on the L4                          0.030 to 0.038 s     0.0306 s     yes
+  head: step on the L40S                        0.018 to 0.028 s     0.0182 s     yes
+  stack: NVRTC accepts both kernels, first try  probability 0.6      yes          yes
+  stack: tokens kept by every arm               probability 0.75     see TOKENS   the arms agree, not with the reference
+  stack: step saved by the score kernel, L4     3 to 6 ms            2.1 ms       no, below
+  stack: step saved by the activation, L4       2 to 6 ms            1.0 ms       no, below
+  ppl: `all`, pooled point                      inside +-0.05 %      +0.027 %     yes
+  ppl: `all`, pooled interval inside the band   probability 0.7      yes          yes
+  ppl: `head`, pooled point                     -0.3 to +0.6 %       +0.413 %     yes
+  ppl: every arm ends                           probability 0.8      yes          yes
