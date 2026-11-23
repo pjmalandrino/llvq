@@ -76,6 +76,10 @@
 //! resident layer's one-row experts in one launch (default), or through
 //! candle's operations as before. Same bits; `candle` is the reference.
 //!
+//! `--moe four|one`: on CUDA, the routed experts of a one-row visit in four
+//! launches (`kernels/moe_tetra.cu`, default) or one expert at a time, as
+//! before. Meant to be the same bits; `one` is the reference.
+//!
 //! `--routing-steps-out <file>` records the routing of every decode step
 //! (each step runs through `Inkling::forward` with its visits recorded):
 //! per step and visit, the experts and the margin of the 8th over the 9th.
@@ -140,6 +144,7 @@ struct Args {
     attn: llvq_llm::inkling::AttnKind,
     routing_on_device: bool,
     moe_act: bool,
+    moe_four: bool,
     routing_steps_out: Option<PathBuf>,
     score_from: Option<usize>,
     score_prompt: bool,
@@ -153,7 +158,7 @@ fn usage() -> ! {
          [--resident verified|none] [--require-layers N] [--logits-out <file>] [--prompt-key <key>] \
          [--prompt-len N] [--phases K] [--attn-chunk N] [--peak-probe on] \
          [--rollback-gate on] [--prefill-rows 1|2|4|8] [--head bf16|int4 --head-table <file>] \
-         [--glue candle|fused] [--attn candle|fused|fused+scores] [--routing device|host] [--moe-act fused|candle] [--routing-steps-out <file>] [--score-from N | --score-prompt on] \
+         [--glue candle|fused] [--attn candle|fused|fused+scores] [--routing device|host] [--moe-act fused|candle] [--moe four|one] [--routing-steps-out <file>] [--score-from N | --score-prompt on] \
          [--nll-out <file>]"
     );
     std::process::exit(2)
@@ -227,6 +232,11 @@ fn parse() -> Result<Args> {
             None | Some("fused") => true,
             Some("candle") => false,
             Some(o) => bail!("--moe-act {o}: fused or candle"),
+        },
+        moe_four: match take("moe").as_deref() {
+            None | Some("four") => true,
+            Some("one") => false,
+            Some(o) => bail!("--moe {o}: four or one"),
         },
         routing_steps_out: take("routing-steps-out").map(PathBuf::from),
         score_from: take("score-from").map(|v| v.parse()).transpose().context("--score-from")?,
@@ -444,10 +454,11 @@ fn main() -> Result<()> {
     model.set_glue(args.glue)?;
     model.set_routing_on_device(args.routing_on_device);
     model.set_moe_act(args.moe_act);
+    model.set_moe_four_launches(args.moe_four);
     let provenance = json!({"prefill_rows": args.prefill_rows, "glue": model.glue().name(),
         "head": if args.head_table.is_some() { "int4" } else { "bf16" }, "head_table": args.head_table,
         "bf16_head_on_device": model.has_bf16_head(), "attn": model.attn().name(),
-        "routing_on_device": model.routing_on_device(), "moe_act": if args.moe_act { "fused" } else { "candle" },
+        "routing_on_device": model.routing_on_device(), "moe": if args.moe_four { "four" } else { "one" }, "moe_act": if args.moe_act { "fused" } else { "candle" },
         "attention_matrix_bytes": {"f32": model.attention_matrix_bytes().0, "bf16": model.attention_matrix_bytes().1}});
     if args.score_from.is_some() || args.score_prompt {
         return score(&model, &args, &dev, &prompt, provenance,

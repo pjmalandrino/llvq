@@ -423,6 +423,11 @@ pub trait MoeSource {
     /// launch (`true`) or through candle's operations, the reference of that
     /// launch's gate. The same bits either way; nothing to do elsewhere.
     fn set_fused_act(&mut self, _on: bool) {}
+
+    /// For a source that has both: take the routed experts of one row in
+    /// four launches (`true`) or one expert at a time, the reference of the
+    /// four launches' gate. Meant to be the same bits; nothing to do elsewhere.
+    fn set_four_launches(&mut self, _on: bool) {}
 }
 
 impl<S: ExpertSource> MoeSource for S {

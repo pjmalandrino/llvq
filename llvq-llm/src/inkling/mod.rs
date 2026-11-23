@@ -591,6 +591,17 @@ impl Inkling {
         }
     }
 
+    /// Tell every layer's expert source to take the routed experts of one
+    /// row in four launches (`true`, the default where the source has them)
+    /// or one expert at a time, the reference of their gate.
+    pub fn set_moe_four_launches(&mut self, on: bool) {
+        for e in self.experts.iter_mut() {
+            if let LayerExperts::Source(s) = e {
+                s.set_four_launches(on);
+            }
+        }
+    }
+
     /// Whether [`Self::set_routing_on_device`] is on.
     pub fn routing_on_device(&self) -> bool {
         self.routing_on_device

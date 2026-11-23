@@ -40,7 +40,7 @@ use super::expert_codes::{check_layer, layer_dir, read_expert, rotation_seed, te
 use super::layers::{MoeSource, Routing};
 use super::{Inkling, LayerExperts};
 use crate::fused::{EmbedMode, FuseMode, FusedLayout, FusedModel, Int4Layout, RotationTables};
-use crate::fused_cuda::{ExtRotation, FusedProj, FusedRuntime};
+use crate::fused_cuda::{ExtRotation, FusedProj, FusedRuntime, MoeExpertRefs, MoeLayer, MOE_MAX_SELECTED};
 
 fn err(e: anyhow::Error) -> candle_core::Error {
     candle_core::Error::msg(format!("{e:#}"))
@@ -124,6 +124,11 @@ pub struct ResidentExperts {
     pub stats: UploadStats,
     /// LLVQ kernel launches (rotations and Tetra matvecs) issued so far.
     launches: AtomicUsize,
+    /// The address table of the four-launch path (`moe_tetra.cu`); `None`
+    /// when the layer's experts do not share one shape.
+    moe: Option<MoeLayer>,
+    /// Whether a one-row call takes the four-launch path. On by default.
+    fused: std::sync::atomic::AtomicBool,
 }
 
 impl ResidentExperts {
@@ -157,7 +162,19 @@ impl ResidentExperts {
             experts.push(ResidentExpert { gate, up, down, rot_in, rot_down });
         }
         stats.experts = experts.len();
-        Ok(Self { layer, rt, dev: dev.clone(), experts, stats, launches: AtomicUsize::new(0) })
+        let refs: Vec<MoeExpertRefs<'_>> = experts
+            .iter()
+            .map(|x| MoeExpertRefs { gate: &x.gate, up: &x.up, down: &x.down, rot_in: &x.rot_in, rot_down: &x.rot_down })
+            .collect();
+        let moe = match rt.moe_kernels().and_then(|_| rt.moe_layer(&refs)) {
+            Ok(m) => Some(m),
+            Err(e) => {
+                eprintln!("resident_cuda: layer {layer} keeps the one-expert path: {e}");
+                None
+            }
+        };
+        let fused = std::sync::atomic::AtomicBool::new(true);
+        Ok(Self { layer, rt, dev: dev.clone(), experts, stats, launches: AtomicUsize::new(0), moe, fused })
     }
 
     pub fn count(&self) -> usize {
@@ -227,8 +244,59 @@ impl ResidentExperts {
             .collect()
     }
 
+    /// Whether a one-row call takes the four-launch path (default) or the
+    /// one-expert path, its reference.
+    pub fn set_fused(&self, on: bool) {
+        self.fused.store(on, Ordering::Relaxed);
+    }
+
+    /// One row through the four launches of `moe_tetra.cu`: the rotation of
+    /// the routed experts, gate and up, the activation (candle's operations,
+    /// once for the eight experts), the down rotation, down with the weighted
+    /// sum. The values are meant to be the one-expert path's, bit for bit;
+    /// `set_fused(false)` is the reference that a card run compares it with.
+    /// `None` when the path does not apply: the caller runs the other one.
+    fn forward_one_row_fused(&self, x: &Tensor, routing: &Routing, cfg: &InklingConfig) -> Result<Option<Tensor>> {
+        let Some(layer) = self.moe.as_ref() else {
+            return Ok(None);
+        };
+        if !self.fused.load(Ordering::Relaxed) || x.dims() != [1, cfg.hidden_size] || routing.indices.len() != 1 {
+            return Ok(None);
+        }
+        let mut order: Vec<(u32, f32)> =
+            routing.indices[0].iter().copied().zip(routing.weights[0].iter().copied()).collect();
+        order.sort_by_key(|p| p.0);
+        if order.is_empty() || order.len() > MOE_MAX_SELECTED || order.windows(2).any(|p| p[0].0 == p[1].0) {
+            return Ok(None);
+        }
+        if let Some(&(e, _)) = order.iter().find(|p| p.0 as usize >= self.experts.len()) {
+            candle_core::bail!("token 0: expert {e} of a layer of {}", self.experts.len());
+        }
+        let k = self.rt.moe_kernels()?;
+        let mut sel: Vec<u32> = order.iter().map(|p| p.0).collect();
+        sel.extend(order.iter().map(|p| p.1.to_bits()));
+        let sel = Tensor::from_vec(sel, 2 * order.len(), &self.dev)?;
+        let xh = x.to_device(&self.dev)?.to_dtype(DType::F16)?.contiguous()?;
+        let xr = self.rt.moe_rotate(k, layer, false, &xh, &sel)?;
+        let gu = self.rt.moe_gate_up(k, layer, &xr, &sel)?;
+        let (g, u) = (gu.get(0)?, gu.get(1)?);
+        // line 771: softcap(gate) * sigmoid(gate) * softcap(up)
+        let act = softcap(&g, cfg.mlp_gate_softcap)?
+            .mul(&candle_nn::ops::sigmoid(&g)?)?
+            .mul(&softcap(&u, cfg.mlp_up_softcap)?)?
+            .to_dtype(DType::F16)?
+            .contiguous()?;
+        let ar = self.rt.moe_rotate(k, layer, true, &act, &sel)?;
+        let y = self.rt.moe_down_sum(k, layer, &ar, &sel)?;
+        self.bump(4);
+        y.to_device(x.device()).map(Some)
+    }
+
     /// The MoE of this layer, see the module documentation.
     pub fn forward(&self, x: &Tensor, routing: &Routing, cfg: &InklingConfig) -> Result<Tensor> {
+        if let Some(y) = self.forward_one_row_fused(x, routing, cfg)? {
+            return Ok(y);
+        }
         let inter = cfg.intermediate_size;
         let xd = x.to_device(&self.dev)?.to_dtype(DType::F32)?.contiguous()?;
         let mut out = xd.zeros_like()?;
@@ -285,6 +353,10 @@ impl MoeSource for ResidentExperts {
 
     fn take_launches(&self) -> usize {
         ResidentExperts::take_launches(self)
+    }
+
+    fn set_four_launches(&mut self, on: bool) {
+        self.set_fused(on);
     }
 }
 
