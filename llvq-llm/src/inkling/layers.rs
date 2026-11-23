@@ -619,7 +619,7 @@ pub struct SlotCache {
     /// the post-attention and post-MLP states live in these device rings and
     /// `conv_attn` / `conv_mlp` are stale. Every other reader settles them
     /// first ([`Self::settle_rings`]); a clone and a mark read them back.
-    #[cfg(all(target_os = "macos", feature = "metal"))]
+    #[cfg(ink_glue)]
     fused: Option<super::glue::FusedRings>,
     /// While the attention kernels step this slot, the key and value states
     /// live in these device rings and `conv_k` / `conv_v` are stale. A
@@ -642,7 +642,7 @@ impl Clone for SlotCache {
             conv_v,
             conv_attn,
             conv_mlp,
-            #[cfg(all(target_os = "macos", feature = "metal"))]
+            #[cfg(ink_glue)]
             fused: None,
             #[cfg(all(target_os = "macos", feature = "metal"))]
             attn: None,
@@ -694,7 +694,7 @@ impl SlotCache {
         };
         #[cfg(not(all(target_os = "macos", feature = "metal")))]
         let (conv_k, conv_v) = (self.conv_k.clone(), self.conv_v.clone());
-        #[cfg(all(target_os = "macos", feature = "metal"))]
+        #[cfg(ink_glue)]
         if let Some(r) = &self.fused {
             let (a, m) = r.states()?;
             return Ok([conv_k, conv_v, ConvState::Block(a), ConvState::Block(m)]);
@@ -726,7 +726,7 @@ impl SlotCache {
     /// glue's rings, if it holds them; the rings are dropped. Nothing changes
     /// otherwise.
     pub fn settle_rings(&mut self) -> Result<()> {
-        #[cfg(all(target_os = "macos", feature = "metal"))]
+        #[cfg(ink_glue)]
         if let Some(r) = self.fused.take() {
             let (a, m) = r.states()?;
             self.conv_attn = ConvState::Block(a);
@@ -737,9 +737,9 @@ impl SlotCache {
 
     /// Whether the fused glue's rings hold the post-attention and post-MLP states.
     pub fn has_rings(&self) -> bool {
-        #[cfg(all(target_os = "macos", feature = "metal"))]
+        #[cfg(ink_glue)]
         return self.fused.is_some();
-        #[cfg(not(all(target_os = "macos", feature = "metal")))]
+        #[cfg(not(ink_glue))]
         false
     }
 
@@ -751,10 +751,13 @@ impl SlotCache {
         if m.len > self.len {
             candle_core::bail!("slot rollback: the mark holds {} positions, the slot {}", m.len, self.len);
         }
+        // the next fused step refills its rings from the states restored below
+        #[cfg(ink_glue)]
+        {
+            self.fused = None;
+        }
         #[cfg(all(target_os = "macos", feature = "metal"))]
         {
-            // the next fused step refills its rings from the states restored below
-            self.fused = None;
             self.attn = None;
         }
         self.len = m.len;
@@ -1405,7 +1408,7 @@ impl LayerWeights {
     /// filled from what the slot held (a prompt's block, a candle step's
     /// ring, or zeros). Class B against the candle glue: `pre`, the normed
     /// MLP input and the scores sum in another order.
-    #[cfg(all(target_os = "macos", feature = "metal"))]
+    #[cfg(ink_glue)]
     #[allow(clippy::too_many_arguments)]
     pub fn forward_fused(
         &self,

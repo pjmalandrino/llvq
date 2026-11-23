@@ -242,7 +242,7 @@ pub struct Inkling {
     visit_probe: std::sync::Mutex<Option<VisitProbe>>,
     /// The fused glue kernels, when [`Self::set_glue`] chose them: a one-row
     /// forward then runs [`layers::LayerWeights::forward_fused`].
-    #[cfg(all(target_os = "macos", feature = "metal"))]
+    #[cfg(ink_glue)]
     glue: Option<std::sync::Arc<glue::Glue>>,
     /// The attention chosen at load ([`Self::load_with_attn`]).
     attn: AttnKind,
@@ -472,7 +472,7 @@ impl Inkling {
             embed_table: None,
             attn_chunk: layers::DEFAULT_ATTN_CHUNK,
             visit_probe: std::sync::Mutex::new(None),
-            #[cfg(all(target_os = "macos", feature = "metal"))]
+            #[cfg(ink_glue)]
             glue: None,
             attn,
             routing_on_device: true,
@@ -550,22 +550,22 @@ impl Inkling {
     pub fn set_glue(&mut self, kind: GlueKind) -> Result<()> {
         match kind {
             GlueKind::Candle => {
-                #[cfg(all(target_os = "macos", feature = "metal"))]
+                #[cfg(ink_glue)]
                 {
                     self.glue = None;
                 }
                 Ok(())
             }
-            #[cfg(all(target_os = "macos", feature = "metal"))]
+            #[cfg(ink_glue)]
             GlueKind::Fused => {
-                if !self.dev.is_metal() {
-                    candle_core::bail!("the fused glue runs on Metal only, the model is on {:?}", self.dev);
+                if !(self.dev.is_metal() || self.dev.is_cuda()) {
+                    candle_core::bail!("the fused glue runs on Metal and on CUDA, the model is on {:?}", self.dev);
                 }
                 self.glue = Some(std::sync::Arc::new(glue::Glue::new(&self.dev)?));
                 Ok(())
             }
-            #[cfg(not(all(target_os = "macos", feature = "metal")))]
-            GlueKind::Fused => candle_core::bail!("the fused glue needs a macOS build with the metal feature"),
+            #[cfg(not(ink_glue))]
+            GlueKind::Fused => candle_core::bail!("the fused glue needs a macOS build with metal or a Linux build with cuda"),
         }
     }
 
@@ -609,7 +609,7 @@ impl Inkling {
 
     /// The glue a one-row forward runs.
     pub fn glue(&self) -> GlueKind {
-        #[cfg(all(target_os = "macos", feature = "metal"))]
+        #[cfg(ink_glue)]
         if self.glue.is_some() {
             return GlueKind::Fused;
         }
@@ -747,7 +747,7 @@ impl Inkling {
                 let (pbs, ph) = prev.as_ref().expect("previous pass");
                 // line 1407: `message_input`, the four queries of this loop layer
                 let queries = &self.message_queries[layer - lc.core_start];
-                #[cfg(all(target_os = "macos", feature = "metal"))]
+                #[cfg(ink_glue)]
                 let m = match &self.glue {
                     // One launch for the four queries, with the fused glue's sums (class B, as `pre`).
                     Some(g) if ids.len() == 1 && pbs.len() <= glue::MAX_STATES => {
@@ -757,7 +757,7 @@ impl Inkling {
                     }
                     _ => block_attn_res(queries, pbs, ph)?,
                 };
-                #[cfg(not(all(target_os = "macos", feature = "metal")))]
+                #[cfg(not(ink_glue))]
                 let m = block_attn_res(queries, pbs, ph)?;
                 layers::phases::mark(&self.dev, layers::phases::Phase::NormsGates)?;
                 Some(m)
@@ -776,7 +776,7 @@ impl Inkling {
             let timed = TimedMoe { inner: src, dev: &self.dev, layer, out: &self.moe_timing };
             let src: &dyn MoeSource = if timing_on { &timed } else { src };
             let slot = &mut cache.slots[self.slot(layer, pass)];
-            #[cfg(all(target_os = "macos", feature = "metal"))]
+            #[cfg(ink_glue)]
             let (next, routing) = match &self.glue {
                 Some(g) if ids.len() == 1 => {
                     let want_routing = record || !self.routing_on_device;
@@ -784,7 +784,7 @@ impl Inkling {
                 }
                 _ => lw.forward_chunked(&self.cfg, &h, &bs, messages.as_deref(), src, slot, self.attn_chunk)?,
             };
-            #[cfg(not(all(target_os = "macos", feature = "metal")))]
+            #[cfg(not(ink_glue))]
             let (next, routing) =
                 lw.forward_chunked(&self.cfg, &h, &bs, messages.as_deref(), src, slot, self.attn_chunk)?;
             if let Some(p) = self.visit_probe.lock().expect("no panic holds this lock").as_mut() {

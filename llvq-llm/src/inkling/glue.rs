@@ -44,14 +44,35 @@
 //! on a bad source, so it runs under `catch_unwind`; the ring buffers are
 //! OWNED, so the allocator never hands them out as scratch; every output word
 //! is written by the kernel, so no pooled buffer leaks a stale value.
-#![cfg(all(target_os = "macos", feature = "metal"))]
+#![cfg(ink_glue)]
 
 use std::sync::RwLockReadGuard;
 
+#[cfg(all(target_os = "macos", feature = "metal"))]
 use candle_core::backend::BackendStorage;
-use candle_core::{CpuStorage, CustomOp1, DType, Device, Layout, MetalStorage, Result, Shape, Storage, Tensor};
+#[cfg(all(target_os = "macos", feature = "metal"))]
+use candle_core::MetalStorage;
+use candle_core::{CpuStorage, CustomOp1, DType, Device, Layout, Result, Shape, Storage, Tensor};
+#[cfg(all(target_os = "macos", feature = "metal"))]
 use candle_metal_kernels::metal::{Buffer, ComputePipeline};
+#[cfg(all(target_os = "macos", feature = "metal"))]
 use objc2_metal::{MTLResourceUsage, MTLSize};
+
+#[cfg(all(target_os = "linux", feature = "cuda"))]
+use candle_core::cuda_backend::cudarc::driver::{CudaFunction, CudaSlice, DevicePtr, LaunchConfig, PushKernelArg};
+#[cfg(all(target_os = "linux", feature = "cuda"))]
+use candle_core::CudaStorage;
+
+/// A compiled kernel.
+#[cfg(all(target_os = "macos", feature = "metal"))]
+type Pipe = ComputePipeline;
+#[cfg(all(target_os = "linux", feature = "cuda"))]
+type Pipe = CudaFunction;
+/// A buffer this module owns on the device (a ring).
+#[cfg(all(target_os = "macos", feature = "metal"))]
+type Buf = std::sync::Arc<Buffer>;
+#[cfg(all(target_os = "linux", feature = "cuda"))]
+type Buf = CudaSlice<f32>;
 
 /// Block states a call may carry (the model holds at most 4).
 pub const MAX_STATES: usize = 6;
@@ -71,6 +92,10 @@ const GATE_CHANNELS: usize = 16;
 /// Threads a threadgroup of `post_mlp` and of the ring read.
 const ELT_GROUP: usize = 256;
 
+#[cfg(all(target_os = "linux", feature = "cuda"))]
+const SRC_CUDA: &str = include_str!("../../kernels/ink_glue.cu");
+
+#[cfg(all(target_os = "macos", feature = "metal"))]
 const SRC: &str = r#"
 #include <metal_stdlib>
 using namespace metal;
@@ -754,7 +779,7 @@ impl FusedRings {
 
 /// A convolution state as a ring of `K - 1` rows of `C` on the device.
 pub struct ConvRing {
-    buf: std::sync::Arc<Buffer>,
+    buf: Buf,
     k: usize,
     c: usize,
     /// The physical row of the oldest input.
@@ -765,7 +790,6 @@ impl ConvRing {
     /// A ring for a kernel of `k` taps over `c` channels, from a state
     /// `[k - 1, c]` oldest row first (what `SlotCache` holds), or zeros.
     pub fn new(device: &Device, k: usize, c: usize, state: Option<&Tensor>) -> Result<Self> {
-        let Device::Metal(dev) = device else { candle_core::bail!("ConvRing wants a Metal device") };
         if k < 2 {
             candle_core::bail!("ConvRing: kernel size {k} has no state");
         }
@@ -778,7 +802,17 @@ impl ConvRing {
             }
             None => vec![0f32; (k - 1) * c],
         };
-        Ok(Self { buf: dev.new_buffer_with_data(&host)?, k, c, pos: 0 })
+        #[cfg(all(target_os = "macos", feature = "metal"))]
+        let buf = {
+            let Device::Metal(dev) = device else { candle_core::bail!("ConvRing wants a Metal device") };
+            dev.new_buffer_with_data(&host)?
+        };
+        #[cfg(all(target_os = "linux", feature = "cuda"))]
+        let buf = {
+            let Device::Cuda(dev) = device else { candle_core::bail!("ConvRing wants a CUDA device") };
+            dev.cuda_stream().clone_htod(&host).map_err(|e| candle_core::Error::msg(format!("ConvRing: upload: {e}")))?
+        };
+        Ok(Self { buf, k, c, pos: 0 })
     }
 
     /// The state `[k - 1, c]`, oldest row first.
@@ -800,26 +834,33 @@ impl ConvRing {
 
 /// The compiled kernels.
 pub struct Glue {
-    pre: ComputePipeline,
-    post_attn: ComputePipeline,
-    top8: ComputePipeline,
-    post_mlp: ComputePipeline,
-    ring_state: ComputePipeline,
-    sel: ComputePipeline,
-    msg: ComputePipeline,
-    router: ComputePipeline,
-    gate_down: ComputePipeline,
-    gate_apply: ComputePipeline,
-    gate_norm: ComputePipeline,
+    pre: Pipe,
+    post_attn: Pipe,
+    top8: Pipe,
+    post_mlp: Pipe,
+    ring_state: Pipe,
+    sel: Pipe,
+    msg: Pipe,
+    router: Pipe,
+    gate_down: Pipe,
+    gate_apply: Pipe,
+    gate_norm: Pipe,
+    /// The module the functions live in.
+    #[cfg(all(target_os = "linux", feature = "cuda"))]
+    _module: llvq_cuda::gpu::Cuda,
 }
 
+const NAMES: [&str; 11] = [
+    "glue_pre", "glue_post_attn", "glue_top8", "glue_post_mlp", "glue_ring_state", "glue_sel", "glue_msg", "glue_router",
+    "glue_gate_down", "glue_gate_apply", "glue_gate_norm",
+];
+
+#[cfg(all(target_os = "macos", feature = "metal"))]
 fn compile(dev: &candle_core::MetalDevice) -> Result<Vec<ComputePipeline>> {
     use objc2_metal::{MTLCompileOptions, MTLMathFloatingPointFunctions, MTLMathMode};
     let raw = dev.device().clone();
     let src = format!("#define GLUE_TG {TG}u\n{SRC}");
-    let names = ["glue_pre", "glue_post_attn", "glue_top8", "glue_post_mlp", "glue_ring_state", "glue_sel", "glue_msg", "glue_router", "glue_gate_down", "glue_gate_apply",
-        "glue_gate_norm",
-    ];
+    let names = NAMES;
     let built = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
         let opts = MTLCompileOptions::new();
         opts.setMathMode(MTLMathMode::Safe);
@@ -845,7 +886,39 @@ fn compile(dev: &candle_core::MetalDevice) -> Result<Vec<ComputePipeline>> {
 }
 
 impl Glue {
+    /// Compile the kernels for a CUDA device (`kernels/ink_glue.cu`, NVRTC),
+    /// a module of its own on the device's stream.
+    #[cfg(all(target_os = "linux", feature = "cuda"))]
+    pub fn new(device: &Device) -> Result<Self> {
+        let Device::Cuda(dev) = device else { candle_core::bail!("the glue kernels want a CUDA device") };
+        let define = format!("#define GLUE_TG {TG}u\n");
+        let src = llvq_cuda::gpu::KernelSource::new(&[define.as_str(), SRC_CUDA]);
+        println!("NVRTC glue unit: {} bytes, sha256 {}", src.text.len(), src.sha256);
+        let module = llvq_cuda::gpu::Cuda::on_stream(dev.cuda_stream(), &src).map_err(candle_core::Error::msg)?;
+        let mut p = NAMES
+            .iter()
+            .map(|n| module.func(n).map_err(candle_core::Error::msg))
+            .collect::<Result<Vec<_>>>()?
+            .into_iter();
+        let mut next = || p.next().expect("eleven functions");
+        Ok(Self {
+            pre: next(),
+            post_attn: next(),
+            top8: next(),
+            post_mlp: next(),
+            ring_state: next(),
+            sel: next(),
+            msg: next(),
+            router: next(),
+            gate_down: next(),
+            gate_apply: next(),
+            gate_norm: next(),
+            _module: module,
+        })
+    }
+
     /// Compile the kernels for a Metal device.
+    #[cfg(all(target_os = "macos", feature = "metal"))]
     pub fn new(device: &Device) -> Result<Self> {
         let Device::Metal(dev) = device else { candle_core::bail!("the glue kernels want a Metal device") };
         let mut p = compile(dev)?.into_iter();
@@ -931,6 +1004,10 @@ impl Glue {
             None => 0,
         };
         let has_msg = a.gates.is_some();
+        #[cfg(all(target_os = "linux", feature = "cuda"))]
+        if has_msg && !split_gates {
+            candle_core::bail!("pre: the CUDA kernels carry the split gates only");
+        }
         let (want_q, want_n) = if a.sliding { (1, 1) } else { (3, 3) };
         if nq != 0 && nq != want_q {
             candle_core::bail!("pre: {nq} queries for a layer that takes {want_q}");
@@ -1121,6 +1198,10 @@ impl Glue {
     pub fn post_attn_with(&self, a: &PostAttnInputs, ring: &mut ConvRing, split: bool) -> Result<PostAttn> {
         let h = a.h.elem_count();
         check_h(h)?;
+        #[cfg(all(target_os = "linux", feature = "cuda"))]
+        if !split {
+            candle_core::bail!("post_attn: the CUDA kernels carry the split gate and router only");
+        }
         let k = a.conv_w.dims2()?.1;
         check_ring(ring, k, h)?;
         let n_states = a.states.len();
@@ -1323,13 +1404,15 @@ fn gate_rank(down: &Tensor, h: usize) -> Result<usize> {
 }
 
 /// One buffer argument of a launch, in buffer-index order.
+// On CUDA a pointer carries no usage, so `Owned`'s flag is read on Metal only.
+#[cfg_attr(all(target_os = "linux", feature = "cuda"), allow(dead_code))]
 enum Arg<'a> {
     /// The tensor the op is applied to.
     Primary,
     /// Another f32 tensor on the device, contiguous, of this many elements.
     Tensor(&'a Tensor, usize),
     /// A buffer this module owns; `true` if the kernel writes it.
-    Owned(&'a Buffer, bool),
+    Owned(&'a Buf, bool),
     /// The output.
     Out,
     /// A small constant struct.
@@ -1348,7 +1431,7 @@ enum Grid {
 /// One kernel launch as a candle op.
 struct Launch<'a> {
     name: &'static str,
-    pipe: &'a ComputePipeline,
+    pipe: &'a Pipe,
     args: Vec<Arg<'a>>,
     out_elems: usize,
     out_shape: Shape,
@@ -1361,6 +1444,7 @@ struct Bound<'a> {
     offset: usize,
 }
 
+#[cfg(all(target_os = "macos", feature = "metal"))]
 impl Bound<'_> {
     fn buffer(&self) -> &Buffer {
         match &*self.guard {
@@ -1381,8 +1465,12 @@ fn bind<'a>(op: &str, i: usize, t: &'a Tensor, want: usize) -> Result<Bound<'a>>
     if t.elem_count() != want {
         candle_core::bail!("{op}: buffer {i} has {} elements, want {want}", t.elem_count());
     }
-    if !matches!(&*guard, Storage::Metal(_)) {
-        candle_core::bail!("{op}: buffer {i} is not on the Metal device");
+    #[cfg(all(target_os = "macos", feature = "metal"))]
+    let here = matches!(&*guard, Storage::Metal(_));
+    #[cfg(all(target_os = "linux", feature = "cuda"))]
+    let here = matches!(&*guard, Storage::Cuda(_));
+    if !here {
+        candle_core::bail!("{op}: buffer {i} is not on the device of the kernels");
     }
     let offset = layout.start_offset() * DType::F32.size_in_bytes();
     Ok(Bound { guard, offset })
@@ -1394,9 +1482,79 @@ impl CustomOp1 for Launch<'_> {
     }
 
     fn cpu_fwd(&self, _: &CpuStorage, _: &Layout) -> Result<(CpuStorage, Shape)> {
-        candle_core::bail!("{}: Metal only; its CPU reference is the layers.rs functions", self.name)
+        candle_core::bail!("{}: GPU only; its CPU reference is the layers.rs functions", self.name)
     }
 
+    #[cfg(all(target_os = "linux", feature = "cuda"))]
+    fn cuda_fwd(&self, storage: &CudaStorage, layout: &Layout) -> Result<(CudaStorage, Shape)> {
+        if !layout.is_contiguous() {
+            candle_core::bail!("{}: the primary input must be contiguous", self.name);
+        }
+        let dev = storage.device.clone();
+        let stream = dev.cuda_stream();
+        let f32_addr = |s: &CudaStorage, elems_off: usize| -> Result<u64> {
+            Ok(s.as_cuda_slice::<f32>()?.device_ptr(&stream).0 + 4 * elems_off as u64)
+        };
+        let mut bound: Vec<Option<Bound>> = Vec::with_capacity(self.args.len());
+        for (i, a) in self.args.iter().enumerate() {
+            bound.push(match a {
+                Arg::Tensor(t, want) => Some(bind(self.name, i, t, *want)?),
+                _ => None,
+            });
+        }
+        // The output, uninitialised: every kernel writes every word of it.
+        enum Out {
+            F(CudaSlice<f32>),
+            U(CudaSlice<u32>),
+        }
+        let alloc_err = |e| candle_core::Error::msg(format!("{}: alloc of the output: {e}", self.name));
+        let out = match self.out_dtype {
+            DType::F32 => Out::F(unsafe { stream.alloc::<f32>(self.out_elems) }.map_err(alloc_err)?),
+            DType::U32 => Out::U(unsafe { stream.alloc::<u32>(self.out_elems) }.map_err(alloc_err)?),
+            o => candle_core::bail!("{}: an output of {o:?}", self.name),
+        };
+        // Pointers as their device addresses, the constant struct as its words: one kernel parameter each.
+        let mut ptrs: Vec<u64> = Vec::new();
+        let mut words: Vec<u32> = Vec::new();
+        for (i, a) in self.args.iter().enumerate() {
+            match a {
+                Arg::Primary => ptrs.push(f32_addr(storage, layout.start_offset())?),
+                Arg::Tensor(..) => {
+                    let b = bound[i].as_ref().expect("bound above");
+                    let Storage::Cuda(c) = &*b.guard else { unreachable!("checked at bind") };
+                    ptrs.push(f32_addr(c, b.offset / 4)?);
+                }
+                Arg::Owned(b, _) => ptrs.push(b.device_ptr(&stream).0),
+                Arg::Out => ptrs.push(match &out {
+                    Out::F(o) => o.device_ptr(&stream).0,
+                    Out::U(o) => o.device_ptr(&stream).0,
+                }),
+                Arg::Bytes(w) => words.extend_from_slice(&w.0),
+            }
+        }
+        let (grid, block) = match self.grid {
+            Grid::Groups(n) => (n, TG),
+            Grid::Threads(n) => (n.div_ceil(ELT_GROUP), ELT_GROUP),
+            Grid::Simd(n) => (n, 32),
+        };
+        let cfg = LaunchConfig { grid_dim: (grid as u32, 1, 1), block_dim: (block as u32, 1, 1), shared_mem_bytes: 0 };
+        let mut b = stream.launch_builder(self.pipe);
+        for p in &ptrs {
+            b.arg(p);
+        }
+        for w in &words {
+            b.arg(w);
+        }
+        unsafe { b.launch(cfg) }.map_err(|e| candle_core::Error::msg(format!("{}: {e}", self.name)))?;
+        drop(bound);
+        let storage = match out {
+            Out::F(o) => CudaStorage::wrap_cuda_slice(o, dev),
+            Out::U(o) => CudaStorage::wrap_cuda_slice(o, dev),
+        };
+        Ok((storage, self.out_shape.clone()))
+    }
+
+    #[cfg(all(target_os = "macos", feature = "metal"))]
     fn metal_fwd(&self, storage: &MetalStorage, layout: &Layout) -> Result<(MetalStorage, Shape)> {
         if storage.dtype() != DType::F32 || !layout.is_contiguous() {
             candle_core::bail!("{}: the primary input must be contiguous f32", self.name);
@@ -1426,10 +1584,11 @@ impl CustomOp1 for Launch<'_> {
                     enc.use_resource(b.buffer(), MTLResourceUsage::Read);
                 }
                 Arg::Owned(b, writes) => {
+                    let b: &Buffer = b;
                     enc.set_buffer(i, Some(b), 0);
                     let usage =
                         if *writes { MTLResourceUsage::Read | MTLResourceUsage::Write } else { MTLResourceUsage::Read };
-                    enc.use_resource(*b, usage);
+                    enc.use_resource(b, usage);
                 }
                 Arg::Out => {
                     enc.set_buffer(i, Some(&out), 0);

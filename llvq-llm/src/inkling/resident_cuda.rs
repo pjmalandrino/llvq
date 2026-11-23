@@ -272,13 +272,19 @@ impl ResidentExperts {
         if let Some(&(e, _)) = order.iter().find(|p| p.0 as usize >= self.experts.len()) {
             candle_core::bail!("token 0: expert {e} of a layer of {}", self.experts.len());
         }
-        let k = self.rt.moe_kernels()?;
         let mut sel: Vec<u32> = order.iter().map(|p| p.0).collect();
         sel.extend(order.iter().map(|p| p.1.to_bits()));
         let sel = Tensor::from_vec(sel, 2 * order.len(), &self.dev)?;
+        self.four_launches(layer, x, &sel, cfg).map(Some)
+    }
+
+    /// The four launches on a routing already on the device: `sel` is `[2k]`
+    /// u32, the routed ids ascending and distinct, then their weights' bits.
+    fn four_launches(&self, layer: &MoeLayer, x: &Tensor, sel: &Tensor, cfg: &InklingConfig) -> Result<Tensor> {
+        let k = self.rt.moe_kernels()?;
         let xh = x.to_device(&self.dev)?.to_dtype(DType::F16)?.contiguous()?;
-        let xr = self.rt.moe_rotate(k, layer, false, &xh, &sel)?;
-        let gu = self.rt.moe_gate_up(k, layer, &xr, &sel)?;
+        let xr = self.rt.moe_rotate(k, layer, false, &xh, sel)?;
+        let gu = self.rt.moe_gate_up(k, layer, &xr, sel)?;
         let (g, u) = (gu.get(0)?, gu.get(1)?);
         // line 771: softcap(gate) * sigmoid(gate) * softcap(up)
         let act = softcap(&g, cfg.mlp_gate_softcap)?
@@ -286,10 +292,10 @@ impl ResidentExperts {
             .mul(&softcap(&u, cfg.mlp_up_softcap)?)?
             .to_dtype(DType::F16)?
             .contiguous()?;
-        let ar = self.rt.moe_rotate(k, layer, true, &act, &sel)?;
-        let y = self.rt.moe_down_sum(k, layer, &ar, &sel)?;
+        let ar = self.rt.moe_rotate(k, layer, true, &act, sel)?;
+        let y = self.rt.moe_down_sum(k, layer, &ar, sel)?;
         self.bump(4);
-        y.to_device(x.device()).map(Some)
+        y.to_device(x.device())
     }
 
     /// The MoE of this layer, see the module documentation.
@@ -357,6 +363,24 @@ impl MoeSource for ResidentExperts {
 
     fn set_four_launches(&mut self, on: bool) {
         self.set_fused(on);
+    }
+
+    fn moe_routed_on_device(&self, x: &Tensor, sel: &Tensor, experts: usize, cfg: &InklingConfig) -> Result<Option<Tensor>> {
+        let Some(layer) = self.moe.as_ref() else {
+            return Ok(None);
+        };
+        let n = sel.elem_count();
+        if !self.fused.load(Ordering::Relaxed)
+            || x.dims() != [1, cfg.hidden_size]
+            || experts != self.experts.len()
+            || sel.dtype() != DType::U32
+            || n == 0
+            || !n.is_multiple_of(2)
+            || n / 2 > MOE_MAX_SELECTED
+        {
+            return Ok(None);
+        }
+        self.four_launches(layer, x, sel, cfg).map(Some)
     }
 }
 
