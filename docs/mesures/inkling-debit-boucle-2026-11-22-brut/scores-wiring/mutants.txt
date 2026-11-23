@@ -1,0 +1,40 @@
+== sw1_row_position_early
+sites 1
+exit 101
+test fused_attn_from_an_empty_cache_metal ... ok
+test fused_attn_holds_no_f32_matrices_metal ... ok
+test fused_attn_is_refused_on_the_cpu ... ok
+test fused_attn_rings_mark_rollback_clone_metal ... ok
+test fused_attn_tracks_candle_attn_metal ... ok
+test fused_scores_track_candle_attn_metal ... FAILED
+test result: FAILED. 5 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 6.71s
+error: test failed, to rerun pass `-p llvq-llm --test inkling_wave3_attn`
+sites 1
+restored, sha ceb2ad03dd211bcddf2f1e62365ee409f3d9fa2f17ffaac8f403d90995e32fa3
+== sw2_window_dropped
+sites 1
+exit 101
+test fused_attn_from_an_empty_cache_metal ... ok
+test fused_attn_holds_no_f32_matrices_metal ... ok
+test fused_attn_is_refused_on_the_cpu ... ok
+test fused_attn_rings_mark_rollback_clone_metal ... ok
+test fused_attn_tracks_candle_attn_metal ... ok
+test fused_scores_track_candle_attn_metal ... FAILED
+test result: FAILED. 5 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 6.69s
+error: test failed, to rerun pass `-p llvq-llm --test inkling_wave3_attn`
+sites 1
+restored, sha ceb2ad03dd211bcddf2f1e62365ee409f3d9fa2f17ffaac8f403d90995e32fa3
+== sw3_values_for_keys
+sites 1
+exit 101
+test fused_attn_from_an_empty_cache_metal ... ok
+test fused_attn_holds_no_f32_matrices_metal ... ok
+test fused_attn_is_refused_on_the_cpu ... ok
+test fused_attn_rings_mark_rollback_clone_metal ... ok
+test fused_attn_tracks_candle_attn_metal ... ok
+test fused_scores_track_candle_attn_metal ... FAILED
+test result: FAILED. 5 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 6.69s
+error: test failed, to rerun pass `-p llvq-llm --test inkling_wave3_attn`
+sites 1
+restored, sha ceb2ad03dd211bcddf2f1e62365ee409f3d9fa2f17ffaac8f403d90995e32fa3
+end 00:39:34

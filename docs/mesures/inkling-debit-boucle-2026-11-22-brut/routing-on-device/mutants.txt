@@ -1,0 +1,23 @@
+== rw1_weights_reversed
+sites 1
+exit 101
+test d3_fused_is_one_row_at_model_shapes ... ok
+test d3_fused_is_one_row_on_small_layers ... ok
+test d3_slab_aliases_are_the_unpooled_upload ... ok
+test d9_routing_on_device_is_the_host_routing ... FAILED
+test result: FAILED. 3 passed; 1 failed; 7 ignored; 0 measured; 0 filtered out; finished in 0.75s
+error: test failed, to rerun pass `-p llvq-llm --test inkling_wave2_moe`
+sites 1
+restored, sha 8c09fb23ed323cd1f186497835e3b7e12411f5eda1832b9a4dc684f06e8f94b4
+== rw2_ids_off_by_one
+sites 1
+exit 101
+test d3_fused_is_one_row_at_model_shapes ... ok
+test d3_fused_is_one_row_on_small_layers ... ok
+test d3_slab_aliases_are_the_unpooled_upload ... ok
+test d9_routing_on_device_is_the_host_routing ... FAILED
+test result: FAILED. 3 passed; 1 failed; 7 ignored; 0 measured; 0 filtered out; finished in 0.75s
+error: test failed, to rerun pass `-p llvq-llm --test inkling_wave2_moe`
+sites 1
+restored, sha 8c09fb23ed323cd1f186497835e3b7e12411f5eda1832b9a4dc684f06e8f94b4
+end 01:13:26

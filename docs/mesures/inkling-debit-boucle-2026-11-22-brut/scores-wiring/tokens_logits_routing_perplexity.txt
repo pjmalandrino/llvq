@@ -1,0 +1,45 @@
+attn candle, glue fused, 32: logits bit for bit the untouched head's
+=== glue candle, prompt 32: fused+scores against candle
+tokens equal: True; first difference at token None
+largest logit gap over rows 0..16: 9.4865e-02; per row: 0.00e+00, 2.49e-03, 3.51e-03, 2.73e-03, 3.29e-03, 4.86e-03, 3.30e-03, 3.31e-03, 4.87e-03, 9.49e-02, 1.72e-02, 5.57e-03, 4.08e-03, 3.62e-03, 3.09e-03, 2.95e-03, 3.47e-03
+routing compared on 16 steps x 48 visits = 768 pairs; flips 1
+  step 8 layer 14 pass 3: margin candle 7.629e-06 fused 5.394e-06, experts swapped [96, 120]
+smallest candle margin among the compared steps: 7.62939453125e-06
+=== glue candle, prompt 600: fused+scores against candle
+tokens equal: True; first difference at token None
+largest logit gap over rows 0..16: 5.2366e-03; per row: 0.00e+00, 3.45e-03, 2.90e-03, 2.73e-03, 5.24e-03, 3.77e-03, 4.83e-03, 3.44e-03, 2.35e-03, 4.25e-03, 2.31e-03, 2.77e-03, 4.21e-03, 3.20e-03, 2.42e-03, 2.64e-03, 1.79e-03
+routing compared on 16 steps x 48 visits = 768 pairs; flips 0
+smallest candle margin among the compared steps: 1.4737248420715332e-05
+=== glue fused, prompt 32: fused+scores against candle
+tokens equal: True; first difference at token None
+largest logit gap over rows 0..16: 6.4715e-03; per row: 0.00e+00, 2.67e-03, 3.78e-03, 3.65e-03, 3.25e-03, 4.53e-03, 3.00e-03, 3.28e-03, 4.90e-03, 6.35e-03, 6.47e-03, 2.43e-03, 3.84e-03, 2.91e-03, 2.72e-03, 3.72e-03, 3.45e-03
+routing compared on 16 steps x 48 visits = 768 pairs; flips 0
+smallest candle margin among the compared steps: 7.778406143188477e-06
+=== glue fused, prompt 600: fused+scores against candle
+tokens equal: False; first difference at token 15
+  candle margin there 0.00195, fused margin 0.00114
+largest logit gap over rows 0..15: 6.7446e-02; per row: 0.00e+00, 2.69e-03, 2.22e-03, 3.68e-03, 3.94e-03, 4.74e-03, 4.38e-03, 4.05e-03, 2.50e-03, 2.74e-03, 2.03e-03, 3.08e-03, 3.72e-03, 2.63e-03, 6.74e-02, 5.69e-02
+routing compared on 15 steps x 48 visits = 720 pairs; flips 1
+  step 13 layer 10 pass 3: margin candle 2.496e-05 fused 8.047e-07, experts swapped [42, 85]
+smallest candle margin among the compared steps: 1.0132789611816406e-05
+=== perplexity, fused+scores against candle
+positions paired 2047 (0..2046); only in a 0, only in b 0
+ppl a 5.39559  ppl b 5.39278  ratio b/a - 1 = -0.0521 %
+paired: mean diff -5.209e-04 nats, sd 2.860e-02, se 6.321e-04 -> ratio -0.0521 % +- 0.1239 % (95 %)
+positions with |diff| > 0: 2047; largest |diff| 3.361e-01 at 1485
+band +-0.12 %: inside; separated from zero at 95 %: False
+=== perplexity, fused+scores against fused
+positions paired 2047 (0..2046); only in a 0, only in b 0
+ppl a 5.39556  ppl b 5.39278  ratio b/a - 1 = -0.0515 %
+paired: mean diff -5.148e-04 nats, sd 2.710e-02, se 5.989e-04 -> ratio -0.0515 % +- 0.1174 % (95 %)
+positions with |diff| > 0: 2047; largest |diff| 3.295e-01 at 1485
+band +-0.12 %: inside; separated from zero at 95 %: False
+s1_candle_fused_32       step 0.1513 s  prefill   0.77 s  GB dense 5.14 experts 11.34 end 11.66 peak prefill 11.45 run 11.45
+s1_scores_candle_32      step 0.1335 s  prefill   0.91 s  GB dense 2.49 experts 8.70 end 9.12 peak prefill 8.90 run 9.17
+s1_scores_candle_600     step 0.1363 s  prefill   6.21 s  GB dense 2.49 experts 8.70 end 9.79 peak prefill 10.46 run 10.46
+s1_scores_fused_32       step 0.0928 s  prefill   0.90 s  GB dense 2.49 experts 8.70 end 8.91 peak prefill 8.90 run 9.18
+s1_scores_fused_600      step 0.0946 s  prefill   6.20 s  GB dense 2.49 experts 8.70 end 10.34 peak prefill 10.46 run 10.71
+w1_fused_candle_32       step 0.1388 s  prefill   0.91 s  GB dense 2.49 experts 8.70 end 9.13 peak prefill 8.90 run 8.90
+w1_fused_candle_600      step 0.1878 s  prefill   6.21 s  GB dense 2.49 experts 8.70 end 9.81 peak prefill 10.46 run 10.46
+w1_fused_fused_32        step 0.0990 s  prefill   0.90 s  GB dense 2.49 experts 8.70 end 8.91 peak prefill 8.90 run 9.18
+w1_fused_fused_600       step 0.1390 s  prefill   6.18 s  GB dense 2.49 experts 8.70 end 10.34 peak prefill 10.46 run 10.71

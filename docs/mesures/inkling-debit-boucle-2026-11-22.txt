@@ -1,7 +1,7 @@
 INKLING 2 MINI, DECODE SPEED ON THE MAC, THE LOOP OF 2026-11-22
 
 RESULT SO FAR
-  Decode went from 0.526 s a token in the morning to 0.0737 s after midnight, 1.9 to 13.57 tok/s (*measured*), with
+  Decode went from 0.526 s a token in the morning to 0.0472 s in the night, 1.9 to 21.19 tok/s (*measured*), with
   the 24 layers of experts resident in lattice codes. Device memory after load went from 11.37 to 8.03 GB. The file, its bits and its values did not change: every
   step below is bit for bit, or class B with its gate, as `docs/plan-debit-inkling2-mini.md` defines them.
 
@@ -24,7 +24,15 @@ THE LADDER (*measured* by the coordinator unless said)
   23ae6a1   fused glue + fused attention            0.0911 [0.0910, 0.0913]       10.98   8.70            yes
   23ae6a1   + int4 head                             0.0737 [0.0736, 0.0737]       13.57   8.03            no, see below
 
-  The three lines of 23ae6a1 were read after midnight on a quiet machine (load 1.6 to 2.7), the lines above them
+  10edfc5   + scores of the row in one launch       0.0646 [0.0645, 0.0651]       15.48   8.03            no, see below
+  10edfc5   the same with the checkpoint's head     0.0764 [0.0764, 0.0766]       13.09   8.70            yes
+  589f925   + routing kept on the device            0.0472 [0.0472, 0.0472]       21.19   8.03            no, see below
+  589f925   the same, routing read back             0.0641 [0.0641, 0.0641]       15.60   8.03            no, see below
+  589f925   every switch, the checkpoint's head     0.0592 [0.0591, 0.0593]       16.89   8.70            yes
+  589f925   no switch at all (the default)          0.1727 [0.1726, 0.1729]       5.79    11.34           yes
+
+  The fastest setting is `--glue fused --attn fused+scores --head int4 --head-table <the file's output table>`.
+  The three lines of 23ae6a1 and every line under them were read after midnight on a quiet machine (load 1.6 to 2.7), the lines above them
   beside agents' builds (load 4.6 to 7.0). The repeated line (8.25 then 8.22) says the load moved it by 0.3 %.
 
   The morning line is agent D's breakdown (`inkling2-mini-quality-gate-2026-11-21-brut/engine/`). The K1 line is one
@@ -47,6 +55,16 @@ WHAT IS A DEFAULT AND WHAT IS NOT
     starting at margins of 1e-5; logit gaps of 3e-3 where no flip happened, 0.12 at most after one;
     one WikiText-2 window, 2,047 teacher-forced positions, fused against candle: -0.0006 % +- 0.102 % (95 %);
     five wiring mutants, each seen red by `tests/inkling_wave3_attn.rs`.
+  Behind the same switch, third value: the scores of the row over the cache in one launch
+  (`--attn fused+scores`), class B, reading the keys and values where the cache holds them. Its gates
+  (`scores-wiring/`): equal greedy tokens on three runs of four; on the 600-token prompt with the fused glue the
+  tokens part at row 15 on a near-tie (top-2 margins 0.0020 and 0.0011) after one routing flip at a margin of
+  2.5e-5; one window of 2,047 positions, -0.052 % +- 0.124 % against candle: the point is inside the band of
+  +-0.12 %, the interval is as wide as the band, so one window does not settle it. Three wiring mutants seen red.
+  Its gain grows with the context: at 600 tokens held the step goes from 0.139 to 0.095 s.
+  A default with the fused glue, bit for bit: the routing of a visit goes to the experts on the device, and the
+  host no longer waits on the device 48 times a token. `--routing host` is the path before it and its reference:
+  same logits on four runs of 17 rows (`routing-on-device/`), two mutants of the hand-off kernel seen red.
   Memory with `--attn fused` (*measured*): 5.14 to 2.49 GB after the dense load, 11.34 to 8.70 GB after the experts,
   peak of a 600-token prompt 13.63 to 10.46 GB, prompt time unchanged (6.2 s for 600 tokens).
 
@@ -54,6 +72,14 @@ WHERE THE TIME OF ONE TOKEN WENT, head 01058d8, before the fused glue and the fo
   (*measured*, `profile_merged_01058d8.json`, every part drained, so shares and not seconds; untimed token 0.193 s)
   attention products 30.1 %, norms with gates and residuals 22.8 %, experts 13.6 %, convolutions 12.6 %, cache
   copies 5.9 %, scores and softmax 5.8 %, head 5.4 %, routing 4.2 %.
+
+WHERE THE TIME OF ONE TOKEN GOES, head 10edfc5, every switch on, routing still read back
+  (*measured*, `profile_10edfc5.json`, drained at every boundary; a profiled token takes 0.143 s for 0.064 untimed,
+  so a drain costs about 0.18 ms and the shares below are inflated by the count of their boundaries)
+  norms with gates and residuals 30.6 %, attention products 20.3 %, experts 17.8 %, routing 8.7 %, scores 8.2 %,
+  convolutions 6.6 %, cache copies 6.6 %, head 0.6 %.
+  With the drains taken out (*estimated*, 0.18 ms a boundary): norms, gates and residuals 18 ms, experts 17 ms,
+  attention products 12 ms, the routing read 12 ms, scores 3 ms. The routing read is what 589f925 removed.
 
 WHAT THIS DOES NOT READ
   A long context: every line is 32 tokens of prompt and 32 of decode. The prompt's own speed. A quiet machine
