@@ -558,6 +558,22 @@ impl InkChat {
         vec![self.end_sampling]
     }
 
+    /// The ids `message` adds to a conversation whose last turn is the model's: what the template writes for it
+    /// after an assistant turn, taken from the rendering of a placeholder turn followed by `message`, past that
+    /// turn's `<|content_model_end_sampling|>`. The effort message is written before the first message that is not
+    /// a system one (tpl:45-48), so it is not in these ids.
+    ///
+    /// For a loop that keeps the model's own ids in its cache: the first turn feeds `render` of the opening
+    /// messages, the model writes its turn to `<|content_model_end_sampling|>`, and every later message feeds
+    /// these ids and nothing else. Nothing the model wrote is decoded and encoded again.
+    pub fn follow_up(&self, message: &Json) -> anyhow::Result<Vec<u32>> {
+        let placeholder =
+            Json::Object(vec![("role".into(), Json::str("assistant")), ("content".into(), Json::str("."))]);
+        let r = self.render(&[placeholder, message.clone()], &[], None)?;
+        let span = r.assistant_spans.first().ok_or_else(|| anyhow!("inkchat: the placeholder turn has no span"))?;
+        Ok(r.ids[span.end..].to_vec())
+    }
+
     /// The prompt of `messages`, with `tools` declared and the reasoning `effort` (`None` or JSON null: 0.9).
     ///
     /// Control tokens. A control token typed inside the input (`<|end_message|>` in a user's text, say) is encoded

@@ -152,8 +152,8 @@ Ouderaa, van Baalen, Whatmough and Nagel, 2026. This is an independent
 implementation in Rust, with [llvq-tetra](https://pypi.org/project/llvq-tetra/)
 as its Python reader.
 
-Paper 2, *Tetra: Serving Leech-Lattice Quantized LLMs at 2.7 Bits per Parameter*,
-is in the repository under `paper2/`. Paper 1 is at DOI
+Paper 2, [*Tetra: Serving Leech-Lattice Quantized LLMs at 2.7 Bits per
+Parameter*](https://huggingface.co/papers/2609.35465), is in the repository under `paper2/`. Paper 1 is at DOI
 [10.5281/zenodo.22133606](https://doi.org/10.5281/zenodo.22133606).
 
 The measurement logs and preregistrations behind every number above are in

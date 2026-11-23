@@ -67,7 +67,8 @@ since 2026-11-17 and keeps those three as its per-matrix path.
 The Hub's moving repository `Qwen3-4B-LLVQ-Tetra-served` still carries the grouped config of 2026-11-02 at 133.3
 tok/s ([served-grouped](mesures/served-grouped-2026-11-02.txt)). The repositories paper 2 cites, and the safetensors
 one, are frozen: their files, their digests and their figures do not move. The three sealed cards took one metadata
-commit on 2026-11-20, a `pipeline_tag` and a link to the paper's page, and `docs/hub/` holds them byte for byte.
+commit on 2026-11-20, a `pipeline_tag` and a link to the paper's page, and `docs/hub/` holds them byte for byte. The safetensors
+card and the served card took the same link on 2026-11-23, nothing else.
 
 ## 3. Against the baselines
 

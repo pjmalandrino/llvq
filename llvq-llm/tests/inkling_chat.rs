@@ -192,6 +192,40 @@ fn round_trip_on_a_byte_tokenizer() {
     round_trip(&chat);
 }
 
+/// A conversation fed turn by turn is the whole conversation rendered at once: the opening messages, each
+/// assistant turn as the template writes it, and `follow_up` of each later user message, in order.
+fn follow_up_is_the_tail(chat: &InkChat) {
+    let sys = j(r#"{"role": "system", "content": "Be brief."}"#);
+    let u1 = j(r#"{"role": "user", "content": "first question, with a <|end_message|> typed in"}"#);
+    let a1 = j(r#"{"role": "assistant", "reasoning_content": "let me think", "content": "an answer"}"#);
+    let u2 = j(r#"{"role": "user", "content": "and then? é中"}"#);
+    let a2 = j(r#"{"role": "assistant", "content": "then this"}"#);
+    let u3 = j(r#"{"role": "user", "content": "last one"}"#);
+    for opening in [vec![u1.clone()], vec![sys.clone(), u1.clone()]] {
+        for effort in [None, Some(Json::str("none")), Some(Json::str("low"))] {
+            let mut all = opening.clone();
+            all.extend([a1.clone(), u2.clone(), a2.clone(), u3.clone()]);
+            let whole = chat.render(&all, &[], effort.as_ref()).unwrap();
+            let (s1, s2) = (whole.assistant_spans[0].clone(), whole.assistant_spans[1].clone());
+            assert_eq!(whole.ids[s1.end - 1], chat.end_sampling, "a span ends on the end of sampling");
+            let mut fed = chat.render(&opening, &[], effort.as_ref()).unwrap().ids;
+            fed.extend_from_slice(&whole.ids[s1.clone()]);
+            fed.extend(chat.follow_up(&u2).unwrap());
+            fed.extend_from_slice(&whole.ids[s2.clone()]);
+            fed.extend(chat.follow_up(&u3).unwrap());
+            assert_eq!(fed, whole.ids, "{} opening messages, effort {effort:?}", opening.len());
+        }
+    }
+    let user = chat.tokenizer().token_to_id(mark::USER).unwrap();
+    assert_eq!(chat.follow_up(&u2).unwrap()[0], user, "a follow-up starts on its own marker");
+    assert!(chat.follow_up(&j(r#"{"role": "robot", "content": "x"}"#)).is_err(), "a role the template refuses");
+}
+
+#[test]
+fn a_follow_up_is_the_tail_of_the_whole_conversation() {
+    follow_up_is_the_tail(&InkChat::new(byte_tokenizer()).unwrap());
+}
+
 #[test]
 fn a_marker_split_across_text_chunks_is_still_a_marker() {
     let chat = InkChat::new(byte_tokenizer()).unwrap();
@@ -424,6 +458,7 @@ fn every_reference_case_renders_byte_for_byte_and_id_for_id() {
 fn round_trip_on_the_checkpoint_tokenizer() {
     let chat = real_chat();
     round_trip(&chat);
+    follow_up_is_the_tail(&chat);
     // The thinking cost of the default effort, in prompt ids: the system message it adds.
     let user = j(r#"{"role": "user", "content": "hi"}"#);
     let r = chat.render(&[user], &[], None).unwrap();
