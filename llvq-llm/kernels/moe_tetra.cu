@@ -201,3 +201,23 @@ extern "C" __global__ void moe_tetra_down(const MoePtr* __restrict__ ptr,
         y[row] = out;
     }
 }
+
+// The activation between launches b and c, in one launch: for the gate rows
+// then the up rows of `gu` ([2, n] f32), softcap(gate) * sigmoid(gate) *
+// softcap(up) as binary16, the type the down rotation reads. The steps are
+// the reference's (lines 751-771), in its order; candle runs them as eleven
+// launches a call. Not gated bit for bit against candle's CUDA operations:
+// `tanhf` and `expf` here are NVRTC's.
+extern "C" __global__ void moe_act(const float* __restrict__ gu,
+                                   unsigned short* __restrict__ out,
+                                   u32 n, float inv_cap_g, float cap_g, float inv_cap_u, float cap_u)
+{
+    const u32 i = blockIdx.x * blockDim.x + threadIdx.x;
+    if (i >= n) { return; }
+    float g = gu[i];
+    float u = gu[n + i];
+    float sg = __fmul_rn(tanhf(__fmul_rn(g, inv_cap_g)), cap_g);
+    float s = 1.0f / (1.0f + expf(-g));
+    float su = __fmul_rn(tanhf(__fmul_rn(u, inv_cap_u)), cap_u);
+    out[i] = f2h(__fmul_rn(__fmul_rn(sg, s), su));
+}

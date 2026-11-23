@@ -4404,6 +4404,7 @@ pub struct MoeKernels {
     f_rot: CudaFunction,
     f_gu: CudaFunction,
     f_down: CudaFunction,
+    f_act: CudaFunction,
 }
 
 /// One expert of a layer, as its resident records: gate, up, down, and the two rotations.
@@ -4479,7 +4480,8 @@ impl FusedRuntime {
         let f_rot = cuda.func_dynamic_shared("moe_rot", rot_bytes as u32).map_err(candle_core::Error::msg)?;
         let f_gu = cuda.func("moe_tetra_gu").map_err(candle_core::Error::msg)?;
         let f_down = cuda.func("moe_tetra_down").map_err(candle_core::Error::msg)?;
-        Ok(MoeKernels { cuda, f_rot, f_gu, f_down })
+        let f_act = cuda.func("moe_act").map_err(candle_core::Error::msg)?;
+        Ok(MoeKernels { cuda, f_rot, f_gu, f_down, f_act })
     }
 
     /// The address table of a layer's experts. Refused unless every expert has
@@ -4555,6 +4557,56 @@ impl FusedRuntime {
     /// f32 `[nsel, inter]`, weighted and summed: f32 `[1, hidden]`.
     pub fn moe_down_sum(&self, k: &MoeKernels, layer: &MoeLayer, ar: &Tensor, sel: &Tensor) -> candle_core::Result<Tensor> {
         ar.apply_op2_no_bwd(sel, &MoeOp { rt: self, k, layer, step: MoeStep::DownSum })
+    }
+}
+
+impl FusedRuntime {
+    /// The activation of the routed experts in one launch: `gu` f32
+    /// `[2, nsel, inter]` (gate rows, then up rows) to f16 `[nsel, inter]`.
+    pub fn moe_activation(&self, k: &MoeKernels, gu: &Tensor, cap_gate: f64, cap_up: f64) -> candle_core::Result<Tensor> {
+        let (two, rows, inter) = gu.dims3()?;
+        if two != 2 || rows * inter == 0 {
+            candle_core::bail!("moe activation: gate and up as {:?}, want [2, rows, inter]", gu.dims());
+        }
+        gu.apply_op1_no_bwd(&MoeActOp { rt: self, k, rows, inter, caps: [cap_gate as f32, cap_up as f32, (1.0 / cap_gate) as f32, (1.0 / cap_up) as f32] })
+    }
+}
+
+struct MoeActOp<'a> {
+    rt: &'a FusedRuntime,
+    k: &'a MoeKernels,
+    rows: usize,
+    inter: usize,
+    /// cap_gate, cap_up, 1 / cap_gate, 1 / cap_up.
+    caps: [f32; 4],
+}
+
+impl candle_core::CustomOp1 for MoeActOp<'_> {
+    fn name(&self) -> &'static str {
+        "llvq-moe-act"
+    }
+
+    fn cpu_fwd(&self, _: &candle_core::CpuStorage, _: &Layout) -> candle_core::Result<(candle_core::CpuStorage, Shape)> {
+        candle_core::bail!("the routed-experts activation launch has no CPU path")
+    }
+
+    fn cuda_fwd(&self, storage: &CudaStorage, layout: &Layout) -> candle_core::Result<(CudaStorage, Shape)> {
+        let x = storage.as_cuda_slice::<f32>()?;
+        let n = self.rows * self.inter;
+        match layout.contiguous_offsets() {
+            Some((0, end)) if end == 2 * n => {}
+            _ => candle_core::bail!("moe activation: gate and up must be contiguous at offset 0"),
+        }
+        let stream = self.rt.device.cuda_stream();
+        let mut out = unsafe { stream.alloc::<f16>(n) }
+            .map_err(|e| candle_core::Error::msg(format!("moe activation: alloc: {e}")))?;
+        let cfg = LaunchConfig { grid_dim: ((n as u32).div_ceil(THREADS), 1, 1), block_dim: (THREADS, 1, 1), shared_mem_bytes: 0 };
+        let n32 = n as u32;
+        let [cap_g, cap_u, inv_g, inv_u] = self.caps;
+        let mut b = self.k.cuda.stream().launch_builder(&self.k.f_act);
+        b.arg(x).arg(&mut out).arg(&n32).arg(&inv_g).arg(&cap_g).arg(&inv_u).arg(&cap_u);
+        unsafe { b.launch(cfg) }.map_err(|e| candle_core::Error::msg(format!("moe_act: {e}")))?;
+        Ok((CudaStorage::wrap_cuda_slice(out, self.rt.device.clone()), Shape::from((self.rows, self.inter))))
     }
 }
 

@@ -129,6 +129,9 @@ pub struct ResidentExperts {
     moe: Option<MoeLayer>,
     /// Whether a one-row call takes the four-launch path. On by default.
     fused: std::sync::atomic::AtomicBool,
+    /// Whether the four-launch path runs its activation in one launch
+    /// (default) or through candle's operations, its reference.
+    fused_act: std::sync::atomic::AtomicBool,
 }
 
 impl ResidentExperts {
@@ -174,7 +177,8 @@ impl ResidentExperts {
             }
         };
         let fused = std::sync::atomic::AtomicBool::new(true);
-        Ok(Self { layer, rt, dev: dev.clone(), experts, stats, launches: AtomicUsize::new(0), moe, fused })
+        let fused_act = std::sync::atomic::AtomicBool::new(true);
+        Ok(Self { layer, rt, dev: dev.clone(), experts, stats, launches: AtomicUsize::new(0), moe, fused, fused_act })
     }
 
     pub fn count(&self) -> usize {
@@ -285,13 +289,17 @@ impl ResidentExperts {
         let xh = x.to_device(&self.dev)?.to_dtype(DType::F16)?.contiguous()?;
         let xr = self.rt.moe_rotate(k, layer, false, &xh, sel)?;
         let gu = self.rt.moe_gate_up(k, layer, &xr, sel)?;
-        let (g, u) = (gu.get(0)?, gu.get(1)?);
         // line 771: softcap(gate) * sigmoid(gate) * softcap(up)
-        let act = softcap(&g, cfg.mlp_gate_softcap)?
-            .mul(&candle_nn::ops::sigmoid(&g)?)?
-            .mul(&softcap(&u, cfg.mlp_up_softcap)?)?
-            .to_dtype(DType::F16)?
-            .contiguous()?;
+        let act = if self.fused_act.load(Ordering::Relaxed) {
+            self.rt.moe_activation(k, &gu, cfg.mlp_gate_softcap, cfg.mlp_up_softcap)?
+        } else {
+            let (g, u) = (gu.get(0)?, gu.get(1)?);
+            softcap(&g, cfg.mlp_gate_softcap)?
+                .mul(&candle_nn::ops::sigmoid(&g)?)?
+                .mul(&softcap(&u, cfg.mlp_up_softcap)?)?
+                .to_dtype(DType::F16)?
+                .contiguous()?
+        };
         let ar = self.rt.moe_rotate(k, layer, true, &act, sel)?;
         let y = self.rt.moe_down_sum(k, layer, &ar, sel)?;
         self.bump(4);
@@ -363,6 +371,10 @@ impl MoeSource for ResidentExperts {
 
     fn set_four_launches(&mut self, on: bool) {
         self.set_fused(on);
+    }
+
+    fn set_fused_act(&mut self, on: bool) {
+        self.fused_act.store(on, Ordering::Relaxed);
     }
 
     fn moe_routed_on_device(&self, x: &Tensor, sel: &Tensor, experts: usize, cfg: &InklingConfig) -> Result<Option<Tensor>> {

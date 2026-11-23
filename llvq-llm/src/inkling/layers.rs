@@ -1045,9 +1045,6 @@ impl AttnWeights {
         let a = match &d.row {
             // One launch over the cache in place (`super::attn_scores`): no
             // repeat of the key-value heads, no mask built on the host.
-            #[cfg(not(all(target_os = "macos", feature = "metal")))]
-            Some(_) => candle_core::bail!("the score kernel has no CUDA twin"),
-            #[cfg(all(target_os = "macos", feature = "metal"))]
             Some(row) => {
                 let window = if self.sliding { Some(cfg.sliding_window_size) } else { None };
                 let keys = kt.transpose(1, 2)?;

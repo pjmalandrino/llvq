@@ -38,20 +38,39 @@
 //! functions, `fp contract(off)`, and `precise::` for `exp` and the division.
 //! Same candle traps as `crate::fused_metal` (its header): the compile runs
 //! under `catch_unwind`; every output word is written by the kernel.
-#![cfg(all(target_os = "macos", feature = "metal"))]
+#![cfg(ink_glue)]
 
 use std::sync::RwLockReadGuard;
 
+#[cfg(all(target_os = "macos", feature = "metal"))]
 use candle_core::backend::BackendStorage;
-use candle_core::{CpuStorage, CustomOp1, DType, Device, Layout, MetalStorage, Result, Shape, Storage, Tensor};
+#[cfg(all(target_os = "macos", feature = "metal"))]
+use candle_core::MetalStorage;
+use candle_core::{CpuStorage, CustomOp1, DType, Device, Layout, Result, Shape, Storage, Tensor};
+#[cfg(all(target_os = "macos", feature = "metal"))]
 use candle_metal_kernels::metal::{Buffer, ComputePipeline};
+#[cfg(all(target_os = "macos", feature = "metal"))]
 use objc2_metal::{MTLResourceUsage, MTLSize};
+
+#[cfg(all(target_os = "linux", feature = "cuda"))]
+use candle_core::cuda_backend::cudarc::driver::{CudaFunction, DevicePtr, LaunchConfig, PushKernelArg};
+#[cfg(all(target_os = "linux", feature = "cuda"))]
+use candle_core::CudaStorage;
+
+#[cfg(all(target_os = "macos", feature = "metal"))]
+type Pipe = ComputePipeline;
+#[cfg(all(target_os = "linux", feature = "cuda"))]
+type Pipe = CudaFunction;
+
+#[cfg(all(target_os = "linux", feature = "cuda"))]
+const SRC_CUDA: &str = include_str!("../../kernels/ink_scores.cu");
 
 /// Threads a threadgroup (one query head).
 const TG: usize = 1024;
 /// Largest head dimension the kernel stages (4 columns a lane).
 pub const MAX_HD: usize = 128;
 
+#[cfg(all(target_os = "macos", feature = "metal"))]
 const SRC: &str = r#"
 #include <metal_stdlib>
 using namespace metal;
@@ -208,11 +227,26 @@ pub struct RowInputs<'a> {
 
 /// The compiled kernel.
 pub struct AttnRow {
-    pipe: ComputePipeline,
+    pipe: Pipe,
+    #[cfg(all(target_os = "linux", feature = "cuda"))]
+    _module: llvq_cuda::gpu::Cuda,
 }
 
 impl AttnRow {
+    /// Compile the kernel for a CUDA device (`kernels/ink_scores.cu`, NVRTC).
+    #[cfg(all(target_os = "linux", feature = "cuda"))]
+    pub fn new(device: &Device) -> Result<Self> {
+        let Device::Cuda(dev) = device else { candle_core::bail!("attn_row wants a CUDA device") };
+        let define = format!("#define ATTN_TG {TG}u\n");
+        let src = llvq_cuda::gpu::KernelSource::new(&[define.as_str(), SRC_CUDA]);
+        println!("NVRTC scores unit: {} bytes, sha256 {}", src.text.len(), src.sha256);
+        let module = llvq_cuda::gpu::Cuda::on_stream(dev.cuda_stream(), &src).map_err(candle_core::Error::msg)?;
+        let pipe = module.func("attn_row").map_err(candle_core::Error::msg)?;
+        Ok(Self { pipe, _module: module })
+    }
+
     /// Compile the kernel for a Metal device.
+    #[cfg(all(target_os = "macos", feature = "metal"))]
     pub fn new(device: &Device) -> Result<Self> {
         let Device::Metal(dev) = device else { candle_core::bail!("attn_row wants a Metal device") };
         use objc2_metal::{MTLCompileOptions, MTLMathFloatingPointFunctions, MTLMathMode};
@@ -304,7 +338,7 @@ fn strides(t: &Tensor, what: &str) -> Result<[usize; 3]> {
 }
 
 struct Launch<'a> {
-    pipe: &'a ComputePipeline,
+    pipe: &'a Pipe,
     x: &'a RowInputs<'a>,
     words: Vec<u32>,
     nh: usize,
@@ -316,6 +350,7 @@ struct Bound<'a> {
     offset: usize,
 }
 
+#[cfg(all(target_os = "macos", feature = "metal"))]
 impl Bound<'_> {
     fn buffer(&self) -> &Buffer {
         match &*self.guard {
@@ -334,8 +369,12 @@ fn bind<'a>(what: &str, t: &'a Tensor, contiguous: bool) -> Result<Bound<'a>> {
     if contiguous && !layout.is_contiguous() {
         candle_core::bail!("attn_row: {what} is not contiguous");
     }
-    if !matches!(&*guard, Storage::Metal(_)) {
-        candle_core::bail!("attn_row: {what} is not on the Metal device");
+    #[cfg(all(target_os = "macos", feature = "metal"))]
+    let here = matches!(&*guard, Storage::Metal(_));
+    #[cfg(all(target_os = "linux", feature = "cuda"))]
+    let here = matches!(&*guard, Storage::Cuda(_));
+    if !here {
+        candle_core::bail!("attn_row: {what} is not on the device of the kernel");
     }
     let offset = layout.start_offset() * DType::F32.size_in_bytes();
     Ok(Bound { guard, offset })
@@ -347,9 +386,45 @@ impl CustomOp1 for Launch<'_> {
     }
 
     fn cpu_fwd(&self, _: &CpuStorage, _: &Layout) -> Result<(CpuStorage, Shape)> {
-        candle_core::bail!("attn_row: Metal only; its CPU reference is AttnWeights::forward")
+        candle_core::bail!("attn_row: GPU only; its CPU reference is AttnWeights::forward")
     }
 
+    #[cfg(all(target_os = "linux", feature = "cuda"))]
+    fn cuda_fwd(&self, storage: &CudaStorage, layout: &Layout) -> Result<(CudaStorage, Shape)> {
+        if !layout.is_contiguous() {
+            candle_core::bail!("attn_row: the query must be contiguous f32");
+        }
+        let dev = storage.device.clone();
+        let stream = dev.cuda_stream();
+        let bound = [
+            bind("rel", self.x.rel, true)?,
+            bind("sinks", self.x.sinks, true)?,
+            bind("keys", self.x.keys, false)?,
+            bind("values", self.x.values, false)?,
+        ];
+        let out = unsafe { stream.alloc::<f32>(self.out_elems) }
+            .map_err(|e| candle_core::Error::msg(format!("attn_row: alloc of the output: {e}")))?;
+        let mut ptrs: Vec<u64> =
+            vec![storage.as_cuda_slice::<f32>()?.device_ptr(&stream).0 + 4 * layout.start_offset() as u64];
+        for b in &bound {
+            let Storage::Cuda(c) = &*b.guard else { unreachable!("checked at bind") };
+            ptrs.push(c.as_cuda_slice::<f32>()?.device_ptr(&stream).0 + b.offset as u64);
+        }
+        ptrs.push(out.device_ptr(&stream).0);
+        let cfg = LaunchConfig { grid_dim: (self.nh as u32, 1, 1), block_dim: (TG as u32, 1, 1), shared_mem_bytes: 0 };
+        let mut b = stream.launch_builder(self.pipe);
+        for p in &ptrs {
+            b.arg(p);
+        }
+        for w in &self.words {
+            b.arg(w);
+        }
+        unsafe { b.launch(cfg) }.map_err(|e| candle_core::Error::msg(format!("attn_row: {e}")))?;
+        drop(bound);
+        Ok((CudaStorage::wrap_cuda_slice(out, dev), Shape::from(self.out_elems)))
+    }
+
+    #[cfg(all(target_os = "macos", feature = "metal"))]
     fn metal_fwd(&self, storage: &MetalStorage, layout: &Layout) -> Result<(MetalStorage, Shape)> {
         if storage.dtype() != DType::F32 || !layout.is_contiguous() {
             candle_core::bail!("attn_row: the query must be contiguous f32");

@@ -65,12 +65,8 @@ use candle_core::cuda_backend::cudarc::driver::{CudaFunction, CudaSlice, DeviceP
 #[cfg(all(target_os = "linux", feature = "cuda"))]
 use candle_core::CudaStorage;
 
-/// The score kernel of `super::attn_scores`. It has no CUDA twin yet: there
-/// the type is never built.
-#[cfg(all(target_os = "macos", feature = "metal"))]
+/// The score kernel of `super::attn_scores`.
 pub type RowKernel = super::attn_scores::AttnRow;
-#[cfg(all(target_os = "linux", feature = "cuda"))]
-pub struct RowKernel;
 
 /// A compiled kernel.
 #[cfg(all(target_os = "macos", feature = "metal"))]

@@ -491,14 +491,8 @@ impl Inkling {
                     "the fused attention runs on Metal and on CUDA, the model is on {dev:?}"
                 );
                 let k = std::sync::Arc::new(attn_dense::AttnDense::new(dev)?);
-                #[cfg(all(target_os = "macos", feature = "metal"))]
                 let row = match attn {
                     AttnKind::FusedScores => Some(std::sync::Arc::new(attn_scores::AttnRow::new(dev)?)),
-                    _ => None,
-                };
-                #[cfg(not(all(target_os = "macos", feature = "metal")))]
-                let row: Option<std::sync::Arc<attn_dense::RowKernel>> = match attn {
-                    AttnKind::FusedScores => anyhow::bail!("fused+scores: the score kernel has no CUDA twin, ask --attn fused"),
                     _ => None,
                 };
                 Ok((0..n).map(|l| LayerWeights::load_dense(ck, cfg, l, dev, &k, row.as_ref())).collect::<Result<Vec<_>>>()?)
