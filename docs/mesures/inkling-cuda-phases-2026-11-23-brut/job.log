@@ -1,0 +1,47 @@
+NVIDIA L4, 8.9, 23034 MiB, 0 MiB, 620.70.06
+Filesystem      Size  Used Avail Use% Mounted on
+overlay         419G   29G  391G   7% /
+overlay         419G   29G  391G   7% /
+== control 1: oracle on this backend ==
+Qwen/Qwen3-0.6B on Cuda(CudaDevice(DeviceId(1))) — max |Δhidden| = 0.000e0   (relative to max|h| = 8.550e1) → 0.000e0
+MATCH — the observable forward reproduces candle's Qwen3
+== control 2: inputs to local disk, at their pins ==
+Mon Nov 23 12:12:52 UTC 2026
+Mon Nov 23 12:14:07 UTC 2026
+3d271ca52a039a63a68758520c0a8279f1f861016b32e0112221486239baf5ff  /scratch/inkling/config.json
+aaa23ae8b86c57c9198e102729cac6efcdb8fda2e42d4d8dd06bee50ce5576e8  /scratch/inkling/model.safetensors
+0f09e3e902b72965d8b2e146cda116b901273861a56ea13e2aeb5f886c216cdf  /scratch/inkling/tokens.json
+2d8d702ff0885dde9a46f3422d167ed13f65b1ea50892a9af2df0a4380cf5eb1  /scratch/inkling/codes.sha256
+Mon Nov 23 12:14:52 UTC 2026
+inkrun: dense weights on cuda in 0.3 s
+NVRTC source: 89305 bytes, sha256 b7b40685cb269c0111e2ed04d1a24927e39bbd607e366831dbf26c8b5ae379b7 (9 parts), tile 64 (served: measured optimum for sm_89), prefill 4x128 (served pair), 49152 B staged of 49152, target compute_89
+NVRTC moe unit: 98685 bytes, sha256 313ac919b4b93ed713d3fe329805ab17ca3aebd063338b2bd861c166470a2c3c (10 parts)
+inkrun: 24 layers resident in 35.4 s: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23]
+inkrun: prefill of 32 tokens in 0.79 s
+inkrun: 32 tokens, median step 0.109 s, equal to the reference: Some(true) (first mismatch None), report /out/inkling-cuda-phases-2026-11-23/inkrun.json
+inkrun exit 0
+tokens equal to the Mac's: True; lattice launches a step [192]
+profiled steps 12: median total 0.1402 s, sum of parts 0.1402 s
+untimed steps 19: median total 0.1076 s
+  norms_gates_residual        40.77 ms   29.1 %
+  attention_products          37.26 ms   26.6 %
+  convolutions                20.48 ms   14.6 %
+  head                        19.47 ms   13.9 %
+  moe                          9.51 ms    6.8 %
+  attention_scores_softmax     7.74 ms    5.5 %
+  cache_append_copies          2.27 ms    1.6 %
+  routing                      1.97 ms    1.4 %
+  readback                     0.33 ms    0.2 %
+  embed                        0.11 ms    0.1 %
+  other                        0.00 ms    0.0 %
+total 24
+drwxr-xr-x.   2 root   root        0 Nov 23 12:15 .
+drwxrwxrwx. 282 nobody nogroup     0 Nov 23 12:12 ..
+-rw-r--r--.   1 root   root        0 Nov 23 12:14 codes-check.txt
+-rw-r--r--.   1 root   root      129 Nov 23 12:12 disk.txt
+-rw-r--r--.   1 root   root      387 Nov 23 12:14 files.sha256
+-rw-r--r--.   1 root   root       44 Nov 23 12:12 gpu-before.txt
+-rw-r--r--.   1 root   root    20380 Nov 23 12:15 inkrun.json
+-rw-r--r--.   1 root   root      696 Nov 23 12:14 inkrun.txt
+-rw-r--r--.   1 root   root      377 Nov 23 12:12 oracle.txt
+-rw-r--r--.   1 root   root      709 Nov 23 12:15 summary.txt

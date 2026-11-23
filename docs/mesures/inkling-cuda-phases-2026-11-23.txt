@@ -1,0 +1,42 @@
+INKLING 2 MINI ON CUDA, WHERE A DECODE STEP'S TIME GOES, 2026-11-23
+
+RESULT
+  On an L4, after the four-launch experts, the glue holds 44 % of a decode step, the attention 32 %, the head 14 %,
+  the experts 7 % and the routing 1 % (*measured*, medians of 12 profiled steps, the device drained at every
+  boundary). The reading rule of `proofs/preregistration-inkling-cuda-phases-2026-11-23.md` holds: the 19 untimed
+  steps have a median of 0.1076 s (inside 0.100 to 0.120) and the profiled median, 0.1402 s, is under twice it.
+
+    part                          ms a step   share
+    norms, gates, residuals         40.77     29.1 %
+    attention products              37.26     26.6 %
+    convolutions                    20.48     14.6 %
+    head                            19.47     13.9 %
+    experts (MoE)                    9.51      6.8 %
+    attention scores, softmax        7.74      5.5 %
+    cache append                     2.27      1.6 %
+    routing                          1.97      1.4 %
+    read back, embed                 0.44      0.3 %
+
+  Glue = norms, gates, residuals and convolutions: 61.25 ms, 43.7 %.
+
+THE OBJECT
+  The object of the moe4 run, arm `four`: experts of the 24 layers in lattice codes, every other tensor from the
+  text-only checkpoint, attention, glue and head through candle. The shares are those of the profiled steps, which
+  run 30 % slower than the untimed ones; they order the work and are not a step time.
+
+THE RUN
+  Job `6b042d3a08b6bdfb5bd056ce`, `l4x1`, image at Space sha 8eb7dffcc44be877c74daf0136e790d593bdd4df (commit
+  b6b7df3). 0.05 h billed, $0.04. Card spend on this model after it: $2.91 of $25. Tokens equal to the Mac's.
+  Raw files: `inkling-cuda-phases-2026-11-23-brut/`.
+
+AGAINST THE SIGNED PREDICTION
+  part                        predicted     measured    inside
+  glue and routing together   40 to 60 %    45.1 %      yes
+  attention                   20 to 35 %    32.1 %      yes
+  experts                     10 to 20 %    6.8 %       no, under
+  head and the rest           5 to 15 %     15.8 %      no, just above
+
+WHAT IT ORDERS
+  The glue kernels first, then the attention products, then the head (the int4 head of the Mac has no CUDA twin).
+  The routing kept on the card is worth at most 2 ms here: on CUDA the read back does not stall the step as it did
+  on Metal.
