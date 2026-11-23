@@ -52,8 +52,8 @@ THE LADDER (*measured* by the coordinator unless said)
   does not follow: 6.0 s for 600 tokens and 24.7 s for 2,000, about 81 tokens a second, and the device holds
   9.65 GB after the 600-token prompt and 12.87 GB after the 2,000-token one, for 8.03 GB after load. The prompt
   path is candle's, eight rows at a time; nothing of this night touched it.
-  The three lines of 23ae6a1 and every line under them were read after midnight on a quiet machine (load 1.6 to 2.7), the lines above them
-  beside agents' builds (load 4.6 to 7.0). The repeated line (8.25 then 8.22) says the load moved it by 0.3 %.
+  The three lines of 23ae6a1 and every line under them were read after midnight on a quiet machine
+  (load 1.2 to 3.2), the lines above them beside agents' builds (load 4.6 to 7.0). The repeated line (8.25 then 8.22) says the load moved it by 0.3 %.
 
   The morning line is agent D's breakdown (`inkling2-mini-quality-gate-2026-11-21-brut/engine/`). The K1 line is one
   run of 31 steps, the Mac reference of the first card run.
