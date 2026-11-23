@@ -545,7 +545,13 @@ impl Inkling {
             let h = head::Q4MetalHead::load(rt, path, cfg.unpadded_vocab_size, cfg.hidden_size)?;
             return Ok(Box::new(h));
         }
-        anyhow::bail!("the int4 head runs on Metal only; {} asked on {dev:?}", path.display())
+        #[cfg(all(target_os = "linux", feature = "cuda"))]
+        if dev.is_cuda() {
+            let rt = resident_cuda::served_runtime(dev, cfg)?;
+            let h = head::Q4CudaHead::load(rt, path, cfg.unpadded_vocab_size, cfg.hidden_size)?;
+            return Ok(Box::new(h));
+        }
+        anyhow::bail!("the int4 head runs on Metal and on CUDA; {} asked on {dev:?}", path.display())
     }
 
     /// Whether the BF16 output rows are on the device.

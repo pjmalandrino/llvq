@@ -135,3 +135,73 @@ impl OutputProjection for Q4MetalHead {
         self.bytes
     }
 }
+
+/// The int4 g64 head on CUDA: [`Q4MetalHead`]'s twin, through
+/// `fused_cuda::head_q4_f32` (`kernels/ink_head.cu`), f32 in and f32 out.
+#[cfg(all(target_os = "linux", feature = "cuda"))]
+pub struct Q4CudaHead {
+    rt: std::sync::Arc<crate::fused_cuda::FusedRuntime>,
+    table: crate::fused_cuda::Q4HeadF32,
+    vocab: usize,
+    bytes: u64,
+}
+
+#[cfg(all(target_os = "linux", feature = "cuda"))]
+impl Q4CudaHead {
+    /// Read `path` (`bin/inktable`'s `unembed.q4g64.llvqraw`) and upload the
+    /// rows the kernel computes: the vocabulary padded to a multiple of 8.
+    pub fn load(
+        rt: std::sync::Arc<crate::fused_cuda::FusedRuntime>,
+        path: &std::path::Path,
+        vocab: usize,
+        hidden: usize,
+    ) -> Result<Self> {
+        let t = crate::inkseal::read_raw_file(path)
+            .map_err(|e| candle_core::Error::msg(format!("{}: {e:#}", path.display())))?;
+        let llvq_artifact::RawData::Quant(q) = &t.data else {
+            candle_core::bail!("{}: an f16 table, the int4 head reads int4 g64", t.name);
+        };
+        if q.bits != 4 || q.group != 64 {
+            candle_core::bail!("{}: int{} in groups of {}, the int4 head reads int4 g64", t.name, q.bits, q.group);
+        }
+        let rows = padded_rows(vocab);
+        if t.dims.len() != 2 || t.dims[1] != hidden || vocab == 0 || t.dims[0] < rows {
+            candle_core::bail!("{}: dims {:?} for a vocabulary of {vocab} over {hidden}", t.name, t.dims);
+        }
+        let gpr = hidden.div_ceil(q.group);
+        let nbytes = rows * hidden / 2;
+        if q.packed.len() < nbytes || q.scales.len() < rows * gpr || q.biases.len() < rows * gpr {
+            candle_core::bail!("{}: payload shorter than {rows} rows of {hidden}", t.name);
+        }
+        let wq: Vec<u32> =
+            q.packed[..nbytes].chunks_exact(4).map(|c| u32::from_le_bytes([c[0], c[1], c[2], c[3]])).collect();
+        let table =
+            rt.upload_head_q4_f32(&t.name, rows, hidden, gpr, &wq, &q.scales[..rows * gpr], &q.biases[..rows * gpr])?;
+        Ok(Self { rt, table, vocab, bytes: (nbytes + 4 * rows * gpr) as u64 })
+    }
+}
+
+#[cfg(all(target_os = "linux", feature = "cuda"))]
+impl OutputProjection for Q4CudaHead {
+    fn name(&self) -> &str {
+        &self.table.name
+    }
+
+    fn vocab(&self) -> usize {
+        self.vocab
+    }
+
+    fn project(&self, h: &Tensor) -> Result<Tensor> {
+        let y = self.rt.head_q4_f32(&self.table, h)?;
+        let rows = y.dim(y.rank() - 1)?;
+        if rows == self.vocab {
+            Ok(y)
+        } else {
+            y.narrow(y.rank() - 1, 0, self.vocab)?.contiguous()
+        }
+    }
+
+    fn device_bytes(&self) -> u64 {
+        self.bytes
+    }
+}
