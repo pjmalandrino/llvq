@@ -538,6 +538,69 @@ fn post_attn_against_layers() -> Result<()> {
 /// The glue of one visit through the layers.rs functions on Metal, as
 /// `LayerWeights::forward` runs it (attention and experts replaced by fixed
 /// tensors): returns the layer output.
+/// The message gates of `pre` spread over threadgroups against the gates
+/// inside the kernel's one threadgroup an output: the same bits on every
+/// kind of visit, with and without messages, at the real and the tiny widths.
+#[test]
+fn pre_gate_split_is_bit_exact() -> Result<()> {
+    let dev = metal();
+    let glue = Glue::new(&dev)?;
+    for d in [REAL, TINY] {
+        let mut with_gates = 0;
+        for (name, v) in pre_cases(d) {
+            let g = v.to(&dev);
+            let one = glue.pre_with(&g.pre_inputs(), false)?;
+            let split = glue.pre_with(&g.pre_inputs(), true)?;
+            assert_eq!(split.dims(), one.dims(), "h {} {name}: outputs", d.h);
+            assert!(host(&one).iter().any(|x| *x != 0.0), "h {} {name}: zeros would pass", d.h);
+            let (same, n, gap) = compare(&split, &one);
+            assert_eq!(same, n, "h {} {name}: the split gates differ by {gap:e}", d.h);
+            with_gates += g.pre_inputs().gates.is_some() as usize;
+        }
+        assert!(with_gates >= 2, "h {}: {with_gates} cases carry message gates", d.h);
+    }
+    Ok(())
+}
+
+/// The message gate and the router's scores of `post_attn` in launches of
+/// their own against the one threadgroup of the kernel: the same bits, and
+/// the same residual, normed input and ring, on five kinds of visit (two
+/// with a message gate) at the real and the tiny widths.
+#[test]
+fn router_split_is_bit_exact() -> Result<()> {
+    let dev = metal();
+    let glue = Glue::new(&dev)?;
+    for d in [REAL, TINY] {
+        let s = d.h as u64;
+        let cases = [
+            ("sliding", Visit::new(s ^ 31, d, true, true, false, 2, false, true)),
+            ("boundary", Visit::new(s ^ 32, d, true, true, false, 2, true, true)),
+            ("boundary no state", Visit::new(s ^ 33, d, true, true, false, 0, true, false)),
+            ("full msgs", Visit::new(s ^ 34, d, false, true, true, 3, false, true)),
+            ("full msgs boundary", Visit::new(s ^ 35, d, false, true, true, 3, true, true)),
+        ];
+        for (name, v) in cases {
+            let g = v.to(&dev);
+            let mut ring_a = ConvRing::new(&dev, d.k, d.h, g.conv_attn_state.as_ref())?;
+            let mut ring_b = ConvRing::new(&dev, d.k, d.h, g.conv_attn_state.as_ref())?;
+            let one = glue.post_attn_with(&g.post_attn_inputs(), &mut ring_a, false)?;
+            let split = glue.post_attn_with(&g.post_attn_inputs(), &mut ring_b, true)?;
+            assert_eq!(split.scores.dims(), &[d.experts], "{name}: scores");
+            assert!(host(&one.scores).iter().any(|x| *x != 0.0 && *x != 0.5), "{name}: flat scores would pass");
+            for (what, a, b) in [
+                ("scores", &split.scores, &one.scores),
+                ("residual", &split.residual, &one.residual),
+                ("normed input", &split.xn, &one.xn),
+                ("ring", &ring_b.state(&glue, &g.h)?, &ring_a.state(&glue, &g.h)?),
+            ] {
+                let (same, n, gap) = compare(a, b);
+                assert_eq!(same, n, "h {} {name}: {what} differ by {gap:e}", d.h);
+            }
+        }
+    }
+    Ok(())
+}
+
 fn candle_visit(v: &Visit, d: Dims, st_a: &mut ConvState, st_m: &mut ConvState) -> Result<Tensor> {
     let x = v.ref_pre()?;
     let _ = &x;
@@ -582,6 +645,8 @@ fn glue_timing() -> Result<()> {
     for (name, v) in [
         ("sliding, no messages", Visit::new(21, d, true, true, false, 2, false, true)),
         ("full, messages", Visit::new(22, d, false, true, true, 3, false, true)),
+        ("full, no messages", Visit::new(23, d, false, true, false, 3, false, true)),
+        ("sliding, messages", Visit::new(24, d, true, true, true, 2, false, true)),
     ] {
         let g = v.to(&dev);
         let mut times: [Vec<f64>; 3] = [vec![], vec![], vec![]];

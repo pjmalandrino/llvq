@@ -65,6 +65,9 @@ pub const MAX_EXPERTS: usize = 1024;
 const TG: usize = 1024;
 /// The epsilon of `block_attn_res`, fixed in `layers.rs` whatever the config's.
 const BAR_EPS: f64 = 1e-6;
+/// Channels one simdgroup of `glue_gate_apply` handles: the grain of that
+/// launch. The result does not depend on it.
+const GATE_CHANNELS: usize = 16;
 /// Threads a threadgroup of `post_mlp` and of the ring read.
 const ELT_GROUP: usize = 256;
 
@@ -218,6 +221,19 @@ kernel void glue_pre(
         uint qi = a.nq == 3u ? j : 0u;
         bar_one(queries + qi * h, src, a.n_states + 1u, h, a.inv_h, a.bar_eps, a.bar_scale, X, scr, tid, lane, sg);
     }
+    if (a.has_msg == 2u) {
+        // The gate runs in launches of its own (glue_gate_down, glue_gate_apply,
+        // glue_gate_norm): hand them X and the two factors gate_inplace starts with.
+        device const float *m = j == 0u ? msg0 : (j == 1u ? msg1 : msg2);
+        float ix = inv_rms(X, h, a.inv_h, a.eps, scr, tid, lane, sg);
+        float im = inv_rms(m, h, a.inv_h, a.eps, scr, tid, lane, sg);
+        for (uint c = tid; c < h; c += GLUE_TG) { out[j * h + c] = X[c]; }
+        if (tid == 0u) {
+            out[3u * h + 2u * j] = ix;
+            out[3u * h + 2u * j + 1u] = im;
+        }
+        return;
+    }
     if (a.has_msg != 0u) {
         device const float *m = j == 0u ? msg0 : (j == 1u ? msg1 : msg2);
         device const float *dw = j == 0u ? down0 : (j == 1u ? down1 : down2);
@@ -311,6 +327,17 @@ kernel void glue_post_attn(
     if (a.boundary != 0u) { src[n++] = hin; }
     src[n++] = out;
     bar_one(mlp_q, src, n, h, a.inv_h, a.bar_eps, a.bar_scale, X, scr, tid, lane, sg);
+    if (a.has_msg == 2u) {
+        // The gate, the norm and the scores run in launches of their own.
+        float ix = inv_rms(X, h, a.inv_h, a.eps, scr, tid, lane, sg);
+        float im = inv_rms(msg, h, a.inv_h, a.eps, scr, tid, lane, sg);
+        for (uint c = tid; c < h; c += GLUE_TG) { out[h + c] = X[c]; }
+        if (tid == 0u) {
+            out[2u * h] = ix;
+            out[2u * h + 1u] = im;
+        }
+        return;
+    }
     if (a.has_msg != 0u) {
         gate_inplace(X, msg, down, forget, gain, h, a.rank, a.inv_h, a.eps, G, scr, tid, lane, sg);
     }
@@ -331,6 +358,130 @@ kernel void glue_post_attn(
             float z = exp(-acc) + 1.0f;
             out[2u * h + e] = 1.0f / z;
         }
+    }
+}
+
+struct GateArgs { uint h; uint rank; uint n; uint n_norms; float eps; float inv_h; uint per; };
+
+// MessageGate::forward spread over threadgroups, for n gates at once. The
+// sums are gate_inplace's, lane for lane; one threadgroup read a gate's
+// weights at a fraction of the device's bandwidth.
+// xa: X [n, h], then (1 / rms(X), 1 / rms(m)) a gate, as stage A wrote them.
+// Step 1: g = down [rms-normed X, rms-normed m], one simdgroup a row. out: [n, rank].
+kernel void glue_gate_down(
+    device const float *xa [[buffer(0)]],
+    device const float *msg0 [[buffer(1)]], device const float *msg1 [[buffer(2)]],
+    device const float *msg2 [[buffer(3)]],
+    device const float *down0 [[buffer(4)]], device const float *down1 [[buffer(5)]],
+    device const float *down2 [[buffer(6)]],
+    device float *out [[buffer(7)]],
+    constant GateArgs &a [[buffer(8)]],
+    uint s [[threadgroup_position_in_grid]],
+    uint lane [[thread_index_in_simdgroup]])
+{
+    const uint h = a.h;
+    const uint j = s / a.rank;
+    const uint r = s % a.rank;
+    device const float *X = xa + j * h;
+    device const float *m = j == 0u ? msg0 : (j == 1u ? msg1 : msg2);
+    device const float *dw = j == 0u ? down0 : (j == 1u ? down1 : down2);
+    const float ix = xa[a.n * h + 2u * j];
+    const float im = xa[a.n * h + 2u * j + 1u];
+    device const float *row = dw + r * 2u * h;
+    float acc = 0.0f;
+    for (uint c = lane; c < h; c += 32u) { float v = X[c] * ix; acc = acc + row[c] * v; }
+    for (uint c = lane; c < h; c += 32u) { float v = m[c] * im; acc = acc + row[h + c] * v; }
+    acc = simd_sum(acc);
+    if (lane == 0) { out[s] = acc; }
+}
+
+// Step 2: (1 - tanh(F g)) * X + tanh(G g) * m, a.per channels a simdgroup, each
+// channel with the lanes of gate_inplace. out: [n, h].
+kernel void glue_gate_apply(
+    device const float *xa [[buffer(0)]],
+    device const float *g [[buffer(1)]],
+    device const float *msg0 [[buffer(2)]], device const float *msg1 [[buffer(3)]],
+    device const float *msg2 [[buffer(4)]],
+    device const float *forget0 [[buffer(5)]], device const float *forget1 [[buffer(6)]],
+    device const float *forget2 [[buffer(7)]],
+    device const float *gain0 [[buffer(8)]], device const float *gain1 [[buffer(9)]],
+    device const float *gain2 [[buffer(10)]],
+    device float *out [[buffer(11)]],
+    constant GateArgs &a [[buffer(12)]],
+    uint s [[threadgroup_position_in_grid]],
+    uint lane [[thread_index_in_simdgroup]])
+{
+    const uint h = a.h;
+    const uint rank = a.rank;
+    const uint groups = (h + a.per - 1u) / a.per;
+    const uint j = s / groups;
+    const uint c0 = (s % groups) * a.per;
+    device const float *m = j == 0u ? msg0 : (j == 1u ? msg1 : msg2);
+    device const float *fw = j == 0u ? forget0 : (j == 1u ? forget1 : forget2);
+    device const float *gw = j == 0u ? gain0 : (j == 1u ? gain1 : gain2);
+    device const float *G = g + j * rank;
+    for (uint c = c0; c < min(c0 + a.per, h); c++) {
+        float af = 0.0f;
+        float ag = 0.0f;
+        for (uint r = lane; r < rank; r += 32u) {
+            af = af + fw[c * rank + r] * G[r];
+            ag = ag + gw[c * rank + r] * G[r];
+        }
+        af = simd_sum(af);
+        ag = simd_sum(ag);
+        if (lane == 0) {
+            float f = tanh(af);
+            float gg = tanh(ag);
+            float keep = 1.0f - f;
+            float p = keep * xa[j * h + c];
+            float q = gg * m[c];
+            out[j * h + c] = p + q;
+        }
+    }
+}
+
+// Step 3: the weighted RMS norm that ends glue_pre and the normed input of
+// glue_post_attn, one threadgroup a gate. out: [n, h].
+kernel void glue_gate_norm(
+    device const float *x [[buffer(0)]],
+    device const float *norm0 [[buffer(1)]], device const float *norm1 [[buffer(2)]],
+    device const float *norm2 [[buffer(3)]],
+    device float *out [[buffer(4)]],
+    constant GateArgs &a [[buffer(5)]],
+    uint j [[threadgroup_position_in_grid]],
+    uint tid [[thread_index_in_threadgroup]],
+    uint lane [[thread_index_in_simdgroup]],
+    uint sg [[simdgroup_index_in_threadgroup]])
+{
+    threadgroup float scr[32];
+    const uint h = a.h;
+    device const float *X = x + j * h;
+    uint ni = a.n_norms == 3u ? j : 0u;
+    device const float *w = ni == 0u ? norm0 : (ni == 1u ? norm1 : norm2);
+    float inv = inv_rms(X, h, a.inv_h, a.eps, scr, tid, lane, sg);
+    for (uint c = tid; c < h; c += GLUE_TG) { float v = X[c] * inv; out[j * h + c] = v * w[c]; }
+}
+
+struct RouterArgs { uint h; uint experts; };
+
+// The router's scores, sigmoid(router_w . xn), one simdgroup an expert: the
+// sums of glue_post_attn's last loop, each in a threadgroup of its own.
+kernel void glue_router(
+    device const float *xn [[buffer(0)]],
+    device const float *router_w [[buffer(1)]],
+    device float *out [[buffer(2)]],
+    constant RouterArgs &a [[buffer(3)]],
+    uint e [[threadgroup_position_in_grid]],
+    uint lane [[thread_index_in_simdgroup]])
+{
+    const uint h = a.h;
+    device const float *row = router_w + e * h;
+    float acc = 0.0f;
+    for (uint c = lane; c < h; c += 32u) { acc = acc + row[c] * xn[c]; }
+    acc = simd_sum(acc);
+    if (lane == 0) {
+        float z = exp(-acc) + 1.0f;
+        out[e] = 1.0f / z;
     }
 }
 
@@ -656,13 +807,19 @@ pub struct Glue {
     ring_state: ComputePipeline,
     sel: ComputePipeline,
     msg: ComputePipeline,
+    router: ComputePipeline,
+    gate_down: ComputePipeline,
+    gate_apply: ComputePipeline,
+    gate_norm: ComputePipeline,
 }
 
 fn compile(dev: &candle_core::MetalDevice) -> Result<Vec<ComputePipeline>> {
     use objc2_metal::{MTLCompileOptions, MTLMathFloatingPointFunctions, MTLMathMode};
     let raw = dev.device().clone();
     let src = format!("#define GLUE_TG {TG}u\n{SRC}");
-    let names = ["glue_pre", "glue_post_attn", "glue_top8", "glue_post_mlp", "glue_ring_state", "glue_sel", "glue_msg"];
+    let names = ["glue_pre", "glue_post_attn", "glue_top8", "glue_post_mlp", "glue_ring_state", "glue_sel", "glue_msg", "glue_router", "glue_gate_down", "glue_gate_apply",
+        "glue_gate_norm",
+    ];
     let built = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
         let opts = MTLCompileOptions::new();
         opts.setMathMode(MTLMathMode::Safe);
@@ -692,10 +849,10 @@ impl Glue {
     pub fn new(device: &Device) -> Result<Self> {
         let Device::Metal(dev) = device else { candle_core::bail!("the glue kernels want a Metal device") };
         let mut p = compile(dev)?.into_iter();
-        let mut next = || p.next().expect("seven pipelines");
-        let g = Self { pre: next(), post_attn: next(), top8: next(), post_mlp: next(), ring_state: next(), sel: next(), msg: next() };
+        let mut next = || p.next().expect("eleven pipelines");
+        let g = Self { pre: next(), post_attn: next(), top8: next(), post_mlp: next(), ring_state: next(), sel: next(), msg: next(), router: next(), gate_down: next(), gate_apply: next(), gate_norm: next() };
         for (name, pipe) in
-            [("glue_pre", &g.pre), ("glue_post_attn", &g.post_attn), ("glue_top8", &g.top8), ("glue_msg", &g.msg)]
+            [("glue_pre", &g.pre), ("glue_post_attn", &g.post_attn), ("glue_top8", &g.top8), ("glue_msg", &g.msg), ("glue_gate_norm", &g.gate_norm)]
         {
             let max = pipe.max_total_threads_per_threadgroup();
             if max < TG {
@@ -754,6 +911,15 @@ impl Glue {
     /// The normed attention inputs `[n, H]`: `n` is 1 for a sliding visit
     /// without messages, 3 otherwise (query, key, value rows).
     pub fn pre(&self, a: &PreInputs) -> Result<Tensor> {
+        self.pre_with(a, true)
+    }
+
+    /// [`Self::pre`] with the message gates spread over threadgroups
+    /// (`split_gates`, three more launches: [`Self::gates_split`]) or inside
+    /// the kernel's one threadgroup an output. The same bits; `false` is the
+    /// reference of the split's gate. A visit without messages is one launch
+    /// either way.
+    pub fn pre_with(&self, a: &PreInputs, split_gates: bool) -> Result<Tensor> {
         let h = a.h.elem_count();
         check_h(h)?;
         let n_states = a.states.len();
@@ -782,7 +948,7 @@ impl Glue {
             .u(h)
             .u(n_states)
             .u(nq)
-            .u(has_msg as usize)
+            .u(if has_msg && split_gates { 2 } else { has_msg as usize })
             .u(want_n)
             .u(rank)
             .f(a.eps as f32)
@@ -822,6 +988,22 @@ impl Glue {
         }
         v.push(Arg::Out);
         v.push(Arg::Bytes(args));
+        if let (Some((m, g)), true) = (&a.gates, split_gates) {
+            // Stage A: the rows before their gate, then the two factors a gate starts with.
+            let n = nout * h + 2 * nout;
+            let op = Launch {
+                name: "glue-pre-a",
+                pipe: &self.pre,
+                args: v,
+                out_elems: n,
+                out_shape: Shape::from(n),
+                out_dtype: DType::F32,
+                grid: Grid::Groups(nout),
+            };
+            let xa = a.h.apply_op1_no_bwd(&op)?;
+            let norms: Vec<&Tensor> = a.norms.iter().collect();
+            return self.gates_split(&xa, nout, h, rank, m, g, &norms, a.eps);
+        }
         let op = Launch {
             name: "glue-pre",
             pipe: &self.pre,
@@ -834,9 +1016,109 @@ impl Glue {
         a.h.apply_op1_no_bwd(&op)
     }
 
+    /// `n` message gates and the weighted norm after each, spread over
+    /// threadgroups: `xa` holds the rows before their gate `[n, H]` and then
+    /// `(1 / rms(row), 1 / rms(message))` a gate, as stage A of `pre` or of
+    /// `post_attn` wrote them. Three launches: the rank-`rank` projection, one
+    /// simdgroup a row of `down`; the gate itself, one simdgroup a channel;
+    /// the norm, one threadgroup a gate. The sums are `gate_inplace`'s, lane
+    /// for lane. Gate `j` reads `msgs[j]`, `gates[j]` and `norms[j]`, or
+    /// `norms[0]` when one norm serves every row. Returns `[n, H]`.
+    #[allow(clippy::too_many_arguments)]
+    fn gates_split(
+        &self,
+        xa: &Tensor,
+        n: usize,
+        h: usize,
+        rank: usize,
+        msgs: &[&Tensor],
+        gates: &[GateW],
+        norms: &[&Tensor],
+        eps: f64,
+    ) -> Result<Tensor> {
+        if n == 0 || n > 3 || msgs.len() != n || gates.len() != n || norms.is_empty() || norms.len() > 3 {
+            candle_core::bail!("gates: {n} rows, {} messages, {} gates, {} norms", msgs.len(), gates.len(), norms.len());
+        }
+        if xa.elem_count() != n * h + 2 * n {
+            candle_core::bail!("gates: stage A wrote {} values for {n} rows of {h}", xa.elem_count());
+        }
+        // GateArgs: h, rank, n, n_norms, eps, inv_h, per.
+        let args = || {
+            Words::default().u(h).u(rank).u(n).u(norms.len()).f(eps as f32).f((1.0 / h as f64) as f32).u(GATE_CHANNELS)
+        };
+        let at = |i: usize| i.min(n - 1);
+        let mut v: Vec<Arg> = vec![Arg::Primary];
+        for i in 0..3 {
+            v.push(Arg::Tensor(msgs[at(i)], h));
+        }
+        for i in 0..3 {
+            v.push(Arg::Tensor(gates[at(i)].down, rank * 2 * h));
+        }
+        v.push(Arg::Out);
+        v.push(Arg::Bytes(args()));
+        let down = Launch {
+            name: "glue-gate-down",
+            pipe: &self.gate_down,
+            args: v,
+            out_elems: n * rank,
+            out_shape: Shape::from(n * rank),
+            out_dtype: DType::F32,
+            grid: Grid::Simd(n * rank),
+        };
+        let g = xa.apply_op1_no_bwd(&down)?;
+        let mut v: Vec<Arg> = vec![Arg::Primary, Arg::Tensor(&g, n * rank)];
+        for i in 0..3 {
+            v.push(Arg::Tensor(msgs[at(i)], h));
+        }
+        for i in 0..3 {
+            v.push(Arg::Tensor(gates[at(i)].forget, h * rank));
+        }
+        for i in 0..3 {
+            v.push(Arg::Tensor(gates[at(i)].gain, h * rank));
+        }
+        v.push(Arg::Out);
+        v.push(Arg::Bytes(args()));
+        let apply = Launch {
+            name: "glue-gate-apply",
+            pipe: &self.gate_apply,
+            args: v,
+            out_elems: n * h,
+            out_shape: Shape::from(n * h),
+            out_dtype: DType::F32,
+            grid: Grid::Simd(n * h.div_ceil(GATE_CHANNELS)),
+        };
+        let x = xa.apply_op1_no_bwd(&apply)?;
+        let mut v: Vec<Arg> = vec![Arg::Primary];
+        for i in 0..3 {
+            v.push(Arg::Tensor(norms[i % norms.len()], h));
+        }
+        v.push(Arg::Out);
+        v.push(Arg::Bytes(args()));
+        let norm = Launch {
+            name: "glue-gate-norm",
+            pipe: &self.gate_norm,
+            args: v,
+            out_elems: n * h,
+            out_shape: Shape::from((n, h)),
+            out_dtype: DType::F32,
+            grid: Grid::Groups(n),
+        };
+        x.apply_op1_no_bwd(&norm)
+    }
+
     /// The post-attention half up to the router's scores; `ring` is the
     /// post-attention convolution state, advanced by one row.
     pub fn post_attn(&self, a: &PostAttnInputs, ring: &mut ConvRing) -> Result<PostAttn> {
+        self.post_attn_with(a, ring, true)
+    }
+
+    /// [`Self::post_attn`] with the message gate and the router's scores in
+    /// launches of their own (`split`: [`Self::gates_split`], and one
+    /// simdgroup an expert for the scores), or inside the kernel's one
+    /// threadgroup. The sums are the same, lane for lane, so the bits are;
+    /// one threadgroup reads those weights at a fraction of the device's
+    /// bandwidth. `false` is the reference of the split's gate.
+    pub fn post_attn_with(&self, a: &PostAttnInputs, ring: &mut ConvRing, split: bool) -> Result<PostAttn> {
         let h = a.h.elem_count();
         check_h(h)?;
         let k = a.conv_w.dims2()?.1;
@@ -859,9 +1141,9 @@ impl Glue {
             .u(h)
             .u(n_states)
             .u(a.boundary as usize)
-            .u(a.gate.is_some() as usize)
+            .u(if a.gate.is_some() && split { 2 } else { a.gate.is_some() as usize })
             .u(rank)
-            .u(experts)
+            .u(if split { 0 } else { experts })
             .u(k)
             .u(ring.pos)
             .f(a.eps as f32)
@@ -895,7 +1177,13 @@ impl Glue {
         v.push(Arg::Tensor(a.router_w, experts * h));
         v.push(Arg::Out);
         v.push(Arg::Bytes(args));
-        let n = 2 * h + experts;
+        let gate_split = a.gate.is_some() && split;
+        let n = match (split, gate_split) {
+            (false, _) => 2 * h + experts,
+            (true, false) => 2 * h,
+            // stage A: the residual, the row before its gate, the two factors the gate starts with
+            (true, true) => 2 * h + 2,
+        };
         let op = Launch {
             name: "glue-post-attn",
             pipe: &self.post_attn,
@@ -907,11 +1195,33 @@ impl Glue {
         };
         let out = a.attn_out.apply_op1_no_bwd(&op)?;
         ring.pos = (ring.pos + 1) % (k - 1);
-        Ok(PostAttn {
-            residual: out.narrow(0, 0, h)?.reshape((1, h))?,
-            xn: out.narrow(0, h, h)?.reshape((1, h))?,
-            scores: out.narrow(0, 2 * h, experts)?,
-        })
+        let xn = match (&a.gate, gate_split) {
+            (Some((m, g)), true) => {
+                let xa = out.narrow(0, h, h + 2)?;
+                self.gates_split(&xa, 1, h, rank, &[*m], &[*g], &[a.norm], a.eps)?.reshape(h)?
+            }
+            _ => out.narrow(0, h, h)?,
+        };
+        let scores = if split {
+            let op = Launch {
+                name: "glue-router",
+                pipe: &self.router,
+                args: vec![
+                    Arg::Primary,
+                    Arg::Tensor(a.router_w, experts * h),
+                    Arg::Out,
+                    Arg::Bytes(Words::default().u(h).u(experts)),
+                ],
+                out_elems: experts,
+                out_shape: Shape::from(experts),
+                out_dtype: DType::F32,
+                grid: Grid::Simd(experts),
+            };
+            xn.apply_op1_no_bwd(&op)?
+        } else {
+            out.narrow(0, 2 * h, experts)?
+        };
+        Ok(PostAttn { residual: out.narrow(0, 0, h)?.reshape((1, h))?, xn: xn.reshape((1, h))?, scores })
     }
 
     /// `score + bias`, the top `k` and their weights, as `layers::route` on one row.
@@ -1031,6 +1341,8 @@ enum Grid {
     Groups(usize),
     /// Threads, in groups of `ELT_GROUP`.
     Threads(usize),
+    /// Threadgroups of one simdgroup (32 threads).
+    Simd(usize),
 }
 
 /// One kernel launch as a candle op.
@@ -1134,6 +1446,10 @@ impl CustomOp1 for Launch<'_> {
             Grid::Threads(n) => enc.dispatch_threads(
                 MTLSize { width: n, height: 1, depth: 1 },
                 MTLSize { width: ELT_GROUP, height: 1, depth: 1 },
+            ),
+            Grid::Simd(n) => enc.dispatch_thread_groups(
+                MTLSize { width: n, height: 1, depth: 1 },
+                MTLSize { width: 32, height: 1, depth: 1 },
             ),
         }
         drop(enc);
