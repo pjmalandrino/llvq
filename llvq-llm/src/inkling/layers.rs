@@ -1077,6 +1077,7 @@ struct MatRefs<'a> {
     wo: &'a Tensor,
 }
 
+#[cfg(all(target_os = "macos", feature = "metal"))]
 impl AttnMats {
     fn refs(&self) -> MatRefs<'_> {
         MatRefs { wq: &self.wq, wr: &self.wr, sink: &self.sink, gate: &self.gate, wk: &self.wk, wv: &self.wv, wo: &self.wo }
