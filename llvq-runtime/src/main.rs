@@ -268,7 +268,7 @@ fn show(client: &Client, model: &str) -> anyhow::Result<()> {
 
 fn stop(client: &Client, model: &str) -> anyhow::Result<()> {
     let n = name(model)?;
-    anyhow::ensure!(client.alive(), "no llvq server answers at {}", client.base());
+    anyhow::ensure!(client.alive(), "no llvq server answers at {}, so no model is loaded", client.base());
     client.send("POST", "/api/generate", &json!({ "model": n.to_string(), "keep_alive": 0, "stream": false }))?;
     Ok(())
 }
