@@ -17,17 +17,15 @@
 //! (`tests/fixtures/qwen3-tools-reference.json`, made by
 //! `ops/qwen3_tools_reference.py`).
 //!
-//! What Inkling 2's format will need, read in its `chat_template.jinja`: the
-//! tools declared in a system message as one compact JSON array with sorted
-//! keys (`<|message_system|>tool_declare<|content_xml|>…<|end_message|>`); a
-//! tool result headed by the function's name, which the template finds from
-//! `tool_call_id` (`ToolMsg::name` carries it); each call as its own model
-//! message, `<|message_model|>NAME<|content_invoke_tool_json|>{"name":…,"args":{…}}<|end_message|>`,
-//! with the arguments an object (a JSON string is refused by the template),
-//! keys sorted, compact; every assistant turn closed by
-//! `<|content_model_end_sampling|>`; and its reasoning delimited in the text by
-//! `<|content_thinking|>`, not routed by token ids as Qwen3's is, which is why
-//! a parser reads the reasoning stream as well as the content.
+//! Inkling 2 is the second family (`inkling2`). Its prompt is rendered with ids
+//! by `llvq_llm::inkchat`, which is held byte for byte and id for id to the
+//! checkpoint's own `chat_template.jinja`; [`inkling2`] only turns the routes'
+//! messages into the JSON that renderer reads. Each call the model writes is
+//! `<|message_model|>NAME<|content_invoke_tool_json|>{"name":…,"args":{…}}<|end_message|>`.
+//! The engine parses the model's turn by its ids, and streams each call as
+//! `<|content_invoke_tool_json|>{…}<|end_message|>` in the content, which the
+//! family's [`MarkerParser`] reads back as a call. Reasoning is routed by the
+//! engine, as Qwen3's is.
 
 use serde::de::{Deserialize, Deserializer, MapAccess, SeqAccess, Visitor};
 use serde::ser::{Serialize, SerializeMap, SerializeSeq, Serializer};
@@ -379,6 +377,7 @@ pub trait CallParser: Send {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ToolFormat {
     Qwen3,
+    Inkling2,
 }
 
 impl ToolFormat {
@@ -386,7 +385,10 @@ impl ToolFormat {
     pub fn of_family(family: &str) -> Result<Self, String> {
         match family {
             "qwen3" => Ok(ToolFormat::Qwen3),
-            f => Err(format!("tools: llvq has no tool format for the model family {f:?}; it has one for qwen3")),
+            "inkling2" => Ok(ToolFormat::Inkling2),
+            f => Err(format!(
+                "tools: llvq has no tool format for the model family {f:?}; it has one for qwen3 and inkling2"
+            )),
         }
     }
 
@@ -395,23 +397,35 @@ impl ToolFormat {
     /// turn for them). The engine encodes each piece alone; every cut between
     /// two pieces falls next to an added token, so the ids are those of the
     /// whole text.
+    ///
+    /// Qwen3 only: Inkling 2's prompt is rendered with ids by
+    /// `llvq_llm::inkchat` (see [`inkling2::messages`]), and its engine never
+    /// calls this.
     pub fn render(self, tools: &[ToolDef], msgs: &[ToolMsg]) -> Vec<String> {
         match self {
             ToolFormat::Qwen3 => qwen3::render(tools, msgs),
+            ToolFormat::Inkling2 => unreachable!("Inkling 2's prompt is rendered by llvq_llm::inkchat"),
         }
     }
 
     /// The piece an answer the model wrote as `raw` stands for in the next
     /// request's history: the key under which the engine keeps its ids.
+    /// Qwen3 only: the Inkling engine keys its answers by ids.
     pub fn answer_piece(self, raw: &str) -> String {
         match self {
             ToolFormat::Qwen3 => format!("<|im_start|>assistant\n{raw}<|im_end|>\n"),
+            ToolFormat::Inkling2 => unreachable!("the Inkling engine keys its answers by ids"),
         }
     }
 
     pub fn parser(self) -> Box<dyn CallParser> {
         match self {
             ToolFormat::Qwen3 => Box::new(MarkerParser::new("<tool_call>", "</tool_call>", qwen3::parse_call)),
+            ToolFormat::Inkling2 => Box::new(MarkerParser::new(
+                inkling2::CALL_OPEN,
+                inkling2::CALL_CLOSE,
+                inkling2::parse_call,
+            )),
         }
     }
 }
@@ -541,6 +555,135 @@ mod qwen3 {
                 _ => return Err("\"arguments\" is a string that does not hold a JSON object".into()),
             },
             Some(_) => return Err("\"arguments\" is not an object".into()),
+        };
+        Ok(Call { name, arguments })
+    }
+}
+
+pub mod inkling2 {
+    //! Inkling 2's side of the seam. The routes' messages become the JSON that
+    //! `llvq_llm::inkchat` renders, and the calls the engine streams back are
+    //! read here. The markers are the template's own (`inkchat::mark`).
+
+    use super::{Args, Call, OrderedJson, ToolDef, ToolMsg, ToolRole};
+    use crate::chat::{Msg, Role};
+    use llvq_llm::inkchat::{mark, Json};
+
+    /// What opens a call in the content the engine streams.
+    pub const CALL_OPEN: &str = mark::INVOKE_JSON;
+    /// What closes it.
+    pub const CALL_CLOSE: &str = mark::END_MESSAGE;
+
+    /// An ordered JSON value as `inkchat` holds it. A number with a fraction
+    /// or an exponent is a float, any other is an integer, as Python reads
+    /// them.
+    pub fn to_json(v: &OrderedJson) -> Json {
+        match v {
+            OrderedJson::Null => Json::Null,
+            OrderedJson::Bool(b) => Json::Bool(*b),
+            OrderedJson::Num(n) if n.contains(['.', 'e', 'E']) => match n.parse::<f64>() {
+                Ok(f) => Json::Float(f),
+                Err(_) => Json::Str(n.clone()),
+            },
+            OrderedJson::Num(n) => Json::Int(n.clone()),
+            OrderedJson::Str(s) => Json::Str(s.clone()),
+            OrderedJson::Arr(a) => Json::Array(a.iter().map(to_json).collect()),
+            OrderedJson::Obj(kv) => Json::Object(kv.iter().map(|(k, v)| (k.clone(), to_json(v))).collect()),
+        }
+    }
+
+    fn obj(kv: Vec<(&str, Json)>) -> Json {
+        Json::Object(kv.into_iter().map(|(k, v)| (k.to_string(), v)).collect())
+    }
+
+    fn role(r: ToolRole) -> &'static str {
+        match r {
+            ToolRole::System => "system",
+            ToolRole::User => "user",
+            ToolRole::Assistant => "assistant",
+            ToolRole::Tool => "tool",
+        }
+    }
+
+    /// The arguments of a call of the history, as the object the template
+    /// requires. OpenAI's form is a JSON string, which the template refuses:
+    /// it is parsed here.
+    fn arguments(a: &Args) -> Result<Json, String> {
+        let v = match a {
+            Args::Object(o) => to_json(o),
+            Args::Text(t) if t.trim().is_empty() => Json::Object(Vec::new()),
+            Args::Text(t) => Json::parse(t).map_err(|e| format!("arguments: {e:#}"))?,
+        };
+        match v {
+            Json::Object(_) => Ok(v),
+            _ => Err("arguments: Inkling 2's template reads a JSON object".into()),
+        }
+    }
+
+    /// The tools offered and the messages of a conversation with tools, as
+    /// the template reads them. A tool result carries the function's name
+    /// when the routes found it, and the template writes it as the header.
+    pub fn messages(tools: &[ToolDef], msgs: &[ToolMsg]) -> Result<(Vec<Json>, Vec<Json>), String> {
+        let tools = tools.iter().map(|t| to_json(&t.json)).collect();
+        let mut out = Vec::with_capacity(msgs.len());
+        for (i, m) in msgs.iter().enumerate() {
+            let mut kv = vec![("role", Json::str(role(m.role))), ("content", Json::str(&m.content))];
+            if m.role == ToolRole::Tool {
+                if let Some(n) = &m.name {
+                    kv.push(("name", Json::str(n)));
+                }
+            }
+            if !m.calls.is_empty() {
+                let mut calls = Vec::with_capacity(m.calls.len());
+                for (k, c) in m.calls.iter().enumerate() {
+                    let args = arguments(&c.arguments).map_err(|e| format!("messages[{i}].tool_calls[{k}]: {e}"))?;
+                    let mut call = Vec::new();
+                    if let Some(id) = &c.id {
+                        call.push(("id", Json::str(id)));
+                    }
+                    call.push(("type", Json::str("function")));
+                    call.push(("function", obj(vec![("name", Json::str(&c.name)), ("arguments", args)])));
+                    calls.push(obj(call));
+                }
+                kv.push(("tool_calls", Json::Array(calls)));
+            }
+            out.push(obj(kv));
+        }
+        Ok((tools, out))
+    }
+
+    /// The messages of a chat without tools.
+    pub fn chat_messages(msgs: &[Msg]) -> Vec<Json> {
+        msgs.iter()
+            .map(|m| {
+                let r = match m.role {
+                    Role::System => "system",
+                    Role::User => "user",
+                    Role::Assistant => "assistant",
+                };
+                obj(vec![("role", Json::str(r)), ("content", Json::str(&m.content))])
+            })
+            .collect()
+    }
+
+    /// The text the engine streams for a call the model made: the body in
+    /// the form the template writes, keys in the model's order, between the
+    /// two markers.
+    pub fn call_text(name: &str, args: &Json) -> String {
+        let body = obj(vec![("name", Json::str(name)), ("args", args.clone())]);
+        format!("{CALL_OPEN}{}{CALL_CLOSE}", body.dumps(false, true))
+    }
+
+    /// The body of a call block: `{"name": NAME, "args": {…}}`. Absent or
+    /// null arguments are a call with none.
+    pub fn parse_call(body: &str) -> Result<Call, String> {
+        let v: OrderedJson = serde_json::from_str(body.trim()).map_err(|e| format!("not JSON: {e}"))?;
+        let name = v.get("name").and_then(OrderedJson::as_str).filter(|n| !n.is_empty());
+        let name = name.ok_or("no \"name\" string")?.to_string();
+        let arguments = match v.get("args") {
+            None | Some(OrderedJson::Null) => OrderedJson::Obj(Vec::new()),
+            Some(o @ OrderedJson::Obj(_)) => o.clone(),
+            Some(_) => return Err("\"args\" is not an object".into()),
         };
         Ok(Call { name, arguments })
     }

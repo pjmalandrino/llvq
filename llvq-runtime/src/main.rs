@@ -2,6 +2,7 @@
 //!
 //! ```text
 //! llvq serve                       start the server on LLVQ_HOST (127.0.0.1:11435)
+//! llvq serve --local inkling.json  also serve a model named by a local file (Inkling 2)
 //! llvq pull qwen3:4b               download, check size and sha256, register
 //! llvq pull qwen3:4b --from FILE   register a local copy, same checks, no network
 //! llvq run qwen3:4b                interactive chat; /bye leaves, /clear forgets
@@ -46,7 +47,12 @@ struct Cli {
 #[derive(Subcommand)]
 enum Cmd {
     /// Start the server on LLVQ_HOST.
-    Serve,
+    Serve {
+        /// Register a model served from local files (Inkling 2), named by a
+        /// small JSON file; see llvq-runtime/README.md. Repeatable.
+        #[arg(long)]
+        local: Vec<std::path::PathBuf>,
+    },
     /// Download a model of the library, check its size and sha256, register it.
     Pull {
         model: String,
@@ -477,9 +483,13 @@ fn run(client: &Client, model: &str, prompt: Vec<String>, o: RunOpts) -> anyhow:
     }
 }
 
-fn serve() -> anyhow::Result<()> {
+fn serve(local: &[std::path::PathBuf]) -> anyhow::Result<()> {
     let host = llvq_runtime::client::host();
     let store = Arc::new(Store::from_env()?);
+    for p in local {
+        let (name, _) = llvq_runtime::inkling::register(&store, p)?;
+        eprintln!("llvq: {name} registered from {}", p.display());
+    }
     let models = llvq_runtime::engine::Models::from_env(store.clone(), Arc::new(llvq_runtime::engine::DeviceLoader))?;
     let state = llvq_runtime::api::AppState::new(Arc::new(models), llvq_runtime::store::hub_endpoint());
     let rt = tokio::runtime::Builder::new_multi_thread().enable_all().build()?;
@@ -512,7 +522,7 @@ fn main() -> anyhow::Result<()> {
             Cli::command().print_help()?;
             Ok(())
         }
-        Some(Cmd::Serve) => serve(),
+        Some(Cmd::Serve { local }) => serve(&local),
         Some(Cmd::Pull { model, from }) => pull(&client, &model, from),
         Some(Cmd::Run { model, prompt, think, verbose, temperature, keepalive }) => {
             run(&client, &model, prompt, RunOpts { think, verbose, temperature, keepalive })

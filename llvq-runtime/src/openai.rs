@@ -119,7 +119,8 @@ pub struct ChatCompletionRequest {
     pub stop: Option<Value>,
     pub n: Option<u32>,
     /// Functions the model may call, `{"type": "function", "function":
-    /// {"name", "description", "parameters"}}`. Served for the qwen3 family.
+    /// {"name", "description", "parameters"}}`. Served for the qwen3 and
+    /// inkling2 families.
     #[schema(value_type = Option<Vec<Object>>)]
     pub tools: Option<Vec<OrderedJson>>,
     /// `"auto"` (the default) or `"none"`, which offers no tool. `"required"`
@@ -130,7 +131,8 @@ pub struct ChatCompletionRequest {
     pub parallel_tool_calls: Option<bool>,
     #[schema(value_type = Option<Object>)]
     pub response_format: Option<Value>,
-    /// Absent or `"none"`: no reasoning; any other level turns it on.
+    /// Absent or `"none"`: no reasoning; any other level turns it on. The
+    /// inkling2 family writes the level into its prompt, as its template does.
     pub reasoning_effort: Option<String>,
     /// Every other field: ignored, and listed in `warnings`.
     #[serde(flatten)]
@@ -289,6 +291,7 @@ fn options(
         num_predict: max_tokens,
         stop: stop.as_ref().map(stop_list).transpose().map_err(|e| oai_error(400, e))?.unwrap_or_default(),
         num_ctx: None,
+        effort: None,
     })
 }
 
@@ -650,7 +653,7 @@ pub async fn chat_completions(State(st): State<AppState>, body: Bytes) -> Respon
             }
         }
     }
-    let o = match options(
+    let mut o = match options(
         req.temperature,
         req.top_p,
         req.max_completion_tokens.or(req.max_tokens),
@@ -661,6 +664,7 @@ pub async fn chat_completions(State(st): State<AppState>, body: Bytes) -> Respon
         Ok(o) => o,
         Err(r) => return r,
     };
+    o.effort = req.reasoning_effort.clone();
     let think = req.reasoning_effort.as_deref().is_some_and(|e| e != "none");
     let ctx = Ctx {
         id: new_id("chatcmpl"),

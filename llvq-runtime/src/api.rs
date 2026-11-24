@@ -369,7 +369,8 @@ pub struct ChatRequest {
     pub model: String,
     pub messages: Vec<ChatMessage>,
     /// Functions the model may call, `{"type": "function", "function":
-    /// {"name", "description", "parameters"}}`. Served for the qwen3 family.
+    /// {"name", "description", "parameters"}}`. Served for the qwen3 and
+    /// inkling2 families.
     #[schema(value_type = Option<Vec<Object>>)]
     pub tools: Option<Vec<OrderedJson>>,
     #[schema(value_type = Option<Object>)]
