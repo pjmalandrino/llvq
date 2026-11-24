@@ -109,7 +109,7 @@ impl llvq_cuda::spec_loop::Verifier for CardVerifier<'_> {
 #[cfg(all(target_os = "linux", feature = "cuda"))]
 fn run() -> anyhow::Result<()> {
     use llvq_cuda::spec_loop::{run as spec_run, Drafter, NullDrafter, OracleDrafter};
-    use llvq_llm::boundary::median_range;
+    use llvq_llm::stats::median_range;
     use llvq_llm::chatfmt::{open_assistant, turn, Marks};
     use llvq_llm::persist4e_cuda::{TreeForm, TreePlan};
     let usage = "usage: LLVQ_CONFIG=<served v9 config> specbench [--prompts <file.jsonl>] [--runs <k>] [--vocab dense|q4] [--readout device|chunked] [--dump <file.jsonl>] <sealed> <a12|a12ip|a10t384r16>[@q.o.g.d.h] <null,oracle:K,dflash:chain,dflash:tree,...> [N <= 1024] [drafter_dir] [f16|f32]";
@@ -714,7 +714,7 @@ fn c_of(
             ratios.push(t1.elapsed().as_secs_f64() / w4);
         }
     }
-    Ok(llvq_llm::boundary::median_range(&ratios).0)
+    Ok(llvq_llm::stats::median_range(&ratios).0)
 }
 
 #[cfg(all(target_os = "linux", feature = "cuda"))]

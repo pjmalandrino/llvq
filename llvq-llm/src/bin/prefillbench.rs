@@ -191,7 +191,7 @@ fn nll_of(row: &[u16], target: u32) -> f64 {
 
 #[cfg(all(target_os = "linux", feature = "cuda"))]
 fn run() -> anyhow::Result<()> {
-    use llvq_llm::boundary::median_range;
+    use llvq_llm::stats::median_range;
     use llvq_llm::chatfmt::{open_assistant, turn, Marks};
     use llvq_llm::persist4e_cuda::{TreeForm, TreePlan};
     let usage = "usage: LLVQ_CONFIG=<served v9 config> prefillbench --form eager|chain --long <file.jsonl> [--lengths 1024,4096,8191] [--new <n>] [--prompts <file.jsonl>] [--dump <texts.jsonl>] [--pair-texts <texts.jsonl>] [--ppl <ctx>,<windows>] [--ppl-dump <nll.jsonl>] [--pair-ppl <nll.jsonl>] [--arm a12ip|a12ipg|a12ipg32[ft]@q.o.g.d.h[/R]] [--against a12ip|a12ipg|a12ipg32[ft]@q.o.g.d.h[/R]]... [--dump-against <texts.jsonl>]... [--r <rows>] <sealed>";

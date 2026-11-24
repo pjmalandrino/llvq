@@ -162,9 +162,6 @@ impl Capture for QueryTap {
         }
         Ok(())
     }
-    fn wants_activations(&self) -> bool {
-        false
-    }
     fn on_attention_query(&mut self, _layer: usize, q: &Tensor) -> Result<()> {
         if self.on {
             let (b, _, l, _) = q.dims4()?;

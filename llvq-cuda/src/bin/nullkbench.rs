@@ -146,11 +146,7 @@ mod linux {
         Ok(())
     }
 
-    fn median_range(v: &[f64]) -> (f64, f64, f64) {
-        let mut s = v.to_vec();
-        s.sort_by(f64::total_cmp);
-        (s[s.len() / 2], s[0], s[s.len() - 1])
-    }
+    use llvq_cuda::stats::median_range;
 
     pub fn run() -> Result<(), String> {
         // `llvq_slot.cuh` first: it owns the `u32` typedef and the guard macro

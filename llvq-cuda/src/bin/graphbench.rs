@@ -57,10 +57,7 @@ mod linux {
     const D_OUT: usize = 64;
     const D_IN: usize = 2560;
 
-    fn spread(mut v: Vec<f64>) -> (f64, f64, f64) {
-        v.sort_by(f64::total_cmp);
-        (v[0], v[v.len() / 2], v[v.len() - 1])
-    }
+    use llvq_cuda::stats::spread;
 
     pub fn run() -> Result<(), String> {
         let sources =

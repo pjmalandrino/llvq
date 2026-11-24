@@ -9,7 +9,6 @@
 
 use candle_core::{Result, Tensor};
 
-use crate::kvq::KvStore;
 use crate::model::{KvCache, Qwen3};
 
 /// A causal language model that decodes token by token on its own cache.
@@ -45,13 +44,10 @@ pub trait CausalLm {
     fn rollback(&self, cache: &mut Self::Cache, mark: &Self::Mark) -> Result<()>;
 }
 
-/// Positions a Qwen3 layer cache holds, by its public accessors: the count
-/// of a preallocated window, the history's length for the others.
+/// Positions a Qwen3 layer cache holds, by its public accessors: the
+/// history's length, on either store.
 fn held_positions(c: &KvCache) -> Result<usize> {
-    match c.store() {
-        KvStore::Prealloc(_) => Ok(c.len()),
-        KvStore::Cat | KvStore::Grow(_) => c.held()?.map_or(Ok(0), |(k, _)| k.dim(2)),
-    }
+    c.held()?.map_or(Ok(0), |(k, _)| k.dim(2))
 }
 
 impl CausalLm for Qwen3 {
