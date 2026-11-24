@@ -1,0 +1,102 @@
+INKLING 2 MINI ON CUDA, THE READ OF A PROMPT AND ITS MEMORY, 2026-11-24
+
+RESULT
+  A 9,000-token prompt is read in 23.85 s on an L40S and 77.12 s on an L4, and peaks at 12.0 and 11.5 GB
+  (*measured*), with the prompt in pieces of 512 tokens, the sliding slots bounded and the scores in chunks of 128
+  rows. In the morning the same card held 19.6 GB at the peak and read it in 64.12 s (L40S), 152.06 s (L4).
+  A 2,000-token prompt is read in 5.88 s on an L40S against 16.56 s, with the same bytes.
+  The steps that keep every bit: the experts' batched read, the blocks of 1,024 tokens, the weighted sum in one
+  launch, the bias of the scores on the card, the bounded sliding slots, the copy of the convolution state.
+  The step that does not: the prompt in pieces. Its perplexity against one call reads -0.042 % [-0.127, +0.044] over
+  6,141 positions, PASS on its rule (point inside +-0.12 %).
+  Nothing here is a default yet. Every figure is one run.
+
+THE STEPS, L40S, 2,000 TOKENS (seconds of the prompt's read, *measured*, logits sha256 9c1624ad... in every row)
+  one expert and one chunk at a time            16.56   970,955 lattice launches
+  experts in batches, 4 rows a decode            7.36   192 launches
+  8 rows a decode at tile 64                     6.87   (16 rows at tile 32: 9.57, slower)
+  blocks of 1,024 tokens, sum in one launch      6.28
+  the bias of the scores on the card             5.88
+
+THE STEPS, 9,000 TOKENS (*measured*; the first three rows keep the bytes, sha256 a38aca4e...)
+                                                  L40S read   L40S peak   L4 read    L4 peak
+  batched experts                                 64.12 s     19.600 GB   152.06 s   19.002 GB
+  blocks, sum in one launch, bias on the card     51.29 s     19.500      140.82     18.835
+  + sliding slots bounded (same bytes)            55.89 *     17.553      142.64 *   17.157
+  pieces of 512 (values change)                   62.93 *     15.305      132.26 *   15.748
+  pieces + bounded + scores in chunks of 128      23.85       12.017      77.12      11.486
+  * read with the peak probe on, which drains the card at every visit; 51.29 and 140.82 are the same path unprobed
+    (140.82 is probed too: no unprobed reference arm ran on the L4).
+  The peak is the driver's total minus free read at every layer visit, before and after a drain; it can miss a peak
+  inside a visit, and it counts what the stream's pool still holds.
+
+WHERE THE TIME GOES (the card drained at each mark, L40S, *measured*)
+  2,000 tokens, batched, bias on the card, 7.29 s: experts 4.69 s (64 %), scores 1.21 s (17 %), norms and gates
+  0.53 s, convolutions 0.39 s, attention products 0.33 s, routing 0.09 s.
+  9,000 tokens, same path, 57.71 s: scores 30.35 s (53 %), experts 20.19 s (35 %), norms and gates 3.14 s,
+  convolutions 2.42 s, attention products 1.09 s.
+  The scores grow with the square of the length; the pieces and the bounded slots cut them because a piece only
+  multiplies against the keys its slots still hold.
+
+MEMORY
+  The convolution state kept after a prompt was a view into the whole context, four times a slot: candle's
+  `contiguous` and `copy` both keep the buffer behind a contiguous view. A gather of the last rows replaces it
+  (`layers.rs`, `conv_context`; test `conv_state_after_a_prompt_owns_its_rows`, killed by its mutant).
+  End of run after 2,000 tokens, L40S: 13.997 GB before, 10.373 after; batched read 16.043 before, 10.507 after.
+  Same bytes. After load: 8.387 GB on the L40S, 8.133 on the L4.
+
+THE PIECES AND THE VALUES
+  Read in pieces, the 32 tokens after the prompt are the reference's, and the logits are not: largest gap 1.77 at
+  2,000 tokens and 8.69 at 9,000 on the L40S (1.5 and 9.73 on the L4). The CPU tiny model shows 2.3e-5.
+  Perplexity, `inkrun --score-prompt on`, paired by position against one call (job 6b0575f61460ffe1d5e7c996):
+    window 0   2,047 positions   -0.1335 % [-0.2861, +0.0193]
+    window 1   2,047             +0.0508 % [-0.0783, +0.1800]
+    window 2   2,047             -0.0429 % [-0.2029, +0.1173]
+    pooled     6,141             -0.0419 % [-0.1273, +0.0435]   point inside the band, interval not inside
+    0 and 1 joined, 4,095        -0.0381 % [-0.1383, +0.0622]   the text that exercises the bounded slots
+  The arm with the bounded slots and the chunked scores gives the NLL of the pieces arm at every position: those two
+  add no difference of their own.
+  Not a boundary fault (*computed* from the dumps): no position is identical, the first piece included (mean
+  absolute difference 0.007 to 0.018 there), where a piece sees exactly the keys one call sees; the first 16
+  positions of a later piece differ by 0.0139 on average against 0.0168 for the rest, and their mean difference is
+  -0.0017 +- 0.0023. The differences are everywhere and centred: the products run over other lengths, the rounding
+  moves, and routing choices at a near tie fall the other way.
+  What it does not say: that a 9,000-token prompt keeps its quality. The longest text scored is 4,096 tokens.
+
+THE SERVER
+  `llvq serve --local` on the real model, L40S (job 6b0564281460ffe1d5e77db0): loaded in 43.6 s, a tool call
+  returned as `tool_calls` and its follow-up answered, 8,791 of 8,811 tokens reused on a follow-up turn (20 read in
+  0.36 s), first token of an 8,791-token prompt after 61.37 s (bias on the host, no pieces). 11 of 13 correctness
+  checks; the two failures are answers cut at 32 tokens while the model was still reasoning, at effort `none`.
+
+RUNS (all on image builds of branch debit/inkling-ttft-2026-11-24; raw files in inkling-cuda-ttft-2026-11-24-brut/,
+inkling-serve-card-2026-11-24-brut/, inkling-cuda-pieces-ppl-2026-11-24-brut/)
+  6b054af5ca8b51043c3b5983  l40sx1  batched experts, 5 arms                         $0.18
+  6b0551d9c97b8ed4fcd78946  l40sx1  the read by part                                $0.15
+  6b055b55ca8b51043c3b6713  l40sx1  memory and 9,000 tokens                         $0.21
+  6b055c5fca8b51043c3b68fa  l4x1    the same on an L4                               $0.14
+  6b056428aba0b0fd660a258c  l40sx1  bias on the card, blocks, sum in one launch     $0.29
+  6b0564281460ffe1d5e77db0  l40sx1  the server on the real model                    $0.15
+  6b05708eaba0b0fd660a5494  l40sx1  memory levers                                   $0.33
+  6b05708eaba0b0fd660a5493  l4x1    memory levers on an L4                          $0.23
+  6b0575f61460ffe1d5e7c996  l40sx1  perplexity of the pieces                        $0.34
+  Card spend on this model after them: $8.33 of $25.
+
+AGAINST THE SIGNED PREDICTIONS
+  quantity                                         predicted            measured           inside
+  batched read, 2,000 tokens, 4 rows               6 to 11 s            7.36 s             yes
+  8 rows                                           4 to 9 s             6.87 s             yes
+  16 rows                                          3 to 8 s             9.57 s             no, slower
+  share of the experts in the batched read         35 to 60 %           63 %               no, just above
+  end of run after the copy, chunk path            10.5 to 12.0 GB      10.373             no, lower
+  9,000 tokens, seconds                            33 to 62             64.12              no, slower
+  9,000 tokens, peak                               17 to 30 GB          19.600             yes
+  bias on the card, 2,000 tokens                   5.4 to 6.6 s         5.88               yes
+  bias on the card, 9,000 tokens                   38 to 56 s           51.29              yes
+  share of the scores at 9,000 tokens              25 to 50 %           53 %               no, just above
+  three levers, peak at 9,000 tokens               10.5 to 14 GB        12.017             yes
+  three levers, read within 15 % of the reference  yes                  23.85 against 51.29  no, twice as fast
+  bounded slots keep the bytes                     probability 0.6      they do            yes
+  pieces, pooled point inside the band             probability 0.6      inside             yes
+  the differences cluster at piece boundaries      probability 0.3      they do not        yes
+  the server passes every check on a first run     probability 0.3      11 of 13           yes (it did not)

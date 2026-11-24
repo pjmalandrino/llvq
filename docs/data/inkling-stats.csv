@@ -70,3 +70,4 @@ date,seq,card,metric,value,unit,label,config,job_id
 2026-11-24,2,l4,ttft_s_p9000,140.82,s,measured,blocks of 1024 and the bias on the card (with the probe's drains),6b05708eaba0b0fd660a5493
 2026-11-24,3,l4,ttft_s_p9000,77.12,s,measured,pieces of 512 + bounded slots + scores in chunks of 128; values change (band not read),6b05708eaba0b0fd660a5493
 2026-11-24,2,l4,vram_end_p9000_gb,10.849,GB,measured,pieces of 512 + bounded slots + scores in chunks of 128; no probe; values change (band not read),6b05708eaba0b0fd660a5493
+2026-11-24,1,l40s,quality_ppl_delta_pct,-0.042,%,measured,prompt read in pieces of 512 against one call; 6141 positions; [-0.127; +0.044],6b0575f61460ffe1d5e7c996
