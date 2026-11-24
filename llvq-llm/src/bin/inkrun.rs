@@ -111,6 +111,10 @@
 //! report gives the row count and the vocabulary. The class A gates compare
 //! two such files byte for byte.
 //!
+//! Every cache of a run reserves, before its prompt, the positions the run
+//! appends to it: the prompt plus `--n`. The key and value buffers are then
+//! allocated once and never grow by half. The values do not change.
+//!
 //! The report carries the tokens, the prefill and per-step seconds (each step
 //! ends on reading its logits back to the host, which waits for the device),
 //! the top-1 minus top-2 logit of every step (to read a divergence against a
@@ -391,6 +395,7 @@ fn bits(logits: &Tensor) -> Result<Vec<u32>> {
 /// steps: the bits of the three logits rows.
 fn rollback_arm(model: &Inkling, a: &[u32], x: Option<&[u32]>, b: &[u32]) -> Result<Vec<Vec<u32>>> {
     let mut cache = model.new_cache();
+    cache.reserve(a.len() + x.map_or(0, <[u32]>::len) + b.len() + 2)?;
     CausalLm::prefill(model, a, &mut cache)?;
     if let Some(x) = x {
         let m = CausalLm::mark(model, &cache);
@@ -561,6 +566,9 @@ fn main() -> Result<()> {
     };
 
     let mut cache = model.new_cache();
+    // Every position the run appends, before the prompt is read: the key and value buffers are allocated once at
+    // this size and never grow by half. The values do not change.
+    cache.reserve(prompt.len() + args.n)?;
     dev.synchronize()?;
     let t = Instant::now();
     let mut logit_rows: Option<Vec<u8>> = args.logits_out.as_ref().map(|_| Vec::new());
@@ -765,6 +773,7 @@ fn score(model: &Inkling, args: &Args, dev: &Device, text: &[u32], provenance: V
     }
     let vocab = CausalLm::vocab_size(model);
     let mut cache = model.new_cache();
+    cache.reserve(text.len())?;
     let mut nlls: Vec<f64> = vec![];
     let mut positions: Vec<usize> = vec![];
     dev.synchronize()?;
