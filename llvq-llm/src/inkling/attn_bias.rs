@@ -74,7 +74,10 @@ pub fn set_on_device(dev: Option<&Device>) -> Result<()> {
 }
 
 /// The bias `[heads, T, S]` of `rel_logits` `[heads, T, extent]` on the card,
-/// or `None` when the kernel is off or the logits live elsewhere.
+/// or `None` when the kernel is off or the logits live elsewhere. `offset`
+/// and the key index count from the first key the slot holds
+/// (`SlotCache::base`): only their difference enters, so a bounded sliding
+/// slot passes its query position minus its base and the kernel is unchanged.
 pub fn bias(rel_logits: &Tensor, offset: usize, s: usize, extent: usize, window: Option<usize>) -> Result<Option<Tensor>> {
     let Some(k) = KERNEL.lock().expect("no panic holds this lock").clone() else {
         return Ok(None);

@@ -568,7 +568,8 @@ pub fn experts_forward(
 
 /// The additive bias of the attention scores, `[heads, T, S]`, for `T`
 /// queries at positions `offset..offset + T` against `S` keys at positions
-/// `0..S`: the relative position bias (lines 260-270, distances per lines
+/// `0..S`, both counted from the first key the slot holds
+/// ([`SlotCache::base`]): only the distance enters. The relative position bias (lines 260-270, distances per lines
 /// 1249-1268) plus the causal mask, and for a sliding layer the window (keys
 /// at distance `>= window` masked).
 fn score_bias(rel_logits: &Tensor, offset: usize, s: usize, extent: usize, window: Option<usize>) -> Result<Tensor> {
@@ -622,6 +623,30 @@ fn grown_capacity(cap: usize, need: usize) -> usize {
     need.max(cap + cap / 2).div_ceil(KV_GRAIN) * KV_GRAIN
 }
 
+/// Positions past the window a bounded sliding slot keeps by default
+/// ([`SlotCache::bound`]): the deepest rollback it always accepts.
+pub const DEFAULT_KV_SLACK: usize = 256;
+
+/// The storage bound of a sliding slot ([`SlotCache::bound`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct KvBound {
+    window: usize,
+    slack: usize,
+}
+
+impl KvBound {
+    /// Positions kept behind the last one when the slot drops its oldest.
+    fn retain(self) -> usize {
+        self.window + self.slack
+    }
+
+    /// The capacity a bounded slot settles at: what it keeps, and room for
+    /// `slack` more positions before it drops its oldest again.
+    fn settled_capacity(self) -> usize {
+        self.window + 2 * self.slack
+    }
+}
+
 /// What one layer visit keeps between calls: keys and values after their
 /// norms (what `cache.update` stores, line 612), and the last `K - 1` inputs
 /// of the key, value, post-attention and post-MLP convolutions (`conv_idx` 0
@@ -633,11 +658,20 @@ fn grown_capacity(cap: usize, need: usize) -> usize {
 /// `[kv_heads, d, cap]`, so the score product reads the head repeat of that
 /// view with no transpose copy; values are `[kv_heads, cap, d]`. A clone
 /// copies the buffers, since the next append writes into them.
+///
+/// A sliding slot may be bounded ([`Self::bound`]): it then keeps only the
+/// positions a later row can see plus a slack, buffer row 0 holding position
+/// [`Self::base`]. A full slot, and a slot never bounded, keeps every
+/// position from 0.
 #[derive(Debug, Default)]
 pub struct SlotCache {
     k_buf: Option<Tensor>,
     v_buf: Option<Tensor>,
+    /// Tokens seen, counted from position 0.
     len: usize,
+    /// The position buffer row 0 holds: 0 unless the slot is bounded.
+    base: usize,
+    bound: Option<KvBound>,
     /// Positions the buffers hold at least once they exist ([`Self::reserve`]).
     min_capacity: usize,
     pub conv_k: ConvState,
@@ -666,6 +700,8 @@ impl Clone for SlotCache {
             k_buf: deep(&self.k_buf),
             v_buf: deep(&self.v_buf),
             len: self.len,
+            base: self.base,
+            bound: self.bound,
             min_capacity: self.min_capacity,
             conv_k,
             conv_v,
@@ -772,13 +808,40 @@ impl SlotCache {
         false
     }
 
-    /// Back to `m`: the positions past `m.len()` are forgotten (the next
-    /// append writes over them) and the four convolution states are those of
-    /// `m`. Refused when `m` holds more positions than the slot. The caller
-    /// checks that the positions up to `m.len()` are those the mark saw.
-    pub fn rollback(&mut self, m: &SlotMark) -> Result<()> {
+    /// Whether [`Self::rollback`] to `m` would be accepted; nothing changes.
+    /// Refused when `m` holds more positions than the slot, and, in a bounded
+    /// slot, when a row at `m.len()` would see a key the slot has dropped: a
+    /// rollback deeper than the slack.
+    pub fn check_rollback(&self, m: &SlotMark) -> Result<()> {
         if m.len > self.len {
             candle_core::bail!("slot rollback: the mark holds {} positions, the slot {}", m.len, self.len);
+        }
+        if let Some(b) = self.bound {
+            let need_from = (m.len + 1).saturating_sub(b.window);
+            if m.len > 0 && need_from < self.base {
+                candle_core::bail!(
+                    "slot rollback: too deep for a bounded sliding slot: the mark at position {} needs keys from \
+                     position {need_from}, the slot keeps them from {} (window {}, slack {}, {} positions seen)",
+                    m.len,
+                    self.base,
+                    b.window,
+                    b.slack,
+                    self.len
+                );
+            }
+        }
+        Ok(())
+    }
+
+    /// Back to `m`: the positions past `m.len()` are forgotten (the next
+    /// append writes over them) and the four convolution states are those of
+    /// `m`. Refused as [`Self::check_rollback`] says, the slot unchanged. The
+    /// caller checks that the positions up to `m.len()` are those the mark saw.
+    pub fn rollback(&mut self, m: &SlotMark) -> Result<()> {
+        self.check_rollback(m)?;
+        // Back to no token at all: buffer row 0 holds position 0 again.
+        if m.len < self.base {
+            self.base = m.len;
         }
         // the next fused step refills its rings from the states restored below
         #[cfg(ink_glue)]
@@ -804,11 +867,42 @@ impl SlotCache {
         self.v_buf.as_ref().map_or(0, |v| v.dim(1).expect("rank-3 values"))
     }
 
-    /// Views of what the slot holds: keys `[kv_heads, S, d]` and values
-    /// `[kv_heads, S, d]`. They share the buffers: read them before the next append.
+    /// The position of the first key and value the slot holds (buffer row 0):
+    /// 0 unless the slot is bounded and has dropped its oldest positions.
+    pub fn base(&self) -> usize {
+        self.base
+    }
+
+    /// Positions the buffers hold: `base()..len()`.
+    fn held(&self) -> usize {
+        self.len - self.base
+    }
+
+    /// Keep only what a later row of a sliding layer with `window` can see,
+    /// plus `slack` positions for a rollback. Set on an empty slot only.
+    pub fn bound(&mut self, window: usize, slack: usize) -> Result<()> {
+        if self.len > 0 || self.k_buf.is_some() {
+            candle_core::bail!("slot bound: set on an empty slot, this one holds {} positions", self.len);
+        }
+        if window == 0 {
+            candle_core::bail!("slot bound: a window of 0 positions");
+        }
+        self.bound = Some(KvBound { window, slack });
+        Ok(())
+    }
+
+    /// Whether the slot is bounded ([`Self::bound`]).
+    pub fn is_bounded(&self) -> bool {
+        self.bound.is_some()
+    }
+
+    /// Views of what the slot holds, positions `base()..len()`: keys
+    /// `[kv_heads, S, d]` and values `[kv_heads, S, d]`. They share the
+    /// buffers: read them before the next append.
     pub fn keys_values(&self) -> Result<Option<(Tensor, Tensor)>> {
+        let held = self.held();
         match (&self.k_buf, &self.v_buf) {
-            (Some(k), Some(v)) => Ok(Some((k.narrow(2, 0, self.len)?.transpose(1, 2)?, v.narrow(1, 0, self.len)?))),
+            (Some(k), Some(v)) => Ok(Some((k.narrow(2, 0, held)?.transpose(1, 2)?, v.narrow(1, 0, held)?))),
             _ => Ok(None),
         }
     }
@@ -818,7 +912,11 @@ impl SlotCache {
     /// every position held: keys `[kv_heads, d, S]`, values `[kv_heads, S, d]`.
     /// Make room for `positions`: the buffers, once they exist, hold at
     /// least that many before they grow again. The values held do not change.
+    /// A bounded slot ignores it: its size does not follow the length.
     pub fn reserve(&mut self, positions: usize) -> Result<()> {
+        if self.bound.is_some() {
+            return Ok(());
+        }
         self.min_capacity = self.min_capacity.max(positions);
         if positions > self.capacity() {
             if let Some(k) = self.k_buf.clone() {
@@ -832,31 +930,77 @@ impl SlotCache {
     /// New buffers of `cap` positions, like `like` in dtype and device, the
     /// positions held copied in once.
     fn grow(&mut self, cap: usize, nkv: usize, d: usize, like: &Tensor) -> Result<()> {
+        self.relocate(self.base, cap, nkv, d, like)
+    }
+
+    /// New buffers of `cap` positions, like `like` in dtype and device, the
+    /// positions `new_base..len` copied in once at row 0. The old buffers go
+    /// when their last view does: these are new allocations, never a view of
+    /// the old ones (a narrow would keep the whole old buffer alive).
+    fn relocate(&mut self, new_base: usize, cap: usize, nkv: usize, d: usize, like: &Tensor) -> Result<()> {
+        debug_assert!(new_base >= self.base && new_base <= self.len && self.len - new_base <= cap);
         let kb = Tensor::zeros((nkv, d, cap), like.dtype(), like.device())?;
         let vb = Tensor::zeros((nkv, cap, d), like.dtype(), like.device())?;
+        let keep = self.len - new_base;
         if let (Some(ok), Some(ov)) = (&self.k_buf, &self.v_buf) {
-            if self.len > 0 {
-                kb.slice_set(&ok.narrow(2, 0, self.len)?.contiguous()?, 2, 0)?;
-                vb.slice_set(&ov.narrow(1, 0, self.len)?.contiguous()?, 1, 0)?;
+            if keep > 0 {
+                let from = new_base - self.base;
+                kb.slice_set(&ok.narrow(2, from, keep)?.contiguous()?, 2, 0)?;
+                vb.slice_set(&ov.narrow(1, from, keep)?.contiguous()?, 1, 0)?;
             }
         }
         self.k_buf = Some(kb);
         self.v_buf = Some(vb);
+        self.base = new_base;
         Ok(())
+    }
+
+    /// The first position a bounded slot keeps when it drops its oldest:
+    /// the last `retain` of those it holds. A row at `len` or later sees
+    /// none it drops, since `retain >= window`.
+    fn kept_from(&self, b: KvBound) -> usize {
+        self.base.max(self.len.saturating_sub(b.retain()))
     }
 
     fn append_kv(&mut self, k: &Tensor, v: &Tensor) -> Result<(Tensor, Tensor)> {
         let (nkv, t, d) = k.dims3()?;
-        let need = self.len + t;
-        if need > self.capacity() {
-            let cap = grown_capacity(self.capacity(), need.max(self.min_capacity));
-            self.grow(cap, nkv, d, k)?;
+        if self.held() + t > self.capacity() {
+            match self.bound {
+                None => {
+                    let need = self.len + t;
+                    let cap = grown_capacity(self.capacity(), need.max(self.min_capacity));
+                    self.grow(cap, nkv, d, k)?;
+                }
+                // Drop the oldest first: the rows of this call see no key before `len + 1 - window`.
+                Some(b) => {
+                    let from = self.kept_from(b);
+                    let cap = (self.len - from + t).max(b.settled_capacity());
+                    self.relocate(from, cap, nkv, d, k)?;
+                }
+            }
         }
+        let at = self.held();
         let (kb, vb) = (self.k_buf.as_ref().expect("allocated above"), self.v_buf.as_ref().expect("allocated above"));
-        kb.slice_set(&k.transpose(1, 2)?.contiguous()?, 2, self.len)?;
-        vb.slice_set(&v.contiguous()?, 1, self.len)?;
-        self.len = need;
-        Ok((kb.narrow(2, 0, need)?, vb.narrow(1, 0, need)?))
+        kb.slice_set(&k.transpose(1, 2)?.contiguous()?, 2, at)?;
+        vb.slice_set(&v.contiguous()?, 1, at)?;
+        self.len += t;
+        let held = self.held();
+        Ok((kb.narrow(2, 0, held)?, vb.narrow(1, 0, held)?))
+    }
+
+    /// After a call on a bounded slot whose buffers outgrew the settled
+    /// capacity (a prompt, or a piece of one): keep only the last `retain`
+    /// positions, in buffers of the settled capacity. Nothing otherwise. Call
+    /// it once the call's views are no longer read.
+    pub fn settle_window(&mut self) -> Result<()> {
+        let Some(b) = self.bound else { return Ok(()) };
+        let Some(k) = self.k_buf.clone() else { return Ok(()) };
+        if self.capacity() <= b.settled_capacity() {
+            return Ok(());
+        }
+        let (nkv, d, _) = k.dims3()?;
+        let from = self.kept_from(b);
+        self.relocate(from, b.settled_capacity(), nkv, d, &k)
     }
 }
 
@@ -966,9 +1110,10 @@ impl AttnWeights {
         let v = self.kv(xv, m.wv, &self.v_conv, &mut cache.conv_v)?.reshape((t, nkv, hd))?;
         let v = rms_unweighted(&v, cfg.rms_norm_eps)?.transpose(0, 1)?.contiguous()?;
         mark(dev, Phase::AttnProducts)?;
-        // line 612: the cache returns every key and value it holds (keys as `[nkv, hd, S]`)
+        // line 612: the cache returns every key and value it holds (keys as `[nkv, hd, S]`), from position `base`
         let (kt, v) = cache.append_kv(&k, &v)?;
         let s = v.dim(1)?;
+        let base = cache.base();
         mark(dev, Phase::CacheCopies)?;
 
         // Relative bias (lines 260-270): per-head states, scale, L2 clip at the rel threshold, log scale in full layers.
@@ -981,18 +1126,22 @@ impl AttnWeights {
         mark(dev, Phase::AttnProducts)?;
 
         let sinks = || linear(xq, m.sink)?.t()?.unsqueeze(2); // [nh, T, 1], line 619
-        let a = self.scores(cfg, &q, &kt, &v, &rel_logits, sinks, offset, s, t, chunk)?;
+        // The bias reads distances only: the query positions counted from the first key held.
+        let a = self.scores(cfg, &q, &kt, &v, &rel_logits, sinks, offset - base, s, t, chunk)?;
+        drop((kt, v));
 
         // Gated output (lines 540-543).
         let gate = candle_nn::ops::sigmoid(&linear(xq, m.gate)?)?;
         let out = linear(&a.mul(&gate)?, m.wo)?;
         mark(dev, Phase::AttnProducts)?;
+        cache.settle_window()?;
         Ok(out)
     }
 
     /// Scores over every position the slot holds, the per-token sink logit
     /// with zero value (lines 126-139), softmax in f32, and the value
     /// product, `chunk` query rows at a time: `[T, heads * head_dim]`.
+    /// `offset` is the first query's position counted from the first key held.
     #[allow(clippy::too_many_arguments)]
     fn scores(
         &self,
@@ -1070,6 +1219,8 @@ impl AttnWeights {
         mark(dev, Phase::AttnProducts)?;
         let (kt, v) = cache.append_kv(&st.k, &st.v)?;
         let s = v.dim(1)?;
+        // The row's position counted from the first key held: the kernel reads keys `0..s` of the view.
+        let pos = offset - cache.base();
         mark(dev, Phase::CacheCopies)?;
         let a = match &d.row {
             // One launch over the cache in place (`super::attn_scores`): no
@@ -1083,7 +1234,7 @@ impl AttnWeights {
                     sinks: &st.sinks,
                     keys: &keys,
                     values: &v,
-                    pos: offset,
+                    pos,
                     window,
                 })?;
                 mark(dev, Phase::AttnScores)?;
@@ -1091,11 +1242,13 @@ impl AttnWeights {
             }
             None => {
                 let sinks = || Ok(st.sinks.clone());
-                self.scores(cfg, &st.q, &kt, &v, &st.rel_logits, sinks, offset, s, 1, chunk)?
+                self.scores(cfg, &st.q, &kt, &v, &st.rel_logits, sinks, pos, s, 1, chunk)?
             }
         };
+        drop((kt, v));
         let out = d.kernels.stage_out(&d.w, &a.contiguous()?, &st.gate)?;
         mark(dev, Phase::AttnProducts)?;
+        cache.settle_window()?;
         Ok(out)
     }
 }
