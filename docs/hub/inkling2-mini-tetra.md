@@ -29,17 +29,18 @@ tags:
   - tetra
 ---
 
-# Inkling 2 Mini, 2-bit quantized: a 26.4B mixture of experts in 8 GB of VRAM (LLVQ Tetra)
+# Inkling 2 Mini, 2-bit quantized: a 26.4B mixture of experts in 8 GB (LLVQ Tetra)
 
 [Inkling 2 Mini](https://huggingface.co/thinkingmachines/Inkling-2-Mini), 26.4 billion parameters, with its 3,072
 experts stored as Leech-lattice codes, 48 bits for a block of 24 weights. The weights stay compressed on the card:
 one CUDA kernel decodes and multiplies them, and nothing is ever written out in full.
 
-A 2-bit quantization of Thinking Machines' Inkling 2 Mini that loads in 8.4 GB of card memory, decodes at 72 tokens
+A 2-bit quantization of Thinking Machines' Inkling 2 Mini, 8.15 GB to download and 8.4 GB of card memory once
+loaded, 2.47 bits per parameter. It decodes at 72 tokens
 per second on an L40S and 37 on an L4, and is served by one command with an OpenAI-compatible API and tool calls.
 
 **This is a preview.** It is text only: the vision tower is not in this repository. The files are the ones our
-engine reads today, not the final sealed format. Every figure below is ours, measured on the date given, on one
+engine reads today, laid out as separate files. Every figure below is ours, measured on the date given, on one
 card, batch 1. Nothing was trained: the codes come from a Hessian-weighted search over calibration text.
 
 ## Run it
@@ -67,12 +68,12 @@ an answer capped at a few dozen tokens can be all reasoning.
 
 | | bytes | bits per parameter |
 |---|---|---|
-| this repository, what `llvq pull` downloads | 10.00 GB | 3.03, *computed* |
-| the same model in its sealed form | 8.14 GB | 2.47, *computed* |
+| this repository, what `llvq pull` downloads | 8.15 GB | 2.47, *computed* |
 | the native model, text and vision | 19.53 GB | 5.92, *computed* |
 
-The difference is a 16-bit copy of the input and output tables, 1.85 GB, that `model.safetensors` still carries
-beside the 4-bit tables the engine reads. The sealed form drops it; the engine does not read the sealed form yet.
+The first upload of this repository was 10.0 GB: its checkpoint carried a 16-bit copy of the input and output
+tables, 1.85 GB, that the engine never reads. It was removed on 2026-11-24, and the engine was run on the result.
+Release v0.1.0 of the runtime still pulls the first upload, by its pinned revision; later releases pull this one.
 Bits per parameter count the whole text model, tables included.
 
 ## Memory and speed

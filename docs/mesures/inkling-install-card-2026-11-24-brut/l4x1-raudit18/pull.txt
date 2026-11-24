@@ -1,0 +1,7 @@
+[Kpulling 1e9314dba893… 100% 8.1 GB / 8.1 GB
+[Kpulling 1e9314dba893… 100% 8.1 GB / 8.1 GB
+[Kwriting manifest
+
+[Ksuccess
+pull seconds: 52
+7.6G	/tmp/llvq-home
