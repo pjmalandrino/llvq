@@ -28,17 +28,21 @@ __device__ __forceinline__ float bf_lo(u32 w) { return __uint_as_float(w << 16);
 __device__ __forceinline__ float bf_hi(u32 w) { return __uint_as_float(w & 0xffff0000u); }
 __device__ __forceinline__ float bfv(const u16* p, u32 i) { return __uint_as_float(((u32)p[i]) << 16); }
 
-// Eight BF16 weights (four words) against eight activations, added in index order.
-__device__ __forceinline__ float dot8(const u32* w, const float* x, float acc)
+// Eight BF16 weights (four words) against eight activations, added in index
+// order. The words come as one 128-bit load: a row starts on a 16-byte
+// boundary (its length is a multiple of 8 weights), and one wide load replaces
+// four narrow ones, the lesson of `tv_q4_tile.cu`. The activations stay narrow
+// loads: a view of a larger buffer may start anywhere. Same values, same order.
+__device__ __forceinline__ float dot8(uint4 w, const float* x, float acc)
 {
-    acc = acc + bf_lo(w[0]) * x[0];
-    acc = acc + bf_hi(w[0]) * x[1];
-    acc = acc + bf_lo(w[1]) * x[2];
-    acc = acc + bf_hi(w[1]) * x[3];
-    acc = acc + bf_lo(w[2]) * x[4];
-    acc = acc + bf_hi(w[2]) * x[5];
-    acc = acc + bf_lo(w[3]) * x[6];
-    acc = acc + bf_hi(w[3]) * x[7];
+    acc = acc + bf_lo(w.x) * x[0];
+    acc = acc + bf_hi(w.x) * x[1];
+    acc = acc + bf_lo(w.y) * x[2];
+    acc = acc + bf_hi(w.y) * x[3];
+    acc = acc + bf_lo(w.z) * x[4];
+    acc = acc + bf_hi(w.z) * x[5];
+    acc = acc + bf_lo(w.w) * x[6];
+    acc = acc + bf_hi(w.w) * x[7];
     return acc;
 }
 
@@ -55,10 +59,10 @@ extern "C" __global__ void ad_products(
     if (r >= rows) { return; }
     const float* x = r < q_rows ? xq : (r < q_rows + k_rows ? xk : xv);
     const u32 n8 = h / 8u;
-    const u32* wr = w + (unsigned long long)r * n8 * 4u;
+    const uint4* wr = reinterpret_cast<const uint4*>(w + (unsigned long long)r * n8 * 4u);
     float acc = 0.0f;
     for (u32 i = lane; i < n8; i += 32u) {
-        acc = dot8(wr + 4u * i, x + 8u * i, acc);
+        acc = dot8(wr[i], x + 8u * i, acc);
     }
     acc = wsum(acc);
     if (lane == 0u) { out[r] = acc; }
@@ -239,12 +243,12 @@ extern "C" __global__ void ad_out(
     const u32 r = blockIdx.x * NSG + (threadIdx.x >> 5);
     if (r >= rows) { return; }
     const u32 n8 = din / 8u;
-    const u32* wr = w + (unsigned long long)r * n8 * 4u;
+    const uint4* wr = reinterpret_cast<const uint4*>(w + (unsigned long long)r * n8 * 4u);
     float acc = 0.0f;
     for (u32 i = lane; i < n8; i += 32u) {
         float x[8];
         for (u32 t = 0; t < 8u; t++) { x[t] = av[8u * i + t] * gate[8u * i + t]; }
-        acc = dot8(wr + 4u * i, x, acc);
+        acc = dot8(wr[i], x, acc);
     }
     acc = wsum(acc);
     if (lane == 0u) { out[r] = acc; }
