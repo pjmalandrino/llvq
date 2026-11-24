@@ -8,7 +8,7 @@ mod common;
 
 use candle_core::Tensor;
 use llvq_llm::batch::{BatchDevice, BatchProjs, CandleBatch};
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use llvq_llm::chatfmt::{open_assistant, turn, Marks};
 use llvq_llm::repl::Sampler;
 use llvq_llm::served::{BatchFile, BatchServe};
@@ -286,6 +286,14 @@ struct Faulty {
     calls: AtomicUsize,
     at: usize,
     panics: bool,
+    /// Set when the device is dropped, with the weights beside it.
+    dropped: Arc<AtomicBool>,
+}
+
+impl Drop for Faulty {
+    fn drop(&mut self) {
+        self.dropped.store(true, Ordering::SeqCst);
+    }
 }
 
 impl BatchDevice for Faulty {
@@ -318,6 +326,7 @@ impl BatchDevice for Faulty {
 struct FaultyLoader {
     at: usize,
     panics: bool,
+    dropped: Arc<AtomicBool>,
 }
 
 impl Loader for FaultyLoader {
@@ -331,7 +340,12 @@ impl Loader for FaultyLoader {
             config: None,
             lines: Vec::new(),
             batch: Some(BatchEngine {
-                dev: Box::new(Faulty { calls: AtomicUsize::new(0), at: self.at, panics: self.panics }),
+                dev: Box::new(Faulty {
+                    calls: AtomicUsize::new(0),
+                    at: self.at,
+                    panics: self.panics,
+                    dropped: self.dropped.clone(),
+                }),
                 projs: BatchProjs::Rows,
                 serve,
             }),
@@ -389,15 +403,23 @@ fn two_in_the_pool(host: &str) -> [(&'static str, anyhow::Result<()>); 2] {
 
 /// A panic in the batched step ends every live stream with an error line.
 /// The streams ended without `done` and without `error`, and `llvq run`
-/// showed the partial answer as a whole one.
+/// showed the partial answer as a whole one. The weights go with the panic:
+/// they stayed in memory until the next request dropped the failed engine.
 #[test]
 fn a_panic_in_the_batched_step_ends_every_live_stream_with_an_error() {
-    let host = common::serve_with(common::store("batch-panic"), "http://127.0.0.1:9", Arc::new(FaultyLoader { at: 5, panics: true }));
+    let dropped = Arc::new(AtomicBool::new(false));
+    let loader = FaultyLoader { at: 5, panics: true, dropped: dropped.clone() };
+    let host = common::serve_with(common::store("batch-panic"), "http://127.0.0.1:9", Arc::new(loader));
     for (which, r) in two_in_the_pool(&host) {
         match r {
             Ok(()) => panic!("{which}: the stream ended without an error line"),
             Err(e) => assert!(format!("{e:#}").contains("panicked"), "{which}: {e:#}"),
         }
+    }
+    let t = std::time::Instant::now();
+    while !dropped.load(Ordering::SeqCst) {
+        assert!(t.elapsed() < std::time::Duration::from_secs(5), "the failed engine still holds its weights");
+        std::thread::sleep(std::time::Duration::from_millis(20));
     }
 }
 
@@ -406,7 +428,7 @@ fn a_panic_in_the_batched_step_ends_every_live_stream_with_an_error() {
 /// request.
 #[test]
 fn a_failed_batched_step_leaves_the_model_to_its_keep_alive() {
-    let host = common::serve_with(common::store("batch-step-err"), "http://127.0.0.1:9", Arc::new(FaultyLoader { at: 5, panics: false }));
+    let host = common::serve_with(common::store("batch-step-err"), "http://127.0.0.1:9", Arc::new(FaultyLoader { at: 5, panics: false, dropped: Arc::default() }));
     for (which, r) in two_in_the_pool(&host) {
         match r {
             Ok(()) => panic!("{which}: the failed step was not reported"),

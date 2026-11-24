@@ -402,12 +402,9 @@ pub(crate) fn serve(
         let l = load.take().unwrap_or_default();
         let ran = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| e.0.run(&job, l)));
         if let Err(p) = ran {
-            let why = p
-                .downcast_ref::<&str>()
-                .map(|s| s.to_string())
-                .or_else(|| p.downcast_ref::<String>().cloned())
-                .unwrap_or_else(|| "no message".into());
-            let msg = format!("the engine of {name} panicked: {why}");
+            let msg = format!("the engine of {name} panicked: {}", crate::engine::panic_message(&*p));
+            // The weights go now, as in the Qwen3 engine.
+            drop(e);
             *inf.state.lock().expect("state lock") = State::Failed(msg.clone());
             let _ = job.events.blocking_send(Event::Error { status: 500, message: msg.clone() });
             inf.busy.store(false, Ordering::SeqCst);

@@ -443,7 +443,7 @@ pub(crate) fn nanos(d: Duration) -> u64 {
 
 /// The message a caught panic carries, from `panic!` with a literal or with
 /// a format. Takes the payload itself (`&*p`), not the box that holds it.
-fn panic_message(p: &(dyn std::any::Any + Send)) -> String {
+pub(crate) fn panic_message(p: &(dyn std::any::Any + Send)) -> String {
     p.downcast_ref::<&str>()
         .map(|s| s.to_string())
         .or_else(|| p.downcast_ref::<String>().cloned())
@@ -1409,6 +1409,9 @@ impl Engine {
                 }));
                 if let Err(p) = ran {
                     let msg = format!("the batched engine of {name} panicked: {}", panic_message(&*p));
+                    // The weights go now: this thread lives on until the
+                    // engine leaves the list, which may be the next request.
+                    drop(w);
                     *inf.state.lock().expect("state lock") = State::Failed(msg.clone());
                     inf.busy.store(false, Ordering::SeqCst);
                     // The requests the panic cut: a live one ends its stream
@@ -1440,6 +1443,9 @@ impl Engine {
                 let ran = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| w.run(&job)));
                 if let Err(p) = ran {
                     let msg = format!("the engine of {name} panicked: {}", panic_message(&*p));
+                    // The weights go now: this thread lives on until the
+                    // engine leaves the list, which may be the next request.
+                    drop(w);
                     *inf.state.lock().expect("state lock") = State::Failed(msg.clone());
                     let _ = job.events.blocking_send(Event::Error { status: 500, message: msg.clone() });
                     inf.busy.store(false, Ordering::SeqCst);
