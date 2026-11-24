@@ -282,10 +282,10 @@ pub fn quantize_layer_capturing(
 
     // One reference scale per output row, fixed **before** the block loop.
     //
-    // It is stored as a single f16 per row, so it must not drift as error
-    // feedback rewrites the row: recomputing it per block would make the
-    // reconstruction depend on d_in/24 distinct scales that no artifact can
-    // carry at the rate the accounting charges.
+    // It is stored as one float per row (f64 in the file, f32 on the card),
+    // so it must not drift as error feedback rewrites the row: recomputing it
+    // per block would make the reconstruction depend on d_in/24 distinct
+    // scales that no artifact can carry at the rate the accounting charges.
     let row_scales: Vec<f64> = (0..d_out)
         .map(|i| crate::quantizer::row_scale(weights.row(i)))
         .collect();
@@ -385,8 +385,12 @@ pub fn quantize_layer_capturing(
                     if x == 0.0 {
                         continue;
                     }
-                    for (j, cell) in row[r0..].iter_mut().enumerate() {
-                        *cell -= x * factor.u(s + k, r0 + j);
+                    // Row `s + k` of `U` from column `r0`, read as a slice.
+                    // Each cell takes one multiply and one subtract per `k`,
+                    // in increasing `k`: that order fixes the encoded bits.
+                    let urow = &factor.u_row(s + k)[r0..];
+                    for (cell, &ukj) in row[r0..].iter_mut().zip(urow) {
+                        *cell -= x * ukj;
                     }
                 }
             }

@@ -22,7 +22,11 @@
 //! The file name is a digest of the key, and the file repeats the key in a
 //! header line beside the cubin's length and SHA-256. A read checks the three
 //! before it returns a byte: a hash collision of names, a truncated write or a
-//! file edited by hand reads as a miss, and the caller compiles again. A cubin
+//! corrupted body reads as a miss, and the caller compiles again. The SHA-256
+//! is the file's own, so it guards against corruption, not against an edit:
+//! anyone who can write the directory can put another cubin under the
+//! expected name with a matching header, and it is loaded. The cache is only
+//! as trusted as the directory that holds it. A cubin
 //! is written to a temporary name and renamed, so a reader never sees half a
 //! file.
 //!

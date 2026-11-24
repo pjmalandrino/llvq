@@ -201,6 +201,19 @@ def test_a_first_loss_over_the_ceiling_is_refused(tmp_path):
     assert len(calls) == 1
 
 
+def test_a_nan_first_loss_is_refused_under_a_ceiling(tmp_path):
+    done, calls = train(tmp_path, STEPS="9507", SHIM_KL="NaN", MAX_FIRST_KL="0.5")
+    assert done.returncode == 4, done.stdout + done.stderr
+    assert len(calls) == 1
+
+
+def test_an_unreadable_ceiling_is_refused(tmp_path):
+    """`float('0,5')` raises, and an exception must not read as under the ceiling."""
+    done, calls = train(tmp_path, STEPS="9507", SHIM_KL="0.3", MAX_FIRST_KL="0,5")
+    assert done.returncode == 4, done.stdout + done.stderr
+    assert len(calls) == 1
+
+
 def test_a_first_loss_under_the_ceiling_runs(tmp_path):
     done, calls = train(tmp_path, STEPS="9507", SHIM_KL="0.3", MAX_FIRST_KL="0.5")
     assert done.returncode == 0, done.stdout + done.stderr

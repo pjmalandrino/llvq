@@ -73,7 +73,7 @@ static inline float __shfl_down_sync(unsigned, float v, int, int = 32) { return 
 /// The `.cu` files carry `#ifndef` guards that pull their dependencies from
 /// disk. `planes.cu` says so in its own header, *"and only resolve from disk
 /// under a host clang++ syntax check"*. They need no list of their own.
-const UNITS: [(&str, &[&str], &str); 31] = [
+const UNITS: [(&str, &[&str], &str); 30] = [
     ("llvq_slot.cuh", &["llvq_slot.cuh"], "Slot32, the fallback layout"),
     ("llvq_planes.cuh", &["llvq_planes.cuh"], "Planes14, the served layout"),
     ("llvq_planes12.cuh", &["llvq_planes12.cuh"], "Planes12x, the sparse overlay"),
@@ -112,9 +112,6 @@ const UNITS: [(&str, &[&str], &str); 31] = [
         &["f1floor.cu"],
         "the F1 decoder-table floor: the lookups alone, swept by footprint",
     ),
-    // A3. Its `#ifndef` guards pull matvec.cu and llvq_planes.cuh from disk;
-    // the seven entry points instantiate every template the device build will.
-    ("planes_occ.cu", &["planes_occ.cu"], "A3: the occupancy variants of the fused Planes14"),
     (
         "llvq_f1rank.cuh",
         &["llvq_f1rank.cuh"],
@@ -210,7 +207,7 @@ const UNITS: [(&str, &[&str], &str); 31] = [
     // The whole string `bin/planesbench` hands to NVRTC, in its order — the
     // largest translation unit this repository builds, and since 2026-09-10
     // the first to make the F1 family coexist with `golay70`, `planes12`,
-    // `e1v`, the A3 variants and the AWQ competitor. None of those pairings
+    // `e1v` and the AWQ competitor. None of those pairings
     // had ever been parsed together.
     //
     // The QTIP pair is deliberately absent: it is fetched, GPL v3, never
@@ -233,7 +230,6 @@ const UNITS: [(&str, &[&str], &str); 31] = [
             "llvq_e1v.cuh",
             "e1v.cu",
             "nullk.cu",
-            "planes_occ.cu",
             "llvq_f1rank.cuh",
             "llvq_f1rank_v3.cuh",
             "llvq_tetra48.cuh",

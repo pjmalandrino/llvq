@@ -15,6 +15,11 @@ class SinkPort(Protocol):
     there. This writes plain data beside it, and a Rust tool folds it in.
     """
 
-    def write(self, payload: dict[str, object], cost: BitCost) -> str:
-        """Persist the result. Returns the path written."""
+    def write(
+        self,
+        payload: dict[str, object],
+        cost: BitCost,
+        steps: tuple[int, int] | None = None,
+    ) -> str:
+        """Persist the result, with `steps = (run, planned)` when known. Returns the path written."""
         ...

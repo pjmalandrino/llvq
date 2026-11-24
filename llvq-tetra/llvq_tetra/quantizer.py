@@ -36,6 +36,7 @@ from transformers.utils.quantization_config import QuantizationConfigMixin
 from transformers.core_model_loading import WeightConverter  # noqa: F401
 
 from . import integration
+from .reader import require_layout_version
 from .tetra import TetraTables
 
 QUANT_METHOD = "llvq"
@@ -62,12 +63,19 @@ class LlvqConfig(QuantizationConfigMixin):
         self.records = kwargs.get("records") or {}
         self.rotations = kwargs.get("rotations") or {}
         self.raw = kwargs.get("raw") or {}
+        require_layout_version(self.llvq_layout_version)
         if self.code_order != "msb_first_dense":
             raise ValueError(
                 f"code_order {self.code_order!r} is not one this reader unpacks"
             )
         if not self.records:
             raise ValueError("the quantization_config carries no record table")
+        for field in ("tetra_fingerprint", "block_dim"):
+            if getattr(self, field) is None:
+                raise ValueError(
+                    f"the quantization_config has no {field}: this directory is not a Tetra "
+                    "model packed by hfpack"
+                )
 
 
 class LlvqQuantizer(HfQuantizer):
@@ -128,9 +136,9 @@ class LlvqQuantizer(HfQuantizer):
             self.target_device = integration.target_device(None)
         return self.target_device
 
-    def _process_model_before_weight_loading(self, model, **kwargs):
-        """Swap the modules so the file's keys are the model's keys."""
-        integration.replace_modules(model, self.quantization_config, self._device())
+    def _process_model_before_weight_loading(self, model, checkpoint_files=None, **kwargs):
+        """Swap the modules so the file's keys are the model's keys, and check the files hold them."""
+        integration.replace_modules(model, self.quantization_config, self._device(), checkpoint_files)
 
     def get_weight_conversions(self):
         """The carried tensors the file stores group-affine, the embedding among them.

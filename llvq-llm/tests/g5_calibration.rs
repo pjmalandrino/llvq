@@ -8,13 +8,16 @@
 //! there is no excuse for taking it on faith.
 
 use candle_core::{DType, Device, Tensor};
-use candle_nn::{Activation, VarBuilder, VarMap};
+use candle_nn::{VarBuilder, VarMap};
 use candle_transformers::models::qwen3::Config;
 use llvq_llm::calib::{
     needs_dense_hessian, quantize_model, Codebook, Hessian, Report, RunConfig,
 };
 use llvq_llm::model::{Act, Qwen3};
 use llvq_quant::gptq::{GptqConfig, TailPolicy};
+
+mod common;
+use common::tiny;
 
 const TOL: f64 = 1e-4; // the accumulator runs in f32, by design
 
@@ -152,33 +155,6 @@ fn damping_rescues_a_dead_input_channel() {
 // **and** flag on (kept, and the run that needs it still completes). A test
 // that only covered the off case would not touch the parameter it certifies.
 // ---------------------------------------------------------------------------
-
-/// Same tiny configuration as `phase_timing.rs` and `kv_cache.rs`.
-///
-/// The three distinct activation widths are what matters here: 32 for q/k/v
-/// and gate/up, 32 for o (`head_dim · num_attention_heads`), 64 for down. All
-/// three exceed the 24-wide block, so every matrix has at least one full block
-/// plus a tail — the real shape, in miniature.
-fn tiny() -> Config {
-    Config {
-        vocab_size: 128,
-        hidden_size: 32,
-        intermediate_size: 64,
-        num_hidden_layers: 2,
-        num_attention_heads: 4,
-        head_dim: 8,
-        attention_bias: false,
-        num_key_value_heads: 2,
-        max_position_embeddings: 64,
-        sliding_window: None,
-        max_window_layers: 0,
-        tie_word_embeddings: true,
-        rope_theta: 10_000.0,
-        rms_norm_eps: 1e-6,
-        use_sliding_window: false,
-        hidden_act: Activation::Silu,
-    }
-}
 
 /// A model on the *same* weights every time.
 ///
@@ -461,7 +437,6 @@ fn an_exact_codebook_refines_to_unity_scales() {
         }
     }
 }
-
 
 // ---------------------------------------------------------------------------
 // Row C: the block is sequential inside, not only across

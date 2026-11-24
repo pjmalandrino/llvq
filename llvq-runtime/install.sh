@@ -146,4 +146,4 @@ case ":$PATH:" in
   *":$PREFIX/bin:"*) ;;
   *) say "add $PREFIX/bin to PATH, e.g. echo 'export PATH=\"$PREFIX/bin:\$PATH\"' >> ~/.profile" ;;
 esac
-say "done. Next: llvq run inkling2:mini (10 GB to download), or llvq run qwen3:4b (1.4 GB)"
+say "done. Next: llvq run inkling2:mini (8 GB to download), or llvq run qwen3:4b (1.4 GB)"

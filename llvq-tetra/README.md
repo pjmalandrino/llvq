@@ -34,16 +34,18 @@ loads. That needs no GPU and no compiler, but the model then takes 8 GB in f16,
 and 16 GB in float32, the dtype of the snippet above. The download is still
 1.4 GB, which helps if disk or bandwidth is your limit rather than memory.
 
-Set `LLVQ_HF_FUSED=1` and the weights stay compressed in memory. A kernel decodes
-and multiplies in one pass. On Apple silicon the loaded 4B holds 2.75 GB on the
-device, with all 252 projections compressed. On NVIDIA only 168 of them are
-compressed and the rest fall back to dense, because the CUDA side has the
-lattice kernel but not yet the 4-bit one. The package prints the count, so you
-can see which case you are in.
+Pass `device_map="mps"` or `device_map="cuda"` and the weights stay compressed
+in memory. A kernel decodes and multiplies in one pass. On Apple silicon the
+loaded 4B holds 2.75 GB on the device, with all 252 projections compressed. On
+NVIDIA only 168 of them are compressed and the rest fall back to dense, because
+the CUDA side has the lattice kernel but not yet the 4-bit one. The package
+prints the count, so you can see which case you are in. Without a `device_map`,
+`LLVQ_HF_FUSED=1` asks for the same path on whichever GPU is present.
 
-The fused path compiles a kernel the first time you use it, so it needs `ninja`
-and a compiler: Xcode command line tools on a Mac, `nvcc` on Linux. There is no
-precompiled kernel yet.
+On a Mac nothing is built: PyTorch hands the shaders to the system's Metal
+compiler at first use, with no `ninja` and no command line tools. On NVIDIA the
+kernel compiles the first time you use it, so it needs `ninja` and `nvcc`. There
+is no precompiled CUDA kernel yet.
 
 ## Before you use it
 

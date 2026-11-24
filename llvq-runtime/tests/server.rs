@@ -211,6 +211,17 @@ fn one_object_when_stream_is_false_and_generate_takes_raw_and_templated_prompts(
     assert_eq!(r["prompt_eval_count"], 3);
     assert_eq!(r["eval_count"], 5);
     assert_eq!(r["warnings"][0].as_str().unwrap(), "option top_k is not implemented by llvq and was ignored");
+    // A system turn has no place in a raw prompt: it is not applied, and the
+    // answer says so.
+    let r = c
+        .send(
+            "POST",
+            "/api/generate",
+            &json!({"model": "tiny:test", "prompt": "the dog sat", "raw": true, "system": "be brief", "stream": false,
+                    "options": {"temperature": 0, "num_predict": 1}}),
+        )
+        .unwrap();
+    assert!(r["warnings"][0].as_str().unwrap().contains("system"), "{r}");
 
     // An empty prompt loads the model and answers nothing.
     let l = c.send("POST", "/api/generate", &json!({"model": "tiny:test", "stream": false})).unwrap();
@@ -383,8 +394,9 @@ fn the_openai_routes_answer_as_the_ollama_ones_in_openais_shapes() {
     let text: String =
         chunks.iter().filter_map(|c| c["choices"].get(0)?["delta"]["content"].as_str().map(str::to_string)).collect();
     assert_eq!(text, want);
-    let fin = chunks.iter().find(|c| c["choices"].get(0).is_some_and(|x| !x["finish_reason"].is_null())).unwrap();
-    assert_eq!(fin["choices"][0]["finish_reason"], "length");
+    let fin = chunks.iter().find(|c| c["choices"].get(0).is_some_and(|x| !x["finish_reason"].is_null())).unwrap();    assert_eq!(fin["choices"][0]["finish_reason"], "length");
+    // The ignored field is said in the stream too, on the chunk that ends it.
+    assert!(fin["warnings"][0].as_str().unwrap().contains("frequency_penalty"), "{fin}");
     assert_eq!(chunks.last().unwrap()["usage"]["completion_tokens"], 20);
     assert!(chunks.iter().all(|c| c["object"] == "chat.completion.chunk"));
 
@@ -401,6 +413,22 @@ fn the_openai_routes_answer_as_the_ollama_ones_in_openais_shapes() {
     assert_eq!(s, 404);
     let (s, m) = status(c.send("POST", "/v1/chat/completions", &json!({"model": "tiny:test", "messages": [{"role": "user", "content": "x"}], "n": 2})));
     assert_eq!(s, 400, "{m}");
+
+    // `logprobs` asked for is not served, and the answer says so; false is
+    // what llvq does anyway, and needs no warning.
+    let ask = |logprobs: bool| {
+        c.send(
+            "POST",
+            "/v1/chat/completions",
+            &json!({"model": "tiny:test", "messages": [{"role": "user", "content": "hello"}],
+                    "temperature": 0, "max_tokens": 2, "logprobs": logprobs}),
+        )
+        .unwrap()
+    };
+    let lp = ask(true);
+    assert!(lp["warnings"][0].as_str().unwrap().contains("logprobs"), "{lp}");
+    let lp = ask(false);
+    assert!(lp.get("warnings").is_none(), "{lp}");
 }
 
 #[test]
@@ -541,7 +569,43 @@ fn a_client_that_leaves_a_non_streamed_answer_stops_the_engine() {
     let t = Instant::now();
     c.send("POST", "/api/chat", &ask(1, false)).unwrap();
     let waited = t.elapsed();
-    assert!(waited < pt * long / 4, "the next request waited {waited:?} behind an answer nobody reads ({pt:?} a token)");
+    eprintln!("the next request waited {waited:?} ({pt:?} a token)");
+    // About a millisecond once the engine asks the channel on a token that sends nothing
+    // (0.4 to 1.3 ms, *measured* 2026-11-20); before, as long as the router's longest silence.
+    assert!(waited < pt * long / 20, "the next request waited {waited:?} behind an answer nobody reads ({pt:?} a token)");
+}
+
+/// A client that leaves while the router has nothing to send: the tiny model
+/// answers long stretches of tokens that end no UTF-8 sequence, and during
+/// one no `Delta` goes out, so no send can fail. The stretch is found first,
+/// by streaming the same greedy answer, and the second client is made to
+/// leave a quarter of the way into it.
+#[test]
+fn a_client_that_leaves_during_a_silence_stops_the_engine() {
+    let host = common::serve(common::store("cancel-silence"), HUB);
+    let c = Client::new(&host);
+    per_token(&c);
+    let t = Instant::now();
+    let mut at: Vec<Duration> = Vec::new();
+    c.stream("/api/chat", &ask(3000, true), &mut |_| {
+        at.push(t.elapsed());
+        Ok(())
+    })
+    .unwrap();
+    let (start, silence) =
+        at.windows(2).map(|w| (w[0], w[1] - w[0])).max_by_key(|&(_, d)| d).expect("the answer streams two lines");
+    assert!(silence > Duration::from_millis(40), "the tiny model's longest silence is {silence:?}: too short to aim at");
+    let gone = ureq::AgentBuilder::new()
+        .timeout(start + silence / 4)
+        .build()
+        .post(&format!("http://{host}/api/chat"))
+        .send_json(ask(3000, false));
+    assert!(gone.is_err());
+    let t = Instant::now();
+    c.send("POST", "/api/chat", &ask(1, false)).unwrap();
+    let waited = t.elapsed();
+    eprintln!("left at {:?} in a silence of {silence:?} from {start:?}; the next request waited {waited:?}", start + silence / 4);
+    assert!(waited < silence / 4, "the next request waited {waited:?} behind a silence of {silence:?} nobody listens to");
 }
 
 #[test]
@@ -553,4 +617,110 @@ fn the_first_answer_counts_its_load_once() {
     let (load, total) = (v["load_duration"].as_u64().unwrap(), v["total_duration"].as_u64().unwrap());
     assert!(load >= 500_000_000, "load_duration {load} ns, the load slept 500 ms");
     assert!(total >= load && total < load + 400_000_000, "total_duration {total} ns counts the {load} ns load twice");
+}
+
+/// The id of `far` in [`far_tokenizer`]: past the tiny model's 64 rows, so
+/// a prompt that holds it fails the prefill at the embedding.
+const FAR: u32 = 100;
+
+/// The tiny tokenizer, and one more word whose id the model has no row for.
+fn far_tokenizer() -> tokenizers::Tokenizer {
+    let mut vocab = serde_json::Map::new();
+    let mut added = Vec::new();
+    for (i, s) in common::SPECIAL.iter().enumerate() {
+        vocab.insert((*s).into(), i.into());
+        added.push(json!({"id": i, "content": s, "single_word": false, "lstrip": false,
+            "rstrip": false, "normalized": false, "special": true}));
+    }
+    vocab.insert("<unk>".into(), common::SPECIAL.len().into());
+    for (i, w) in common::WORDS.iter().enumerate() {
+        vocab.insert((*w).into(), (common::SPECIAL.len() + 1 + i).into());
+    }
+    vocab.insert("far".into(), FAR.into());
+    let j = json!({
+        "version": "1.0", "truncation": null, "padding": null, "added_tokens": added,
+        "normalizer": null, "pre_tokenizer": {"type": "WhitespaceSplit"}, "post_processor": null,
+        "decoder": null, "model": {"type": "WordLevel", "vocab": vocab, "unk_token": "<unk>"}
+    });
+    tokenizers::Tokenizer::from_bytes(serde_json::to_vec(&j).unwrap()).expect("the tokenizer builds")
+}
+
+/// The tiny model behind [`far_tokenizer`].
+struct FarLoader;
+
+impl llvq_runtime::engine::Loader for FarLoader {
+    fn load(
+        &self,
+        _: &llvq_runtime::library::ModelName,
+        _: &llvq_runtime::store::Manifest,
+        _: &llvq_runtime::store::Store,
+    ) -> anyhow::Result<llvq_runtime::engine::Loaded> {
+        Ok(llvq_runtime::engine::Loaded {
+            qwen: common::model(),
+            tokenizer: far_tokenizer(),
+            decoder: Decoder::eager(),
+            backend: "dense-cpu".into(),
+            config: None,
+            lines: Vec::new(),
+            batch: None,
+        })
+    }
+}
+
+/// A prefill that fails may leave the caches longer than the ids the
+/// session holds (a chain launch after the first, on the card), and every
+/// request that kept the whole prefix then failed too. After a failed
+/// prefill the next request starts from an empty cache.
+#[test]
+fn a_failed_prefill_leaves_an_empty_cache_to_the_next_request() {
+    let host = common::serve_with(common::store("failed-prefill"), HUB, std::sync::Arc::new(FarLoader));
+    let c = Client::new(&host);
+    let opts = json!({"temperature": 0, "num_predict": 12});
+    let (a1, _, _) =
+        chat(&c, json!({"model": "tiny:test", "messages": [{"role": "user", "content": "hello world"}], "options": opts}));
+    let history = |text: &str| {
+        json!([
+            {"role": "user", "content": "hello world"},
+            {"role": "assistant", "content": a1},
+            {"role": "user", "content": text},
+        ])
+    };
+    let (s, m) = status(c.send(
+        "POST",
+        "/api/chat",
+        &json!({"model": "tiny:test", "messages": history("why far"), "options": opts, "stream": false}),
+    ));
+    assert_eq!(s, 500, "a prompt past the model's rows was answered: {m}");
+    let (_, _, last) = chat(&c, json!({"model": "tiny:test", "messages": history("why the cat"), "options": opts}));
+    assert_eq!(last["done"], true);
+    assert_eq!(last["prompt_eval_cached_count"], 0, "the request after a failed prefill reused its cache");
+}
+
+/// A stop list is bounded: each step scans the answer for every string, on
+/// the engine's one thread, so one request with 200,000 of them held every
+/// other request for hours.
+#[test]
+fn a_stop_list_past_its_bounds_is_refused() {
+    use llvq_runtime::api::{stop_list, MAX_STOPS, MAX_STOP_BYTES};
+    let list = |n: usize, len: usize| Value::from(vec!["a".repeat(len); n]);
+    assert_eq!(stop_list(&list(MAX_STOPS, MAX_STOP_BYTES)).unwrap().len(), MAX_STOPS);
+    assert!(stop_list(&list(MAX_STOPS + 1, 1)).is_err(), "{} strings", MAX_STOPS + 1);
+    assert!(stop_list(&list(1, MAX_STOP_BYTES + 1)).is_err(), "a string of {} bytes", MAX_STOP_BYTES + 1);
+    assert!(stop_list(&Value::from("a".repeat(MAX_STOP_BYTES + 1))).is_err(), "one string of {} bytes", MAX_STOP_BYTES + 1);
+    let host = common::serve(common::store("stop-bound"), HUB);
+    let c = Client::new(&host);
+    let user = json!([{"role": "user", "content": "hello"}]);
+    let many = list(MAX_STOPS + 1, 2);
+    for (path, body) in [
+        ("/api/chat", json!({"model": "tiny:test", "messages": user, "options": {"stop": many}})),
+        ("/v1/chat/completions", json!({"model": "tiny:test", "messages": user, "stop": many})),
+    ] {
+        let (s, m) = status(c.send("POST", path, &body));
+        assert_eq!(s, 400, "{path}: {m}");
+        assert!(m.contains("stop"), "{path}: {m:?} does not say stop");
+    }
+    // Within the bounds, a request with stop strings is answered.
+    let ok = json!({"model": "tiny:test", "messages": user, "stream": false,
+                    "options": {"temperature": 0, "num_predict": 2, "stop": list(MAX_STOPS, MAX_STOP_BYTES)}});
+    c.send("POST", "/api/chat", &ok).unwrap();
 }

@@ -539,6 +539,45 @@ fn get_u64(r: &mut impl Read, what: &'static str) -> Result<u64> {
 /// Legitimate vectors larger than this grow as their elements arrive.
 const PREALLOC_CAP: usize = 1 << 20;
 
+/// `v` as the u32 field that stores it. A value past `u32::MAX` is refused by
+/// name: written with `as` it would wrap, and read back as another record.
+pub(crate) fn u32_field(name: &str, what: &str, v: usize) -> Result<u32> {
+    u32::try_from(v).map_err(|_| Error::Inconsistent {
+        name: name.to_string(),
+        detail: format!("{what} {v} does not fit the u32 field that stores it"),
+    })
+}
+
+/// The tail a `d_out × d_in` record carries: `d_in mod 24` values per row,
+/// the count `read_lattice_body` reads back. A writer that stored another
+/// count would shift every byte after the tail, and the reader would take a
+/// tail value for the code length.
+fn check_tail(name: &str, d_out: usize, d_in: usize, tail_len: usize) -> Result<()> {
+    let want = d_out * (d_in % DIM);
+    if tail_len != want {
+        return Err(Error::Inconsistent {
+            name: name.to_string(),
+            detail: format!(
+                "{tail_len} tail values for {d_out} rows of {} columns past the last block \
+                 (want {want})",
+                d_in % DIM
+            ),
+        });
+    }
+    Ok(())
+}
+
+/// A gain rank with no centroid behind it. The gain field is
+/// `ceil(log2 n)` bits wide, so when `n` is not a power of two it can hold
+/// ranks `n..2^bits` that `reconstruct_shape_gain` would index past the
+/// centroids.
+fn gain_out_of_range(name: &str, gain: u32, n_centroids: usize) -> Error {
+    Error::Inconsistent {
+        name: name.to_string(),
+        detail: format!("gain rank {gain} with {n_centroids} centroids: no centroid has that rank"),
+    }
+}
+
 /// Read exactly `n` bytes declared by a length field of the file.
 ///
 /// The buffer grows only as bytes actually arrive, so a lying length on a
@@ -591,6 +630,28 @@ fn index_width(kind: CodeKind, name: &str, shell_cap: u32) -> Result<u32> {
             name: name.to_string(),
             detail: "an Int4G128 record has no lattice index width".to_string(),
         }),
+    }
+}
+
+/// The largest index a record of `kind` and `shell_cap` can hold.
+///
+/// Ball: `N(cap)`, the point count of `Λ₂₄(cap)`, the origin being index 0.
+/// The index map lays the shells out in increasing order
+/// ([`llvq_search::index`]), so an index past `N(cap)` fits the field of
+/// [`index_bits`]`(cap)` and still names a point of a shell above the cap: the
+/// encoder at that cap never writes one. The count is the sum [`index_bits`]
+/// takes, over `ClassSet::shell_cardinality`. Call it after [`index_width`],
+/// which refuses a cap that `enumerate_classes` would assert on.
+///
+/// Tetra: every value of the 47-bit field is a label, so no bound but the
+/// width.
+fn max_index(kind: CodeKind, shell_cap: u32) -> u64 {
+    match kind {
+        CodeKind::Ball => {
+            let cs = llvq_search::classes::enumerate_classes(shell_cap);
+            (2..=shell_cap).map(|m| cs.shell_cardinality(m)).sum()
+        }
+        CodeKind::Tetra | CodeKind::Int4G128 => u64::MAX,
     }
 }
 
@@ -667,16 +728,21 @@ fn put_record_head(
             ),
         });
     }
+    // Every u32 field is converted before the first byte goes out.
+    let name_len = u32_field(name, "name length", name.len())?;
+    let d_out32 = u32_field(name, "d_out", d_out)?;
+    let d_in32 = u32_field(name, "d_in", d_in)?;
+    let n_cent32 = u32_field(name, "centroid count", centroids.len())?;
     let name = name.as_bytes();
-    put_u32(w, name.len() as u32)?;
+    put_u32(w, name_len)?;
     w.write_all(name)?;
-    put_u32(w, d_out as u32)?;
-    put_u32(w, d_in as u32)?;
+    put_u32(w, d_out32)?;
+    put_u32(w, d_in32)?;
     put_u32(w, shell_cap)?;
     if version >= FIRST_KINDED_VERSION {
         put_u32(w, kind.tag())?;
     }
-    put_u32(w, centroids.len() as u32)?;
+    put_u32(w, n_cent32)?;
     put_u64(w, rotation_seed.unwrap_or(0))?;
     put_u32(w, rotation_seed.is_some() as u32)?;
     for c in centroids {
@@ -724,8 +790,13 @@ fn write_codes(
             detail: format!("{} row scales for {} rows", m.row_scales.len(), m.d_out),
         });
     }
+    check_tail(&m.name, m.d_out, m.d_in, m.tail.len())?;
     let ib = index_width(kind, &m.name, m.shell_cap)?;
     let gb = gain_width(kind, &m.name, m.centroids.len())?;
+    // Before the head goes out, like the checks above.
+    if let Some(c) = m.codes.iter().find(|c| c.gain as usize >= m.centroids.len()) {
+        return Err(gain_out_of_range(&m.name, c.gain, m.centroids.len()));
+    }
 
     put_record_head(
         w,
@@ -748,6 +819,7 @@ fn write_codes(
     // transcoder (`tetra48`, roadmap §2.2 quater step 6), not this crate's,
     // and nothing here produces a device stream for Tetra
     // (`runtime::require_ball`).
+    let max_idx = max_index(kind, m.shell_cap);
     let mut bw = BitWriter::with_capacity(m.codes.len() as u64 * (ib + gb) as u64);
     for c in &m.codes {
         let idx = encode(&c.point).ok_or_else(|| Error::PointOutsideCodebook {
@@ -758,6 +830,13 @@ fn write_codes(
                 name: m.name.clone(),
                 index: idx,
                 bits: ib,
+            });
+        }
+        // Inside the field and still past the cap: the reader refuses it.
+        if idx > max_idx {
+            return Err(Error::IndexOutOfRange {
+                name: m.name.clone(),
+                index: idx,
             });
         }
         bw.push(idx, ib);
@@ -814,8 +893,9 @@ pub struct RawMatrix {
     /// ([`write_matrix_raw`]) and what a Ball-only tool checks before it
     /// files an index under one of the 383 classes.
     pub kind: CodeKind,
-    /// Row-major `d_out × (d_in / 24)`, one index per block, undecoded and
-    /// **unvalidated** — decoding is where an out-of-range index surfaces.
+    /// Row-major `d_out × (d_in / 24)`, one index per block, undecoded. The
+    /// reader checks a Ball index against its cap, at most `N(shell_cap)`;
+    /// nothing else about an index is checked before decoding.
     pub indices: Vec<u64>,
     /// Gain level rank per block, same order.
     pub gains: Vec<u32>,
@@ -859,8 +939,9 @@ pub fn code_widths(
 ///
 /// The record's invariants are checked here, before a bit is written: an
 /// [`CodeKind::Int4G128`] kind on a lattice type, a block count the dimensions
-/// do not support, a row-scale count that is not `d_out`, an index wider than
-/// its field.
+/// do not support, a row-scale count that is not `d_out`, a tail count that is
+/// not `d_out · (d_in mod 24)`, an index wider than its field, a Ball index
+/// past its cap, a gain rank with no centroid.
 pub fn code_stream(m: &RawMatrix) -> Result<Vec<u8>> {
     // A `RawMatrix` is a lattice type; one carrying the int4 kind was built by
     // hand. Writing it would put a lattice head over int4 bytes, which is the
@@ -889,7 +970,9 @@ pub fn code_stream(m: &RawMatrix) -> Result<Vec<u8>> {
             detail: format!("{} row scales for {} rows", m.row_scales.len(), m.d_out),
         });
     }
+    check_tail(&m.name, m.d_out, m.d_in, m.tail.len())?;
     let (ib, gb) = code_widths(m.kind, &m.name, m.shell_cap, m.centroids.len())?;
+    let max_idx = max_index(m.kind, m.shell_cap);
     let mut bw = BitWriter::with_capacity(m.indices.len() as u64 * (ib + gb) as u64);
     for (&idx, &gain) in m.indices.iter().zip(&m.gains) {
         if idx >= (1u64 << ib) {
@@ -898,6 +981,16 @@ pub fn code_stream(m: &RawMatrix) -> Result<Vec<u8>> {
                 index: idx,
                 bits: ib,
             });
+        }
+        // Inside the field and still past the cap: the reader refuses it.
+        if idx > max_idx {
+            return Err(Error::IndexOutOfRange {
+                name: m.name.clone(),
+                index: idx,
+            });
+        }
+        if gain as usize >= m.centroids.len() {
+            return Err(gain_out_of_range(&m.name, gain, m.centroids.len()));
         }
         bw.push(idx, ib);
         bw.push(gain as u64, gb);
@@ -1028,6 +1121,17 @@ fn read_lattice_body(r: &mut impl Read, head: RecordHead) -> Result<RawMatrix> {
     let ib = index_width(kind, &name, shell_cap)?;
     let n_cent = get_u32(r, "centroid count")? as usize;
     let gb = gain_width(kind, &name, n_cent)?;
+    // A record with blocks and no centroid has no gain to give any of them.
+    // Tetra cannot reach this: `gain_width` has already pinned it to two.
+    if n_cent == 0 && d_out > 0 && d_in >= DIM {
+        return Err(Error::Inconsistent {
+            name,
+            detail: format!(
+                "no gain centroid for {} blocks: every block's gain rank names one",
+                d_out * (d_in / DIM)
+            ),
+        });
+    }
     let seed = get_u64(r, "rotation seed")?;
     let has_rot = get_u32(r, "rotation flag")? != 0;
 
@@ -1067,12 +1171,29 @@ fn read_lattice_body(r: &mut impl Read, head: RecordHead) -> Result<RawMatrix> {
             reading: "code stream",
         });
     }
+    // One compare a block: a Ball index past `N(cap)` decodes, through the map
+    // of the whole ball, to a point of a shell the record says it does not use.
+    let max_idx = max_index(kind, shell_cap);
     let mut br = BitReader::new(&bytes);
     let mut indices = Vec::with_capacity(nblocks.min(PREALLOC_CAP));
     let mut gains = Vec::with_capacity(nblocks.min(PREALLOC_CAP));
     for _ in 0..nblocks {
-        indices.push(br.read(ib));
-        gains.push(br.read(gb) as u32);
+        let idx = br.read(ib);
+        if idx > max_idx {
+            return Err(Error::IndexOutOfRange {
+                name: name.clone(),
+                index: idx,
+            });
+        }
+        indices.push(idx);
+        // A field of `gb` bits holds ranks up to `2^gb - 1`, past the last
+        // centroid when the count is not a power of two. On Tetra the count
+        // is two and the field one bit, so this never refuses there.
+        let gain = br.read(gb) as u32;
+        if gain as usize >= n_cent {
+            return Err(gain_out_of_range(&name, gain, n_cent));
+        }
+        gains.push(gain);
     }
 
     Ok(RawMatrix {
@@ -1705,12 +1826,14 @@ impl<W: Write> ArtifactWriter<W> {
         raws: &[crate::RawTensor],
         blobs: &[crate::Blob],
     ) -> Result<(u64, u64)> {
-        put_u32(&mut self.out, raws.len() as u32)?;
+        let n_raws = u32_field("raw tensor section", "tensor count", raws.len())?;
+        let n_blobs = u32_field("blob section", "blob count", blobs.len())?;
+        put_u32(&mut self.out, n_raws)?;
         let mut extra = 0u64;
         for t in raws {
             extra += crate::write_raw(&mut self.out, t)?;
         }
-        put_u32(&mut self.out, blobs.len() as u32)?;
+        put_u32(&mut self.out, n_blobs)?;
         for b in blobs {
             extra += crate::write_blob(&mut self.out, b)?;
         }
@@ -1734,7 +1857,8 @@ impl<W: Write> ArtifactWriter<W> {
 /// [`FIRST_FINGERPRINTED_VERSION`] on which codebook wrote it, and from
 /// [`FIRST_KINDED_VERSION`] on which maps its records may belong to.
 pub struct Header {
-    /// 1 for projections only; 2+ for a self-contained file. 3 adds tagged
+    /// 1 for projections only; 2+ for a file that has the extra sections,
+    /// which may be empty (see [`Header::is_self_contained`]). 3 adds tagged
     /// raw-tensor encodings; 4 adds the codebook fingerprint; 5 adds the Tetra
     /// fingerprint, the default code kind and the set of kinds present.
     pub version: u32,
@@ -1762,8 +1886,11 @@ pub struct Header {
 }
 
 impl Header {
-    /// Whether the file carries embeddings, norms and tokenizer — i.e. whether
-    /// it can run without the original checkpoint.
+    /// Whether the file's version has the sections for embeddings, norms and
+    /// tokenizer (`version >= 2`). It does not say the sections are filled:
+    /// [`ArtifactWriter::finish`] writes them empty in the current version, so
+    /// a raw quantization output answers `true` and still needs the original
+    /// checkpoint until `bin/seal` completes it.
     pub fn is_self_contained(&self) -> bool {
         self.version >= 2
     }

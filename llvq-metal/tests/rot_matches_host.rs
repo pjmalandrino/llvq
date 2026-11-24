@@ -224,6 +224,12 @@ fn fixture(n: usize, seed: u64, pad: f32) -> Fixture {
 /// How many row counts `host_rotate.cpp` runs `rot_apply_rows` at.
 const CUDA_ROWS_CASES: usize = 3;
 
+/// How many thread counts `host_rotate.cpp` replays `rot_apply` at: 1, 7, 32, 256 and 1024.
+const CUDA_WIDTHS: usize = 5;
+
+/// The flags `host_rotate.cpp` closes its output with, after the device-staged vector.
+const CUDA_DEV_FLAGS: usize = 5;
+
 /// Compile `llvq-cuda/tests/host_rotate.cpp` and return the binary.
 ///
 /// The flags are the ones `llvq-cuda/tests/rotation_matches_rust.rs` uses, and
@@ -250,9 +256,12 @@ fn build_cuda_driver() -> std::path::PathBuf {
 
 /// `rot_apply` as the CUDA text computes it, at one thread.
 ///
-/// The driver also replays the phases at 7, 32 and 256 threads and appends the
-/// `rot_apply_rows` residuals. Those are the CUDA crate's own assertions; what
-/// is taken here is the first arm, which is the real kernel run whole.
+/// The driver also replays the phases at 7, 32, 256 and 1024 threads, then
+/// appends the `rot_apply_rows` residuals, the device-staged vector of
+/// `rotate_wide.cu` and its flags. Those are the CUDA crate's own assertions;
+/// what is taken here is the first arm, which is the real kernel run whole.
+/// The length is still checked whole: a driver whose output layout moved must
+/// be read again here, not sliced on trust.
 fn run_cuda(driver: &std::path::Path, f: &Fixture) -> Vec<f32> {
     let mut fx: Vec<u8> = Vec::new();
     fx.extend((f.n as u32).to_le_bytes());
@@ -284,7 +293,7 @@ fn run_cuda(driver: &std::path::Path, f: &Fixture) -> Vec<f32> {
     assert!(out.status.success(), "driver failed on n={}", f.n);
     assert_eq!(
         out.stdout.len(),
-        4 * f.n * 4 + CUDA_ROWS_CASES * 4,
+        CUDA_WIDTHS * f.n * 4 + CUDA_ROWS_CASES * 4 + f.n * 4 + CUDA_DEV_FLAGS * 4,
         "driver returned {} bytes for n={}",
         out.stdout.len(),
         f.n

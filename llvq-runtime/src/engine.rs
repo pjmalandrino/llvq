@@ -21,7 +21,7 @@
 
 use crate::chat::{self, Msg, Role, Scan, Segment, TextStream};
 use crate::library::{Backend, ModelName};
-use crate::store::{Manifest, Store};
+use crate::store::{BlobId, Manifest, Store};
 use crate::tools::{ToolDef, ToolFormat, ToolMsg};
 use llvq_llm::chatfmt::{open_assistant, Marks};
 use llvq_llm::model::Qwen3;
@@ -314,6 +314,8 @@ pub enum State {
 pub struct EngineInfo {
     pub name: ModelName,
     pub manifest: Manifest,
+    /// The blob's file when the load started, `None` when it was missing.
+    pub blob: Option<BlobId>,
     pub state: Mutex<State>,
     /// Jobs waiting, not counting the one running.
     pub queue: AtomicUsize,
@@ -437,6 +439,15 @@ pub(crate) fn total(job: &Job, started: Instant, load: Duration) -> Duration {
 
 pub(crate) fn nanos(d: Duration) -> u64 {
     d.as_nanos().min(u64::MAX as u128) as u64
+}
+
+/// The message a caught panic carries, from `panic!` with a literal or with
+/// a format. Takes the payload itself (`&*p`), not the box that holds it.
+fn panic_message(p: &(dyn std::any::Any + Send)) -> String {
+    p.downcast_ref::<&str>()
+        .map(|s| s.to_string())
+        .or_else(|| p.downcast_ref::<String>().cloned())
+        .unwrap_or_else(|| "no message".into())
 }
 
 /// The conversation state the thread carries between jobs.
@@ -704,8 +715,21 @@ impl Worker {
 
         let t_prompt = Instant::now();
         // The prefill the config names: the eager path, or the chain through
-        // the tree pass under a chain config (`LLVQ_PROFILE=chain`).
-        let fed = self.session.feed_with(&self.loaded.qwen, &mut self.loaded.decoder, &prompt[cached..])?;
+        // the tree pass under a chain config (the 4B's default on CUDA;
+        // `LLVQ_PROFILE=eager` takes the eager prefill).
+        let fed = match self.session.feed_with(&self.loaded.qwen, &mut self.loaded.decoder, &prompt[cached..]) {
+            Ok(fed) => fed,
+            Err(e) => {
+                // `Session::truncate` already cuts the caches a failed prefill
+                // left ahead of the ids. The reset is a second guard: an
+                // error from the device says nothing of what it wrote, so the
+                // next request starts from an empty cache, at the cost of one
+                // re-read of the history.
+                self.session.reset(&self.loaded.qwen);
+                self.memo.clear();
+                return Err(e);
+            }
+        };
         let prompt_eval = t_prompt.elapsed();
 
         let seed = o.seed.unwrap_or_else(|| {
@@ -732,7 +756,13 @@ impl Worker {
                     Flow::Cancel
                 }
                 Ok((c, r, stop)) => {
-                    if (!c.is_empty() || !r.is_empty()) && !send(Event::Delta { content: c, thinking: r }) {
+                    // Nothing to send is not nobody to send to: while the router
+                    // holds text (an unfinished UTF-8 sequence, the prefix of a
+                    // stop string) no send would fail, so the channel is asked.
+                    let silent = c.is_empty() && r.is_empty();
+                    if (silent && job.events.is_closed())
+                        || (!silent && !send(Event::Delta { content: c, thinking: r }))
+                    {
                         gone = true;
                         return Flow::Cancel;
                     }
@@ -823,7 +853,16 @@ impl Worker {
     /// routed and streamed as in [`Self::run_inner`]; a request that ends
     /// (stop token, stop string, its cap, or a client that left) gives its
     /// slot back at once.
-    fn run_batch(&mut self, rx: &std::sync::mpsc::Receiver<Job>, inf: &EngineInfo) {
+    ///
+    /// `pending` and `live` belong to the caller, so that the requests they
+    /// hold outlive a panic here and are answered with its reason.
+    fn run_batch(
+        &mut self,
+        rx: &std::sync::mpsc::Receiver<Job>,
+        inf: &EngineInfo,
+        pending: &mut VecDeque<Job>,
+        live: &mut Vec<Live>,
+    ) {
         let serve = self.loaded.batch.as_ref().expect("the batched engine").serve;
         let mut pool = match llvq_llm::batch::Pool::new(&self.loaded.qwen, serve.max, serve.context) {
             Ok(p) => p,
@@ -837,8 +876,6 @@ impl Worker {
                 return;
             }
         };
-        let mut pending: VecDeque<Job> = VecDeque::new();
-        let mut live: Vec<Live> = Vec::new();
         let mut open = true;
         loop {
             if live.is_empty() && pending.is_empty() {
@@ -867,7 +904,7 @@ impl Worker {
                     let job = pending.pop_front().expect("one pending");
                     inf.take_job();
                     let keep = job.keep_alive;
-                    match self.solo(job, rx, &mut pending, &mut open, &mut pool, inf) {
+                    match self.solo(job, rx, pending, &mut open, &mut pool, inf) {
                         Some(l) => live.push(l),
                         None => *inf.expires.lock().expect("expires lock") = keep.until(SystemTime::now()),
                     }
@@ -891,10 +928,12 @@ impl Worker {
                 Ok(p) => p,
                 Err(e) => {
                     // A failed step leaves every live cache in doubt: each
-                    // request is answered with the reason and its slot freed.
+                    // request is answered with the reason and its slot freed,
+                    // and its keep-alive starts as at a clean end.
                     for l in live.drain(..) {
                         let _ = l.job.events.blocking_send(Self::error(500, format!("the batched step failed: {e:#}")));
                         pool.release(l.slot);
+                        *inf.expires.lock().expect("expires lock") = l.job.keep_alive.until(SystemTime::now());
                     }
                     continue;
                 }
@@ -917,7 +956,7 @@ impl Worker {
             if live.len() == 1 && pending.is_empty() && self.back_to_solo(&live[0]) {
                 let l = live.pop().expect("one live");
                 let keep = l.job.keep_alive;
-                match self.resume(l, rx, &mut pending, &mut open, &mut pool, inf) {
+                match self.resume(l, rx, pending, &mut open, &mut pool, inf) {
                     Ok(Some(l)) => live.push(l),
                     Ok(None) => *inf.expires.lock().expect("expires lock") = keep.until(SystemTime::now()),
                     Err(l) => live.push(*l),
@@ -1084,7 +1123,9 @@ impl Worker {
                         return Flow::Cancel;
                     }
                     Ok((c, r, stop)) => {
-                        if (!c.is_empty() || !r.is_empty()) && !send(Event::Delta { content: c, thinking: r }) {
+                        // As in `run_inner`: a router that holds text must not hide a client that left.
+                        let silent = c.is_empty() && r.is_empty();
+                        if (silent && tx.is_closed()) || (!silent && !send(Event::Delta { content: c, thinking: r })) {
                             gone = true;
                             return Flow::Cancel;
                         }
@@ -1246,8 +1287,10 @@ impl Worker {
                 return After::Gone;
             }
             Ok((c, r, stop)) => {
-                if (!c.is_empty() || !r.is_empty())
-                    && l.job.events.blocking_send(Event::Delta { content: c, thinking: r }).is_err()
+                // As in `run_inner`: a router that holds text must not hide a client that left.
+                let silent = c.is_empty() && r.is_empty();
+                if (silent && l.job.events.is_closed())
+                    || (!silent && l.job.events.blocking_send(Event::Delta { content: c, thinking: r }).is_err())
                 {
                     return After::Gone;
                 }
@@ -1304,6 +1347,7 @@ impl Engine {
         let info = Arc::new(EngineInfo {
             name: name.clone(),
             manifest: manifest.clone(),
+            blob: store.blob_id(&manifest.sha256),
             state: Mutex::new(State::Loading),
             queue: AtomicUsize::new(0),
             busy: std::sync::atomic::AtomicBool::new(false),
@@ -1314,7 +1358,12 @@ impl Engine {
         let inf = info.clone();
         std::thread::Builder::new().name(format!("llvq-engine-{name}")).spawn(move || {
             let t0 = Instant::now();
-            let loaded = match loader.build(&name, &manifest, &store) {
+            // A load that panics (an assert in a device library) fails the
+            // engine as an `Err` does: the queue is answered with the reason,
+            // and the next request loads again.
+            let attempt = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| loader.build(&name, &manifest, &store)))
+                .unwrap_or_else(|p| Err(anyhow::anyhow!("the load panicked: {}", panic_message(&*p))));
+            let loaded = match attempt {
                 Ok(Built::Inkling(e)) => {
                     crate::inkling::serve(e, &rx, &inf, &name, t0.elapsed());
                     return;
@@ -1353,16 +1402,28 @@ impl Engine {
                 pool_bytes: w.loaded.batch.as_ref().map_or(0, |b| w.loaded.qwen.batch_kv_bytes(b.serve.max, b.serve.context)),
             };
             if w.loaded.batch.is_some() {
-                let ran = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| w.run_batch(&rx, &inf)));
+                let mut pending: VecDeque<Job> = VecDeque::new();
+                let mut live: Vec<Live> = Vec::new();
+                let ran = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                    w.run_batch(&rx, &inf, &mut pending, &mut live)
+                }));
                 if let Err(p) = ran {
-                    let why = p
-                        .downcast_ref::<&str>()
-                        .map(|s| s.to_string())
-                        .or_else(|| p.downcast_ref::<String>().cloned())
-                        .unwrap_or_else(|| "no message".into());
-                    let msg = format!("the batched engine of {name} panicked: {why}");
+                    let msg = format!("the batched engine of {name} panicked: {}", panic_message(&*p));
                     *inf.state.lock().expect("state lock") = State::Failed(msg.clone());
                     inf.busy.store(false, Ordering::SeqCst);
+                    // The requests the panic cut: a live one ends its stream
+                    // with the reason; a pending one, never taken off the
+                    // queue, leaves it. The reason is sent if there is room:
+                    // a client whose channel is full has stopped reading, and
+                    // waiting on it would hold the weights while the next
+                    // request loads another copy.
+                    for l in live.drain(..) {
+                        let _ = l.job.events.try_send(Event::Error { status: 500, message: msg.clone() });
+                    }
+                    for job in pending.drain(..) {
+                        inf.queue.fetch_sub(1, Ordering::SeqCst);
+                        let _ = job.events.try_send(Event::Error { status: 500, message: msg.clone() });
+                    }
                     while let Ok(job) = rx.recv() {
                         inf.queue.fetch_sub(1, Ordering::SeqCst);
                         let _ = job.events.blocking_send(Event::Error { status: 500, message: msg.clone() });
@@ -1378,12 +1439,7 @@ impl Engine {
                 // failed engine) instead of hitting a wedged one forever.
                 let ran = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| w.run(&job)));
                 if let Err(p) = ran {
-                    let why = p
-                        .downcast_ref::<&str>()
-                        .map(|s| s.to_string())
-                        .or_else(|| p.downcast_ref::<String>().cloned())
-                        .unwrap_or_else(|| "no message".into());
-                    let msg = format!("the engine of {name} panicked: {why}");
+                    let msg = format!("the engine of {name} panicked: {}", panic_message(&*p));
                     *inf.state.lock().expect("state lock") = State::Failed(msg.clone());
                     let _ = job.events.blocking_send(Event::Error { status: 500, message: msg.clone() });
                     inf.busy.store(false, Ordering::SeqCst);
@@ -1437,6 +1493,15 @@ fn retire(engines: &mut Vec<Engine>, pick: impl Fn(&Engine) -> bool) -> bool {
         true
     });
     any
+}
+
+/// Whether a loaded engine serves `now` from `blob`: every field of its
+/// manifest but the date it was written, and the same file on disk. A pull
+/// or an import of a model already present writes the same manifest again
+/// with a new date and leaves the file; one that found the file damaged
+/// removed it, and the next pull wrote another, which the engine never read.
+fn same_model(e: &EngineInfo, now: &Manifest, blob: Option<BlobId>) -> bool {
+    Manifest { modified_at: now.modified_at, ..e.manifest.clone() } == *now && e.blob == blob
 }
 
 /// An error before any engine ran: the HTTP status and the message.
@@ -1498,6 +1563,7 @@ impl Models {
             .get(name)
             .map_err(|e| Refusal { status: 500, message: format!("{e:#}") })?
             .ok_or_else(|| Self::not_found(name))?;
+        let blob = self.store.blob_id(&manifest.sha256);
         let keep = keep_alive.unwrap_or(self.default_keep_alive);
         let mut engines = self.engines.lock().expect("engines lock");
         // An unload request does not load a model that is not loaded.
@@ -1510,7 +1576,7 @@ impl Models {
         }
         // A failed load is forgotten, so the next request tries again.
         engines.retain(|e| !matches!(e.state(), State::Failed(_)));
-        let pos = match engines.iter().position(|e| e.info.name == *name && e.info.manifest == manifest) {
+        let pos = match engines.iter().position(|e| e.info.name == *name && same_model(&e.info, &manifest, blob)) {
             Some(p) => {
                 // Asked back before it went.
                 engines[p].info.retiring.store(false, Ordering::SeqCst);
@@ -1619,6 +1685,7 @@ mod tests {
                 configs: crate::library::Configs { cuda: None, metal: None, cpu: None, cuda_batch: None, cuda_eager: None },
                 modified_at: 0,
             },
+            blob: None,
             state: Mutex::new(State::Loading),
             queue: AtomicUsize::new(0),
             busy: std::sync::atomic::AtomicBool::new(false),
@@ -1661,13 +1728,15 @@ mod tests {
         assert_eq!(s("10s"), KeepAlive::For(Duration::from_secs(10)));
         assert_eq!(s("250ms"), KeepAlive::For(Duration::from_millis(250)));
         assert_eq!(s("0"), KeepAlive::For(Duration::ZERO));
+        // A bare number in a string is seconds, as in a JSON number.
+        assert_eq!(s("5"), KeepAlive::For(Duration::from_secs(5)));
         assert_eq!(s("-1"), KeepAlive::Forever);
         assert_eq!(s("-1m"), KeepAlive::Forever);
         assert_eq!(KeepAlive::parse(&serde_json::json!(30)).unwrap(), KeepAlive::For(Duration::from_secs(30)));
         assert_eq!(KeepAlive::parse(&serde_json::json!(-1)).unwrap(), KeepAlive::Forever);
-        for bad in ["5", "5x", "m", "1h5"] {
+        for bad in ["5x", "m", "1h5"] {
             let r = KeepAlive::parse_str(bad);
-            assert!(bad == "5" || r.is_err(), "{bad:?} must be refused");
+            assert!(r.is_err(), "{bad:?} must be refused");
         }
     }
 }

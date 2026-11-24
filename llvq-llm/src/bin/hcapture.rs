@@ -170,7 +170,7 @@ fn main() -> anyhow::Result<()> {
         Some("norot") => None,
         Some(o) => anyhow::bail!("LLVQ_ROT={o}: accepted values `rot` (default) and `norot`"),
     };
-    let dense = matches!(std::env::var("LLVQ_H_DENSE").ok().as_deref(), Some("1"));
+    let dense = llvq_llm::eval::env_flag("LLVQ_H_DENSE")?;
     // The repository's own parsers, not a second pair: `eval::dtype` refuses
     // an unknown `LLVQ_DTYPE` instead of falling back, and `eval::device`
     // refuses an unknown device. A typo silently scoring in the wrong

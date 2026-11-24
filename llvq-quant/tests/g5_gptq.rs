@@ -1037,3 +1037,39 @@ fn both_factorizations_agree() {
         );
     }
 }
+
+/// A dead input channel without damping is reported at its own pivot, and as
+/// a failure of `H` rather than of its inverse, on whichever path `new` takes.
+/// The message is what sends an operator to a channel, so a fixed pivot would
+/// send them to the wrong one.
+#[test]
+fn a_dead_channel_is_reported_at_its_own_pivot() {
+    let (rows, n, dead) = (64usize, 12usize, 5usize);
+    let mut rng = SplitMix64::new(0x5_0011);
+    let mut a: Vec<f64> = (0..rows * n).map(|_| rng.next_gaussian()).collect();
+    for r in 0..rows {
+        a[r * n + dead] = 0.0;
+    }
+    // H = AᵀA / rows: row and column `dead` are exact zeros.
+    let mut h = vec![0.0f64; n * n];
+    for i in 0..n {
+        for j in 0..n {
+            h[i * n + j] = (0..rows).map(|r| a[r * n + i] * a[r * n + j]).sum::<f64>() / rows as f64;
+        }
+    }
+    for (path, got) in [
+        ("new", GptqFactor::new(&h, n, 0.0)),
+        ("new_reference", GptqFactor::new_reference(&h, n, 0.0)),
+    ] {
+        let e = match got {
+            Err(e) => e,
+            Ok(_) => panic!("{path}: a dead channel factored without damping"),
+        };
+        assert_eq!(e.at, dead, "{path}: wrong pivot");
+        assert!(!e.of_inverse, "{path}: it is H that fails, not its inverse");
+        assert!(e.to_string().contains(&format!("pivot {dead}")), "{path}: {e}");
+    }
+    // The second factorization says it is the second one.
+    let inv = llvq_quant::linalg::NotPositiveDefinite { at: 3, of_inverse: true }.to_string();
+    assert!(inv.contains("inverse Hessian") && inv.contains("pivot 3"), "{inv}");
+}

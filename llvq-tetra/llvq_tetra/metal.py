@@ -87,6 +87,34 @@ def q4_source() -> str:
     return shader_source("tv_q4_h.metal")
 
 
+def require_cuda_sources() -> list[str]:
+    """Every shipped CUDA source present, with the sha256 the tables file records.
+
+    The CUDA twin of the check `shader_source` makes on a Metal shader: a copy that drifted from
+    the served one is refused before `nvcc` sees it rather than compiled into plausible wrong sums.
+    """
+    import hashlib
+
+    missing = [p.name for p in CUDA_SOURCES if not p.exists()]
+    if missing:
+        raise FileNotFoundError(
+            f"the shipped CUDA sources are incomplete, missing {missing}. Re-run "
+            "`cargo run --release -p llvq-llm --bin tetratables -- "
+            "llvq-tetra/llvq_tetra/data/tetra-tables.safetensors`"
+        )
+    shaders = json.loads(CONSTANTS.read_text())["shaders"]
+    for p in CUDA_SOURCES:
+        if p.name not in shaders:
+            raise KeyError(f"{p.name} ships without a digest in {CONSTANTS.name}")
+        got = hashlib.sha256(p.read_bytes()).hexdigest()
+        if got != shaders[p.name]["sha256"]:
+            raise ValueError(
+                f"{p.name} is not the source the tables were dumped with:\n"
+                f"  recorded {shaders[p.name]['sha256']}\n  shipped  {got}"
+            )
+    return [p.name for p in CUDA_SOURCES]
+
+
 def extension_for(device: str):
     """The extension that registers the op namespace of `device`.
 
@@ -113,20 +141,15 @@ def _extension_cuda():
     under `site-packages`, so a pip user had no CUDA arm at all.
 
     `TILE_BLOCKS` is the kernel's define, not Metal's `LLVQ_TILE_BLOCKS`, and the
-    shared bytes the caller passes have to match it.
+    shared bytes the caller passes have to cover it. Both read `cuda_tile()`, and
+    the binding refuses a `tile` that is not the compiled define.
     """
     from torch.utils.cpp_extension import load
 
+    tile = cuda_tile()
     if not torch.cuda.is_available():
         raise RuntimeError("this op runs on CUDA, and no device is available")
-    missing = [p.name for p in CUDA_SOURCES if not p.exists()]
-    if missing:
-        raise FileNotFoundError(
-            f"the shipped CUDA sources are incomplete, missing {missing}. Re-run "
-            "`cargo run --release -p llvq-llm --bin tetratables -- "
-            "llvq-tetra/llvq_tetra/data/tetra-tables.safetensors`"
-        )
-    tile = int(os.environ.get("LLVQ_HF_TILE", "64"))
+    require_cuda_sources()
     return load(
         name="llvq_tetra_cuda",
         sources=[str(CSRC_CUDA)],
@@ -138,6 +161,28 @@ def _extension_cuda():
         is_python_module=False,
         verbose=False,
     )
+
+
+@lru_cache(maxsize=1)
+def cuda_tile() -> int:
+    """`TILE_BLOCKS` for the CUDA build, read once from `LLVQ_HF_TILE` (default 64).
+
+    The kernel tiles the activation by this define and the caller sizes the shared memory from
+    the tile it passes, so both read this one cached value: a define of 128 with 64 blocks of
+    shared memory writes past the end of it. A power of two, at least 32 as the served
+    `LLVQ_TILE_BLOCKS` asks, and at most `integration.TILE_BLOCKS`, the tile the package ships
+    with: 32 or 64. Larger tiles were refused before the caller passed this value, and stay so.
+    """
+    from .integration import TILE_BLOCKS
+
+    raw = os.environ.get("LLVQ_HF_TILE", str(TILE_BLOCKS))
+    tile = int(raw) if raw.isdigit() else 0
+    if not (32 <= tile <= TILE_BLOCKS and tile & (tile - 1) == 0):
+        raise ValueError(
+            f"LLVQ_HF_TILE={raw}: give a power of two from 32 to {TILE_BLOCKS}, the tile the "
+            "package ships with"
+        )
+    return tile
 
 
 @lru_cache(maxsize=1)

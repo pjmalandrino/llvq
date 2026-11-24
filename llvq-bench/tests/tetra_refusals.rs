@@ -18,6 +18,7 @@ use llvq_search::tetra::Tetra;
 use std::path::PathBuf;
 use std::process::Command;
 
+#[cfg(feature = "archive")]
 const REFUSAL: &str = "no runtime layout for Tetra: this reads the v1 ball's classes, and a Tetra word names none";
 
 /// A one-matrix v5 Tetra file, two blocks, on disk.
@@ -47,6 +48,7 @@ fn tetra_file(name: &str) -> PathBuf {
     path
 }
 
+#[cfg(feature = "archive")]
 fn refuses(bin: &str, args: &[&str], path: &std::path::Path) {
     let out = Command::new(bin).args(args).output().unwrap_or_else(|e| panic!("run {bin}: {e}"));
     let stderr = String::from_utf8_lossy(&out.stderr);
@@ -85,6 +87,18 @@ fn rtbits_prices_a_tetra_file_instead_of_refusing_it() {
         text.contains("kernel b/weight"),
         "the accounting must be named, never left for a reader to guess:\n{text}"
     );
+    // The card count, read from what `report_v5` prints for this file: one row
+    // of two blocks is 96 bits in the file and `stride_u32(2) = 4` u32 on the
+    // card, 128 bits, so 32 bits of pad over 48 weights.
+    assert!(
+        text.contains("tetra48 stride: 128 bits, 2.6667 b/weight, 32 pad bits the file does not store"),
+        "the Tetra row must be priced at the card's stride:\n{text}"
+    );
+    // The same 128 bits plus the 32-bit row scale, over 48 weights.
+    assert!(
+        text.contains("Tetra rows at the card's tetra48 stride ........ 3.3333"),
+        "the card kernel b/weight must count the card's stride:\n{text}"
+    );
     // And it must refuse to print a CLASS statistic: every accumulator of that
     // tool keys on a v1 class and a Tetra word names none, so a plausible
     // histogram would be worse than its absence. `rtbits` says so itself.
@@ -94,12 +108,16 @@ fn rtbits_prices_a_tetra_file_instead_of_refusing_it() {
     );
 }
 
+// An archive target since 2026-11-08: built under `--features archive` only.
+#[cfg(feature = "archive")]
 #[test]
 fn classhist_refuses_a_tetra_file_by_name() {
     let p = tetra_file("tetra-classhist.llvq");
     refuses(env!("CARGO_BIN_EXE_classhist"), &[p.to_str().unwrap()], &p);
 }
 
+// An archive target since 2026-11-08: built under `--features archive` only.
+#[cfg(feature = "archive")]
 #[test]
 fn lswap_refuses_a_tetra_file_by_name() {
     let p = tetra_file("tetra-lswap.llvq");
@@ -114,6 +132,8 @@ fn lswap_refuses_a_tetra_file_by_name() {
     assert!(!PathBuf::from(format!("{}.tmp", out.display())).exists(), "nor its temporary");
 }
 
+// An archive target since 2026-11-08: built under `--features archive` only.
+#[cfg(feature = "archive")]
 #[test]
 fn radixstudy_refuses_a_tetra_file_by_name() {
     let p = tetra_file("tetra-radixstudy.llvq");

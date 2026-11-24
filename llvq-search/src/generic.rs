@@ -802,7 +802,11 @@ impl BallSearcher {
             .enumerate()
             .map(|(gi, grp)| (grp.flat[0].bound, gi))
             .collect();
-        sections.push((self.odd_flat[0].bound, usize::MAX));
+        // A level cap of 1 keeps no odd class: the coset is then no section
+        // at all, and the odd branch below is never entered.
+        if let Some(h) = self.odd_flat.first() {
+            sections.push((h.bound, usize::MAX));
+        }
         sections.sort_unstable_by(|a, b| b.0.total_cmp(&a.0));
 
         for &(top, sec) in sections.iter() {

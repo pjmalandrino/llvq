@@ -20,7 +20,7 @@ import os
 import torch
 from torch import nn
 
-from .modules import Int4Linear, RotationStore, TetraLinear
+from .modules import Int4Linear, RotationStore, RotationTable, TetraLinear
 
 # Activation blocks one threadgroup stages for the lattice matvec, and columns for the 4-bit one:
 # the values the kernels were validated with.
@@ -61,12 +61,55 @@ def target_device(device_map) -> str:
             raise ValueError(f"LLVQ models cannot be placed on {value!r}")
     if len(kinds) != 1:
         raise ValueError(f"LLVQ models run on a single device, the device_map spans {sorted(kinds)}")
+    if kinds == {"cuda"}:
+        _require_current_cuda(values)
     return kinds.pop()
 
 
-def replace_modules(model: nn.Module, quantization_config, device: str) -> nn.Module:
+def _require_current_cuda(values) -> None:
+    """Refuse a `device_map` that certainly names a CUDA card other than the current one.
+
+    `finalize` moves the model with `model.to("cuda")`, to the current card, so a map that names
+    another card would load on the current one and say nothing. transformers rewrites
+    `device_map="cuda"` as `cuda:$LOCAL_RANK` (0 when unset) before a quantizer sees it, so that
+    index, as a device or a `"cuda:N"` string, may be the caller's `"cuda"` and is accepted whatever
+    the current card is: after `torch.cuda.set_device(1)`, `device_map="cuda"` loads on card 1.
+    The limit: an explicit `"cuda:0"` after `set_device(1)` loads on card 1 too, since it reaches
+    this function in the same form. An integer, or any other index, comes from the caller only.
+    """
+    try:
+        rewritten = int(os.environ.get("LOCAL_RANK", "0"))
+    except ValueError:
+        rewritten = None
+    current = None
+    for value in values:
+        name = str(value)
+        if isinstance(value, int) or name.isdigit():
+            index = int(name)
+        elif name.startswith("cuda:") and name[5:].isdigit():
+            index = int(name[5:])
+            if index == rewritten:
+                continue
+        else:
+            continue
+        if current is None:
+            current = torch.cuda.current_device() if torch.cuda.is_available() else 0
+        if index != current:
+            raise ValueError(
+                f"LLVQ models load on the current CUDA device, cuda:{current}, and the device_map "
+                f"names {value!r}. Call torch.cuda.set_device({index}) before from_pretrained, or "
+                f"make that card the only visible one with CUDA_VISIBLE_DEVICES and pass "
+                "device_map=\"cuda\""
+            )
+
+
+def replace_modules(model: nn.Module, quantization_config, device: str, checkpoint_files=None) -> nn.Module:
     """Swap each quantized `nn.Linear` for the layer that holds its codes, and on Metal the
-    vocabulary for the module that keeps it 4-bit."""
+    vocabulary for the module that keeps it 4-bit.
+
+    With `checkpoint_files`, which `transformers` hands the quantizer's pre-load hook, every
+    tensor the new modules declare is looked up in the files' headers first, by name and shape.
+    """
     records = {desc["prefix"]: desc for desc in quantization_config.records.values()}
     replaced = 0
     for name, module in list(model.named_modules()):
@@ -92,7 +135,76 @@ def replace_modules(model: nn.Module, quantization_config, device: str) -> nn.Mo
 
     if device == "mps":
         _keep_vocabulary_4bit(model, quantization_config)
+    # Kept on the model for `finalize`, which checks the loaded shapes against it.
+    model._llvq_declared = declared_tensors(model)
+    if checkpoint_files:
+        require_checkpoint(model._llvq_declared, checkpoint_files)
     return model
+
+
+def declared_tensors(model: nn.Module) -> dict[str, tuple[int, ...]]:
+    """Every buffer of an LLVQ module, under its model key, with the shape the record declares."""
+    from .vocab import Int4Vocab
+
+    out = {}
+    for prefix, module in model.named_modules():
+        if isinstance(module, (TetraLinear, Int4Linear, RotationTable, Int4Vocab)):
+            for name, buf in module.named_buffers(recurse=False):
+                out[f"{prefix}.{name}"] = tuple(buf.shape)
+    return out
+
+
+def _refuse(problems: list[str], where: str) -> None:
+    if problems:
+        shown = "\n  ".join(problems[:12])
+        more = f"\n  ... and {len(problems) - 12} more" if len(problems) > 12 else ""
+        raise ValueError(
+            f"this LLVQ checkpoint does not match its own record table ({where}):\n  {shown}{more}\n"
+            "transformers would fill a missing tensor with uninitialised memory and, with a "
+            "quantizer, assign a wrong-shaped one as it comes, so the load is refused"
+        )
+
+
+def require_checkpoint(declared: dict[str, tuple[int, ...]], checkpoint_files) -> None:
+    """Refuse before the load if a declared tensor is absent from the files or has another shape.
+
+    `transformers` does neither: a missing key is filled with `torch.empty_like` and only listed,
+    and its shape check is skipped whenever a quantizer is present.
+    """
+    from safetensors import safe_open
+
+    have = {}
+    for path in checkpoint_files:
+        if not str(path).endswith(".safetensors"):
+            return  # not a format this check reads; `finalize` still checks the shapes
+        with safe_open(str(path), framework="pt") as f:
+            for key in f.keys():
+                have[key] = tuple(f.get_slice(key).get_shape())
+    problems = []
+    for key, shape in declared.items():
+        if key not in have:
+            problems.append(f"{key} is missing")
+        elif have[key] != shape:
+            problems.append(f"{key} is {list(have[key])}, the record declares {list(shape)}")
+    _refuse(problems, "the checkpoint files")
+
+
+def require_shapes(model: nn.Module) -> None:
+    """After the load: every declared buffer is there with its declared shape.
+
+    The check that holds when no checkpoint files were handed over, against a tensor assigned
+    with a wrong length.
+    """
+    declared = getattr(model, "_llvq_declared", None)
+    if declared is None:
+        return
+    found = declared_tensors(model)
+    problems = [
+        f"{key} is {list(found[key]) if key in found else 'gone'}, the record declares {list(shape)}"
+        for key, shape in declared.items()
+        if found.get(key) != shape
+    ]
+    _refuse(problems, "the loaded tensors")
 
 
 def _keep_vocabulary_4bit(model: nn.Module, quantization_config) -> None:
@@ -154,6 +266,9 @@ def finalize(model: nn.Module, tables, dtype: torch.dtype, device: str) -> nn.Mo
     """After the load: compress the layers on a GPU and move the model there, or rebuild them dense."""
     from .vocab import Int4Vocab
 
+    require_shapes(model)
+    if hasattr(model, "_llvq_declared"):
+        del model._llvq_declared
     rotations = model.llvq.tables() if hasattr(model, "llvq") else {}
     if device == "cpu":
         for module in model.modules():
@@ -169,6 +284,16 @@ def finalize(model: nn.Module, tables, dtype: torch.dtype, device: str) -> nn.Mo
     if device != "cpu":
         model.to(device)
     return model
+
+
+def tile_for(device: str) -> int:
+    """Activation blocks a CTA or threadgroup stages: on CUDA the `TILE_BLOCKS` its extension is
+    compiled with, so the shared bytes and the define cannot disagree; on Metal `TILE_BLOCKS`."""
+    if device == "cuda":
+        from .metal import cuda_tile
+
+        return cuda_tile()
+    return TILE_BLOCKS
 
 
 def rotation_for(signs, small, device: str, consumers: int = 1):
@@ -206,7 +331,7 @@ def _compress(model: nn.Module, tables, rotations: dict, dtype: torch.dtype, dev
         if key and key not in built:
             signs, small = rotations[key]
             built[key] = rotation_for(signs, small, device, consumers[key])
-        model.set_submodule(name, FusedTetraLinear.from_loaded(module, built.get(key), TILE_BLOCKS, device))
+        model.set_submodule(name, FusedTetraLinear.from_loaded(module, built.get(key), tile_for(device), device))
     if dense:
         import warnings
 

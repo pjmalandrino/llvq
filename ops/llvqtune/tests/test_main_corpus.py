@@ -99,3 +99,18 @@ def test_an_unknown_corpus_is_refused_by_name(monkeypatch, tmp_path, capsys):
     with pytest.raises(SystemExit):
         _main(tmp_path, "--corpus", "wikitext2")
     assert "invalid choice" in capsys.readouterr().err
+
+
+def test_the_dclm_shard_is_fetched_at_the_encoder_revision(monkeypatch):
+    hub = pytest.importorskip("huggingface_hub")
+    asked = {}
+
+    def fake_download(**kwargs):
+        asked.update(kwargs)
+        return "/nowhere/000_00000.parquet"
+
+    monkeypatch.setattr(hub, "hf_hub_download", fake_download)
+    dclm_corpus.fetch_shard()
+    assert asked["repo_id"] == "HuggingFaceTB/dclm-edu"
+    assert asked["revision"] == "dbad8ad71224482740cd9c9d353591adbf62fe04"
+    assert dclm_corpus.REVISION in str(dclm_corpus.SHARD)

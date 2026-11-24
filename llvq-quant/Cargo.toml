@@ -17,3 +17,7 @@ default = []
 # the widths of a 4B model. Off by default so the crate stays dependency-free
 # and auditable end to end.
 fast-linalg = ["dep:faer"]
+
+# Every target of the package, not only the lib: bins, tests, examples, benches.
+[lints.rust]
+unsafe_code = "forbid"

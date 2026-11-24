@@ -279,3 +279,144 @@ fn ps_counts_the_batch_pool() {
     assert!(want > 0);
     assert_eq!(ps["models"][0]["llvq"]["batch_pool_bytes"].as_u64(), Some(want), "{ps}");
 }
+
+/// The candle reference, failing its `at`-th call: a panic, as an `expect`
+/// reached in the step would, or an error, as a failed launch.
+struct Faulty {
+    calls: AtomicUsize,
+    at: usize,
+    panics: bool,
+}
+
+impl BatchDevice for Faulty {
+    fn name(&self) -> &str {
+        "candle, failing once"
+    }
+    #[allow(clippy::too_many_arguments)]
+    fn attend(
+        &self,
+        q: &Tensor,
+        k_new: &Tensor,
+        v_new: &Tensor,
+        kc: &Tensor,
+        vc: &Tensor,
+        pos: &Tensor,
+        slots: &Tensor,
+        max_len: usize,
+    ) -> candle_core::Result<Tensor> {
+        if self.calls.fetch_add(1, Ordering::SeqCst) + 1 == self.at {
+            if self.panics {
+                panic!("the batched step panics");
+            }
+            return Err(candle_core::Error::Msg("the batched step fails".into()));
+        }
+        CandleBatch.attend(q, k_new, v_new, kc, vc, pos, slots, max_len)
+    }
+}
+
+/// The batched engine over two slots, its device [`Faulty`].
+struct FaultyLoader {
+    at: usize,
+    panics: bool,
+}
+
+impl Loader for FaultyLoader {
+    fn load(&self, _: &ModelName, _: &Manifest, _: &Store) -> anyhow::Result<Loaded> {
+        let serve = BatchServe::of(BatchFile { max: 2, context: 1024 }).map_err(anyhow::Error::msg)?;
+        Ok(Loaded {
+            qwen: common::model(),
+            tokenizer: common::tokenizer(),
+            decoder: Decoder::eager(),
+            backend: "dense-cpu".into(),
+            config: None,
+            lines: Vec::new(),
+            batch: Some(BatchEngine {
+                dev: Box::new(Faulty { calls: AtomicUsize::new(0), at: self.at, panics: self.panics }),
+                projs: BatchProjs::Rows,
+                serve,
+            }),
+        })
+    }
+}
+
+/// A streamed chat with a keep-alive of one second, telling `started` when
+/// its first chunk arrives. `Err` when a line carries an error.
+fn stream_ended(host: &str, text: &str, max_new: usize, started: Option<std::sync::mpsc::Sender<()>>) -> anyhow::Result<()> {
+    let mut started = started;
+    let body = json!({"model": "tiny:test", "messages": [{"role": "user", "content": text}],
+                      "options": {"temperature": 0, "num_predict": max_new}, "keep_alive": "1s"});
+    Client::new(host).stream("/api/chat", &body, &mut |_| {
+        if let Some(tx) = started.take() {
+            let _ = tx.send(());
+        }
+        Ok(())
+    })
+}
+
+/// Two requests that step together in the pool, the first decoding when the
+/// second arrives. With two layers the 5th call of `attend` is in the third
+/// batched step, while both are live.
+///
+/// Each stream runs on its own thread and must end, with `done` or with an
+/// error, within 120 s: a stream the engine never ends would otherwise hold
+/// the test, and the CI, until its global timeout.
+fn two_in_the_pool(host: &str) -> [(&'static str, anyhow::Result<()>); 2] {
+    let (started_tx, started) = std::sync::mpsc::channel();
+    let (ended_tx, ended) = std::sync::mpsc::channel::<(usize, anyhow::Result<()>)>();
+    let (h, tx) = (host.to_string(), ended_tx.clone());
+    std::thread::spawn(move || {
+        let _ = tx.send((0, stream_ended(&h, "the cat sat on the mat", 400, Some(started_tx))));
+    });
+    started.recv_timeout(std::time::Duration::from_secs(60)).expect("the long request never sent a chunk");
+    let h = host.to_string();
+    std::thread::spawn(move || {
+        let _ = ended_tx.send((1, stream_ended(&h, "why", 20, None)));
+    });
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(120);
+    let mut results: [Option<anyhow::Result<()>>; 2] = [None, None];
+    for _ in 0..2 {
+        match ended.recv_timeout(deadline.saturating_duration_since(std::time::Instant::now())) {
+            Ok((i, r)) => results[i] = Some(r),
+            Err(e) => panic!("the streams neither ended nor failed within 120 s ({e})"),
+        }
+    }
+    let [first, second] = results;
+    [
+        ("the request that joined the pool", first.expect("the first stream ended once")),
+        ("the second request", second.expect("the second stream ended once")),
+    ]
+}
+
+/// A panic in the batched step ends every live stream with an error line.
+/// The streams ended without `done` and without `error`, and `llvq run`
+/// showed the partial answer as a whole one.
+#[test]
+fn a_panic_in_the_batched_step_ends_every_live_stream_with_an_error() {
+    let host = common::serve_with(common::store("batch-panic"), "http://127.0.0.1:9", Arc::new(FaultyLoader { at: 5, panics: true }));
+    for (which, r) in two_in_the_pool(&host) {
+        match r {
+            Ok(()) => panic!("{which}: the stream ended without an error line"),
+            Err(e) => assert!(format!("{e:#}").contains("panicked"), "{which}: {e:#}"),
+        }
+    }
+}
+
+/// A failed batched step frees its requests, and their keep-alive then
+/// unloads the model, as after a clean end. It stayed loaded until the next
+/// request.
+#[test]
+fn a_failed_batched_step_leaves_the_model_to_its_keep_alive() {
+    let host = common::serve_with(common::store("batch-step-err"), "http://127.0.0.1:9", Arc::new(FaultyLoader { at: 5, panics: false }));
+    for (which, r) in two_in_the_pool(&host) {
+        match r {
+            Ok(()) => panic!("{which}: the failed step was not reported"),
+            Err(e) => assert!(format!("{e:#}").contains("the batched step failed"), "{which}: {e:#}"),
+        }
+    }
+    let c = Client::new(&host);
+    let t = std::time::Instant::now();
+    while !c.get("/api/ps").unwrap()["models"].as_array().unwrap().is_empty() {
+        assert!(t.elapsed() < std::time::Duration::from_secs(5), "the model outlived its keep-alive of one second");
+        std::thread::sleep(std::time::Duration::from_millis(50));
+    }
+}

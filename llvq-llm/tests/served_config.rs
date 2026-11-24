@@ -12,8 +12,8 @@ use llvq_llm::fused::{EmbedMode, FuseMode, FusedLayout};
 use llvq_llm::kvq::{AttnHeads, KvMode, KvStore, GROW_CHUNK};
 use llvq_llm::rotplan::RotShare;
 use llvq_llm::served::{
-    check_env, check_persistent_object, check_store_env, Decode, Rows4e, Served, ServedFile, BELOW_THE_DOOR,
-    MEASUREMENT_MODES,
+    check_env, check_persistent_object, check_removed, Decode, Rows4e, Served, ServedFile, BELOW_THE_DOOR,
+    MEASUREMENT_MODES, REMOVED,
 };
 use std::path::PathBuf;
 
@@ -144,22 +144,23 @@ fn the_file_accepts_exactly_what_the_variables_accept() {
     }
 }
 
-/// The file this repository ships IS the object arbitrated on 2026-09-08.
+/// The q5 file is the object arbitrated on 2026-09-08, listed among the
+/// earlier objects of `configs/README.md`.
 ///
-/// Not a restatement of the struct: the shipped file is read from disk, by
-/// the code a runner runs, and compared against the five values `docs/ETAT.md`
-/// attributes 56.95 MMLU and 2.8138 b/param to. A config that drifted from the
-/// dossier would make every run under it cite a provenance it does not have.
+/// Not a restatement of the struct: the file is read from disk, by the code a
+/// runner runs, and compared against its five values. A config that drifted
+/// from its record would make every run under it cite a provenance it does
+/// not have.
 #[test]
-fn the_shipped_config_is_the_served_object() {
+fn the_q5_config_is_the_object_arbitrated_on_2026_09_08() {
     let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("../configs/qwen3-4b-tetra-q5.json");
     // `read_file` + `of`, not `read`: `read` consults the shell, and a test
     // whose verdict depends on what the developer exported is not a test of
     // the file. Found the hard way — this line failed on any shell with
     // `LLVQ_FUSED_LAYOUT` set, and passed on a clean one.
-    let f = Served::read_file(&path).expect("the shipped config parses");
-    let s = Served::of(f, path.clone()).expect("the shipped config resolves");
+    let f = Served::read_file(&path).expect("the q5 config parses");
+    let s = Served::of(f, path.clone()).expect("the q5 config resolves");
     assert_eq!(s.layout, FusedLayout::Tetra48);
     assert_eq!(s.embed, EmbedMode::Q8);
     assert_eq!(s.rot_share, RotShare::On);
@@ -173,6 +174,48 @@ fn the_shipped_config_is_the_served_object() {
         "Tetra48 gained a segmented kernel: the shipped `fuse` value is now a choice, \
          not a fact, and this config has to be revisited"
     );
+}
+
+/// The config `llvq` serves the 4B on CUDA is the served object of
+/// `docs/ETAT.md` §2: layout `tetra48`, embedding `q4`, one rotation per
+/// group, no fusion, f16 KV, the kernel attention, 4E with the v9 rows, and
+/// the chain prefill.
+///
+/// The file is the one `llvq-runtime/library.json` names for the 4B on CUDA,
+/// read from disk as for the q5 test, so a runtime that moved to another file
+/// moves this test with it, and a file that drifted from the record fails it.
+#[test]
+fn the_shipped_config_is_the_served_object() {
+    use llvq_llm::kvq::PrefillAttn;
+    use llvq_llm::served::Prefill;
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("..");
+    let library: serde_json::Value = serde_json::from_str(
+        &std::fs::read_to_string(root.join("llvq-runtime/library.json")).expect("the library"),
+    )
+    .expect("the library parses");
+    let models = library["models"].as_array().expect("a model list");
+    let four_b = models.iter().find(|m| m["tag"] == "4b").expect("the 4B entry");
+    let name = four_b["configs"]["cuda"].as_str().expect("a CUDA config for the 4B");
+    assert_eq!(name, "qwen3-4b-tetra-e4-4e-v9-chain.json", "the 4B's served CUDA config moved");
+    let path = root.join("configs").join(name);
+    let f = Served::read_file(&path).expect("the served config parses");
+    let s = Served::of(f, path.clone()).expect("the served config resolves");
+    assert_eq!(s.layout, FusedLayout::Tetra48);
+    assert_eq!(s.embed, EmbedMode::Q4);
+    assert_eq!(s.rot_share, RotShare::On);
+    assert_eq!(s.kv, KvMode::F16);
+    assert_eq!(s.fuse, FuseMode::Off);
+    assert!(
+        !llvq_llm::fused::planes_source_names(s.layout).contains(&"tv_planes_seg_h.cu"),
+        "Tetra48 gained a segmented kernel: the shipped `fuse` value is now a choice, \
+         not a fact, and this config has to be revisited"
+    );
+    assert_eq!(s.attention, AttnHeads::Kernel);
+    assert_eq!(s.decode, Decode::Persistent);
+    assert_eq!(s.rows, Rows4e::V9);
+    assert_eq!(s.prefill_form, Prefill::Chain);
+    assert_eq!(s.prefill, PrefillAttn::Grouped);
+    assert_eq!(s.batch, None);
 }
 
 /// The 8B config is the 4B's five values on another object, and nothing more.
@@ -664,8 +707,8 @@ fn measurement_modes_are_refused_beside_the_persistent_decode() {
         check_env(&f, env_of(&[(var, "5,8192")])).unwrap_or_else(|e| panic!("{var}: {e}"));
     }
     // An eager config keeps what it accepted before the field existed.
-    check_env(&served(), env_of(&[("LLVQ_TIME_EVENTS", "1")])).expect("not this check's business on an eager config");
-    assert!(MEASUREMENT_MODES.contains(&"LLVQ_PERS_4E") && MEASUREMENT_MODES.contains(&"LLVQ_KV_PREALLOC"));
+    check_env(&served(), env_of(&[("LLVQ_BENCH_ARMS", "1")])).expect("not this check's business on an eager config");
+    assert!(MEASUREMENT_MODES.contains(&"LLVQ_PERS_4E") && MEASUREMENT_MODES.contains(&"LLVQ_GQA_PPL"));
 }
 
 /// Refused on Metal by name, before the kernel form's own refusal.
@@ -962,13 +1005,20 @@ fn the_optional_fields_are_read_as_written() {
     }
 }
 
-/// The store variable beside a config is refused by name; unset passes.
+/// A removed variable is refused by name, by `check_removed` and by every
+/// served config; unset passes, and a live variable passes.
 #[test]
-fn the_store_variable_is_refused_beside_a_config() {
-    check_store_env(env_of(&[])).expect("unset");
-    check_store_env(env_of(&[("LLVQ_KV", "q8")])).expect("not the store's variable");
-    let e = check_store_env(env_of(&[("LLVQ_KV_PREALLOC", "8192")])).expect_err("the store");
-    assert!(e.contains("LLVQ_KV_PREALLOC") && e.contains("LLVQ_CONFIG"), "{e}");
+fn removed_variables_are_refused_by_name() {
+    check_removed(env_of(&[])).expect("unset");
+    check_removed(env_of(&[("LLVQ_KV", "q8")])).expect("a live variable");
+    for var in REMOVED {
+        let e = check_removed(env_of(&[(var, "1")])).expect_err(var);
+        assert!(e.contains(var) && e.contains("pre-clean-2026-11"), "{e}");
+        let e = check_env(&served(), env_of(&[(var, "1")])).expect_err(var);
+        assert!(e.contains(var), "{e}");
+        assert!(!MEASUREMENT_MODES.contains(&var), "{var} is both removed and a mode");
+    }
+    assert!(REMOVED.contains(&"LLVQ_KV_PREALLOC") && REMOVED.contains(&"LLVQ_PERS_SEGMENT"));
 }
 
 /// The chat door: the store variable under any config, and a temperature
@@ -983,8 +1033,8 @@ fn the_chat_door_refuses_what_its_config_cannot_serve() {
     let e = check_served_chat(&fe, 0.7, env_of(&[])).expect_err("4E cannot sample");
     assert!(e.contains("persistent") && e.contains("LLVQ_CHAT_TEMP"), "{e}");
     for cfg in [&eager, &fe] {
-        let e = check_served_chat(cfg, 0.0, env_of(&[("LLVQ_KV_PREALLOC", "4096")])).expect_err("store");
-        assert!(e.contains("LLVQ_KV_PREALLOC"), "{e}");
+        let e = check_served_chat(cfg, 0.0, env_of(&[("LLVQ_KV_PREALLOC", "4096")])).expect_err("removed");
+        assert!(e.contains("LLVQ_KV_PREALLOC") && e.contains("removed"), "{e}");
     }
 }
 

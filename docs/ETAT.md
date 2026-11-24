@@ -1,4 +1,4 @@
-# Project state as of 2026-11-07
+# Project state as of 2026-11-17
 
 ## 1. The project
 

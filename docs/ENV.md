@@ -23,7 +23,7 @@ modes set together (`ALONE` in that file).
 | `LLVQ_KERNEL_DIR` | `fused.rs`, `fused_cuda.rs`, `llvq-cuda`, `planesbench` | directory of kernel sources read instead of the built-in text | served, refused beside a config |
 | `LLVQ_TILE_BLOCKS` | `llvq-cuda/src/tile.rs` | unset or `auto` = the card's row; power of two in 32..=512 | served, refused beside a config |
 | `LLVQ_PREFILL` | `llvq-cuda/src/tile.rs` | `rows:tile` of the prefill kernel, e.g. `8:64`; unset = served pair | mode, refused beside a config |
-| `LLVQ_METAL_KERNEL` | `fused_metal.rs` | `lut` (served, default), `c3`, `ar`, `u2`, `ilp`, `plain`; anything else refused | mode, refused beside a config |
+| `LLVQ_METAL_KERNEL` | `fused_metal.rs` | `lut` (served, default), `c3`, `ar`, `u2`, `plain`; anything else refused | mode, refused beside a config |
 | `LLVQ_NVRTC_ARCH` | `llvq-cuda/src/gpu.rs` | `compute_NN`, default `compute_89` | served (names the card, never refused) |
 | `LLVQ_HOME` | `llvq-runtime` store | directory, default `~/.llvq` | served |
 | `LLVQ_HOST` | `llvq-runtime` client and server | `host:port`, default `127.0.0.1:11435` | served |
@@ -44,7 +44,7 @@ modes set together (`ALONE` in that file).
 | `LLVQ_DAMPING` | `smoke` | GPTQ damping; unset = published | tool |
 | `LLVQ_H_SHRINK` | `smoke`, `hcapture` | Hessian shrink ρ; unset = published | tool |
 | `LLVQ_GAIN_SCALE` | `smoke` | gain multiplier; unset = published | tool |
-| `LLVQ_SEQ_BLOCK` | `smoke` | unset or `1`; any other value refused | tool |
+| `LLVQ_SEQ_BLOCK` | `smoke` | unset, empty or `0` (default), `1`; any other value refused | tool |
 | `LLVQ_THREADS` | `smoke`, `errmap`, `f1recdump`, `tetra_cpu::pool` | thread count; about ncpu-4 on a shared machine; the CPU backend uses every core when unset | tool |
 | `LLVQ_ARTIFACT` | `smoke` | path of the artifact to write; unset = none | tool |
 | `LLVQ_RESUME` | `smoke` | shard to resume from; requires `LLVQ_ARTIFACT` | tool |
@@ -66,8 +66,7 @@ modes set together (`ALONE` in that file).
 | `LLVQ_KL_ARTIFACT`, `LLVQ_KL_VAL`, `LLVQ_KL_SKIP` | `kltemp` | artifact, validation set, skipped blocks | tool |
 | `LLVQ_ROT`, `LLVQ_H_DENSE` | `hcapture` | rotation on, dense Hessian | tool |
 | `LLVQ_ALT_K` | `tetraalt` | alternative count | tool |
-| `LLVQ_Q4B` | `radixstudy` | int4 bit study switch | tool |
-| `LLVQ_STEPPED`, `LLVQ_RUN_DUMP`, `LLVQ_VERIFY_CACHE` | `run` (dense demo) | stepped decode, dump path, cache check (set means on) | tool |
+| `LLVQ_RUN_DUMP`, `LLVQ_VERIFY_CACHE` | `run` (dense demo) | dump path; cache check, `0` or `1` | tool |
 
 ## Measurement modes
 
@@ -76,25 +75,42 @@ modes set together (`ALONE` in that file).
 | `LLVQ_CONTEXTS` | `fusedrun` | prompt lengths: time to first token and decode speed after each; allowed beside a config |
 | `LLVQ_PREFILL_TOKENS` | `fusedrun` | prompt length for the prefill timing; allowed beside a config |
 | `LLVQ_SOFTMAX_WHOLE` | `fusedrun` (`LLVQ_CONTEXTS` only) | `1`: every masked softmax on the whole score tensor, the memory form before 2026-11-08, to check the in-place form's logits bit for bit in a second process; `0` or unset: in place; allowed beside a config, moves no output bit |
-| `LLVQ_KV_PREALLOC` | `kvq.rs` | preallocated cache window |
-| `LLVQ_GRAPH_AB`, `LLVQ_GRAPH_DIAG` | `fusedrun` | CUDA Graphs A/B and its diagnostic (lead closed) |
-| `LLVQ_KV_AB`, `LLVQ_FUSE_AB`, `LLVQ_TRIM_AB` | `fusedrun` | cache store, fusion and trim A/Bs |
-| `LLVQ_TIME_PHASES` | `fusedrun`, `model.rs` | per-phase timing of a token |
 | `LLVQ_GQA_AB`, `LLVQ_GQA_PPL` | `fusedrun` | grouped attention timing, and its paired perplexity |
 | `LLVQ_KV_CAPTURE` | `fusedrun`, `kvcapture.rs` | `<ctx>,<tokens>,<corpus>,<window>`: one window fed token by token on the kernel form, the decode queries and the final KV cache written to `fusedrun`'s third argument for `ops/kv_mass_score.py` |
 | `LLVQ_KV_LADDER` | `fusedrun`, `kvladder.rs` | the cache of the second arm of `LLVQ_GQA_PPL=<ctx>,<windows>,<first>,ladder`, scored against the f16 cache under the kernel form on every decode row: `k8v8` (the `q8` code), `k8v4`, `k4v4c` or `k4v4c:<q>` (static key steps, clip quantile `q`, default 0.999, calibrated on 4,096 `dclm-edu` tokens), `k4v4h` (Hadamard then int4). Round trips: the cache keeps its dtype. Refused beside `LLVQ_KV`, beside any other mode, and beside a config |
 | `LLVQ_INT4_WIDE_CHECK` | `fusedrun` | int4 kernel against the host at widths above 14B |
-| `LLVQ_GESTURE_AB`, `LLVQ_BOUNDARY_AB` | `fusedrun` | decode-step gesture and boundary A/Bs |
-| `LLVQ_PERS_SEGMENT`, `LLVQ_PERS_4E` | `fusedrun` | persistent MLP segment, and 4E's row forms against the eager path |
+| `LLVQ_PERS_4E` | `fusedrun` | 4E's row forms against the eager path |
 | `LLVQ_BATCH_REF` | `batchrun` | the door's token fingerprint every batched row must reproduce |
-| `LLVQ_BENCH_ARMS`, `LLVQ_SEG_ARMS`, `LLVQ_SEG_TETRA`, `LLVQ_TIME_EVENTS` | `planesbench` | arm selection, segment arms, Tetra segment, event timing |
-| `LLVQ_TETRA_OCC`, `LLVQ_PERS_MICRO`, `LLVQ_TROWS`, `LLVQ_VROWS`, `LLVQ_PERS_ARMS`, `LLVQ_DUMP_CUBIN` | `planesbench` (`persbench.rs`) | persistent Tetra arms, microbenchmarks, row loops, verify rows, cubin dump |
+| `LLVQ_BENCH_ARMS`, `LLVQ_SEG_TETRA` | `planesbench` | arm selection, Tetra segment |
+| `LLVQ_TETRA_OCC`, `LLVQ_TROWS`, `LLVQ_VROWS`, `LLVQ_DUMP_CUBIN` | `planesbench` (`persbench.rs`) | the L1 Tetra arm, the row-loop microbenches `ops/jobs/rows-grid.sh` still sets, the verify rows `ops/jobs/spec-micro.sh` sets, cubin dump |
+
+## Removed
+
+The cleanup of 2026-11-08 deleted the code behind these variables; the tag `pre-clean-2026-11` holds it.
+`served::REMOVED` refuses each one by name in `fusedrun`, `gsm8k`, `chat`, `run` and every served config, and
+`llvq_cuda::REMOVED_BENCH_VARS` refuses `planesbench`'s four in `planesbench`, so a command copied from an old journal
+fails instead of measuring something else.
+
+| variable | what it drove |
+|---|---|
+| `LLVQ_KV_PREALLOC` | a fixed-window KV store, the scaffold of the closed CUDA Graphs lead (A2) |
+| `LLVQ_STEPPED` | `run`'s stepped decode over that store |
+| `LLVQ_GRAPH_AB`, `LLVQ_GRAPH_DIAG` | `fusedrun`'s CUDA Graphs A/B and its diagnostic |
+| `LLVQ_KV_AB`, `LLVQ_FUSE_AB` | `fusedrun`'s cache-store and fusion A/Bs |
+| `LLVQ_PERS_SEGMENT` | route P's persistent MLP segment against the eager MLP |
+| `LLVQ_TIME_PHASES` | `fusedrun`'s fenced per-phase pass; `metalrun phased` keeps the fenced decode |
+| `LLVQ_TRIM_AB` | `fusedrun`'s A/B of the three decode trims of 2026-10-30, now always on |
+| `LLVQ_GESTURE_AB` | `fusedrun`'s token-loop gestures, with `gesture_cuda.rs` and `gesture_spin.cu` |
+| `LLVQ_PERS_ARMS`, `LLVQ_PERS_MICRO` | `planesbench`'s L2 persistent arms and barrier microbenchmarks (refused by `llvq_cuda::REMOVED_BENCH_VARS`) |
+| `LLVQ_SEG_ARMS`, `LLVQ_TIME_EVENTS` | `planesbench`'s A3 segment arms and CUDA-event timing |
+| `LLVQ_BOUNDARY_AB` | `fusedrun`'s added-kernel-boundary A/B, with the split and empty launches |
 
 ## Tests
 
 | variable | read by | what it does |
 |---|---|---|
-| `LLVQ_SEALED_ARTIFACT` | `llvq-artifact` tests | where to find the sealed file |
+| `LLVQ_SEALED_ARTIFACT` | `llvq-artifact` tests, `llvq-cuda/tests/golay70_decoder_matches_rust.rs` | where to find the sealed file |
+| `LLVQ_Q4B` | `radixstudy`'s unit tests (`llvq-bench/src/bin/radixstudy.rs`, built under `--features archive`) | path of the sealed 4B, default `~/llvq-q4b.llvq`; it moves the search, and a missing file still fails. These tests do not read `LLVQ_SEALED_ARTIFACT` |
 | `LLVQ_HF_FIXTURE`, `LLVQ_HF_MINI_FIXTURE` | `llvq-llm/tests/hfpack.rs` | rewrite the packed fixtures |
 | `LLVQ_Q4_WIDE_FIXTURE_WRITE` | `llvq-llm/tests/proj_q4_wide.rs` | rewrite the wide int4 fixture |
 | `LLVQ_ROT_FIXTURE_WRITE` | `llvq-cuda/tests/rotation_matches_rust.rs` | rewrite the rotation fixture |
@@ -105,7 +121,7 @@ modes set together (`ALONE` in that file).
 
 ## Python
 
-`llvq-tetra` reads `LLVQ_HF_FUSED` (`0` or `1`), `LLVQ_HF_DEVICE` and `LLVQ_HF_TILE` (default 64, no range check).
+`llvq-tetra` reads `LLVQ_HF_FUSED` (`0` or `1`), `LLVQ_HF_DEVICE` and `LLVQ_HF_TILE` (default 64; refused above 64, the tile the fused modules allocate for).
 `ops/mlx_tetra` reads `LLVQ_MLX_ABLATE`, and its door refuses every other `LLVQ_*` name. `ops/awq_speed.py` reads
 `LLVQ_IMAGE_TAG` and `LLVQ_IMAGE_DIGEST`. The registry test does not read Python.
 

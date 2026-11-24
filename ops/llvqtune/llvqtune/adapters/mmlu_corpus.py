@@ -60,6 +60,9 @@ from typing import Iterator
 import torch
 
 REPO = "cais/mmlu"
+# The revision the overlap with the scored splits was measured on
+# (`ops/mmlu_aux_overlap.py`), and the one `ops/contrast_map.py` scores.
+REVISION = "c30699e8356da336a370243923dbaf21066bb9fe"
 TRAIN_SPLIT = "auxiliary_train"
 SCORED_SPLITS = ("dev", "validation", "test")
 ROWS_IN_SPLIT = 99_842
@@ -97,6 +100,7 @@ def fetch_split(split: str = TRAIN_SPLIT) -> Path:
             repo_id=REPO,
             filename=f"all/{split}-00000-of-00001.parquet",
             repo_type="dataset",
+            revision=REVISION,
         )
     )
 

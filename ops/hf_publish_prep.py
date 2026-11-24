@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Add to a packed directory what publishing it needs and packing it does not.
 
-    uv run ops/hf_publish_prep.py <packed dir> [--checkpoint <HF repo>] [--revision <sha>]
+    uv run ops/hf_publish_prep.py <packed dir> --revision <sha> [--checkpoint <HF repo>]
 
 `hfpack` writes the sealed file's own `config.json` plus a quantization block,
 and that is the right thing for a format: the packed directory is then the sealed
@@ -87,12 +87,16 @@ TOKENIZER_FILES = (
 )
 SHIM_FILE = "modeling_llvq.py"
 AUTO_MAP = {"AutoModelForCausalLM": f"{SHIM_FILE[:-3]}.LlvqQwen3ForCausalLM"}
+# The fields that tell one Qwen3 size from another. The packed `config.json` is
+# the checkpoint's own, so a tokenizer taken from another size disagrees here.
+GEOMETRY = ("hidden_size", "num_hidden_layers", "intermediate_size", "vocab_size")
 
 
-def checkpoint_dir(repo: str, revision: str | None) -> Path:
+def checkpoint_dir(repo: str, revision: str) -> Path:
     from huggingface_hub import snapshot_download
 
-    return Path(snapshot_download(repo, revision=revision, allow_patterns=TOKENIZER_FILES))
+    return Path(snapshot_download(repo, revision=revision,
+                                  allow_patterns=[*TOKENIZER_FILES, "config.json"]))
 
 
 def main(argv: list[str]) -> int:
@@ -114,8 +118,24 @@ def main(argv: list[str]) -> int:
     if "quantization_config" not in cfg:
         print("REFUSED: no quantization_config, this is not a packed model", file=sys.stderr)
         return 2
+    if not a.revision:
+        print("REFUSED: --revision is missing; the tokenizer files would come from "
+              f"whatever {a.checkpoint} holds today", file=sys.stderr)
+        return 2
 
     src = checkpoint_dir(a.checkpoint, a.revision)
+    ref_path = src / "config.json"
+    if not ref_path.exists():
+        print(f"REFUSED: {a.checkpoint} has no config.json to check the size against",
+              file=sys.stderr)
+        return 1
+    ref = json.loads(ref_path.read_text())
+    for key in GEOMETRY:
+        if cfg.get(key) != ref.get(key):
+            print(f"REFUSED: {key} is {cfg.get(key)} in {cfg_path} and {ref.get(key)} in "
+                  f"{a.checkpoint}@{a.revision}; pass the --checkpoint this model was "
+                  "packed from", file=sys.stderr)
+            return 2
     for name in TOKENIZER_FILES:
         s = src / name
         if not s.exists():

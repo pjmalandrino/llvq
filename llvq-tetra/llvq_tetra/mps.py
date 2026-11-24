@@ -418,7 +418,7 @@ class RotationKernel:
     def __call__(self, x: torch.Tensor) -> torch.Tensor:
         if self._kept is not None:
             ref, version, out, reads = self._kept
-            if ref() is x and x._version == version:
+            if ref() is x and not x.is_inference() and x._version == version:
                 reads += 1
                 self._kept = None if reads >= self.consumers else (ref, version, out, reads)
                 return out
@@ -431,6 +431,8 @@ class RotationKernel:
             flat, self.signbits, self.small, out, scratch, self.n, self.m, self.k, self.inv, 0, self.n,
             threads=rows * THREADGROUP, group_size=THREADGROUP,
         )
-        if self.consumers > 1:
+        # An inference tensor (`torch.inference_mode()`) has no version counter, so nothing
+        # proves it unchanged by the next call: it is rotated again rather than kept.
+        if self.consumers > 1 and not x.is_inference():
             self._kept = (weakref.ref(x), x._version, out, 1)
         return out

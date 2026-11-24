@@ -236,3 +236,45 @@ fn shell_cap_restricts_the_codebook_exactly() {
     }
     assert!(reached, "shell 13 unreachable even uncapped — the cap leaked");
 }
+
+/// A level cap of 1 keeps one class of the 383: `(±2)²⁴` on shell 6, with an
+/// even number of minus signs, and no odd class at all. The search over that
+/// codebook must still be exact, and its answer has a closed form: the signs
+/// of `x`, with the smallest `|xᵢ|` flipped when they hold an odd number of
+/// minus signs. Every point has the same norm, so the angular winner is the
+/// dot winner.
+#[test]
+fn a_one_level_codebook_is_searchable() {
+    let s = Searcher::new();
+    let leech = llvq_core::Leech::new();
+    let mut ball = BallSearcher::with_level_cap(1);
+    let mut rng = SplitMix64::new(0x2C_0005);
+
+    for q in 0..20 {
+        let x = gauss_vec(&mut rng, 0.4 + 0.3 * (q % 6) as f64);
+        let mut want: [i32; DIM] = core::array::from_fn(|i| if x[i] < 0.0 { -2 } else { 2 });
+        if want.iter().filter(|&&v| v < 0).count() % 2 == 1 {
+            let k = (0..DIM)
+                .min_by(|&a, &b| x[a].abs().total_cmp(&x[b].abs()))
+                .expect("24 coordinates");
+            want[k] = -want[k];
+        }
+        let dot: f64 = x.iter().zip(want.iter()).map(|(a, &b)| a * b as f64).sum();
+
+        let f = ball.nearest_angular(&s, &x);
+        assert_eq!(f.shell, 6, "query {q}: a one-level code lives on shell 6");
+        assert_eq!(f.point, want, "query {q}: not the closed-form nearest point");
+        assert!(leech.contains(&f.point), "query {q}: winner not in Λ24");
+        assert!((f.dot - dot).abs() <= TOL, "query {q}: dot {} vs {dot}", f.dot);
+
+        // The Euclidean path: the one point against the origin, whose key is 0.
+        for &beta in &[0.05, 0.5] {
+            let g = ball.nearest_scaled(&s, &x, beta);
+            if 2.0 * beta * dot - beta * beta * 96.0 > 0.0 {
+                assert_eq!((g.shell, g.point), (6, want), "query {q}, β {beta}");
+            } else {
+                assert_eq!((g.shell, g.point), (0, [0; DIM]), "query {q}, β {beta}");
+            }
+        }
+    }
+}

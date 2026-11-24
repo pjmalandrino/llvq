@@ -74,9 +74,11 @@ const ROW_LANES: usize = 8;
 /// `MTLDevice.maxThreadgroupMemoryLength`.
 ///
 /// A constant rather than a device query on purpose: the kernels are compiled
-/// against it, so a machine that offered less would have to be refused rather
-/// than quietly served a kernel that stages past its limit. Asking the device
-/// and adapting would hide exactly that.
+/// against it, so a machine that offered less has to be refused rather than
+/// quietly served a kernel that stages past its limit. Asking the device and
+/// adapting would hide exactly that. [`MetalRuntime::new`] and
+/// [`MetalRuntime::from_tables`] refuse such a device by name
+/// (`check_threadgroup_memory`).
 const THREADGROUP_LIMIT: usize = 32_768;
 
 /// Columns `tv_q4_metal_tiled` stages a tile, for an int4 record whose whole
@@ -174,10 +176,12 @@ impl MetalTuning {
             );
         }
         source_of(self.tetra_kernel)?;
-        if !self.tetra_kernel.starts_with("tv_tetra48_metal") || self.tetra_kernel == "tv_tetra48_metal_ilp" {
+        let k = self.tetra_kernel;
+        if k != SERVED_TETRA && !TETRA_ROW_LOOPS.contains(&k) && !TETRA_REFERENCES.contains(&k) {
             candle_core::bail!(
-                "{} is not a 32-lane Tetra matvec with the served arguments",
-                self.tetra_kernel
+                "{k} is not a 32-lane Tetra matvec with the served arguments and an f32 output: \
+                 {SERVED_TETRA}, a row loop of TETRA_ROW_LOOPS or a reference of TETRA_REFERENCES. \
+                 The f16 twins come through half-io, the prefill kernel through prefill rows"
             );
         }
         if self.half_io {
@@ -224,6 +228,13 @@ pub const TETRA_ROW_LOOPS: [&str; 6] = [
     "tv_tetra48_metal_lutd4",
     "tv_tetra48_metal_lutdt",
 ];
+
+/// The reference variants of the served Tetra matvec (`kernels/llvq_tetra48.metal`):
+/// the faithful port and three other decoders of it (`_ar`, `_u2`, `_c3`).
+/// Each has the served kernel's arguments, 32 lanes a row, an f32 output, and
+/// no threadgroup memory but the staging at index 0 the host sizes.
+pub const TETRA_REFERENCES: [&str; 4] =
+    ["tv_tetra48_metal", "tv_tetra48_metal_ar", "tv_tetra48_metal_u2", "tv_tetra48_metal_c3"];
 
 /// Whether a Tetra matvec stages the decoder tables in threadgroup memory and
 /// loops its simdgroups over the rows (`_lutdt`, `_lutdth`): its own dispatch.
@@ -281,6 +292,52 @@ fn int4_tile_for(name: &str, d_in: usize, gpr: usize, tile: usize) -> Result<Opt
     }
     MetalTuning { q4_tile_cols: tile, ..Default::default() }.validate()?;
     Ok(Some(tile))
+}
+
+/// Refuses by name a device that offers less threadgroup memory than
+/// [`THREADGROUP_LIMIT`], the bound every staging of this file is sized to.
+fn check_threadgroup_memory(dev: &candle_core::MetalDevice) -> Result<()> {
+    use objc2_metal::MTLDevice as _;
+    let offered = dev.device().as_ref().maxThreadgroupMemoryLength();
+    if offered < THREADGROUP_LIMIT {
+        candle_core::bail!(
+            "the Metal device offers {offered} B of threadgroup memory; the kernels of this file \
+             stage up to {THREADGROUP_LIMIT} B"
+        );
+    }
+    Ok(())
+}
+
+/// Threads a threadgroup for a launch that asks `want`: `want` when the
+/// pipeline takes it, else the largest `want / 2^k` it takes, down to one
+/// SIMD-group, else a refusal by name.
+///
+/// Only for a kernel whose result does not depend on the group: each row is
+/// the SIMD-group of its global thread index (`gid >> 5`), and the staging
+/// loops over `threads_per_threadgroup`. Halving keeps every threadgroup
+/// whole on a grid `want` tiled.
+fn group_within(pipe: &ComputePipeline, name: &str, want: usize) -> Result<usize> {
+    let max = pipe.max_total_threads_per_threadgroup();
+    let mut threads = want;
+    while threads > max && threads > LANES {
+        threads /= 2;
+    }
+    if threads > max {
+        candle_core::bail!(
+            "{name}: the pipeline allows {max} threads a threadgroup, fewer than one SIMD-group of {LANES}"
+        );
+    }
+    Ok(threads)
+}
+
+/// `want` threads a threadgroup, refused by name when the pipeline takes
+/// fewer: for a kernel whose indexing assumes that count.
+fn group_exactly(pipe: &ComputePipeline, name: &str, want: usize) -> Result<usize> {
+    let max = pipe.max_total_threads_per_threadgroup();
+    if max < want {
+        candle_core::bail!("{name}: the launch needs {want} threads a threadgroup, the pipeline allows {max}");
+    }
+    Ok(want)
 }
 
 const SRC_TETRA: &str = include_str!("../kernels/llvq_tetra48.metal");
@@ -468,6 +525,10 @@ fn kernel_from_env() -> Result<&'static str> {
 /// The matvec a value of `LLVQ_METAL_KERNEL` names. An unknown name is refused:
 /// falling back to the served kernel would label an A/B arm with a kernel it
 /// did not run.
+///
+/// The names are a subset of what [`MetalTuning::validate`] accepts. `ilp` is
+/// not one: `tv_tetra48_metal_ilp` gives a row 8 lanes, so on the 32-lane grid
+/// every launch uses it would write past the output.
 fn kernel_named(v: Option<&str>) -> Result<&'static str> {
     const SERVED: &str = "tv_tetra48_metal_lut";
     Ok(match v {
@@ -475,10 +536,9 @@ fn kernel_named(v: Option<&str>) -> Result<&'static str> {
         Some("c3") => "tv_tetra48_metal_c3",
         Some("ar") => "tv_tetra48_metal_ar",
         Some("u2") => "tv_tetra48_metal_u2",
-        Some("ilp") => "tv_tetra48_metal_ilp",
         Some("plain") => "tv_tetra48_metal",
         Some(other) => candle_core::bail!(
-            "LLVQ_METAL_KERNEL={other:?} is not a matvec of this file: lut, c3, ar, u2, ilp or plain"
+            "LLVQ_METAL_KERNEL={other:?} is not a matvec of this file: lut, c3, ar, u2 or plain"
         ),
     })
 }
@@ -505,6 +565,7 @@ impl MetalRuntime {
             candle_core::Device::Metal(d) => d.clone(),
             other => candle_core::bail!("the Metal runtime wants a Metal device, got {other:?}"),
         };
+        check_threadgroup_memory(&dev)?;
         // 32..=256, not the CUDA contract's 32..=512. The staging is
         // `tile * 24 * 4` bytes against Apple's 32,768 B of threadgroup
         // memory, so 341 blocks is the ceiling and 256 the largest power of
@@ -653,6 +714,21 @@ impl MetalRuntime {
                 candle_core::bail!("{name}: the MSL did not compile: {what}");
             }
         };
+        // The matvec and head kernels give a row one SIMD-group of 32 lanes,
+        // find it as `gid >> 5`, reduce across lanes `l ^ 16 .. l ^ 1` and
+        // write from lane 0. A pipeline that runs another width would return
+        // wrong rows with no error. Checked on every pipeline, before it is
+        // cached: a device whose width is not 32 serves none of the path.
+        {
+            use objc2_metal::MTLComputePipelineState as _;
+            let width = pipe.as_ref().threadExecutionWidth();
+            if width != LANES {
+                candle_core::bail!(
+                    "{name}: the pipeline runs SIMD-groups of {width} threads, and the kernels of this \
+                     file assume {LANES}"
+                );
+            }
+        }
         self.pipelines
             .write()
             .expect("no panic held this lock")
@@ -727,6 +803,7 @@ impl CustomOp1 for TetraRows<'_> {
         }
         let dev = storage.device().clone();
         let pipe = self.rt.pipeline("tv_tetra48_metal_lutdr")?;
+        let group = group_within(&pipe, "tv_tetra48_metal_lutdr", GROUP)?;
         let out = dev.new_buffer(self.n_rows * p.d_out, DType::F16, "tetra48-rows")?;
         let enc = dev.command_encoder()?;
         enc.set_compute_pipeline_state(&pipe);
@@ -765,7 +842,7 @@ impl CustomOp1 for TetraRows<'_> {
         enc.use_resource(&*out, objc2_metal::MTLResourceUsage::Write);
         enc.dispatch_threads(
             objc2_metal::MTLSize { width: p.d_out * LANES, height: 1, depth: 1 },
-            objc2_metal::MTLSize { width: GROUP, height: 1, depth: 1 },
+            objc2_metal::MTLSize { width: group, height: 1, depth: 1 },
         );
         Ok((
             MetalStorage::new(out, dev, self.n_rows * p.d_out, DType::F16),
@@ -936,6 +1013,9 @@ impl CustomOp1 for TetraMatvec<'_> {
             ),
         };
         let pipe = self.rt.pipeline(kname)?;
+        // The one-launch kernels' group; the row-looping ones size their own
+        // below.
+        let group = group_within(&pipe, kname, GROUP)?;
 
         let out = dev.new_buffer(p.d_out, out_dtype, "tetra48-matvec")?;
         let enc = dev.command_encoder()?;
@@ -1031,7 +1111,7 @@ impl CustomOp1 for TetraMatvec<'_> {
             depth: 1,
         };
         let group = objc2_metal::MTLSize {
-            width: GROUP,
+            width: group,
             height: 1,
             depth: 1,
         };
@@ -1306,7 +1386,13 @@ impl CustomOp1 for RotOp<'_> {
                 enc.use_resource(b, objc2_metal::MTLResourceUsage::Read);
             }
             enc.use_resource(&*out, objc2_metal::MTLResourceUsage::Write);
-            let threads = self.rot.threads;
+            // One threadgroup, never larger than the pipeline takes. The
+            // kernel strides every loop by its thread count, so any count
+            // gives the same bits.
+            let threads = (self.rot.threads.min(pipe.max_total_threads_per_threadgroup()) / LANES) * LANES;
+            if threads == 0 {
+                candle_core::bail!("rot_apply_tg_metal: the pipeline allows fewer than {LANES} threads a threadgroup");
+            }
             enc.dispatch_threads(
                 objc2_metal::MTLSize { width: threads, height: 1, depth: 1 },
                 objc2_metal::MTLSize { width: threads, height: 1, depth: 1 },
@@ -1344,7 +1430,13 @@ impl CustomOp1 for RotOp<'_> {
         for b in [&*out, &*scratch] {
             enc.use_resource(b, objc2_metal::MTLResourceUsage::Write);
         }
-        let threads = self.rot.threads;
+        // One threadgroup a row: a group larger than the pipeline takes would
+        // split a row over two groups on one scratch. The kernel strides every
+        // loop by its thread count, so any count gives the same bits.
+        let threads = (self.rot.threads.min(pipe.max_total_threads_per_threadgroup()) / LANES) * LANES;
+        if threads == 0 {
+            candle_core::bail!("{kname}: the pipeline allows fewer than {LANES} threads a threadgroup");
+        }
         enc.dispatch_threads(
             objc2_metal::MTLSize { width: threads * self.rows, height: 1, depth: 1 },
             objc2_metal::MTLSize { width: threads, height: 1, depth: 1 },
@@ -1511,6 +1603,7 @@ impl CustomOp1 for Int4Rows<'_> {
             );
         }
         let pipe = self.rt.pipeline("tv_q4_metal_rows")?;
+        let group = group_within(&pipe, "tv_q4_metal_rows", GROUP)?;
         let dev = storage.device().clone();
         let out = dev.new_buffer(self.n_rows * p.d_out, DType::F16, "llvq-metal-q4-rows")?;
         let enc = dev.command_encoder()?;
@@ -1531,7 +1624,7 @@ impl CustomOp1 for Int4Rows<'_> {
         enc.use_resource(&*out, objc2_metal::MTLResourceUsage::Write);
         enc.dispatch_threads(
             objc2_metal::MTLSize { width: p.d_out * LANES, height: 1, depth: 1 },
-            objc2_metal::MTLSize { width: GROUP, height: 1, depth: 1 },
+            objc2_metal::MTLSize { width: group, height: 1, depth: 1 },
         );
         Ok((
             MetalStorage::new(out, dev, self.n_rows * p.d_out, DType::F16),
@@ -1582,6 +1675,7 @@ impl CustomOp1 for Int4Op<'_> {
         };
         let io = if half { DType::F16 } else { DType::F32 };
         let pipe = self.rt.pipeline(kname)?;
+        let group = group_within(&pipe, kname, GROUP)?;
         let dev = storage.device().clone();
         let out = dev.new_buffer(p.d_out, io, "llvq-metal-q4")?;
         let enc = dev.command_encoder()?;
@@ -1608,7 +1702,7 @@ impl CustomOp1 for Int4Op<'_> {
         enc.use_resource(&*out, objc2_metal::MTLResourceUsage::Write);
         enc.dispatch_threads(
             objc2_metal::MTLSize { width: p.d_out * LANES, height: 1, depth: 1 },
-            objc2_metal::MTLSize { width: GROUP, height: 1, depth: 1 },
+            objc2_metal::MTLSize { width: group, height: 1, depth: 1 },
         );
         let mut dims = layout.dims().to_vec();
         *dims.last_mut().expect("rank >= 1") = p.d_out;
@@ -1744,10 +1838,14 @@ impl CustomOp1 for GatherOp<'_> {
         if n_ids == 0 {
             candle_core::bail!("{}: a gather of zero ids", t.name);
         }
-        let pipe = self.rt.pipeline(match t.bits {
+        let kname = match t.bits {
             4 => "emb_q4_gather_metal",
             _ => "emb_q8_gather_metal",
-        })?;
+        };
+        let pipe = self.rt.pipeline(kname)?;
+        // Not reducible: the kernel takes its token from the threadgroup's
+        // position, so the grid is `n_ids` groups of exactly this many.
+        let group = group_exactly(&pipe, kname, GROUP)?;
         let dev = storage.device().clone();
         let out = dev.new_buffer(n_ids * t.d, DType::F32, "llvq-metal-q8-gather")?;
         let enc = dev.command_encoder()?;
@@ -1767,8 +1865,8 @@ impl CustomOp1 for GatherOp<'_> {
         }
         enc.use_resource(&*out, objc2_metal::MTLResourceUsage::Write);
         enc.dispatch_threads(
-            objc2_metal::MTLSize { width: n_ids * GROUP, height: 1, depth: 1 },
-            objc2_metal::MTLSize { width: GROUP, height: 1, depth: 1 },
+            objc2_metal::MTLSize { width: n_ids * group, height: 1, depth: 1 },
+            objc2_metal::MTLSize { width: group, height: 1, depth: 1 },
         );
         let mut dims = layout.dims().to_vec();
         dims.push(t.d);
@@ -1806,10 +1904,12 @@ impl CustomOp1 for HeadOp<'_> {
             candle_core::bail!("{}: staging d={} wants {staged} B against {THREADGROUP_LIMIT}",
                                t.name, t.d);
         }
-        let pipe = self.rt.pipeline(match t.bits {
+        let kname = match t.bits {
             4 => "tv_emb_q4_metal",
             _ => "tv_q8_metal",
-        })?;
+        };
+        let pipe = self.rt.pipeline(kname)?;
+        let group = group_within(&pipe, kname, GROUP)?;
         let dev = storage.device().clone();
         let out = dev.new_buffer(rows * t.vocab, DType::F32, "llvq-metal-q8-head")?;
         use candle_metal_kernels::utils::set_param;
@@ -1834,7 +1934,7 @@ impl CustomOp1 for HeadOp<'_> {
             enc.use_resource(&*out, objc2_metal::MTLResourceUsage::Write);
             enc.dispatch_threads(
                 objc2_metal::MTLSize { width: t.vocab * LANES, height: 1, depth: 1 },
-                objc2_metal::MTLSize { width: GROUP, height: 1, depth: 1 },
+                objc2_metal::MTLSize { width: group, height: 1, depth: 1 },
             );
         }
         let mut dims = layout.dims().to_vec();
@@ -1964,6 +2064,7 @@ impl MetalRuntime {
             candle_core::Device::Metal(d) => d.clone(),
             other => candle_core::bail!("the Metal runtime wants a Metal device, got {other:?}"),
         };
+        check_threadgroup_memory(&dev)?;
         if !tile.is_power_of_two() || !(32..=256).contains(&tile) {
             candle_core::bail!("tile {tile} is not a power of two in 32..=256");
         }
@@ -2128,6 +2229,8 @@ pub fn load_resolved_tuned(
             .map_err(|e| candle_core::Error::msg(format!("{path}: config.json: {e}")))?;
     let tokenizer = tokenizers::Tokenizer::from_bytes(&model.tokenizer_json)
         .map_err(|e| candle_core::Error::msg(format!("{path}: tokenizer.json: {e}")))?;
+    crate::fused_cpu::check_token_ids(&tokenizer, &model.raw)
+        .map_err(|e| candle_core::Error::msg(format!("{path}: {e}")))?;
 
     let embed_tables = match emode.bits() {
         None => None,
@@ -3632,9 +3735,23 @@ mod tests {
         assert_eq!(kernel_named(Some("lut")).unwrap(), "tv_tetra48_metal_lut");
         assert_eq!(kernel_named(Some("plain")).unwrap(), "tv_tetra48_metal");
         assert_eq!(kernel_named(Some("c3")).unwrap(), "tv_tetra48_metal_c3");
-        for bad in ["lutd", "", "LUT"] {
+        // `ilp` names an 8-lane kernel, which the 32-lane grid would run past
+        // the output.
+        for bad in ["lutd", "", "LUT", "ilp"] {
             let e = kernel_named(Some(bad)).expect_err(bad).to_string();
             assert!(e.contains("LLVQ_METAL_KERNEL"), "{bad:?}: {e}");
+        }
+    }
+
+    /// Every name the variable accepts, `validate` accepts too: the variable
+    /// does not pass through it.
+    #[test]
+    fn every_kernel_the_variable_names_passes_validate() {
+        for v in [None, Some("lut"), Some("c3"), Some("ar"), Some("u2"), Some("plain")] {
+            let tetra_kernel = kernel_named(v).unwrap();
+            super::MetalTuning { tetra_kernel, ..Default::default() }
+                .validate()
+                .unwrap_or_else(|e| panic!("{v:?} names {tetra_kernel}, which validate refuses: {e}"));
         }
     }
 

@@ -40,8 +40,8 @@ card: the kernel decodes and multiplies the routed experts' rows in a few launch
 | peak device memory reading a 9,000-token prompt | 12.0 GB | 11.5 GB | not measured |
 | time to read a 9,000-token prompt | 23.9 s | 77.1 s | not measured |
 
-- Size: 10.0 GB to download, 3.03 bits per parameter; 8.14 GB and 2.47 in the sealed form, which the engine does
-  not read yet. Both *computed* from the files. The native model is 19.5 GB.
+- Size: 8.15 GB to download, 2.47 bits per parameter for the whole text model, tables included, *computed* from
+  the files. The native model is 19.5 GB.
 - Quality: KL 0.0880 nats against the native model on WikiText-2. GSM8K, first 200 problems: 191 through the dense
   reference path and 186 through the fused kernels, not separated (p = 0.18). The native model was not run through
   our GSM8K harness.
@@ -124,7 +124,7 @@ the CUDA libraries it loads.
 
 ```bash
 curl -fsSL https://github.com/pjmalandrino/llvq-tetra/releases/latest/download/install.sh | sh
-llvq run inkling2:mini                # 10.0 GB, checked against its pinned sha256
+llvq run inkling2:mini                # 8.15 GB, checked against its pinned sha256
 llvq run qwen3:4b "Name three primary colours."
 llvq serve                            # OpenAI and Ollama routes on 127.0.0.1:11435, tool calls included
 ```
@@ -143,7 +143,7 @@ A different hash is a different file.
 
 | model | repository | file | SHA-256 |
 |---|---|---|---|
-| Inkling 2 Mini | [Pier-Jean/Inkling-2-Mini-LLVQ-Tetra](https://huggingface.co/Pier-Jean/Inkling-2-Mini-LLVQ-Tetra) | `llvq-files.json`, the index of 29 files | `9a4052a9…` |
+| Inkling 2 Mini | [Pier-Jean/Inkling-2-Mini-LLVQ-Tetra](https://huggingface.co/Pier-Jean/Inkling-2-Mini-LLVQ-Tetra) | `llvq-files.json`, the index of 29 files | `1e9314db…` |
 | Qwen3-4B | [Pier-Jean/Qwen3-4B-LLVQ-Tetra-sealed](https://huggingface.co/Pier-Jean/Qwen3-4B-LLVQ-Tetra-sealed) | `qwen3-4b-sealed.bin` | `886391a8…` |
 | Qwen3-8B | [Pier-Jean/Qwen3-8B-LLVQ-Tetra-sealed](https://huggingface.co/Pier-Jean/Qwen3-8B-LLVQ-Tetra-sealed) | `qwen3-8b-sealed-B.bin` | `7bdb9a55…` |
 | Qwen3-14B | [Pier-Jean/Qwen3-14B-LLVQ-Tetra-sealed](https://huggingface.co/Pier-Jean/Qwen3-14B-LLVQ-Tetra-sealed) | `qwen3-14b-sealed.bin` | `61db37fe…` |

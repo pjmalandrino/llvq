@@ -54,10 +54,12 @@ mod error;
 mod format;
 pub mod e1c;
 pub mod e1v;
+pub mod f16;
 pub mod runtime;
 /// The served runtime layout of the Tetra word: two conventions, nothing else.
 pub mod tetra48;
 mod sealed;
+pub mod sha256;
 
 pub use codebook::{codebook_fingerprint, tetra_fingerprint};
 pub use error::Error;

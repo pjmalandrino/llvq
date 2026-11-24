@@ -58,7 +58,7 @@ llvq ls; llvq ps; llvq show qwen3:4b; llvq stop qwen3:4b; llvq rm qwen3:4b
 
 | model | file | b/param | Metal config | CUDA config |
 |---|---|---|---|---|
-| `qwen3:4b`, also `qwen3:latest` | `qwen3-4b-sealed.bin`, 1.42 GB | 2.7320 | expanded | 4E v9 (greedy only) |
+| `qwen3:4b`, also `qwen3:latest` | `qwen3-4b-sealed.bin`, 1.42 GB | 2.7320 | expanded | 4E v9 after the chain prefill (`LLVQ_PROFILE=eager`: the eager prefill), greedy only |
 | `qwen3:8b` | `qwen3-8b-sealed-B.bin`, 2.82 GB | 2.6953 | expanded, never run fused on Metal | 4E v9 (greedy only) |
 | `qwen3:14b` | `qwen3-14b-sealed.bin`, 5.09 GB | 2.7305 | expanded, never run fused on Metal | 4E v9 (greedy only) |
 
@@ -164,8 +164,13 @@ that `small_model` asks for, say) makes the next turn of the first read its whol
 
 ## Limits
 
-The engine decodes one sequence at a time, so requests to one model queue. On CUDA the three
-models run 4E, which decodes greedily: a temperature above 0 is refused there. A chat history is read again
+By default the engine decodes one sequence at a time, so requests to one model queue. Under
+`LLVQ_BATCH=<n>[:<positions>]` on CUDA, `llvq serve` batches continuously through each model's
+`*-4e-v9-batch.json` config: a lone request decodes on 4E, and up to n step together through the
+batched GEMM, greedy only, with no conversation cache. `LLVQ_BATCH` is refused on Metal and the CPU.
+On CUDA the three models run 4E, which decodes greedily: a temperature above 0 is refused there.
+The 4B's chain prefill compiles two tree modules on a card's first start, then loads them from
+`LLVQ_MODULE_CACHE` (unset: `$XDG_CACHE_HOME/llvq/modules`, else `~/.cache/llvq/modules`). A chat history is read again
 only from the first message that changed since the last request. Rates in a response are the
 runtime's own, never a measurement. A call block the model writes that is not a JSON object with a
 `name` comes back as content, markers included, with a warning in the unstreamed response. A tool

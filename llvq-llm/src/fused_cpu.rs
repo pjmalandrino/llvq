@@ -294,6 +294,30 @@ fn q4_of(t: &llvq_artifact::RawTensor) -> Result<Q4Matrix> {
     Ok(m)
 }
 
+/// Whether every id the file's tokenizer writes, added tokens included, is a
+/// row of the embedding table. The gather kernels do not bound the id
+/// (`emb_q4.cu`, `emb_q4.metal`), so a prompt token past the table would read
+/// past its buffer. The table may hold more rows than the tokenizer has ids:
+/// Qwen3's writes ids up to 151,668 into 151,936 rows. A file without the
+/// table passes here and is refused where the table is read.
+pub(crate) fn check_token_ids(
+    tokenizer: &tokenizers::Tokenizer,
+    raw: &[llvq_artifact::RawTensor],
+) -> std::result::Result<(), String> {
+    let Some(table) = raw.iter().find(|t| t.name == crate::fused::EMBED_NAME) else {
+        return Ok(());
+    };
+    let rows = table.dims.first().copied().unwrap_or(0);
+    match tokenizer.get_vocab(true).values().copied().max() {
+        Some(top) if top as usize >= rows => Err(format!(
+            "tokenizer.json writes ids up to {top}, and {} holds {rows} rows: a prompt token past the table \
+             would be read past its buffer",
+            crate::fused::EMBED_NAME
+        )),
+        _ => Ok(()),
+    }
+}
+
 /// The served object on the CPU, loaded from a sealed artifact.
 ///
 /// The argument list is the device loaders'. The CPU path reads `tetra48`
@@ -342,6 +366,7 @@ pub fn load_resolved(
         .map_err(|e| candle_core::Error::msg(format!("{path}: config.json: {e}")))?;
     let tokenizer = tokenizers::Tokenizer::from_bytes(&model.tokenizer_json)
         .map_err(|e| candle_core::Error::msg(format!("{path}: tokenizer.json: {e}")))?;
+    check_token_ids(&tokenizer, &model.raw).map_err(|e| candle_core::Error::msg(format!("{path}: {e}")))?;
 
     let tables = Arc::new(Tables::default());
     let mut rotations: HashMap<crate::fused::RotKey, Arc<Rotation>> = HashMap::new();
@@ -482,4 +507,41 @@ pub fn load_resolved(
         runtime_bytes,
         carried_bytes,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::check_token_ids;
+
+    /// A word-level tokenizer of three words and one added token, which the
+    /// library numbers 3, past the words.
+    fn tokenizer() -> tokenizers::Tokenizer {
+        let j = serde_json::json!({
+            "version": "1.0", "truncation": null, "padding": null,
+            "added_tokens": [{"id": 3, "content": "<x>", "single_word": false, "lstrip": false,
+                "rstrip": false, "normalized": false, "special": true}],
+            "normalizer": null, "pre_tokenizer": {"type": "WhitespaceSplit"}, "post_processor": null,
+            "decoder": null,
+            "model": {"type": "WordLevel", "vocab": {"<unk>": 0, "a": 1, "b": 2}, "unk_token": "<unk>"}
+        });
+        tokenizers::Tokenizer::from_bytes(serde_json::to_vec(&j).unwrap()).expect("the tiny tokenizer builds")
+    }
+
+    fn table(rows: usize) -> llvq_artifact::RawTensor {
+        llvq_artifact::RawTensor {
+            name: crate::fused::EMBED_NAME.into(),
+            dims: vec![rows, 8],
+            data: llvq_artifact::RawData::F16(vec![0; rows * 8]),
+        }
+    }
+
+    #[test]
+    fn a_tokenizer_id_past_the_embedding_table_is_refused_by_name() {
+        let t = tokenizer();
+        let e = check_token_ids(&t, &[table(3)]).unwrap_err();
+        assert!(e.contains(crate::fused::EMBED_NAME) && e.contains("up to 3"), "{e}");
+        check_token_ids(&t, &[table(4)]).expect("ids 0 to 3 fit four rows");
+        check_token_ids(&t, &[table(4096)]).expect("more rows than ids, as Qwen3's table has");
+        check_token_ids(&t, &[]).expect("no table: refused where the table is read");
+    }
 }

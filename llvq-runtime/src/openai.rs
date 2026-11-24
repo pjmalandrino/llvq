@@ -247,6 +247,9 @@ fn content_text(v: &Value) -> Result<String, String> {
             for p in parts {
                 match (p.get("type").and_then(Value::as_str), p.get("text").and_then(Value::as_str)) {
                     (Some("text"), Some(t)) => out.push_str(t),
+                    (Some("text"), None) => {
+                        return Err("content part \"text\": no \"text\" field holding a string".into())
+                    }
                     (kind, _) => {
                         return Err(format!(
                             "content part {:?}: the served models read text parts only",
@@ -262,13 +265,14 @@ fn content_text(v: &Value) -> Result<String, String> {
 }
 
 /// Fields OpenAI clients send that llvq reads as no-ops, and so does not warn
-/// about.
-const HARMLESS: &[&str] = &["user", "metadata", "store", "logprobs"];
+/// about. `logprobs` is one only when false: asked for, it is not served.
+const HARMLESS: &[&str] = &["user", "metadata", "store"];
 
 fn warn_extra(extra: &Map<String, Value>) -> Vec<String> {
     extra
         .iter()
         .filter(|(k, v)| !v.is_null() && !HARMLESS.contains(&k.as_str()))
+        .filter(|(k, v)| !(k.as_str() == "logprobs" && v.as_bool() == Some(false)))
         .map(|(k, _)| format!("{k} is not implemented by llvq and was ignored"))
         .collect()
 }
@@ -416,7 +420,14 @@ async fn complete(st: &AppState, name: ModelName, request: Request, stream: bool
                         None => Vec::new(),
                     };
                     let n = calls.as_ref().map_or(0, |c| c.count);
-                    out.push(data(&ctx.chunk(json!({}), Some(finish_reason(&s.done_reason, n)))));
+                    // The fields llvq ignored ride on the chunk that ends the
+                    // answer, as on the whole response without a stream.
+                    // `warnings` is not an OpenAI field, here or there.
+                    let mut fin = ctx.chunk(json!({}), Some(finish_reason(&s.done_reason, n)));
+                    if !ctx.warnings.is_empty() {
+                        fin["warnings"] = json!(ctx.warnings);
+                    }
+                    out.push(data(&fin));
                     if ctx.include_usage {
                         let u = Usage {
                             prompt_tokens: s.prompt_eval_count,

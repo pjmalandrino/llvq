@@ -87,6 +87,21 @@ THE RELEASED ARCHIVE, AS A STRANGER GETS IT
   One wart: `llvq run` under the alias says the name is not in the store and pulls again; the blobs are there, so
   it downloads nothing, but it verifies 10 GB again.
 
+AFTER THE AUDITS, AND THE SLIM FILE SET (prereg inkling-audit-identity, deviation E1: first reading on a partial tree)
+  Tree: main with the code audit of 2026-11-18 only, image f0aef998. L4.
+  Identity (job 6b05af09d0582cfbbefc8945): the logits of the 2,000-token prompt have the digests of before the
+  audit on the three paths: chunk ad2e8647, batched with the bias on the card ad2e8647, pieces of 512 60974683.
+  The read takes 27.85 s, 16.92 s and 17.46 s. PASS.
+  Slim file set (job 6b05b0f0d0582cfbbefc8c71): the image's llvq pulls inkling2:mini at Hub revision 697661e3,
+  whose model.safetensors no longer carries the two BF16 tables: 8,145,313,108 bytes in 52 s, 13 correctness
+  checks of 13. nvidia-smi 7,786 MiB after the load, the figure of the 10 GB file set, and 10,922 MiB after the
+  8,791-token prompt. First token of that prompt after 83.02 s. PASS.
+  The reading the prereg names, on the whole tree (the audit of 2026-11-18, the port of pull request 23, the
+  llvq-tetra audits; image 6866fe77), L4. Identity (job 6b05b768d0582cfbbefc9774): the same three digests,
+  ad2e8647, ad2e8647, 60974683. PASS. Slim file set (job 6b05ba0ed0582cfbbefc9c0f): pulled in 53 s, 13
+  correctness checks of 13, 7,786 MiB after the load, 11,242 MiB after the long prompt, first token after
+  83.13 s. PASS. Nothing the model computes moved with the audits: no figure of this journal is to be redone.
+
 RUNS (all on image builds of branch debit/inkling-ttft-2026-11-24; raw files in inkling-cuda-ttft-2026-11-24-brut/,
 inkling-serve-card-2026-11-24-brut/, inkling-cuda-pieces-ppl-2026-11-24-brut/)
   6b054af5ca8b51043c3b5983  l40sx1  batched experts, 5 arms                         $0.18
@@ -101,7 +116,11 @@ inkling-serve-card-2026-11-24-brut/, inkling-cuda-pieces-ppl-2026-11-24-brut/)
   6b0582fbaba0b0fd660aaa55  l40sx1  the server with the settings: no card, canceled  $0.00
   6b058c7a1460ffe1d5e82582  l4x1    the server with the long-prompt settings        $0.08
   6b0594c1aba0b0fd660af181  l4x1    the released archive installed, pulled, served   $0.09
-  Card spend on this model after them: $8.50 of $25.
+  6b05af09d0582cfbbefc8945  l4x1    identity after the audit of 2026-11-18            $0.07
+  6b05b0f0d0582cfbbefc8c71  l4x1    the slim file set pulled and served               $0.08
+  6b05b768d0582cfbbefc9774  l4x1    identity on the whole audit tree                  $0.07
+  6b05ba0ed0582cfbbefc9c0f  l4x1    the slim file set on the whole audit tree         $0.08
+  Card spend on this model after them: $8.80 of $25.
 
 AGAINST THE SIGNED PREDICTIONS
   quantity                                         predicted            measured           inside
@@ -128,3 +147,6 @@ AGAINST THE SIGNED PREDICTIONS
   released archive, nvidia-smi after the prompt    10.5 to 12.5 GB      11,242 MiB         yes
   released archive, first token at 8,791 tokens    70 to 95 s           80.94 s            yes
   released archive, the pull                       2 to 8 minutes       69 s               no, faster
+  audits: the three digests are the references     probability 0.9      they are           yes
+  slim file set pulls and passes every check       probability 0.75     13 of 13           yes
+  slim, nvidia-smi after load within 100 MiB       of 7,786 MiB         7,786 MiB          yes

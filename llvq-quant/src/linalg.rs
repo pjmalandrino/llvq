@@ -13,10 +13,13 @@
 //! passes ~615 G multiply-adds *per layer*.
 //!
 //! With `--features fast-linalg`, [`GptqFactor::new`] calls `faer` instead:
-//! blocked, vectorized and threaded, same mathematics to the last rounding.
+//! blocked, vectorized and threaded. It is the same mathematics in a
+//! different order of operations, so the two factors agree to rounding, not
+//! to the bit, and codes encoded on the two paths may differ.
 //! The tests assert *identities* (`L Lᵀ = H`, `(Uᵀ U) H = I`), not the
 //! behaviour of one implementation, so they hold both paths — and
-//! `both_factorizations_agree` requires the two to produce the same factor.
+//! `both_factorizations_agree` requires the two factors to agree entry by
+//! entry within `1e-8 · max(max|U|, 1)`, on sizes 7, 24, 64 and 129.
 //!
 //! Matrices are dense row-major `n × n` in a flat `Vec<f64>`.
 
@@ -27,17 +30,30 @@
 pub struct NotPositiveDefinite {
     /// Pivot index where the factorization failed.
     pub at: usize,
+    /// Which of the two factorizations failed: `false` for `H = L Lᵀ`, `true`
+    /// for the second one, of the computed `H⁻¹`. Once `H` has factored, only
+    /// rounding in `H⁻¹` can make the second one fail.
+    pub of_inverse: bool,
 }
 
 impl core::fmt::Display for NotPositiveDefinite {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        write!(
-            f,
-            "Hessian is not positive definite at pivot {} — check the \
-             calibration set (dead input channel? too few sequences?) or \
-             raise the damping",
-            self.at
-        )
+        if self.of_inverse {
+            write!(
+                f,
+                "the inverse Hessian is not positive definite at pivot {}: H \
+                 factored, so rounding in H⁻¹ broke it; raise the damping",
+                self.at
+            )
+        } else {
+            write!(
+                f,
+                "Hessian is not positive definite at pivot {} — check the \
+                 calibration set (dead input channel? too few sequences?) or \
+                 raise the damping",
+                self.at
+            )
+        }
     }
 }
 
@@ -71,7 +87,10 @@ fn reference_factor(mut work: Vec<f64>, n: usize) -> Result<Vec<f64>, NotPositiv
     let mut hinv = vec![0.0; n * n];
     lower_transpose_product(&work, n, &mut hinv);
     // H⁻¹ = L₂ L₂ᵀ  ⇒  U = L₂ᵀ gives H⁻¹ = Uᵀ U.
-    cholesky_lower(&mut hinv, n)?;
+    cholesky_lower(&mut hinv, n).map_err(|e| NotPositiveDefinite {
+        of_inverse: true,
+        ..e
+    })?;
     let mut u = vec![0.0; n * n];
     for i in 0..n {
         for j in 0..n {
@@ -85,16 +104,25 @@ fn reference_factor(mut work: Vec<f64>, n: usize) -> Result<Vec<f64>, NotPositiv
 #[cfg(feature = "fast-linalg")]
 mod fast {
     use super::{at, NotPositiveDefinite};
-    use faer::linalg::solvers::DenseSolveCore;
+    use faer::linalg::solvers::{DenseSolveCore, LltError};
     use faer::{Mat, Side};
+
+    /// faer's error carries the column of the pivot that was not positive
+    /// (NaN included), the same index the reference Cholesky reports.
+    fn pivot(e: LltError, of_inverse: bool) -> NotPositiveDefinite {
+        match e {
+            LltError::NonPositivePivot { index } => NotPositiveDefinite {
+                at: index,
+                of_inverse,
+            },
+        }
+    }
 
     pub fn factor(h: &[f64], n: usize) -> Result<Vec<f64>, NotPositiveDefinite> {
         let a = Mat::<f64>::from_fn(n, n, |i, j| h[at(n, i, j)]);
-        let llt = a.llt(Side::Lower).map_err(|_| NotPositiveDefinite { at: 0 })?;
+        let llt = a.llt(Side::Lower).map_err(|e| pivot(e, false))?;
         let hinv = llt.inverse();
-        let llt2 = hinv
-            .llt(Side::Lower)
-            .map_err(|_| NotPositiveDefinite { at: 0 })?;
+        let llt2 = hinv.llt(Side::Lower).map_err(|e| pivot(e, true))?;
         let l2 = llt2.L();
         // U = L₂ᵀ, so H⁻¹ = L₂ L₂ᵀ = Uᵀ U with U upper triangular.
         let mut u = vec![0.0f64; n * n];
@@ -119,7 +147,10 @@ pub fn cholesky_lower(a: &mut [f64], n: usize) -> Result<(), NotPositiveDefinite
         // Also rejects NaN, which a Hessian built from a corrupted
         // activation dump will happily contain.
         if !(d.is_finite() && d > 0.0) {
-            return Err(NotPositiveDefinite { at: j });
+            return Err(NotPositiveDefinite {
+                at: j,
+                of_inverse: false,
+            });
         }
         let ljj = d.sqrt();
         a[at(n, j, j)] = ljj;
@@ -221,6 +252,12 @@ impl GptqFactor {
     #[inline]
     pub fn u(&self, i: usize, j: usize) -> f64 {
         self.u[at(self.n, i, j)]
+    }
+
+    /// Row `i` of `U`, all `n` entries: `u_row(i)[j] == u(i, j)`.
+    #[inline]
+    pub fn u_row(&self, i: usize) -> &[f64] {
+        &self.u[at(self.n, i, 0)..at(self.n, i + 1, 0)]
     }
 
     /// Solve `X · U_QQ = E` for `X`, in place on `e` (`rows × b`, row-major),

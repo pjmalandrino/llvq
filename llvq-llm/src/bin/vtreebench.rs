@@ -314,7 +314,7 @@ fn run() -> anyhow::Result<()> {
         p4e_phase_report, p4e_report_lines, p4t_iparts, p4t_parts, p4t_phases, p4t_phases_a9, p4t_wait_classes, P4T_IPARTS, P4T_PHASES,
         P4T_PHASES_A9, P4T_ROW_PHASES,
     };
-    use llvq_llm::boundary::median_range;
+    use llvq_llm::stats::median_range;
     use llvq_llm::chatfmt::{open_assistant, turn, Marks};
     let a: Vec<String> = std::env::args().skip(1).collect();
     // compile-only: each arm's module through NVRTC, its symbols' registers,

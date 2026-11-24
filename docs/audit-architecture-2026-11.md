@@ -238,8 +238,10 @@ living docs, journals, preregs and paper 2:
 | measurement only (journals and preregs only) | 33 | 13,695 |
 | dead (no reference outside code comments, `HISTORIQUE.md`, `docs/archive/`) | 9 | 1,027 |
 
-Dead: `f1linear`, `f1mids`, `f1radii`, `f1rankenc`, `f1time`, `tetrascales` (examples, `llvq-bench`), `gaindiag`,
-`probe` (`llvq-llm`), `hello` (`llvq-metal`).
+Dead: `f1linear`, `f1mids`, `f1radii`, `f1rankenc`, `f1time` (examples, `llvq-bench`), `gaindiag`, `probe`
+(`llvq-llm`), `hello` (`llvq-metal`). The example `tetrascales` (230 lines) meets the same rule but is not deleted:
+it is the provenance of `Encoder::ALPHA` and `Encoder::RATIO`, the two scales of the served Tetra encoder
+(`llvq-search/src/tetra/encoder.rs`), and its raw output is not committed. It is fenced with B1 in batch 5.
 
 Grouped into batches (lines *measured*):
 
@@ -422,9 +424,9 @@ HTML files 71 and 58. `ops/Dockerfile.cuda` comments keep French paragraphs and 
 |---:|---|---|---|---|
 | 1 | **Defects and doc truth.** Fix or remove `LLVQ_PERS_SEGMENT`; put `LLVQ_PREFILL` and `LLVQ_METAL_KERNEL` under the served refusal; make `METAL_KERNEL` refuse unknown values; drop the three `planesbench`-only names from `MEASUREMENT_MODES`; rewrite the env table of `CLAUDE.md` (49 missing, 4 mismatches); fix `llvq-llm/src/lib.rs:7-10`, the `ci.yml` pointers, `proofs/README.md`; replace `AGENTS.md` by a pointer to `CLAUDE.md` | two served-path holes closed, one dead mode settled, the map true again | very low; no kernel text | none |
 | 2 | **Runtime on the served configs.** Done by PR #15 (`7be533e`) | the `llvq` binary serves what ETAT says; unblocks removing v4 and grouped 8B/14B later | done | none |
-| 3 | **Delete the 9 dead targets** (§2.6) | 1,027 lines, 9 targets | none | tag |
+| 3 | **Delete the 8 dead targets** (§2.6; `tetrascales` stays) | 797 lines, 8 targets | none | tag |
 | 4 | **Delete the no-setter modes**: `GRAPH_AB`, `GRAPH_DIAG`, `KV_AB`, `KV_PREALLOC`, `FUSE_AB`, and `PERS_SEGMENT` with the host of `persist_cuda.rs` (move its five shared helpers into `persist4e_cuda.rs` first) | ~1,150 lines (*estimated*), 6 names out of `MEASUREMENT_MODES`, `KvStore::Prealloc` gone from `model.rs` | low; `fusedrun` and `model.rs` are not in a pinned unit; refusal-list tests to update | tag; coordinate with the batching branch, which edits `model.rs` |
-| 5 | **Fence measurement-only targets** behind `archive` features: B1, B2, B3, B5, B6, B7, less the dead targets of batch 3 and the image's `gbench` (fence, never delete B7) | 52 targets, 21,317 lines out of the default build; about 30 % fewer `llvq-llm` link steps in CI's test job (*estimated*) | low; archived code stops being checked unless a non-blocking `--features archive` check job is added; gate the `CARGO_BIN_EXE_*` cases of `classhist`, `lswap`, `radixstudy` | tag; decide B5 with row 18 of `ROADMAP-27B-DEV.md`; `rankbench` and `mslcheck` in B3 are the operator's call |
+| 5 | **Fence measurement-only targets** behind `archive` features: B1, B2, B3, B5, B6, B7, less the dead targets of batch 3 and the image's `gbench` (fence, never delete B7) | 53 targets, 21,547 lines out of the default build; about 30 % fewer `llvq-llm` link steps in CI's test job (*estimated*) | low; archived code stops being checked unless a non-blocking `--features archive` check job is added; gate the `CARGO_BIN_EXE_*` cases of `classhist`, `lswap`, `radixstudy` | tag; decide B5 with row 18 of `ROADMAP-27B-DEV.md`; `rankbench` and `mslcheck` in B3 are the operator's call |
 | 6 | **CUDA image diet**: B4 plus `gbench` out of the build, `COPY` and `image-smoke-14b.sh` lists, then fenced | 5 of 22 image link steps; 5 targets, 2,033 lines | low; the three-lists trap; the Space must be republished from the branch (shared resource, operator go) | batch 5's feature |
 | 7 | **`llvq-bench` off the served build**: make it an optional or bin-only dependency of `llvq-cuda` (move `f1rankfloor`, `f1floorbench` behind a feature) | the served build stops compiling the bench crate | low | batch 6 for `f1floorbench` |
 | 8 | **CI coverage**: a Python job (`test_served.py` and the pure `llvqtune` tests, about a minute, *estimated*), a grep check of the three image lists, a non-blocking archive check; add `paper2/**` and `proofs/**` to `paths-ignore` | 173 Python tests partly covered; the two-lists trap checked mechanically; fewer useless Rust runs | very low; a few CI minutes | batch 5 for the archive check |

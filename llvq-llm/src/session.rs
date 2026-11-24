@@ -75,6 +75,15 @@ pub fn common_prefix(a: &[u32], b: &[u32]) -> usize {
     a.iter().zip(b).take_while(|(x, y)| x == y).count()
 }
 
+/// The positions a cache holds, on any store: [`KvCache::len`] counts them
+/// under `Grow` only, and under `Cat` the buffers are the history.
+fn positions_held(c: &KvCache) -> anyhow::Result<usize> {
+    Ok(match c.store() {
+        crate::kvq::KvStore::Cat => c.held()?.map_or(Ok(0), |(k, _)| k.dim(2))?,
+        crate::kvq::KvStore::Grow(_) => c.len(),
+    })
+}
+
 impl Session {
     pub fn new(qwen: &Qwen3) -> Self {
         Session { caches: qwen.fresh_caches(), ids: Vec::new() }
@@ -123,14 +132,15 @@ impl Session {
         self.ids.clear();
     }
 
-    /// Keep the first `n` positions and forget the rest.
+    /// Keep the first `n` positions and forget the rest. Every cache is cut to
+    /// `n`, even at `n == ids.len()`: a feed or a launch that failed part way
+    /// leaves caches ahead of the ids, and this is where they come back.
     pub fn truncate(&mut self, n: usize) -> anyhow::Result<()> {
         anyhow::ensure!(n <= self.ids.len(), "Session truncate: {n} positions asked, {} held", self.ids.len());
-        if n == self.ids.len() {
-            return Ok(());
-        }
         for c in self.caches.iter_mut() {
-            c.truncate(n)?;
+            if positions_held(c)? != n {
+                c.truncate(n)?;
+            }
         }
         self.ids.truncate(n);
         Ok(())
@@ -227,48 +237,10 @@ impl Session {
                 Fed::Hidden(h) => sampler.pick(&qwen.logits_last(&h)?.i((0, 0))?)?,
                 Fed::First(t) => t,
             };
-            if stops.contains(&first) {
-                return Ok(Answer { said, finish: Finish::Stop });
-            }
-            said.push(first);
-            if on_tokens(&said) == Flow::Cancel {
-                return Ok(Answer { said, finish: Finish::Cancelled });
-            }
-            let mut last = first;
-            while said.len() < max_new {
-                let k = (max_new - said.len()).min(dec.launch_tokens() as usize);
-                let offset = self.ids.len();
-                let (made, stopped) = dec.continue_greedy(qwen, &mut self.caches, last, offset, k, stops)?;
-                // Fed: `last`, then every token made but the final one, or all
-                // of them when a stop token ended the launch. 4E stops on the
-                // first stop token only, so a second one leaves the cache past
-                // the answer: cut it back, as the REPL did.
-                self.ids.push(last);
-                match stopped {
-                    true => self.ids.extend_from_slice(&made),
-                    false => self.ids.extend_from_slice(&made[..made.len().saturating_sub(1)]),
-                }
-                for c in self.caches.iter_mut() {
-                    c.set_len(self.ids.len())?;
-                }
-                said.extend_from_slice(&made);
-                if stopped {
-                    if !made.is_empty() {
-                        on_tokens(&said);
-                    }
-                    return Ok(Answer { said, finish: Finish::Stop });
-                }
-                last = match made.last() {
-                    Some(&t) => t,
-                    None => return Ok(Answer { said, finish: Finish::Stop }),
-                };
-                if on_tokens(&said) == Flow::Cancel {
-                    // The last token made is not fed: the cache stops where
-                    // the next launch would have started.
-                    return Ok(Answer { said, finish: Finish::Cancelled });
-                }
-            }
-            return Ok(Answer { said, finish: Finish::Length });
+            let launch_tokens = dec.launch_tokens() as usize;
+            return self.answer_launches(first, max_new, stops, launch_tokens, on_tokens, |caches, last, offset, k| {
+                dec.continue_greedy(qwen, caches, last, offset, k, stops)
+            });
         }
         let Fed::Hidden(mut h) = fed else {
             anyhow::bail!("a first token from the chain prefill beside the eager decode");
@@ -287,6 +259,70 @@ impl Session {
             }
             h = self.feed(qwen, &[next])?;
         }
+    }
+
+    /// The persistent branch of [`Self::answer_fed`], from its first token.
+    /// `launch(caches, last, offset, k)` is one 4E launch: it feeds `last` at
+    /// `offset`, where the caches stop, writes its positions in place, and
+    /// returns at most `k` tokens and whether a stop token ended them, as
+    /// [`Decoder::continue_greedy`] does. This method keeps the ids and the
+    /// cache lengths across launches. Public so a host test can drive it with
+    /// a launch of its own.
+    pub fn answer_launches(
+        &mut self,
+        first: u32,
+        max_new: usize,
+        stops: &[u32],
+        launch_tokens: usize,
+        on_tokens: &mut dyn FnMut(&[u32]) -> Flow,
+        mut launch: impl FnMut(&mut [KvCache], u32, usize, usize) -> anyhow::Result<(Vec<u32>, bool)>,
+    ) -> anyhow::Result<Answer> {
+        let mut said: Vec<u32> = Vec::new();
+        if max_new == 0 {
+            return Ok(Answer { said, finish: Finish::Length });
+        }
+        if stops.contains(&first) {
+            return Ok(Answer { said, finish: Finish::Stop });
+        }
+        said.push(first);
+        if on_tokens(&said) == Flow::Cancel {
+            return Ok(Answer { said, finish: Finish::Cancelled });
+        }
+        let mut last = first;
+        while said.len() < max_new {
+            let k = (max_new - said.len()).min(launch_tokens);
+            let offset = self.ids.len();
+            let (made, stopped) = launch(self.caches.as_mut_slice(), last, offset, k)?;
+            // Fed: `last`, then every token made but the final one, or all
+            // of them when a stop token ended the launch. 4E stops on the
+            // first stop token only, so a second one leaves the cache past
+            // the answer: cut it back, as the REPL did.
+            self.ids.push(last);
+            match stopped {
+                true => self.ids.extend_from_slice(&made),
+                false => self.ids.extend_from_slice(&made[..made.len().saturating_sub(1)]),
+            }
+            for c in self.caches.iter_mut() {
+                c.set_len(self.ids.len())?;
+            }
+            said.extend_from_slice(&made);
+            if stopped {
+                if !made.is_empty() {
+                    on_tokens(&said);
+                }
+                return Ok(Answer { said, finish: Finish::Stop });
+            }
+            last = match made.last() {
+                Some(&t) => t,
+                None => return Ok(Answer { said, finish: Finish::Stop }),
+            };
+            if on_tokens(&said) == Flow::Cancel {
+                // The last token made is not fed: the cache stops where
+                // the next launch would have started.
+                return Ok(Answer { said, finish: Finish::Cancelled });
+            }
+        }
+        Ok(Answer { said, finish: Finish::Length })
     }
 
     /// Positions the next feed of `n` tokens and an answer of `max_new` would

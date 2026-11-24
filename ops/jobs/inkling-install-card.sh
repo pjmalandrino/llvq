@@ -11,6 +11,8 @@
 #   DRY_RUN=1 bash ops/jobs/inkling-install-card.sh              parses, launches nothing
 #   PRINT_JOB=1 DRY_RUN=1 bash ops/jobs/inkling-install-card.sh  prints the job body
 #   REL=<release tag> bash ops/jobs/inkling-install-card.sh
+#   INSTALL=image IMAGE=hf.co/spaces/Pier-Jean/llvq-runner-cuda bash ops/jobs/inkling-install-card.sh
+#     the `llvq` of our own image instead of a release: what a branch's library pulls and serves, before a release
 #
 # FLAVOR=l4x1 (default: an Ada card, the generation of the RTX 4060 Ti) or l40sx1.
 # Preregistered: PREREG below, signed and stamped before this.
@@ -22,6 +24,7 @@ cd "$REPO"
 PREREG=${PREREG:-proofs/preregistration-inkling-install-card-2026-11-24.md}
 FLAVOR=${FLAVOR:-l4x1}
 REL=${REL:-}
+INSTALL=${INSTALL:-release}
 IMAGE=${IMAGE:-nvidia/cuda:12.4.1-base-ubuntu22.04}
 BUCKET=Pier-Jean/jobs-artifacts
 O=/out/inkling-install-card-$FLAVOR-2026-11-24${RETRY:+-r$RETRY}
@@ -30,22 +33,28 @@ TIMEOUT=${TIMEOUT:-40m}
 CHECKS=ops/inkling/serve_checks.py
 
 if [ "$DRY" != 1 ]; then
-  [ -n "$REL" ] || { echo "refused: REL unset, the release tag whose archive is installed" >&2; exit 1; }
+  case "$INSTALL" in
+    release) [ -n "$REL" ] || { echo "refused: REL unset, the release tag whose archive is installed" >&2; exit 1; } ;;
+    image) ;;
+    *) echo "refused: INSTALL=$INSTALL is neither release nor image" >&2; exit 1 ;;
+  esac
   { test -f "$PREREG" && test -f "$PREREG.ots"; } || { echo "refused: $PREREG(.ots) missing" >&2; exit 1; }
   if hf buckets ls "hf://buckets/$BUCKET/${O#/out/}/" 2>/dev/null | grep -v '^(empty)$' | grep -q .; then
     echo "refused: ${O#/out/}/ already exists" >&2; exit 1
   fi
 fi
 
-PRE=$(printf 'O=%q\nREL=%q' "$O" "$REL")
+PRE=$(printf 'O=%q\nREL=%q\nINSTALL=%q' "$O" "$REL" "$INSTALL")
 # The helper travels in the command: C is its path inside the container.
 PRE="$PRE"$'\n'"C=/tmp/serve_checks.py"$'\n'"cat > \"\$C\" <<'SERVECHECKS'"$'\n'"$(cat "$CHECKS")"$'\n'"SERVECHECKS"
 
 IFS= read -r -d '' BODY <<'JOB' || true
 mkdir -p "$O"
-export DEBIAN_FRONTEND=noninteractive
-apt-get update -qq > /dev/null
-apt-get install -y -qq --no-install-recommends curl ca-certificates python3 > /dev/null
+if [ "$INSTALL" = release ]; then
+  export DEBIAN_FRONTEND=noninteractive
+  apt-get update -qq > /dev/null
+  apt-get install -y -qq --no-install-recommends curl ca-certificates python3 > /dev/null
+fi
 cp "$C" "$O/serve_checks.py"
 export O MODEL=inkling2:mini
 nvidia-smi --query-gpu=name,compute_cap,memory.total,memory.used,driver_version --format=csv,noheader | tee "$O/gpu-before.txt"
@@ -54,11 +63,13 @@ echo '== what the machine has before the install =='
 { ldconfig -p | grep -E 'cublas|nvrtc|curand|libcuda\.so' || true; } | tee "$O/system-cuda-libs.txt"
 { command -v nvcc cargo rustc llvq || true; } | tee "$O/system-tools.txt"
 
-echo '== install =='
-B=https://github.com/pjmalandrino/llvq-tetra/releases/download/$REL
-date -u
-curl -fsSL "$B/install.sh" | LLVQ_URL="$B/llvq-0.1.0-linux-x86_64-cuda.tar.gz" sh 2>&1 | grep -v '^#' | tee "$O/install.txt"
-date -u
+if [ "$INSTALL" = release ]; then
+  echo '== install =='
+  B=https://github.com/pjmalandrino/llvq-tetra/releases/download/$REL
+  date -u
+  curl -fsSL "$B/install.sh" | LLVQ_URL="$B/llvq-0.1.0-linux-x86_64-cuda.tar.gz" sh 2>&1 | grep -v '^#' | tee "$O/install.txt"
+  date -u
+fi
 command -v llvq
 llvq -v | tee "$O/llvq-version.txt"
 

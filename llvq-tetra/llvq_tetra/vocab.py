@@ -23,6 +23,13 @@ class Int4Vocab(nn.Module):
     def __init__(self, desc: dict):
         super().__init__()
         rows, d = desc["dims"]
+        # The two shaders read 4-bit codes, eight to a word, and a group of 64 columns per scale.
+        if desc.get("bits") != 4 or desc.get("group") != 64 or d % 8:
+            raise ValueError(
+                f"{desc.get('prefix')}: int{desc.get('bits')} in groups of {desc.get('group')} over "
+                f"{d} columns; the Metal vocabulary kernels read int4 in groups of 64 over a "
+                "multiple of 8 columns"
+            )
         self.desc = desc
         self.num_embeddings, self.embedding_dim = rows, d
         self.gpr = desc["groups_per_row"]

@@ -332,6 +332,28 @@ impl Dump {
             None => engine.to_string(),
         }
     }
+
+    /// How the dump prefilled its prompts: `eager` or `chain`, followed by
+    /// `attention kernel` when the eager prefill ran the kernel form's own
+    /// attention. Absent keys read as the eager prefill with the grouped
+    /// attention, what every dump written before them ran.
+    pub fn prefill(&self) -> String {
+        let form = self.header.get("prefill").and_then(|v| v.as_str()).unwrap_or("eager");
+        match self.header.get("prefill_attention").and_then(|v| v.as_str()) {
+            Some(a) => format!("{form}, attention {a}"),
+            None => form.to_string(),
+        }
+    }
+
+    /// The cache 4E's decode held. Absent is `f16`, the only cache before the
+    /// key existed.
+    pub fn decode_cache(&self) -> String {
+        self.header
+            .get("decode_cache")
+            .and_then(|v| v.as_str())
+            .unwrap_or("f16")
+            .to_string()
+    }
 }
 
 /// The header keys a served run adds to its dump: every choice of the config
@@ -360,6 +382,10 @@ pub fn served_header(cfg: &crate::served::Served) -> Vec<(&'static str, String)>
     }
     if cfg.decode_cache == crate::served::DecodeCache::Int8 {
         keys.push(("decode_cache", cfg.decode_cache.label().to_string()));
+    }
+    // Only under the kernel prefill attention, for the same reason.
+    if cfg.prefill == crate::kvq::PrefillAttn::Kernel {
+        keys.push(("prefill_attention", cfg.prefill.label().to_string()));
     }
     keys
 }
@@ -570,6 +596,16 @@ mod tests {
     }
 
     fn served_file(attention: Option<&str>, decode: Option<&str>, rows: Option<&str>) -> crate::served::Served {
+        served_file_with(attention, decode, rows, None, None)
+    }
+
+    fn served_file_with(
+        attention: Option<&str>,
+        decode: Option<&str>,
+        rows: Option<&str>,
+        prefill_attention: Option<&str>,
+        prefill: Option<&str>,
+    ) -> crate::served::Served {
         let f = crate::served::ServedFile {
             layout: "tetra48".into(),
             embed: "q4".into(),
@@ -579,8 +615,8 @@ mod tests {
             attention: attention.map(str::to_string),
             decode: decode.map(str::to_string),
             rows: rows.map(str::to_string),
-            prefill_attention: None,
-            prefill: None,
+            prefill_attention: prefill_attention.map(str::to_string),
+            prefill: prefill.map(str::to_string),
             decode_cache: None,
             batch: None,
             note: None,
@@ -635,6 +671,47 @@ mod tests {
         let d = parse_dump(&text, "t").unwrap();
         assert_eq!(d.attention(), "kernel");
         assert_eq!(d.decode(), "persistent rows v4");
+    }
+
+    #[test]
+    fn the_prefill_keys_are_written_only_when_they_differ_and_read_as_eager_when_absent() {
+        let get = |s: &crate::served::Served, key: &str| {
+            served_header(s).into_iter().find(|p| p.0 == key).map(|p| p.1)
+        };
+        // The configs that predate the keys write the header they always did.
+        let v9 = served_file(Some("kernel"), Some("persistent"), Some("v9"));
+        assert_eq!(get(&v9, "prefill"), None);
+        assert_eq!(get(&v9, "prefill_attention"), None);
+        let kp = served_file_with(Some("kernel"), Some("persistent"), Some("v9"), Some("kernel"), None);
+        assert_eq!(get(&kp, "prefill_attention").as_deref(), Some("kernel"));
+
+        // An old header: no config, no prefill key, no decode cache. It reads
+        // as the eager prefill and the f16 cache, and pairs as it always did.
+        let rows = vec![row(0, "a", true), row(1, "b", false)];
+        let old = parse_dump(&dump_text(&rows, Some(2)), "old").unwrap();
+        assert_eq!(old.prefill(), "eager");
+        assert_eq!(old.decode_cache(), "f16");
+        assert_eq!(old.field("config"), "?");
+        let p = pair(&old, &old).unwrap();
+        assert_eq!((p.n, p.right_a, p.right_b, p.only_a, p.only_b), (2, 1, 1, 0, 0));
+
+        // A new header with both prefill keys pairs with the old one.
+        let mut header = serde_json::json!({ DUMP_TAG: DUMP_VERSION, "model": "m" });
+        let h = header.as_object_mut().unwrap();
+        for (k, v) in served_header(&kp) {
+            h.insert(k.into(), v.into());
+        }
+        h.insert("prefill".into(), "chain".into());
+        let mut text = format!("{header}\n");
+        for r in &rows {
+            text.push_str(&serde_json::to_string(r).unwrap());
+            text.push('\n');
+        }
+        text.push_str("{\"end\": true, \"fingerprint\": \"ab\", \"questions\": 2}\n");
+        let new = parse_dump(&text, "new").unwrap();
+        assert_eq!(new.prefill(), "chain, attention kernel");
+        assert_eq!(new.field("config"), "c.json");
+        assert_eq!(pair(&old, &new).unwrap().n, 2);
     }
 
     #[test]

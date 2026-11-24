@@ -127,9 +127,11 @@ class FakeRecorder:
 class FakeSink:
     def __init__(self) -> None:
         self.writes: list[dict] = []
+        self.steps: list[tuple[int, int] | None] = []
 
-    def write(self, payload, cost):
+    def write(self, payload, cost, steps=None):
         self.writes.append(payload)
+        self.steps.append(steps)
         return f"/tmp/fake-{len(self.writes)}.json"
 
 
