@@ -348,7 +348,13 @@ fn the_store_routes_list_show_copy_delete_and_ps_follows_loads() {
     // `llvq stop`: keep_alive 0 unloads.
     let u = c.send("POST", "/api/generate", &json!({"model": "tiny:test", "keep_alive": 0, "stream": false})).unwrap();
     assert_eq!(u["done_reason"], "unload");
-    assert!(c.get("/api/ps").unwrap()["models"].as_array().unwrap().is_empty());
+    // The engine leaves at once when idle. One still marked busy by the load that just answered is retired
+    // instead, and the reaper drops it within its second: the list empties, not always on the first read.
+    let t = Instant::now();
+    while !c.get("/api/ps").unwrap()["models"].as_array().unwrap().is_empty() {
+        assert!(t.elapsed() < Duration::from_secs(5), "the model outlived its unload");
+        std::thread::sleep(Duration::from_millis(50));
+    }
     // An expired keep-alive unloads within the reaper's second.
     c.send("POST", "/api/generate", &json!({"model": "tiny:test", "keep_alive": "100ms", "stream": false})).unwrap();
     let t = Instant::now();
