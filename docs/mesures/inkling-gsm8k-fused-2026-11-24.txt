@@ -1,0 +1,74 @@
+INKLING 2 MINI, GSM8K ON 200 PROBLEMS THROUGH THE FUSED CUDA STACK, 2026-11-24
+
+RESULT
+  186 of 200 right, 93.0 % (*measured*), under the cap rule: a completion cut by the cap of 1,536 tokens counts
+  wrong. 9 completions were cut by the cap.
+  Against the candle stack of 2026-11-22 on the same 200 problems, 191 of 200: 9 discordant pairs, 7 lost and 2
+  gained, exact two-sided McNemar p = 0.180 (*computed* from the two dumps). Reading: KEEPS, on the rule of
+  `proofs/preregistration-inkling-gsm8k-fused-2026-11-24.md` (timestamped before the run): p > 0.05.
+  The direction is against the fused stack and one run does not separate it. 4 of the 7 lost problems are
+  completions that ran to the cap here and ended in 652 to 756 tokens on 2026-11-22; the cap count goes from 4 to 9.
+  Speed: median step 0.0141 s over the 200 problems, 71.2 tok/s (*measured*), against 0.1570 s on 2026-11-22 on an
+  L4 through candle. The two figures are on two cards and are not divided. Over the whole run, 80,332 generated
+  tokens in 1,149.5 s of decode, 69.9 tok/s (*computed*). Prefill 1.37 s a problem, 7.1 s a problem in all.
+  This count stands alone against rivals: no rival arm has run.
+
+THE OBJECT
+  The same values as on 2026-11-22 for the experts (24 layers resident in lattice codes, 2.037 bits a weight) and
+  the embedding (int4 g64, decoded to f32 on the host). Two things differ. The output head is read as the file
+  stores it, int4 g64, in the kernel, where 2026-11-22 decoded it at load: the same values, another arithmetic.
+  The stack is `--stack fused`: experts in four launches with the one-launch activation, fused glue, attention
+  products and scores in our kernels, routing on the device. Its perplexity against the path with no switch was
+  read on 2026-11-23: +0.027 % without the int4 head, +0.413 % with it.
+  Prompt fingerprint `6d4d8fa2207c0146`, the prereg's and the 2026-11-22 dump's. 76 of the 200 completions are
+  identical character for character to those of 2026-11-22.
+
+THE RUN
+  Job `6b04efaaca8b51043c3ae619`, `l40sx1` (NVIDIA L40S, 46,068 MiB), image `Pier-Jean/llvq-runner-cuda` at Space
+  sha 1c1c7e45ec94cccbde507f749115e030d0af4211, built from commit eb5d9f4. 0.46 h billed, $0.82
+  (`ops/run.py monitor`). Card spend on this model after it: $5.41 of $25.
+  Raw files: `inkling-gsm8k-fused-2026-11-24-brut/`.
+
+CONTROLS
+  1. `oracle` MATCH on CUDA.
+  2. Every input at its pinned sha256, the two tables included (`files.sha256`).
+  3. The image generates the Mac's 32 resident tokens on this card through the candle path: 32 of 32 equal.
+  The job's summary line reads "0 finished, 3 deadline": the run ended inside its deadline with the 200 rows and
+  the trailer in the dump (`end: true`, 200 questions). The label is the script's and is wrong; not fixed tonight.
+
+AGAINST THE SIGNED PREDICTIONS
+  quantity                                        predicted               measured          inside
+  right of 200                                    187 to 194              186               no, one under
+  discordant pairs against 2026-11-22             2 to 10                 9                 yes
+  verdict                                         KEEPS (0.85)            KEEPS, p = 0.180  yes
+  median step, L40S                               0.0139 to 0.0155 s      0.0141 s          yes
+  no fault on a first launch of --stack fused     0.7                     no fault          yes
+
+WHAT IT DOES NOT SAY
+  That the fused stack costs nothing on GSM8K. Five problems under on 200 is inside one run's noise and is also
+  what a small real cost would look like. The int4 head in the kernel is the one arm with a measured perplexity
+  cost (+0.413 %), so it is the first suspect. Separating it takes a second arm, fused without the int4 head,
+  about $0.85 on an L40S. Not run: the operator decides.
+
+SECOND ARM, THE SAME DAY: THE FUSED STACK WITH THE HEAD DECODED TO F32
+  186 of 200 right, 9 cut by the cap (*measured*). The 200 completions are identical, character for character, to
+  those of the fused arm with the int4 head: 0 discordant pairs. Against the candle dump: the same 7 lost and 2
+  gained, exact McNemar p = 0.180 (*computed*).
+  Reading: HEAD CLEARED, on the rule of `proofs/preregistration-inkling-gsm8k-fused-f32head-2026-11-24.md`
+  (timestamped before the run). Reading the head as int4 in the kernel changes no answer on these 200 problems.
+  The five problems between 191 and 186 therefore sit in the rest of the fused stack (glue, attention products and
+  scores, the one-launch activation, routing on the device), or in nothing: p = 0.180 does not separate them.
+  Median step 0.0162 s, 61.7 tok/s (*measured*), against 0.0141 s with the int4 head: the f32 head is candle's
+  product.
+  Job `6b052ae3c97b8ed4fcd758f0`, `l40sx1`, image at Space sha 205a3d793fe96dcd4215faf4632ea21681cfe4e9, built from
+  commit 177cc8e. 0.50 h billed, $0.90. Card spend on this model after it: $6.31 of $25.
+  Controls 1 to 3 pass (32 of 32 equal). Raw files: `inkling-gsm8k-fused-f32head-2026-11-24-brut/`.
+
+  quantity                                        predicted               measured          inside
+  right of 200                                    186 to 192              186               yes, at the edge
+  discordant pairs against the candle dump        2 to 9                  9                 yes, at the edge
+  discordant pairs against the fused int4 dump    3 to 10                 0                 no
+  reading                                         HEAD CLEARED (0.8)      HEAD CLEARED      yes
+  median step, L40S                               0.0145 to 0.0175 s      0.0162 s          yes
+  The prediction of 3 to 10 discordant pairs was wrong in its premise: the two heads hold the same values, and the
+  perplexity gap of +0.413 % read on 2026-11-23 did not move one greedy answer here.

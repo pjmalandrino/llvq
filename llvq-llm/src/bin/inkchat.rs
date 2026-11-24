@@ -174,7 +174,8 @@ fn make_resident(model: &mut Inkling, layers: &Path, dev: &Device) -> Result<()>
 }
 
 fn load(args: &Args, dev: &Device) -> Result<Inkling> {
-    let on_metal = matches!(dev, Device::Metal(_));
+    // Where the int4 head has a kernel: the table stays packed on the device.
+    let on_metal = matches!(dev, Device::Metal(_) | Device::Cuda(_));
     // On Metal the sealed file's head stays int4 on the device; its file is named at load.
     let int4_head = match &args.tables {
         Some(d) if on_metal => Some(d.join(tables::UNEMBED_FILE)),

@@ -1,0 +1,60 @@
+{
+  "attn_chunk": 512,
+  "bin": "inkrun",
+  "device": "cuda",
+  "mean_nll": 2.266665916572398,
+  "memory": {
+    "end": {
+      "free": 38392954880,
+      "kind": "cuda driver, total minus free",
+      "total": 47719186432,
+      "used": 9326231552
+    },
+    "load": {
+      "after_dense": {
+        "free": 45506494464,
+        "kind": "cuda driver, total minus free",
+        "total": 47719186432,
+        "used": 2212691968
+      },
+      "after_resident": {
+        "free": 39332478976,
+        "kind": "cuda driver, total minus free",
+        "total": 47719186432,
+        "used": 8386707456
+      },
+      "before_load": {
+        "free": 47251324928,
+        "kind": "cuda driver, total minus free",
+        "total": 47719186432,
+        "used": 467861504
+      }
+    }
+  },
+  "mode": "score-steps",
+  "nll_file": "/out/inkling-cuda-ppl-l40sx1-2026-11-23/w2-head.nll.json",
+  "ppl": 9.647182623142829,
+  "prompt_key": "ids",
+  "provenance": {
+    "attention_matrix_bytes": {
+      "bf16": 1290829824,
+      "f32": 0
+    },
+    "attn": "fused+scores",
+    "bf16_head_on_device": false,
+    "glue": "fused",
+    "head": "int4",
+    "head_table": "/scratch/inkling/unembed.q4g64.llvqraw",
+    "moe": "four",
+    "moe_act": "fused",
+    "prefill_rows": 8,
+    "routing_on_device": true
+  },
+  "score_from": 1,
+  "scored": 2047,
+  "seconds": 31.309171403,
+  "seconds_prefill": 0.086507404,
+  "steps": 2046,
+  "text_tokens": 2048,
+  "tokens_file": "/scratch/inkling/w2.json"
+}

@@ -242,7 +242,7 @@ pub struct Inkling {
     visit_probe: std::sync::Mutex<Option<VisitProbe>>,
     /// The fused glue kernels, when [`Self::set_glue`] chose them: a one-row
     /// forward then runs [`layers::LayerWeights::forward_fused`].
-    #[cfg(all(target_os = "macos", feature = "metal"))]
+    #[cfg(ink_glue)]
     glue: Option<std::sync::Arc<glue::Glue>>,
     /// The attention chosen at load ([`Self::load_with_attn`]).
     attn: AttnKind,
@@ -330,6 +330,79 @@ pub struct LoadOptions {
 /// Inkling runtime ([`resident_runtime`]): the f32 rows kernel of plan item
 /// P1, each row bit for bit the one-row matvec's.
 pub const DEFAULT_PREFILL_ROWS: usize = 8;
+
+static KERNEL_LAUNCHES: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+/// One more launch of a kernel of this module's CUDA path (glue, attention,
+/// experts, head): what a decode step is bound by on a fast card.
+pub fn count_launch() {
+    KERNEL_LAUNCHES.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+}
+
+/// The launches counted since the last call.
+pub fn take_kernel_launches() -> u64 {
+    KERNEL_LAUNCHES.swap(0, std::sync::atomic::Ordering::Relaxed)
+}
+
+static KERNEL_PROFILE: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+static KERNEL_TIMES: std::sync::Mutex<std::collections::BTreeMap<&'static str, (u64, f64)>> =
+    std::sync::Mutex::new(std::collections::BTreeMap::new());
+
+/// Time every kernel of the CUDA path on its own: the stream is drained before
+/// and after each launch, so a step under this switch is not a step's time.
+pub fn set_kernel_profile(on: bool) {
+    KERNEL_PROFILE.store(on, std::sync::atomic::Ordering::Relaxed);
+}
+
+/// Drain the stream (`sync`) and start the clock, under [`set_kernel_profile`].
+pub fn probe_begin(sync: impl FnOnce() -> bool) -> Option<std::time::Instant> {
+    if !KERNEL_PROFILE.load(std::sync::atomic::Ordering::Relaxed) {
+        return None;
+    }
+    sync();
+    Some(std::time::Instant::now())
+}
+
+/// Drain the stream and charge the time since [`probe_begin`] to `name`.
+pub fn probe_end(probe: Option<std::time::Instant>, name: &'static str, sync: impl FnOnce() -> bool) {
+    let Some(t) = probe else { return };
+    sync();
+    let s = t.elapsed().as_secs_f64();
+    let mut m = KERNEL_TIMES.lock().expect("kernel times");
+    let e = m.entry(name).or_insert((0, 0.0));
+    e.0 += 1;
+    e.1 += s;
+}
+
+/// The launches and seconds charged to each kernel since the last call.
+pub fn take_kernel_times() -> Vec<(&'static str, u64, f64)> {
+    let mut m = KERNEL_TIMES.lock().expect("kernel times");
+    let v = m.iter().map(|(k, (n, s))| (*k, *n, *s)).collect();
+    m.clear();
+    v
+}
+
+/// Turn cudarc's event tracking off on the device's context: two events an
+/// allocation and one a use, which order nothing while the context holds one
+/// stream, candle's (the reasons are at the served door of
+/// `fused_cuda::load_resolved`). Call it before the first upload: a slice
+/// created while tracking was on keeps recording. Refused on several streams
+/// and on another device.
+#[cfg(all(target_os = "linux", feature = "cuda"))]
+pub fn cuda_events_off(dev: &Device) -> Result<()> {
+    let ctx = dev.as_cuda_device()?.cuda_stream().context().clone();
+    if ctx.is_in_multi_stream_mode() {
+        candle_core::bail!("events off: the context holds several streams, and that is only safe on one");
+    }
+    // Safe: one stream, checked above, orders every access by issue.
+    unsafe { ctx.disable_event_tracking() };
+    Ok(())
+}
+
+#[cfg(not(all(target_os = "linux", feature = "cuda")))]
+pub fn cuda_events_off(_: &Device) -> Result<()> {
+    candle_core::bail!("events off: a CUDA switch, on a CUDA build")
+}
 
 /// The runtime the resident experts launch through: the served tables and
 /// tile, with `prefill_rows` rows a prompt launch (1: one matvec a row, the
@@ -472,7 +545,7 @@ impl Inkling {
             embed_table: None,
             attn_chunk: layers::DEFAULT_ATTN_CHUNK,
             visit_probe: std::sync::Mutex::new(None),
-            #[cfg(all(target_os = "macos", feature = "metal"))]
+            #[cfg(ink_glue)]
             glue: None,
             attn,
             routing_on_device: true,
@@ -484,9 +557,12 @@ impl Inkling {
         let n = cfg.num_hidden_layers;
         match attn {
             AttnKind::Candle => Ok((0..n).map(|l| LayerWeights::load(ck, cfg, l, dev)).collect::<Result<Vec<_>>>()?),
-            #[cfg(all(target_os = "macos", feature = "metal"))]
+            #[cfg(ink_glue)]
             AttnKind::Fused | AttnKind::FusedScores => {
-                anyhow::ensure!(dev.is_metal(), "the fused attention runs on Metal only, the model is on {dev:?}");
+                anyhow::ensure!(
+                    dev.is_metal() || dev.is_cuda(),
+                    "the fused attention runs on Metal and on CUDA, the model is on {dev:?}"
+                );
                 let k = std::sync::Arc::new(attn_dense::AttnDense::new(dev)?);
                 let row = match attn {
                     AttnKind::FusedScores => Some(std::sync::Arc::new(attn_scores::AttnRow::new(dev)?)),
@@ -494,9 +570,9 @@ impl Inkling {
                 };
                 Ok((0..n).map(|l| LayerWeights::load_dense(ck, cfg, l, dev, &k, row.as_ref())).collect::<Result<Vec<_>>>()?)
             }
-            #[cfg(not(all(target_os = "macos", feature = "metal")))]
+            #[cfg(not(ink_glue))]
             AttnKind::Fused | AttnKind::FusedScores => {
-                anyhow::bail!("the fused attention needs a macOS build with the metal feature")
+                anyhow::bail!("the fused attention needs a macOS build with metal or a Linux build with cuda")
             }
         }
     }
@@ -519,7 +595,7 @@ impl Inkling {
                     f32_bytes += 4 * t.elem_count();
                 }
             }
-            #[cfg(all(target_os = "macos", feature = "metal"))]
+            #[cfg(ink_glue)]
             if let Some(d) = &a.dense {
                 bf16_bytes += d.w.matrix_bytes();
             }
@@ -536,7 +612,13 @@ impl Inkling {
             let h = head::Q4MetalHead::load(rt, path, cfg.unpadded_vocab_size, cfg.hidden_size)?;
             return Ok(Box::new(h));
         }
-        anyhow::bail!("the int4 head runs on Metal only; {} asked on {dev:?}", path.display())
+        #[cfg(all(target_os = "linux", feature = "cuda"))]
+        if dev.is_cuda() {
+            let rt = resident_cuda::served_runtime(dev, cfg)?;
+            let h = head::Q4CudaHead::load(rt, path, cfg.unpadded_vocab_size, cfg.hidden_size)?;
+            return Ok(Box::new(h));
+        }
+        anyhow::bail!("the int4 head runs on Metal and on CUDA; {} asked on {dev:?}", path.display())
     }
 
     /// Whether the BF16 output rows are on the device.
@@ -550,22 +632,22 @@ impl Inkling {
     pub fn set_glue(&mut self, kind: GlueKind) -> Result<()> {
         match kind {
             GlueKind::Candle => {
-                #[cfg(all(target_os = "macos", feature = "metal"))]
+                #[cfg(ink_glue)]
                 {
                     self.glue = None;
                 }
                 Ok(())
             }
-            #[cfg(all(target_os = "macos", feature = "metal"))]
+            #[cfg(ink_glue)]
             GlueKind::Fused => {
-                if !self.dev.is_metal() {
-                    candle_core::bail!("the fused glue runs on Metal only, the model is on {:?}", self.dev);
+                if !(self.dev.is_metal() || self.dev.is_cuda()) {
+                    candle_core::bail!("the fused glue runs on Metal and on CUDA, the model is on {:?}", self.dev);
                 }
                 self.glue = Some(std::sync::Arc::new(glue::Glue::new(&self.dev)?));
                 Ok(())
             }
-            #[cfg(not(all(target_os = "macos", feature = "metal")))]
-            GlueKind::Fused => candle_core::bail!("the fused glue needs a macOS build with the metal feature"),
+            #[cfg(not(ink_glue))]
+            GlueKind::Fused => candle_core::bail!("the fused glue needs a macOS build with metal or a Linux build with cuda"),
         }
     }
 
@@ -591,6 +673,17 @@ impl Inkling {
         }
     }
 
+    /// Tell every layer's expert source to take the routed experts of one
+    /// row in four launches (`true`, the default where the source has them)
+    /// or one expert at a time, the reference of their gate.
+    pub fn set_moe_four_launches(&mut self, on: bool) {
+        for e in self.experts.iter_mut() {
+            if let LayerExperts::Source(s) = e {
+                s.set_four_launches(on);
+            }
+        }
+    }
+
     /// Whether [`Self::set_routing_on_device`] is on.
     pub fn routing_on_device(&self) -> bool {
         self.routing_on_device
@@ -598,7 +691,7 @@ impl Inkling {
 
     /// The glue a one-row forward runs.
     pub fn glue(&self) -> GlueKind {
-        #[cfg(all(target_os = "macos", feature = "metal"))]
+        #[cfg(ink_glue)]
         if self.glue.is_some() {
             return GlueKind::Fused;
         }
@@ -736,7 +829,7 @@ impl Inkling {
                 let (pbs, ph) = prev.as_ref().expect("previous pass");
                 // line 1407: `message_input`, the four queries of this loop layer
                 let queries = &self.message_queries[layer - lc.core_start];
-                #[cfg(all(target_os = "macos", feature = "metal"))]
+                #[cfg(ink_glue)]
                 let m = match &self.glue {
                     // One launch for the four queries, with the fused glue's sums (class B, as `pre`).
                     Some(g) if ids.len() == 1 && pbs.len() <= glue::MAX_STATES => {
@@ -746,7 +839,7 @@ impl Inkling {
                     }
                     _ => block_attn_res(queries, pbs, ph)?,
                 };
-                #[cfg(not(all(target_os = "macos", feature = "metal")))]
+                #[cfg(not(ink_glue))]
                 let m = block_attn_res(queries, pbs, ph)?;
                 layers::phases::mark(&self.dev, layers::phases::Phase::NormsGates)?;
                 Some(m)
@@ -765,7 +858,7 @@ impl Inkling {
             let timed = TimedMoe { inner: src, dev: &self.dev, layer, out: &self.moe_timing };
             let src: &dyn MoeSource = if timing_on { &timed } else { src };
             let slot = &mut cache.slots[self.slot(layer, pass)];
-            #[cfg(all(target_os = "macos", feature = "metal"))]
+            #[cfg(ink_glue)]
             let (next, routing) = match &self.glue {
                 Some(g) if ids.len() == 1 => {
                     let want_routing = record || !self.routing_on_device;
@@ -773,7 +866,7 @@ impl Inkling {
                 }
                 _ => lw.forward_chunked(&self.cfg, &h, &bs, messages.as_deref(), src, slot, self.attn_chunk)?,
             };
-            #[cfg(not(all(target_os = "macos", feature = "metal")))]
+            #[cfg(not(ink_glue))]
             let (next, routing) =
                 lw.forward_chunked(&self.cfg, &h, &bs, messages.as_deref(), src, slot, self.attn_chunk)?;
             if let Some(p) = self.visit_probe.lock().expect("no panic holds this lock").as_mut() {

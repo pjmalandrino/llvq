@@ -1,0 +1,60 @@
+{
+  "attn_chunk": 512,
+  "bin": "inkrun",
+  "device": "cuda",
+  "mean_nll": 1.6859021977600617,
+  "memory": {
+    "end": {
+      "free": 36138516480,
+      "kind": "cuda driver, total minus free",
+      "total": 47719186432,
+      "used": 11580669952
+    },
+    "load": {
+      "after_dense": {
+        "free": 43359010816,
+        "kind": "cuda driver, total minus free",
+        "total": 47719186432,
+        "used": 4360175616
+      },
+      "after_resident": {
+        "free": 37352767488,
+        "kind": "cuda driver, total minus free",
+        "total": 47719186432,
+        "used": 10366418944
+      },
+      "before_load": {
+        "free": 47251324928,
+        "kind": "cuda driver, total minus free",
+        "total": 47719186432,
+        "used": 467861504
+      }
+    }
+  },
+  "mode": "score-steps",
+  "nll_file": "/out/inkling-cuda-ppl-l40sx1-2026-11-23/w0-ref.nll.json",
+  "ppl": 5.397318184783892,
+  "prompt_key": "ids",
+  "provenance": {
+    "attention_matrix_bytes": {
+      "bf16": 0,
+      "f32": 2581659648
+    },
+    "attn": "candle",
+    "bf16_head_on_device": true,
+    "glue": "candle",
+    "head": "bf16",
+    "head_table": null,
+    "moe": "one",
+    "moe_act": "candle",
+    "prefill_rows": 8,
+    "routing_on_device": true
+  },
+  "score_from": 1,
+  "scored": 2047,
+  "seconds": 302.753547515,
+  "seconds_prefill": 0.253618849,
+  "steps": 2046,
+  "text_tokens": 2048,
+  "tokens_file": "/scratch/inkling/w0.json"
+}

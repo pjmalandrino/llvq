@@ -1,0 +1,19 @@
+inkrun p32 exit 0
+inkrun p600 exit 0
+inkrun p2000 exit 0
+inkrun phases exit 0
+p32: median step 0.0138 s [0.0138, 0.0244], 72.28 tok/s; prefill of 32 tokens 0.76 s; GB at the end 8.762, peak probe None; events on, kernel launches a step [889], min top-2 margin 0.006611
+p600: median step 0.0142 s [0.0142, 0.0902], 70.20 tok/s; prefill of 600 tokens 5.06 s; GB at the end 10.540, peak probe None; events on, kernel launches a step [889], min top-2 margin 0.02183
+p2000: median step 0.0147 s [0.0147, 0.2390], 67.87 tok/s; prefill of 2000 tokens 16.64 s; GB at the end 13.997, peak probe None; events on, kernel launches a step [889], min top-2 margin 0.1305
+phases: profiled median 0.0209 s, untimed median 0.0147 s
+  norms_gates_residual         6.13 ms   29.4 %
+  attention_products           5.17 ms   24.7 %
+  moe                          4.62 ms   22.1 %
+  attention_scores_softmax     1.99 ms    9.5 %
+  routing                      0.89 ms    4.3 %
+  convolutions                 0.66 ms    3.2 %
+  cache_append_copies          0.63 ms    3.0 %
+  head                         0.42 ms    2.0 %
+  readback                     0.29 ms    1.4 %
+  embed                        0.09 ms    0.4 %
+  other                        0.00 ms    0.0 %

@@ -1,0 +1,15 @@
+inkrun exit 0
+tokens equal to the Mac's: True; lattice launches a step [192]
+profiled steps 12: median total 0.1402 s, sum of parts 0.1402 s
+untimed steps 19: median total 0.1076 s
+  norms_gates_residual        40.77 ms   29.1 %
+  attention_products          37.26 ms   26.6 %
+  convolutions                20.48 ms   14.6 %
+  head                        19.47 ms   13.9 %
+  moe                          9.51 ms    6.8 %
+  attention_scores_softmax     7.74 ms    5.5 %
+  cache_append_copies          2.27 ms    1.6 %
+  routing                      1.97 ms    1.4 %
+  readback                     0.33 ms    0.2 %
+  embed                        0.11 ms    0.1 %
+  other                        0.00 ms    0.0 %

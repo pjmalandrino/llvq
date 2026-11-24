@@ -1,0 +1,44 @@
+INKLING 2 MINI ON CUDA, THE FUSED GLUE AND THE DENSE ATTENTION KERNELS, 2026-11-23
+
+RESULT
+  On an L4, the experts in four launches in every arm (*measured*, 31 steps an arm, one job):
+    arm                                   median step                    tok/s    GB at the end
+    candle glue, candle attention         0.1104 s [0.1072, 0.1192]       9.06    10.446
+    fused glue                            0.0658 s [0.0654, 0.0839]      15.21    10.479
+    fused glue, dense attention kernels   0.0466 s [0.0457, 0.0572]      21.46     9.204
+  Every arm generates the 32 tokens of the Mac's resident run. Both kernel files met NVRTC for the first time on
+  these runs and compiled. The attention kernels hold the seven matrices in BF16, hence the 1.24 GB less.
+
+THE LOGIT DRIFT IS A ROUTING FLIP, NOT A DEFECT
+  The glue run (job 6b04360ca02d1cf5a7b7e3e7) read a largest logit difference of 1.02 between candle's glue and the
+  fused one, where the Mac reads 0.006 on the same prompt. The second run recorded the routing of every decode step.
+  Reading rule of `proofs/preregistration-inkling-cuda-attn-2026-11-23.md`: it holds.
+    fused glue: rows 1 to 18 differ from candle's by at most 0.0083; the first visit that routes other experts is
+      step 18, visit 43, at a margin of 1.3e-5 in the candle arm; the next row differs by 0.19, later rows up to 1.02.
+    with the attention: rows 1 to 12 differ by at most 0.0089; first flip at step 12, visit 7, margin 6.7e-5; the
+      next row differs by 0.76.
+  Before a flip the drift is the Mac's class B drift. After one the two arms run other experts and their logits
+  part; the tokens of this prompt do not. 49 and 104 visits of 1,488 route other experts by the end.
+  The logits and the routing come from two runs of each arm (the recorded run is not timed); the engine is
+  deterministic on one card, which the equal tokens of both runs agree with and do not prove.
+
+THE OBJECT
+  The object of the moe4 run: experts of the 24 layers in lattice codes, every other tensor from the text-only
+  checkpoint, the head through candle. Not the sealed tables, not a served speed, no quality figure: the
+  perplexity band of the Mac's class B gates is owed on CUDA before these switches are served.
+
+THE RUNS
+  `inkling-cuda-glue`, job 6b04360ca02d1cf5a7b7e3e7, 0.06 h, $0.05, image at commit 03cb99a.
+  `inkling-cuda-attn`, job 6b043c86a02d1cf5a7b7f59e, 0.11 h, $0.09, image at commit 4195e51 (Space sha
+  033a25424942a4afb22b134678b6246967b44500). Both `l4x1`. Card spend on this model after them: $3.05 of $25.
+  Raw files: `inkling-cuda-glue-2026-11-23-brut/`, `inkling-cuda-attn-2026-11-23-brut/`.
+
+AGAINST THE SIGNED PREDICTIONS
+  quantity                                  predicted           measured    inside
+  glue: NVRTC accepts at the first try      probability 0.5     yes         yes
+  glue: tokens equal                        probability 0.8     yes         yes
+  glue: median step                         0.060 to 0.085 s    0.0658 s    yes
+  the glue's drift is a routing flip        probability 0.55    yes         yes
+  attention: NVRTC accepts, first try       probability 0.6     yes         yes
+  attention: tokens kept                    probability 0.75    yes         yes
+  attention: median step                    0.035 to 0.050 s    0.0466 s    yes

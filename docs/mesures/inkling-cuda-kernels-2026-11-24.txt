@@ -1,0 +1,78 @@
+INKLING 2 MINI ON CUDA: WHERE THE STEP GOES, KERNEL BY KERNEL, AND THREE CHANGES THAT GAIN NOTHING, 2026-11-24
+
+RESULT
+  The fused stack stays at 0.0139 s a step on the L40S, 72.2 tok/s, and 0.0271 to 0.0276 s on the L4, 36.2 to
+  36.8 tok/s (*measured*, median over 31 greedy steps after a 32-token prompt, int4 head, 889 kernel launches a
+  step). Three things were tried on that step tonight and none moves it:
+    cudarc's event tracking off        L40S 0.0139 -> 0.0138 s     L4 0.0276 -> 0.0276 s
+    128-bit weight loads in ad_products and ad_out     L40S 0.0138/0.0139 -> 0.0139 s     L4 0.0273 -> 0.0271 s
+  The wide loads are kept: same tokens, no cost. They are not a gain: each move is inside the round-to-round spread.
+  With a longer prompt the L40S decodes at 72.28 tok/s after 32 tokens, 70.20 after 600 and 67.87 after 2,000;
+  the memory at the end is 8.762, 10.540 and 13.997 GB; the prefill takes 0.76, 5.06 and 16.64 s.
+
+WHERE THE STEP GOES (`inkrun --kernel-times on`: the stream is drained before and after each launch, so the sum is
+above the plain step and the reading is the order, not the sum)
+                           L4, ms a step (us each)        L40S, ms a step (us each)      launches a step
+  attn-dense-products       7.98   (166.3)                  3.00   (62.5)                  48
+  attn-dense-out            3.15   (65.7)                   1.30   (27.1)                  48
+  attn-dense-finish         0.78   (16.2)                   0.67   (14.0)                  48
+  attn_row                  1.05   (21.8)                   0.90   (18.7)                  48
+  moe_tetra_gu              3.54   (73.8)                   1.50   (31.2)                  48
+  moe_tetra_down            2.57   (53.5)                   1.48   (30.9)                  48
+  moe_rot                   2.01   (21.0)                   1.75   (18.2)                  96
+  moe_act                   0.33   (7.0)                    0.33   (6.8)                   48
+  the eleven glue kernels   7.47                            6.36                           456
+  tv_emb_q4_xf (the head)   1.13   (1132)                   0.40   (405)                   1
+  sum                       30.02                           17.69                          889
+  (image at commit aa13a34, the wide loads; the L4 table before them, job 6b04d7c0c97b8ed4fcd6cc95, is the same
+  within 0.3 us a kernel.)
+  Reading. On the L4 the dense attention products are 11.1 ms of 30.0: 4,608 bytes a row of BF16 weights that the
+  sealed file stores dense, read at the card's pace. On the L40S no kernel holds the step: the largest is 17 % and
+  456 glue launches of 7 to 21 us each hold 36 %. The drained floor is about 7 us a launch (`glue-sel`, `moe_act`).
+  The glue kernels above the floor are those with a chain of dependent adds over the 2,304 channels in one warp
+  (`glue-gate-down`, `glue-router`) or several block sums in a row (`glue-post-attn`, `glue-pre`).
+  What it means for the next gain, *estimated*: widening those chains could take 1 to 2 ms on the L40S, and would
+  change sums that are class B, so the perplexity band would be owed again. Not done. A larger gain needs fewer
+  launches a visit, which is a rewrite of the visit as one kernel, not a tuning.
+
+THE OBJECT
+  Experts of the 24 layers in lattice codes, every other tensor from the text-only checkpoint in BF16, the output
+  head from the sealed int4 table. The embedding is the checkpoint's. Not a served speed.
+
+THE RUNS (all `Pier-Jean/llvq-runner-cuda`)
+  job                        name      flavor   image commit   billed    what
+  6b04b570ca8b51043c3a7621   events    l40sx1   2ea6d51        $0        25 minutes in the queue, canceled
+  6b04bb5fca8b51043c3a8251   events    l4x1     2ea6d51        $0        25 minutes in the queue, canceled
+  6b04c184c97b8ed4fcd69a7f   events    l40sx1   2ea6d51        $0.12     on 0.0139 s, off 0.0138 s
+  6b04c198c97b8ed4fcd69aa0   events    l4x1     d776054 (*)    $0.06     on 0.0276 s, off 0.0276 s
+  6b04c852ca8b51043c3a99fb   ktimes    l40sx1   d776054        $0        25 minutes in the queue, canceled
+  6b04d2fdc97b8ed4fcd6c0a0   context   l40sx1   d776054        $0.16     32 / 600 / 2,000 tokens of prompt
+  6b04d7c0c97b8ed4fcd6cc95   ktimes    l4x1     d776054        $0.05     plain 0.0273 s, the table before the wide loads
+  6b04dcf7ca8b51043c3ac5a3   context   l4x1     d776054        $0        canceled in the queue before the rebuild
+  6b04e695c97b8ed4fcd6f082   ktimes    l4x1     aa13a34        $0.05     wide loads, plain 0.0271 s
+  6b04e803ca8b51043c3adb65   ktimes    l40sx1   aa13a34        $0.10     wide loads, plain 0.0139 s
+  (*) queued under the image of 2ea6d51 and started after the rebuild of d776054, which adds the probe and changes
+  no kernel: to be read as the image it pulled.
+  Card spend on this model after them: $4.59 of $25. Raw files: `inkling-cuda-kernels-2026-11-24-brut/`.
+  No L4 reading of the long prompts exists.
+
+TOKENS
+  Every arm of every run gives the same 32 tokens on its card, those of the stack run of 2026-11-23 (they part from
+  the Mac's reference at index 4, the int4 head, as on the Mac).
+
+AGAINST THE SIGNED PREDICTIONS
+  quantity                                        predicted               measured          inside
+  events off, step saved on the L40S              2 to 5 ms               0.1 ms            no, nothing
+  context: step at 2,000 against 32, L40S         +3 % to +15 %           +6.5 %            yes
+  context: prompt of 2,000 tokens read, L40S      6 to 20 s               16.64 s           yes
+  context: memory at the end, 2,000 tokens        9.5 to 14 GB            13.997 GB         yes, at the edge
+  ktimes: the kernel with the most time, L40S     ad_products or gu       ad_products       yes
+  ktimes: glue kernels, each                      8 to 20 us              6.8 to 21.4 us    yes, at the edges
+  ktimes: sum of the probed times, L40S           15 to 25 ms             17.69 ms          yes
+  wide: ad_products + ad_out probed, L4           8 to 10 ms              11.13 ms          no, unchanged
+  wide: plain step, L4                            0.0250 to 0.0268 s      0.0271 s          no
+  wide: plain step, L40S                          0.0128 to 0.0137 s      0.0139 s          no
+  wide: tokens                                    identical               identical         yes
+  Four of the coordinator's speed predictions on this path were too high in a row (score kernel, activation,
+  events, wide loads). The kernel table above is the first reading that orders the work; predictions before it
+  were guesses about the host.

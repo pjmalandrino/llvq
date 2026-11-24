@@ -60,6 +60,9 @@ TOKENS_SHA=${TOKENS_SHA:-}
 # staged under tables/ and pinned below, so the run reads the sealed object's own values. `checkpoint`: the
 # checkpoint's BF16 tables, another arm (the experts alone in lattice codes).
 TABLES=${TABLES:-sealed}
+# STACK=fused: `inkgsm --stack fused`, the stack `inkrun` times (2026-11-24); fused-f32head: the same with the head
+# decoded to f32. Default candle: the run of 2026-11-22.
+STACK=${STACK:-candle}
 EMBED_TABLE_SHA=${EMBED_TABLE_SHA:-}
 UNEMBED_TABLE_SHA=${UNEMBED_TABLE_SHA:-}
 TEXTONLY_BYTES=3218968280
@@ -111,7 +114,7 @@ fi
 PRE=$(printf 'O=%q\nIN=%q\nLAYERS=%q\nLIMIT=%q\nMAX_NEW=%q\nEFFORT=%q\nDEADLINE=%q\nCOPY_EVERY=%q\nRESUME=%q\nTEXTONLY_SHA=%q\nCONFIG_SHA=%q\nMANIFEST_SHA=%q\nTOKENIZER_SHA=%q\nPROBLEMS_SHA=%q\nTEXTONLY_BYTES=%q\nexport HF_HOME=/tmp/hf' \
   "$O" "$IN" "$LAYERS" "$LIMIT" "$MAX_NEW" "$EFFORT" "$DEADLINE" "$COPY_EVERY" "${RESUME_FROM:+/out/$RESUME_FROM}" \
   "$TEXTONLY_SHA" "$CONFIG_SHA" "$MANIFEST_SHA" "$TOKENIZER_SHA" "$PROBLEMS_SHA" "$TEXTONLY_BYTES")
-PRE="$PRE"$'\n'$(printf 'TABLES=%q\nEMBED_TABLE_SHA=%q\nUNEMBED_TABLE_SHA=%q\nTOKENS_SHA=%q' "$TABLES" "$EMBED_TABLE_SHA" "$UNEMBED_TABLE_SHA" "$TOKENS_SHA")
+PRE="$PRE"$'\n'$(printf 'STACK=%q\nTABLES=%q\nEMBED_TABLE_SHA=%q\nUNEMBED_TABLE_SHA=%q\nTOKENS_SHA=%q' "$STACK" "$TABLES" "$EMBED_TABLE_SHA" "$UNEMBED_TABLE_SHA" "$TOKENS_SHA")
 
 IFS= read -r -d '' BODY <<'JOB' || true
 mkdir -p "$O"
@@ -153,7 +156,7 @@ if [ -n "$RESUME" ]; then cp "$RESUME/inkgsm.jsonl" "$D"; echo "resuming from $R
 date -u
 echo '== control 3: this image generates the Mac'"'"'s 32 resident tokens on this card =='
 inkrun --config "$L/config.json" --checkpoint "$L/model.safetensors" --layers "$L/layers" \
-  --tokens "$L/tokens.json" --device cuda --n 32 --require-layers "$LAYERS" --out "$O/inkrun.json" 2>&1 | tee "$O/inkrun.txt" | tail -3
+  --tokens "$L/tokens.json" --device cuda --n 32 --require-layers "$LAYERS" --moe-act candle --out "$O/inkrun.json" 2>&1 | tee "$O/inkrun.txt" | tail -3
 python3 - "$O/inkrun.json" <<'PY'
 import json, sys
 r = json.load(open(sys.argv[1]))
@@ -167,7 +170,7 @@ set +e
 timeout $((DEADLINE + 900)) inkgsm run --config "$L/config.json" --checkpoint "$L/model.safetensors" \
   --layers "$L/layers" --tokenizer "$L/tokenizer.json" --device cuda --require-layers "$LAYERS" \
   --problems "$P" --limit "$LIMIT" --max-new "$MAX_NEW" --effort "$EFFORT" --deadline-seconds "$DEADLINE" \
-  "${TABLES_ARG[@]}" --dump "$D" > "$O/inkgsm.txt" 2>&1
+  "${TABLES_ARG[@]}" --stack "$STACK" --dump "$D" > "$O/inkgsm.txt" 2>&1
 RC=$?
 set -e
 kill "$COPIER" 2>/dev/null || true
