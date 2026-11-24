@@ -12,6 +12,7 @@
 
 #![forbid(unsafe_code)]
 
+pub mod banner;
 pub mod chat;
 pub mod tools;
 pub mod engine;

@@ -5,13 +5,15 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="color-scheme" content="light">
 <title>Tetra</title>
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 24 24%22 role=%22img%22 aria-labelledby=%22t%22%3E%3Ctitle id=%22t%22%3ETetra%3C/title%3E%3Cstyle%3E.i%7Bfill:%2317171B%7D.a%7Bfill:%23B4502D%7D%40media %28prefers-color-scheme: dark%29%7B.i%7Bfill:%23F2F1ED%7D%7D%3C/style%3E%3Cpath class=%22a%22 d=%22M12 3 L22.392 21 L19.621 21 L12 7.8 L4.379 21 L1.608 21 Z%22 fill=%22%23B4502D%22%3E%3C/path%3E%3Cpath class=%22i%22 d=%22M12 11 L17.774 21 L15.002 21 L12 15.8 L8.998 21 L6.226 21 Z%22 fill=%22%2317171B%22%3E%3C/path%3E%3C/svg%3E">
 <style>
-/* Light, plain grey, one blue, glass on the composer and the menu. System
-   fonts only: nothing is fetched. */
+/* The colours of docs/brand/LOGO.md: Ink, Paper, and Terracotta as the one
+   accent. Glass on the composer and the menu. System fonts only: nothing is
+   fetched. */
 :root {
   color-scheme: light;
-  --ink: #1d1d1f; --muted: #6e6e73; --icon: #8e8e93; --faint: #a1a1a6; --line: rgba(0, 0, 0, 0.08);
-  --accent: #0071e3; --ok: #34c759; --warn: #ff9500; --bad: #c41e3a; --bg: #f5f5f7;
+  --ink: #17171B; --muted: #6e6e73; --icon: #8e8e93; --faint: #a1a1a6; --line: rgba(0, 0, 0, 0.08);
+  --accent: #B4502D; --ok: #34c759; --warn: #ff9500; --bad: #c41e3a; --bg: #F2F1ED;
   --glass: rgba(255, 255, 255, 0.64); --edge: rgba(255, 255, 255, 0.8);
   --shadow: 0 1px 0 rgba(255, 255, 255, 0.9) inset, 0 10px 30px rgba(15, 23, 42, 0.08), 0 1px 3px rgba(15, 23, 42, 0.06);
   --font: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", system-ui, sans-serif;
@@ -23,7 +25,7 @@ body { background: var(--bg); color: var(--ink); font: 16px/1.65 var(--font); -w
 button, textarea { font: inherit; color: inherit; }
 button { background: none; border: 0; padding: 0; cursor: pointer; }
 button:disabled { cursor: default; }
-:focus-visible { outline: 2px solid rgba(0, 113, 227, 0.55); outline-offset: 2px; border-radius: 6px; }
+:focus-visible { outline: 2px solid rgba(180, 80, 45, 0.55); outline-offset: 2px; border-radius: 6px; }
 [hidden] { display: none !important; }
 .glass {
   background: var(--glass); border: 1px solid var(--edge); box-shadow: var(--shadow);
@@ -38,8 +40,10 @@ button:disabled { cursor: default; }
 /* Top: the model on the left, a new chat on the right, over a fade. */
 header {
   position: fixed; top: 0; left: 0; right: 0; z-index: 3; height: 56px; display: flex; align-items: center;
-  justify-content: space-between; padding: 0 18px; background: linear-gradient(var(--bg) 55%, rgba(245, 245, 247, 0));
+  justify-content: space-between; padding: 0 18px; background: linear-gradient(var(--bg) 55%, rgba(242, 241, 237, 0));
 }
+/* The mark of docs/brand/LOGO.md, four layers: it is shown above 48 px only. */
+.mark { display: block; width: 56px; height: 56px; margin: 0 auto 14px; }
 .picker { display: inline-flex; align-items: center; gap: 8px; font-size: 15px; font-weight: 600; padding: 6px 10px; border-radius: 10px; }
 .picker:hover:not(:disabled) { background: rgba(0, 0, 0, 0.04); }
 .picker .dot { width: 7px; height: 7px; border-radius: 50%; background: #c7c7cc; }
@@ -129,10 +133,10 @@ main { position: absolute; inset: 0; overflow-y: auto; padding: 64px 0 190px; }
 /* The composer: one row, the text and then the icons. */
 footer {
   position: fixed; bottom: 0; left: 0; right: 0; z-index: 3; padding: 0 18px calc(14px + env(safe-area-inset-bottom));
-  background: linear-gradient(rgba(245, 245, 247, 0), var(--bg) 40%);
+  background: linear-gradient(rgba(242, 241, 237, 0), var(--bg) 40%);
 }
 .composer { max-width: 720px; margin: 0 auto; display: flex; flex-wrap: wrap; align-items: flex-end; gap: 12px; padding: 10px 10px 10px 18px; border-radius: 18px; }
-.composer:focus-within { border-color: rgba(0, 113, 227, 0.35); box-shadow: var(--shadow), 0 0 0 3px rgba(0, 113, 227, 0.12); }
+.composer:focus-within { border-color: rgba(180, 80, 45, 0.35); box-shadow: var(--shadow), 0 0 0 3px rgba(180, 80, 45, 0.12); }
 .composer .editing { width: 100%; font-size: 12.5px; color: var(--muted); display: flex; gap: 6px; align-items: center; }
 .composer .editing button { color: var(--accent); font-size: 12.5px; }
 .composer textarea { flex: 1; resize: none; border: 0; outline: none; background: transparent; padding: 5px 0; min-height: 26px; max-height: 40vh; line-height: 1.5; }
@@ -177,6 +181,7 @@ footer {
 <div id="menu" class="menu glass" role="menu" hidden></div>
 
 <div id="welcome" class="center" hidden>
+  <svg class="mark" aria-hidden="true" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 3 L22.392 21 L21.238 21 L12 5 L2.762 21 L1.608 21 Z" fill="#B4502D"></path><path d="M12 6.677 L20.27 21 L19.115 21 L12 8.677 L4.885 21 L3.73 21 Z" fill="#17171B"></path><path d="M12 10.85 L17.86 21 L16.706 21 L12 12.85 L7.294 21 L6.14 21 Z" fill="#17171B"></path><path d="M12 15.8 L15.002 21 L13.848 21 L12 17.8 L10.152 21 L8.998 21 Z" fill="#17171B"></path></svg>
   <h1 id="welcomeTitle"></h1>
   <div id="centerSlot"></div>
   <div id="lib" class="lib glass" hidden></div>

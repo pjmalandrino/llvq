@@ -435,6 +435,8 @@ fn run(client: &Client, model: &str, prompt: Vec<String>, o: RunOpts) -> anyhow:
         turn(client, &model, &[json!({ "role": "user", "content": text })], &o)?;
         return Ok(());
     }
+    let err = std::io::stderr();
+    eprint!("{}", llvq_runtime::banner::banner(llvq_runtime::banner::wants_color(err.is_terminal())));
     eprint!("loading {model}… ");
     let t0 = std::time::Instant::now();
     let mut load = json!({ "model": model, "stream": false });
@@ -497,6 +499,8 @@ fn serve(local: &[std::path::PathBuf]) -> anyhow::Result<()> {
         let listener = tokio::net::TcpListener::bind(&host)
             .await
             .map_err(|e| anyhow::anyhow!("binding {host}: {e}"))?;
+        let err = std::io::stderr();
+        eprint!("{}", llvq_runtime::banner::banner(llvq_runtime::banner::wants_color(err.is_terminal())));
         eprintln!(
             "llvq {} ({}) serving on http://{host}, backend {}, store {}",
             env!("CARGO_PKG_VERSION"),
