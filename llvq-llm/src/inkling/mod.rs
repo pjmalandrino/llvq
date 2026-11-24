@@ -32,6 +32,8 @@ pub mod tables;
 #[cfg(all(target_os = "macos", feature = "metal"))]
 pub mod resident;
 #[cfg(all(target_os = "linux", feature = "cuda"))]
+pub mod attn_bias;
+#[cfg(all(target_os = "linux", feature = "cuda"))]
 pub mod resident_cuda;
 
 use std::path::Path;

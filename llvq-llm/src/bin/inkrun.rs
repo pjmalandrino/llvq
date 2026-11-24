@@ -159,6 +159,7 @@ struct Args {
     moe_act: bool,
     moe_rows_batch: bool,
     prefill_phases: bool,
+    attn_bias_device: bool,
     moe_four: bool,
     routing_steps_out: Option<PathBuf>,
     events_off: bool,
@@ -175,7 +176,7 @@ fn usage() -> ! {
          [--resident verified|none] [--require-layers N] [--logits-out <file>] [--prompt-key <key>] \
          [--prompt-len N] [--phases K] [--attn-chunk N] [--peak-probe on] \
          [--rollback-gate on] [--prefill-rows 1|2|4|8] [--head bf16|int4 --head-table <file>] \
-         [--glue candle|fused] [--attn candle|fused|fused+scores] [--routing device|host] [--moe-act fused|candle] [--moe four|one] [--moe-rows chunk|batch] [--prefill-phases on] [--events on|off] [--kernel-times on|off] [--routing-steps-out <file>] [--score-from N | --score-prompt on] \
+         [--glue candle|fused] [--attn candle|fused|fused+scores] [--routing device|host] [--moe-act fused|candle] [--moe four|one] [--moe-rows chunk|batch] [--attn-bias host|device] [--prefill-phases on] [--events on|off] [--kernel-times on|off] [--routing-steps-out <file>] [--score-from N | --score-prompt on] \
          [--nll-out <file>]"
     );
     std::process::exit(2)
@@ -249,6 +250,11 @@ fn parse() -> Result<Args> {
             None | Some("fused") => true,
             Some("candle") => false,
             Some(o) => bail!("--moe-act {o}: fused or candle"),
+        },
+        attn_bias_device: match take("attn-bias").as_deref() {
+            None | Some("host") => false,
+            Some("device") => true,
+            Some(o) => bail!("--attn-bias {o}: host or device"),
         },
         prefill_phases: match take("prefill-phases").as_deref() {
             None | Some("off") => false,
@@ -336,10 +342,17 @@ fn memory(dev: &Device) -> Value {
     }
 }
 
-/// Bytes the device has allocated, where the backend says (Metal).
+/// Bytes the device has allocated, where the backend says: Metal's own count, and on CUDA the driver's total
+/// minus free, which counts what the stream's pool still holds as well as the live buffers.
 #[allow(unused_variables)]
 fn allocated(dev: &Device) -> Option<u64> {
     match dev {
+        #[cfg(all(target_os = "linux", feature = "cuda"))]
+        Device::Cuda(d) => {
+            d.cuda_stream().context().bind_to_thread().ok()?;
+            let (free, total) = candle_core::cuda_backend::cudarc::driver::result::mem_get_info().ok()?;
+            Some((total - free) as u64)
+        }
         #[cfg(all(target_os = "macos", feature = "metal"))]
         Device::Metal(m) => Some(m.device().current_allocated_size() as u64),
         _ => None,
@@ -497,7 +510,13 @@ fn main() -> Result<()> {
     model.set_moe_act(args.moe_act);
     model.set_moe_four_launches(args.moe_four);
     model.set_moe_batch_rows(args.moe_rows_batch);
-    let provenance = json!({"prefill_rows": args.prefill_rows, "moe_rows": if args.moe_rows_batch { "batch" } else { "chunk" }, "glue": model.glue().name(),
+    #[cfg(all(target_os = "linux", feature = "cuda"))]
+    llvq_llm::inkling::attn_bias::set_on_device(args.attn_bias_device.then_some(&dev))?;
+    #[cfg(not(all(target_os = "linux", feature = "cuda")))]
+    if args.attn_bias_device {
+        bail!("--attn-bias device: CUDA only");
+    }
+    let provenance = json!({"prefill_rows": args.prefill_rows, "moe_rows": if args.moe_rows_batch { "batch" } else { "chunk" }, "attn_bias": if args.attn_bias_device { "device" } else { "host" }, "glue": model.glue().name(),
         "head": if args.head_table.is_some() { "int4" } else { "bf16" }, "head_table": args.head_table,
         "bf16_head_on_device": model.has_bf16_head(), "attn": model.attn().name(),
         "routing_on_device": model.routing_on_device(), "moe": if args.moe_four { "four" } else { "one" }, "events": if args.events_off { "off" } else { "on" }, "moe_act": if args.moe_act { "fused" } else { "candle" },
@@ -510,9 +529,14 @@ fn main() -> Result<()> {
     if args.peak_probe {
         let (d, p) = (dev.clone(), peak.clone());
         model.set_visit_probe(Some(Box::new(move || {
-            let _ = d.synchronize();
-            if let Some(b) = allocated(&d) {
-                p.fetch_max(b, std::sync::atomic::Ordering::Relaxed);
+            // Read before the drain too: on CUDA the pool may hand memory back at a drain.
+            for drained in [false, true] {
+                if drained {
+                    let _ = d.synchronize();
+                }
+                if let Some(b) = allocated(&d) {
+                    p.fetch_max(b, std::sync::atomic::Ordering::Relaxed);
+                }
             }
         })));
     }
@@ -568,6 +592,7 @@ fn main() -> Result<()> {
     let seconds_prefill = t.elapsed().as_secs_f64();
     let launches_prefill = model.take_launches();
     let peak_prefill = peak.load(std::sync::atomic::Ordering::Relaxed);
+    let mem_prefill = memory(&dev);
     eprintln!("inkrun: prefill of {} tokens in {seconds_prefill:.2} s", prompt.len());
 
     let mut tokens = vec![];
@@ -676,7 +701,7 @@ fn main() -> Result<()> {
         "resident_layers": resident_layers,
         "native_layers": native_layers,
         "upload": upload,
-        "memory": {"before_load": mem_before, "after_dense": mem_dense, "after_resident": mem_resident, "end": mem_end},
+        "memory": {"before_load": mem_before, "after_dense": mem_dense, "after_resident": mem_resident, "after_prefill": mem_prefill, "end": mem_end},
         "seconds_dense_load": seconds_dense,
         "seconds_resident_load": seconds_resident,
         "seconds_prefill": seconds_prefill,
@@ -700,7 +725,7 @@ fn main() -> Result<()> {
         "attn_chunk": model.attn_chunk(),
         "rollback_gate": rollback_gate,
         "peak_probe": if args.peak_probe {
-            json!({"kind": "largest allocated size read after a layer visit, device drained",
+            json!({"kind": "largest allocated size read after a layer visit, before and after a drain",
                    "prefill": peak_prefill, "whole_run": peak.load(std::sync::atomic::Ordering::Relaxed)})
         } else {
             Value::Null

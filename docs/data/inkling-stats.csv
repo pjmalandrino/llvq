@@ -1,0 +1,38 @@
+date,seq,card,metric,value,unit,label,config,job_id
+2026-11-22,1,all,cold_storage_gb,8.143,GB,measured,sealed file 6.777 + sidecar 1.366 (text model),
+2026-11-22,1,all,bits_per_param,2.473,b/param,measured,sealed file (text model; kernel accounting),
+2026-11-22,1,mac,quality_kl_wikitext,0.0880,nats,measured,experts24_tables against the native model,
+2026-11-22,1,l4,quality_gsm8k200_right,191,of 200,measured,candle path; sealed values,6b0347de130a00b5aa8100d2
+2026-11-22,1,mac,decode_tok_s_p32,8.22,tok/s,measured,Metal; evening of 2026-11-22,
+2026-11-23,1,mac,decode_tok_s_p32,27.70,tok/s,measured,Metal; fused stack,
+2026-11-22,1,l4,vram_after_load_gb,10.112,GB,measured,eager path; BF16 head on the card,6b033da68d268c0fbd2272e7
+2026-11-22,1,l4,decode_tok_s_p32,6.04,tok/s,measured,eager path,6b033da68d268c0fbd2272e7
+2026-11-23,1,l4,decode_tok_s_p32,6.11,tok/s,measured,one expert at a time,6b04189f7a38dcb7ff6e8e3a
+2026-11-23,2,l4,decode_tok_s_p32,9.15,tok/s,measured,experts in four launches,6b04189f7a38dcb7ff6e8e3a
+2026-11-23,3,l4,decode_tok_s_p32,15.21,tok/s,measured,+ fused glue,6b04360ca02d1cf5a7b7e3e7
+2026-11-23,4,l4,decode_tok_s_p32,21.46,tok/s,measured,+ fused attention products,6b043c86a02d1cf5a7b7f59e
+2026-11-23,5,l4,decode_tok_s_p32,32.66,tok/s,measured,+ int4 head,6b04ac50ca8b51043c3a652f
+2026-11-23,6,l4,decode_tok_s_p32,35.09,tok/s,measured,+ score kernel,6b04ac50ca8b51043c3a652f
+2026-11-23,7,l4,decode_tok_s_p32,36.30,tok/s,measured,+ activation in one launch (whole fused stack),6b04ac50ca8b51043c3a652f
+2026-11-24,1,l4,decode_tok_s_p32,36.90,tok/s,measured,whole fused stack; 128-bit weight loads (step 0.0271 s),6b04e695c97b8ed4fcd6f082
+2026-11-23,7,l4,vram_end_p32_gb,8.466,GB,measured,whole fused stack,6b04ac50ca8b51043c3a652f
+2026-11-23,1,l40s,decode_tok_s_p32,55.00,tok/s,measured,fused glue and attention + int4 head,6b04a9b3c97b8ed4fcd66a55
+2026-11-23,2,l40s,decode_tok_s_p32,68.03,tok/s,measured,+ score kernel,6b04a9b3c97b8ed4fcd66a55
+2026-11-23,3,l40s,decode_tok_s_p32,72.07,tok/s,measured,+ activation in one launch (whole fused stack),6b04a9b3c97b8ed4fcd66a55
+2026-11-24,1,l40s,decode_tok_s_p32,72.28,tok/s,measured,whole fused stack,6b04d2fdc97b8ed4fcd6c0a0
+2026-11-24,1,l40s,decode_tok_s_p2000,67.87,tok/s,measured,whole fused stack,6b04d2fdc97b8ed4fcd6c0a0
+2026-11-23,3,l40s,vram_end_p32_gb,8.762,GB,measured,whole fused stack,6b04a9b3c97b8ed4fcd66a55
+2026-11-24,1,l40s,vram_after_load_gb,8.387,GB,measured,whole fused stack,6b04d2fdc97b8ed4fcd6c0a0
+2026-11-24,1,l40s,vram_end_p600_gb,10.540,GB,measured,whole fused stack,6b04d2fdc97b8ed4fcd6c0a0
+2026-11-24,1,l40s,vram_end_p2000_gb,13.997,GB,measured,whole fused stack; prompt read by chunks,6b04d2fdc97b8ed4fcd6c0a0
+2026-11-24,2,l40s,vram_end_p2000_gb,16.043,GB,measured,prompt read in batches at 8 rows,6b054af5ca8b51043c3b5983
+2026-11-24,1,l40s,ttft_s_p32,0.76,s,measured,whole fused stack,6b04d2fdc97b8ed4fcd6c0a0
+2026-11-24,1,l40s,ttft_s_p600,5.06,s,measured,whole fused stack; prompt read by chunks,6b04d2fdc97b8ed4fcd6c0a0
+2026-11-24,1,l40s,ttft_s_p2000,16.64,s,measured,prompt read by chunks,6b04d2fdc97b8ed4fcd6c0a0
+2026-11-24,2,l40s,ttft_s_p2000,7.36,s,measured,experts in batches at 4 rows,6b054af5ca8b51043c3b5983
+2026-11-24,3,l40s,ttft_s_p2000,6.87,s,measured,experts in batches at 8 rows,6b054af5ca8b51043c3b5983
+2026-11-23,1,l40s,quality_ppl_delta_pct,0.027,%,measured,fused stack against the path with no switch,6b04a9a3c97b8ed4fcd66a3c
+2026-11-23,2,l40s,quality_ppl_delta_pct,0.413,%,measured,fused stack with the int4 head against the path with no switch,6b04a9a3c97b8ed4fcd66a3c
+2026-11-24,1,l40s,quality_gsm8k200_right,186,of 200,measured,fused stack with the int4 head (191 through candle; p = 0.18),6b04efaaca8b51043c3ae619
+2026-11-24,2,l40s,quality_gsm8k200_right,186,of 200,measured,fused stack with the f32 head (the same 200 answers),6b052ae3c97b8ed4fcd758f0
+2026-11-24,0,l40s,decode_tok_s_p32,9.98,tok/s,measured,control: candle glue and attention with experts in four launches (the reference arm of a GSM8K job; step 0.1002 s),6b04efaaca8b51043c3ae619
