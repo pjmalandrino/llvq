@@ -1,0 +1,58 @@
+THE CPU MATVECS ON RANDOM CODES AT THE 4B'S SHAPES: TETRA 1.56x AND INT4 G128 1.38x ON ONE NEON CORE, SAME SUMS (2026-11-25)
+=============================================================================================================================
+Why:    the CPU backend (docs/mesures/cpu-tetra-2026-11-07.txt) served the 4B at 8.65 tok/s on 12 threads. Reading
+        where a token's time goes came first; this journal holds the microbenchmark that answered it and the two
+        kernel changes it pointed to.
+Cost:   $0. Apple M3 Max (12 P + 4 E cores), macOS, rustc 1.95.0, profile `ci` (release optimisation, no LTO),
+        under ~/.llvq-guard/heavy.sh (nice 15), the machine shared with other sessions (load 3.5 to 6.6).
+Object: no model. Random 47-bit Tetra labels and gain bits through the served transcode (tetra48), random int4
+        records, at the served 4B's sites. No file was read.
+Code:   tests/cpu_tetra.rs `bench_cpu_matvecs_at_the_4b_shapes` (ignored), branch cpu/compat-and-speed-2026-11-25:
+          LLVQ_THREADS=<n> cargo test --profile ci -p llvq-llm --test cpu_tetra -- --ignored --nocapture bench_
+Nature: every time *measured*: the median of 7 rounds of about 0.15 s, the range of the rounds in brackets; GB/s and
+        the per-token sum *computed* from them. NEON only: AVX2 and AVX-512 are not measured anywhere.
+
+WHERE A TOKEN'S TIME GOES (before, 8 threads)
+---------------------------------------------
+The served 4B per token: Tetra q, k, gate, up on 36 layers and down on 24; int4 g128 v, o on 36 and down on 12; the
+tied int4 g64 head once. The sum of the rows below is 105.4 ms (computed), against 115 ms a token end to end at 12
+threads in the 2026-11-07 journal: the matvecs are the token, and the Tetra decode is 83 % of them. The candle
+adapter (rotation, trio order, tensor copies) costs 17.6 us a prepare and no time measurable on a matvec: the
+slices arm and the tensor arm agree at one thread (3.18 against 3.17 ms) and swap places at eight, where rounds are
+bimodal on a shared machine.
+
+RESULTS (ns per call; before = base 4071f5d, after = this branch)
+-----------------------------------------------------------------
+  site                          1 thread before   after       x      8 threads before   after      x
+  tetra q_proj 4096x2560          2,072,915   1,334,454   1.55         331,261     243,797   1.36
+  tetra k_proj 1024x2560            525,060     341,905   1.54         112,637      70,140   1.61
+  tetra gate/up 9728x2560         4,899,517   3,208,247   1.53         721,104     540,356   1.33
+  tetra down 2560x9728            5,216,655   3,403,960   1.53         777,175     601,777   1.29
+  int4 g128 v_proj 1024x2560        261,821     190,320   1.38          78,623      68,281   1.15
+  int4 g128 o_proj 2560x4096        992,937     723,199   1.37         202,529     163,870   1.24
+  int4 g128 down 2560x9728        2,326,523   1,681,091   1.38         393,797     317,937   1.24
+  int4 g64 head 151936x2560      29,788,208  27,647,525   1.08       4,014,288   4,263,395   0.94
+  per-token sum (computed)         674.4 ms    453.8 ms   1.49        105.4 ms     81.1 ms   1.30
+
+Tetra at one thread went from 5.06 to 7.86 Gweight/s on gate/up. At eight threads the machine was shared and the
+rounds of one arm spread by up to 7 %; the head at 8 threads read 4.10 ms in an intermediate run of the same code,
+so its 0.94 is noise around no change. An intermediate run of the Tetra change alone, at eight threads, read 0.495
+ms on gate/up. Raw lines: the runs at 23:05 (before) and 23:36 (after) on 2026-11-24, reproduced here.
+
+WHAT CHANGED
+------------
+  1. NEON: the two candidates of a table row load as one 128-bit vector, the code byte's mask as one 64-bit vector,
+     and a bit select merges them; before, three scalar merges and three general-to-vector moves per block. Most of
+     the gain.
+  2. Fixed-size tables with masked indices and the row's words read two at a time from the three u32 they fill: no
+     bounds check in the block loop. gscale[g] / |y| from a 64-entry table formed per matrix call.
+  3. int4: one SIMD call per row, four accumulators inside a group, the scaled group sums kept in lanes.
+The block order of every sum is unchanged, so a batch and a single row round alike; a two-accumulator variant broke
+the 1e-5 batch test and was dropped.
+
+WHAT THIS DOES NOT SHOW
+-----------------------
+  - No token was generated: the end-to-end rate after the change is not measured.
+  - AVX2 takes changes 2 and 3; it is type-checked for x86_64 Linux and runs in CI, never timed. Change 1 has no AVX2
+    counterpart yet. No AVX-512 path.
+  - One machine, shared, one run per arm.
