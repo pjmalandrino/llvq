@@ -59,3 +59,14 @@ date,seq,card,metric,value,unit,label,config,job_id
 2026-11-24,4,l40s,vram_end_p2000_gb,10.809,GB,measured,blocks of 1024 and the bias on the card; no probe,6b056428aba0b0fd660a258c
 2026-11-24,1,l40s,served_ttft_s_p8791,61.37,s,measured,llvq serve on the real model; first request of 8791 prompt tokens; bias on the host,6b0564281460ffe1d5e77db0
 2026-11-24,1,l40s,served_followup_s_p8811,0.36,s,measured,llvq serve; follow-up turn reads 20 new tokens of 8811 (prefix reuse),6b0564281460ffe1d5e77db0
+2026-11-24,2,l40s,vram_peak_p9000_gb,17.553,GB,measured,sliding slots bounded to their window; same bytes,6b05708eaba0b0fd660a5494
+2026-11-24,3,l40s,vram_peak_p9000_gb,15.305,GB,measured,prompt read in pieces of 512; values change (largest logit gap 8.69; band not read),6b05708eaba0b0fd660a5494
+2026-11-24,4,l40s,vram_peak_p9000_gb,12.017,GB,measured,pieces of 512 + bounded slots + scores in chunks of 128; values change (band not read),6b05708eaba0b0fd660a5494
+2026-11-24,4,l40s,ttft_s_p9000,23.85,s,measured,pieces of 512 + bounded slots + scores in chunks of 128; values change (band not read),6b05708eaba0b0fd660a5494
+2026-11-24,3,l40s,vram_end_p9000_gb,11.212,GB,measured,pieces of 512 + bounded slots + scores in chunks of 128; no probe; values change (band not read),6b05708eaba0b0fd660a5494
+2026-11-24,2,l40s,vram_peak_p2000_gb,10.406,GB,measured,prompt read in pieces of 512; values change (band not read),6b05708eaba0b0fd660a5494
+2026-11-24,2,l4,vram_peak_p9000_gb,17.157,GB,measured,sliding slots bounded to their window; same bytes,6b05708eaba0b0fd660a5493
+2026-11-24,3,l4,vram_peak_p9000_gb,11.486,GB,measured,pieces of 512 + bounded slots + scores in chunks of 128; values change (band not read),6b05708eaba0b0fd660a5493
+2026-11-24,2,l4,ttft_s_p9000,140.82,s,measured,blocks of 1024 and the bias on the card (with the probe's drains),6b05708eaba0b0fd660a5493
+2026-11-24,3,l4,ttft_s_p9000,77.12,s,measured,pieces of 512 + bounded slots + scores in chunks of 128; values change (band not read),6b05708eaba0b0fd660a5493
+2026-11-24,2,l4,vram_end_p9000_gb,10.849,GB,measured,pieces of 512 + bounded slots + scores in chunks of 128; no probe; values change (band not read),6b05708eaba0b0fd660a5493

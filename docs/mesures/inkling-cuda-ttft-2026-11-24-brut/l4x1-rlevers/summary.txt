@@ -1,0 +1,32 @@
+inkrun r2000 exit 0
+inkrun c2000 exit 0
+inkrun k2000 exit 0
+inkrun r9000 exit 0
+inkrun c9000 exit 0
+inkrun k9000 exit 0
+inkrun a9000 exit 0
+inkrun ta9000 exit 0
+defbff3b7ef5f880ac33db5d9a098bc1b73f438be4181e1d022fbd8d8773f2aa  /out/inkling-cuda-ttft-l4x1-2026-11-24-rlevers/logits-a9000.f32
+60974683586440b110340a3b77f17818563449e123c209233425f891d5a5f05f  /out/inkling-cuda-ttft-l4x1-2026-11-24-rlevers/logits-c2000.f32
+defbff3b7ef5f880ac33db5d9a098bc1b73f438be4181e1d022fbd8d8773f2aa  /out/inkling-cuda-ttft-l4x1-2026-11-24-rlevers/logits-c9000.f32
+ad2e86472796351ff0643bbdee3b2b54a05998906eeb869429438c830621a709  /out/inkling-cuda-ttft-l4x1-2026-11-24-rlevers/logits-k2000.f32
+4ec97c66cfd6250f83f47ec4c1a0e1a8ede75b4c65d4ff6bb90483a2de8fa7b9  /out/inkling-cuda-ttft-l4x1-2026-11-24-rlevers/logits-k9000.f32
+ad2e86472796351ff0643bbdee3b2b54a05998906eeb869429438c830621a709  /out/inkling-cuda-ttft-l4x1-2026-11-24-rlevers/logits-r2000.f32
+4ec97c66cfd6250f83f47ec4c1a0e1a8ede75b4c65d4ff6bb90483a2de8fa7b9  /out/inkling-cuda-ttft-l4x1-2026-11-24-rlevers/logits-r9000.f32
+defbff3b7ef5f880ac33db5d9a098bc1b73f438be4181e1d022fbd8d8773f2aa  /out/inkling-cuda-ttft-l4x1-2026-11-24-rlevers/logits-ta9000.f32
+r2000: prefill of 2000 tokens 17.79 s, 112 tok/s; lattice launches in the prefill 384; median step 0.0315 s; GB at the end 10.379; moe_rows batch; tokens and logits bytes equal to the first arm of this prompt length: (True, True)
+    GB after load 8.133, after the prompt 10.748, at the end 10.379; peak probe: prompt 11.486, whole run 11.486
+c2000: prefill of 2000 tokens 17.49 s, 114 tok/s; lattice launches in the prefill 768; median step 0.0319 s; GB at the end 9.909; moe_rows batch; tokens and logits bytes equal to the first arm of this prompt length: (True, False, 'largest logit gap 1.5')
+    GB after load 8.133, after the prompt 9.909, at the end 9.909; peak probe: prompt 10.614, whole run 10.614
+k2000: prefill of 2000 tokens 18.05 s, 111 tok/s; lattice launches in the prefill 384; median step 0.0319 s; GB at the end 10.714; moe_rows batch; tokens and logits bytes equal to the first arm of this prompt length: (True, True)
+    GB after load 8.133, after the prompt 11.050, at the end 10.714; peak probe: prompt 11.922, whole run 11.922
+r9000: prefill of 9000 tokens 140.82 s, 64 tok/s; lattice launches in the prefill 1728; median step 0.0348 s; GB at the end 13.600; moe_rows batch; tokens and logits bytes equal to the first arm of this prompt length: (True, True)
+    GB after load 8.133, after the prompt 15.278, at the end 13.600; peak probe: prompt 18.835, whole run 18.835
+c9000: prefill of 9000 tokens 132.26 s, 68 tok/s; lattice launches in the prefill 3456; median step 0.0352 s; GB at the end 12.728; moe_rows batch; tokens and logits bytes equal to the first arm of this prompt length: (True, False, 'largest logit gap 9.73')
+    GB after load 8.133, after the prompt 12.728, at the end 12.728; peak probe: prompt 15.748, whole run 15.748
+k9000: prefill of 9000 tokens 142.64 s, 63 tok/s; lattice launches in the prefill 1728; median step 0.0346 s; GB at the end 11.654; moe_rows batch; tokens and logits bytes equal to the first arm of this prompt length: (True, True)
+    GB after load 8.133, after the prompt 13.566, at the end 11.654; peak probe: prompt 17.157, whole run 17.157
+a9000: prefill of 9000 tokens 81.50 s, 110 tok/s; lattice launches in the prefill 3456; median step 0.0349 s; GB at the end 10.312; moe_rows batch; tokens and logits bytes equal to the first arm of this prompt length: (True, False, 'largest logit gap 9.73')
+    GB after load 8.133, after the prompt 10.312, at the end 10.312; peak probe: prompt 11.486, whole run 11.486
+ta9000: prefill of 9000 tokens 77.12 s, 117 tok/s; lattice launches in the prefill 3456; median step 0.0329 s; GB at the end 10.849; moe_rows batch; tokens and logits bytes equal to the first arm of this prompt length: (True, False, 'largest logit gap 9.73')
+    GB after load 8.133, after the prompt 10.849, at the end 10.849; peak probe: prompt 0.000, whole run 0.000
