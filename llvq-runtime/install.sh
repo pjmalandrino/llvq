@@ -126,7 +126,7 @@ fi
 say "system: $OS $ARCH, archive flavor $FLAVOR"
 
 # --- the archive ---------------------------------------------------------------------------------------------------
-VERSION=${LLVQ_VERSION:-0.1.1}
+VERSION=${LLVQ_VERSION:-0.1.2}
 URL=${LLVQ_URL:-https://github.com/pjmalandrino/llvq-tetra/releases/download/v$VERSION/llvq-$VERSION-$FLAVOR.tar.gz}
 need curl
 if command -v sha256sum > /dev/null 2>&1; then

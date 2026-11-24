@@ -77,14 +77,14 @@ jobs:
       - name: Build
         env:
           CARGO_PROFILE_RELEASE_CODEGEN_UNITS: "16"
-        run: cargo build --release --locked -p llvq-runtime --features metal --bin llvq
+        run: cargo build --profile dist --locked -p llvq-runtime --features metal --bin llvq
       - name: Pack
         run: |
           set -euo pipefail
           VERSION=$(sed -n 's/^version = "\(.*\)"/\1/p' llvq-runtime/Cargo.toml | head -n 1)
           FLAVOR=macos-arm64-metal
           mkdir -p dist/llvq/licenses
-          cp target/release/llvq dist/llvq/llvq
+          cp target/dist/llvq dist/llvq/llvq
           echo "$FLAVOR" > dist/llvq/FLAVOR
           printf 'llvq %s (%s), %s\n' "$VERSION" "$(git rev-parse --short=12 HEAD)" "$FLAVOR" > dist/llvq/VERSION
           cp LICENSE-MIT LICENSE-APACHE dist/llvq/licenses/
@@ -149,13 +149,13 @@ jobs:
         env:
           CARGO_PROFILE_RELEASE_CODEGEN_UNITS: "16"
         # No metal feature: Backend::of_build() is the CPU on this build.
-        run: cargo build --release --locked --target x86_64-apple-darwin -p llvq-runtime --bin llvq
+        run: cargo build --profile dist --locked --target x86_64-apple-darwin -p llvq-runtime --bin llvq
       - name: Pack
         run: |
           set -euo pipefail
           VERSION=$(sed -n 's/^version = "\(.*\)"/\1/p' llvq-runtime/Cargo.toml | head -n 1)
           FLAVOR=macos-x86_64-cpu
-          BIN=target/x86_64-apple-darwin/release/llvq
+          BIN=target/x86_64-apple-darwin/dist/llvq
           test "$(lipo -archs "$BIN")" = x86_64
           mkdir -p dist/llvq/licenses
           cp "$BIN" dist/llvq/llvq
