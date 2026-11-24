@@ -16,7 +16,7 @@
 <meta property="og:image" content="https://pjmalandrino.github.io/llvq-tetra/social-card.png">
 <meta name="twitter:card" content="summary_large_image">
 <link rel="stylesheet" href="../../style.css">
-<script type="application/ld+json">{"@context":"https://schema.org","@type":"FAQPage","mainEntity":[{"@type":"Question","name":"How does it compare with 4-bit AWQ?","acceptedAnswer":{"@type":"Answer","text":"Model for model, 4-bit AWQ scores higher and needs about twice the bits. At about the same size, the Tetra 8B scores above AWQ's 4B and the Tetra 14B above AWQ's 8B."}},{"@type":"Question","name":"How does it compare with llama.cpp IQ2_S?","acceptedAnswer":{"@type":"Answer","text":"At the same size Tetra scores higher on MMLU for all three models. llama.cpp decodes faster and holds less card memory after a long prompt."}},{"@type":"Question","name":"Are these GGUF files?","acceptedAnswer":{"@type":"Answer","text":"No. They are in the Tetra format and are read by the llvq runtime, or in Python by the llvq-tetra package for transformers."}}]}</script>
+<script type="application/ld+json">{"@context":"https://schema.org","@type":"FAQPage","mainEntity":[{"@type":"Question","name":"How does it compare with 4-bit AWQ?","acceptedAnswer":{"@type":"Answer","text":"Model for model, 4-bit AWQ scores higher and needs about twice the bits. At about the same size, the Tetra 8B scores above AWQ's 4B and the Tetra 14B above AWQ's 8B."}},{"@type":"Question","name":"How does it compare with llama.cpp IQ2_S?","acceptedAnswer":{"@type":"Answer","text":"At the same size Tetra scores higher on MMLU for all three models. llama.cpp decodes faster and holds less card memory after a long prompt."}},{"@type":"Question","name":"Are these GGUF files?","acceptedAnswer":{"@type":"Answer","text":"No. They are in the Tetra format and are read by the llvq runtime."}}]}</script>
 </head>
 <body>
 <header>
@@ -59,11 +59,14 @@ newer, or macOS on Apple Silicon. Files on <a href="https://huggingface.co/colle
 <h3>How does it compare with llama.cpp IQ2_S?</h3>
 <p>At the same size Tetra scores higher on MMLU for all three models. llama.cpp decodes faster and holds less card memory after a long prompt.</p>
 <h3>Are these GGUF files?</h3>
-<p>No. They are in the Tetra format and are read by the llvq runtime, or in Python by the llvq-tetra package for transformers.</p>
+<p>No. They are in the Tetra format and are read by the llvq runtime.</p>
 </section>
 
 </main>
 <footer>
+<a href="../../quantization/">Quantization</a>
+<a href="../../vram/">VRAM</a>
+<a href="../../gguf/">GGUF</a>
 <a href="https://github.com/pjmalandrino/llvq-tetra">GitHub</a>
 <a href="https://huggingface.co/Pier-Jean">Hugging Face</a>
 <a href="https://arxiv.org/abs/2609.35465">Paper</a>

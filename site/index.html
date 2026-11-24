@@ -62,6 +62,15 @@ Ollama-compatible one. Streaming and tool calls are included.</p>
 </section>
 
 <section>
+<h2>Guides</h2>
+<ul class="models">
+<li><a href="quantization/"><strong>LLM quantization, from 16 bits to 2</strong><span>What 4-bit and 2-bit mean, and what they cost</span></a></li>
+<li><a href="vram/"><strong>How much VRAM to run an LLM locally</strong><span>Measured memory, 4B to 26B</span></a></li>
+<li><a href="gguf/"><strong>Tetra and GGUF</strong><span>Measured against llama.cpp at 2 bits</span></a></li>
+</ul>
+</section>
+
+<section>
 <h2>How it works</h2>
 <p>Each block of 24 weights is stored as one point of the Leech lattice, in 48 bits. One GPU kernel decodes the
 points and multiplies them in the same pass, so no full-size matrix is ever written to memory. Nothing is trained.</p>
@@ -71,6 +80,9 @@ points and multiplies them in the same pass, so no full-size matrix is ever writ
 
 </main>
 <footer>
+<a href="quantization/">Quantization</a>
+<a href="vram/">VRAM</a>
+<a href="gguf/">GGUF</a>
 <a href="https://github.com/pjmalandrino/llvq-tetra">GitHub</a>
 <a href="https://huggingface.co/Pier-Jean">Hugging Face</a>
 <a href="https://arxiv.org/abs/2609.35465">Paper</a>
