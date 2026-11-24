@@ -73,8 +73,10 @@ for so in $NEEDED; do
     libnv*|libcu*) echo "refused: $so is a CUDA library this script does not know; add it to the list" >&2; exit 1 ;;
   esac
 done
-# NVRTC loads its builtins with dlopen, so they are not in NEEDED.
+# NVRTC loads its builtins with dlopen, so they are not in NEEDED. libcublasLt is named by libcublas, not by the
+# binary.
 cp -L "$CUDA_LIB"/libnvrtc-builtins.so.12* "$OUT/lib/"
+cp -L "$CUDA_LIB/libcublasLt.so.12" "$OUT/lib/libcublasLt.so.12"
 for want in libcublas.so.12 libcublasLt.so.12 libnvrtc.so.12; do
   [ -f "$OUT/lib/$want" ] || { echo "refused: $want missing from lib/" >&2; exit 1; }
 done
