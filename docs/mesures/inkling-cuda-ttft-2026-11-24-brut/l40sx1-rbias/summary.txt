@@ -1,0 +1,50 @@
+inkrun chunk exit 0
+inkrun batch8 exit 0
+inkrun d2000 exit 0
+inkrun phd2000 exit 0
+inkrun t9000 exit 0
+inkrun d9000 exit 0
+inkrun phd9000 exit 0
+9c1624adfddbc2cab212b3a8ee4793ba88abd4d71994f2e390a92b7a3a9b014e  /out/inkling-cuda-ttft-l40sx1-2026-11-24-rbias/logits-batch8.f32
+9c1624adfddbc2cab212b3a8ee4793ba88abd4d71994f2e390a92b7a3a9b014e  /out/inkling-cuda-ttft-l40sx1-2026-11-24-rbias/logits-chunk.f32
+9c1624adfddbc2cab212b3a8ee4793ba88abd4d71994f2e390a92b7a3a9b014e  /out/inkling-cuda-ttft-l40sx1-2026-11-24-rbias/logits-d2000.f32
+a38aca4e36d81c43efa766621ee0309c785c706fb56aea1deced297f5eec950c  /out/inkling-cuda-ttft-l40sx1-2026-11-24-rbias/logits-d9000.f32
+9c1624adfddbc2cab212b3a8ee4793ba88abd4d71994f2e390a92b7a3a9b014e  /out/inkling-cuda-ttft-l40sx1-2026-11-24-rbias/logits-phd2000.f32
+a38aca4e36d81c43efa766621ee0309c785c706fb56aea1deced297f5eec950c  /out/inkling-cuda-ttft-l40sx1-2026-11-24-rbias/logits-phd9000.f32
+a38aca4e36d81c43efa766621ee0309c785c706fb56aea1deced297f5eec950c  /out/inkling-cuda-ttft-l40sx1-2026-11-24-rbias/logits-t9000.f32
+chunk: prefill of 2000 tokens 16.39 s, 122 tok/s; lattice launches in the prefill 970955; median step 0.0151 s; GB at the end 11.044; moe_rows chunk; tokens and logits bytes equal to the first arm of this prompt length: (True, True)
+    GB after load 8.387, after the prompt 11.044, at the end 11.044; peak probe: prompt 0.000, whole run 0.000
+batch8: prefill of 2000 tokens 6.28 s, 319 tok/s; lattice launches in the prefill 384; median step 0.0151 s; GB at the end 10.943; moe_rows batch; tokens and logits bytes equal to the first arm of this prompt length: (True, True)
+    GB after load 8.387, after the prompt 10.943, at the end 10.943; peak probe: prompt 0.000, whole run 0.000
+d2000: prefill of 2000 tokens 5.88 s, 340 tok/s; lattice launches in the prefill 384; median step 0.0151 s; GB at the end 10.809; moe_rows batch; tokens and logits bytes equal to the first arm of this prompt length: (True, True)
+    GB after load 8.387, after the prompt 10.809, at the end 10.809; peak probe: prompt 0.000, whole run 0.000
+phd2000: prefill of 2000 tokens 7.29 s, 274 tok/s; lattice launches in the prefill 384; median step 0.0151 s; GB at the end 9.970; moe_rows batch; tokens and logits bytes equal to the first arm of this prompt length: (True, True)
+    GB after load 8.387, after the prompt 9.970, at the end 9.970; peak probe: prompt 0.000, whole run 0.000
+    moe                          4.692 s   64.4 %
+    attention_scores_softmax     1.209 s   16.6 %
+    norms_gates_residual         0.528 s    7.2 %
+    convolutions                 0.391 s    5.4 %
+    attention_products           0.330 s    4.5 %
+    routing                      0.089 s    1.2 %
+    embed                        0.035 s    0.5 %
+    cache_append_copies          0.014 s    0.2 %
+    readback                     0.003 s    0.0 %
+    head                         0.001 s    0.0 %
+    other                        0.000 s    0.0 %
+t9000: prefill of 9000 tokens 61.88 s, 145 tok/s; lattice launches in the prefill 1728; median step 0.0161 s; GB at the end 19.265; moe_rows batch; tokens and logits bytes equal to the first arm of this prompt length: (True, True)
+    GB after load 8.387, after the prompt 19.265, at the end 19.265; peak probe: prompt 0.000, whole run 0.000
+d9000: prefill of 9000 tokens 51.29 s, 175 tok/s; lattice launches in the prefill 1728; median step 0.0164 s; GB at the end 18.057; moe_rows batch; tokens and logits bytes equal to the first arm of this prompt length: (True, True)
+    GB after load 8.387, after the prompt 18.057, at the end 18.057; peak probe: prompt 0.000, whole run 0.000
+phd9000: prefill of 9000 tokens 57.71 s, 156 tok/s; lattice launches in the prefill 1728; median step 0.0165 s; GB at the end 12.990; moe_rows batch; tokens and logits bytes equal to the first arm of this prompt length: (True, True)
+    GB after load 8.387, after the prompt 12.990, at the end 12.990; peak probe: prompt 0.000, whole run 0.000
+    attention_scores_softmax    30.348 s   52.6 %
+    moe                         20.188 s   35.0 %
+    norms_gates_residual         3.139 s    5.4 %
+    convolutions                 2.419 s    4.2 %
+    attention_products           1.087 s    1.9 %
+    routing                      0.333 s    0.6 %
+    embed                        0.090 s    0.2 %
+    cache_append_copies          0.090 s    0.2 %
+    readback                     0.014 s    0.0 %
+    head                         0.001 s    0.0 %
+    other                        0.000 s    0.0 %

@@ -51,3 +51,11 @@ date,seq,card,metric,value,unit,label,config,job_id
 2026-11-24,2,l4,ttft_s_p2000,18.74,s,measured,batched read at 8 rows (with the probe's drains),6b055c5fca8b51043c3b68fa
 2026-11-24,1,l4,ttft_s_p9000,152.06,s,measured,batched read at 8 rows,6b055c5fca8b51043c3b68fa
 2026-11-24,1,l4,decode_tok_s_p9000,31.15,tok/s,measured,whole fused stack (step 0.0321 s),6b055c5fca8b51043c3b68fa
+2026-11-24,4,l40s,ttft_s_p2000,6.28,s,measured,batched read in blocks of 1024 with the sum in one launch,6b056428aba0b0fd660a258c
+2026-11-24,5,l40s,ttft_s_p2000,5.88,s,measured,+ attention bias on the card,6b056428aba0b0fd660a258c
+2026-11-24,2,l40s,ttft_s_p9000,61.88,s,measured,batched read in blocks of 1024 with the sum in one launch,6b056428aba0b0fd660a258c
+2026-11-24,3,l40s,ttft_s_p9000,51.29,s,measured,+ attention bias on the card,6b056428aba0b0fd660a258c
+2026-11-24,2,l40s,vram_end_p9000_gb,18.057,GB,measured,blocks of 1024 and the bias on the card; no probe,6b056428aba0b0fd660a258c
+2026-11-24,4,l40s,vram_end_p2000_gb,10.809,GB,measured,blocks of 1024 and the bias on the card; no probe,6b056428aba0b0fd660a258c
+2026-11-24,1,l40s,served_ttft_s_p8791,61.37,s,measured,llvq serve on the real model; first request of 8791 prompt tokens; bias on the host,6b0564281460ffe1d5e77db0
+2026-11-24,1,l40s,served_followup_s_p8811,0.36,s,measured,llvq serve; follow-up turn reads 20 new tokens of 8811 (prefix reuse),6b0564281460ffe1d5e77db0

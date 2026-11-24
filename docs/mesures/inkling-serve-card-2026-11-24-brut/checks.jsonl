@@ -1,0 +1,22 @@
+{"check": "a-models", "kind": "correctness", "pass": true, "detail": "GET /v1/models lists ['inkling2-mini:local']", "seconds": null}
+{"check": "load", "kind": "correctness", "pass": true, "detail": "HTTP 200, done_reason 'load', load_duration 43.6 s", "seconds": 43.600785}
+{"check": "ps-loaded", "kind": "correctness", "pass": true, "detail": "state 'ready', backend 'cuda', error None, size_vram 3218968280, 'panicked' in the server log: False", "seconds": null}
+{"check": "b-chat", "kind": "correctness", "pass": false, "detail": "HTTP 200, finish 'length', content '', usage {'prompt_tokens': 25, 'completion_tokens': 32, 'total_tokens': 57}", "seconds": 0.659634}
+{"check": "c-stream", "kind": "correctness", "pass": true, "detail": "[DONE] True, chunks 46, finish 'length', errors [], prompt_tokens 26, completion_tokens 48, first chunk 0.018427610397338867 s, first token 0.1744999885559082 s, content 'one, two, three, four'", "seconds": 0.1744999885559082}
+{"check": "d1-tool-call", "kind": "correctness", "pass": true, "detail": "HTTP 200, finish 'tool_calls', calls [{'id': 'call-f4bd89de9fcc0003', 'type': 'function', 'function': {'name': 'get_weather', 'arguments': '{\"city\": \"Paris\"}'}}], usage {'prompt_tokens': 143, 'completion_tokens': 55, 'total_tokens': 198}", "seconds": 1.164573}
+{"check": "d1-city", "kind": "reading", "pass": true, "detail": "city 'Paris'", "seconds": null}
+{"check": "d2-tool-followup", "kind": "correctness", "pass": true, "detail": "[DONE] True, chunks 33, finish 'stop', errors [], prompt_tokens 207, completion_tokens 37, first chunk 0.017961978912353516 s, first token 0.18956732749938965 s, content 'Right now in Paris, it\u2019s 18\u00b0C with clear skies.'", "seconds": 0.18956732749938965}
+{"check": "d2-uses-result", "kind": "reading", "pass": true, "detail": "the answer names the 18 degrees of the result", "seconds": null}
+{"check": "n1-native-tool-call", "kind": "correctness", "pass": true, "detail": "HTTP 200, calls [{'function': {'arguments': {'city': 'Paris'}, 'name': 'get_weather'}}], prompt_eval_count 143, cached 0, eval_count 55", "seconds": 1.161715}
+{"check": "n2-followup", "kind": "correctness", "pass": true, "detail": "HTTP 200, content 'Right now in Paris, it\u2019s 18\u00b0C with clear skies.', done_reason 'stop'", "seconds": 0.67599}
+{"check": "n2-reuse-prompt", "kind": "reading", "pass": true, "detail": "cached 175 of 207; the first request's prompt was 143 tokens; read 32 tokens in 0.15 s", "seconds": null}
+{"check": "n2-reuse-answer", "kind": "reading", "pass": true, "detail": "the answer the cache held was reused too when cached > 143", "seconds": null}
+{"check": "e1-long", "kind": "correctness", "pass": true, "detail": "[DONE] True, chunks 65, finish 'length', errors [], prompt_tokens 8791, completion_tokens 64, first chunk 0.027506589889526367 s, first token 61.365376472473145 s, content ''", "seconds": 61.365376472473145}
+{"check": "e1-prompt-size", "kind": "reading", "pass": true, "detail": "prompt_tokens 8791, about 9,000 asked", "seconds": null}
+{"check": "e2-long", "kind": "correctness", "pass": true, "detail": "[DONE] True, chunks 65, finish 'length', errors [], prompt_tokens 8791, completion_tokens 64, first chunk 0.02463817596435547 s, first token 61.450942516326904 s, content ''", "seconds": 61.450942516326904}
+{"check": "e2-prompt-size", "kind": "reading", "pass": true, "detail": "prompt_tokens 8791, about 9,000 asked", "seconds": null}
+{"check": "e2-repeat-reuse", "kind": "reading", "pass": false, "detail": "first token of the repeat over the first: 1.001394370062932; inkling.rs reads a repeated prompt of one segment again in full, so FAIL here is what the code predicts, not a fault", "seconds": null}
+{"check": "e3-followup", "kind": "correctness", "pass": false, "detail": "HTTP 200, content '', done_reason 'length'", "seconds": 0.877876}
+{"check": "e3-reuse-prompt", "kind": "reading", "pass": true, "detail": "cached 8791 of 8811; the first request's prompt was 8791 tokens; read 20 tokens in 0.36 s", "seconds": null}
+{"check": "e3-reuse-answer", "kind": "reading", "pass": false, "detail": "the answer the cache held was reused too when cached > 8791", "seconds": null}
+{"check": "ps-end", "kind": "correctness", "pass": true, "detail": "state 'ready', backend 'cuda', error None, size_vram 3218968280, 'panicked' in the server log: False", "seconds": null}

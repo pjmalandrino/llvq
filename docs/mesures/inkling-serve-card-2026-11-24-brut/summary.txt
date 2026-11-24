@@ -1,0 +1,27 @@
+PASS a-models [correctness] GET /v1/models lists ['inkling2-mini:local']
+PASS load [correctness] HTTP 200, done_reason 'load', load_duration 43.6 s | 43.60 s
+PASS ps-loaded [correctness] state 'ready', backend 'cuda', error None, size_vram 3218968280, 'panicked' in the server log: False
+FAIL b-chat [correctness] HTTP 200, finish 'length', content '', usage {'prompt_tokens': 25, 'completion_tokens': 32, 'total_tokens': 57} | 0.66 s
+PASS c-stream [correctness] [DONE] True, chunks 46, finish 'length', errors [], prompt_tokens 26, completion_tokens 48, first chunk 0.018427610397338867 s, first token 0.1744999885559082 s, content 'one, two, three, four' | 0.17 s
+PASS d1-tool-call [correctness] HTTP 200, finish 'tool_calls', calls [{'id': 'call-f4bd89de9fcc0003', 'type': 'function', 'function': {'name': 'get_weather', 'arguments': '{"city": "Paris"}'}}], usage {'prompt_tokens': 143, 'completion_tokens': 55, 'total_tokens': 198} | 1.16 s
+PASS d1-city [reading] city 'Paris'
+PASS d2-tool-followup [correctness] [DONE] True, chunks 33, finish 'stop', errors [], prompt_tokens 207, completion_tokens 37, first chunk 0.017961978912353516 s, first token 0.18956732749938965 s, content 'Right now in Paris, it’s 18°C with clear skies.' | 0.19 s
+PASS d2-uses-result [reading] the answer names the 18 degrees of the result
+PASS n1-native-tool-call [correctness] HTTP 200, calls [{'function': {'arguments': {'city': 'Paris'}, 'name': 'get_weather'}}], prompt_eval_count 143, cached 0, eval_count 55 | 1.16 s
+PASS n2-followup [correctness] HTTP 200, content 'Right now in Paris, it’s 18°C with clear skies.', done_reason 'stop' | 0.68 s
+PASS n2-reuse-prompt [reading] cached 175 of 207; the first request's prompt was 143 tokens; read 32 tokens in 0.15 s
+PASS n2-reuse-answer [reading] the answer the cache held was reused too when cached > 143
+PASS e1-long [correctness] [DONE] True, chunks 65, finish 'length', errors [], prompt_tokens 8791, completion_tokens 64, first chunk 0.027506589889526367 s, first token 61.365376472473145 s, content '' | 61.37 s
+PASS e1-prompt-size [reading] prompt_tokens 8791, about 9,000 asked
+PASS e2-long [correctness] [DONE] True, chunks 65, finish 'length', errors [], prompt_tokens 8791, completion_tokens 64, first chunk 0.02463817596435547 s, first token 61.450942516326904 s, content '' | 61.45 s
+PASS e2-prompt-size [reading] prompt_tokens 8791, about 9,000 asked
+FAIL e2-repeat-reuse [reading] first token of the repeat over the first: 1.001394370062932; inkling.rs reads a repeated prompt of one segment again in full, so FAIL here is what the code predicts, not a fault
+FAIL e3-followup [correctness] HTTP 200, content '', done_reason 'length' | 0.88 s
+PASS e3-reuse-prompt [reading] cached 8791 of 8811; the first request's prompt was 8791 tokens; read 20 tokens in 0.36 s
+FAIL e3-reuse-answer [reading] the answer the cache held was reused too when cached > 8791
+PASS ps-end [correctness] state 'ready', backend 'cuda', error None, size_vram 3218968280, 'panicked' in the server log: False
+INFO gpu-before.txt: NVIDIA L40S, 8.9, 46068 MiB, 0 MiB, 620.70.06
+INFO gpu-loaded.txt: 7999 MiB, 46068 MiB
+INFO gpu-after-long.txt: 17413 MiB, 46068 MiB
+INFO gpu-after.txt: 17765 MiB, 46068 MiB
+correctness: 11 PASS, 2 FAIL ['b-chat', 'e3-followup']

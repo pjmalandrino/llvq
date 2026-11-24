@@ -1,0 +1,11 @@
+NVRTC attn unit: 10167 bytes, sha256 52fcac0a7e0eb05e6c36ed4ca9a77c2585411ea588e19084b5e6574e22869fd6
+NVRTC scores unit: 4112 bytes, sha256 6ee1bc26947d52c6ee637a9697433a2ad5c9d06c97335d62297f4670e2fb384f
+NVRTC source: 89304 bytes, sha256 93872e877ae2850b25abe09a7236aedd940ac93b302f0b8b22617e1faf33b4b8 (9 parts), tile 64 (served: measured optimum for sm_89), prefill 8x64 (LLVQ_PREFILL), 49152 B staged of 49152, target compute_89
+NVRTC head unit: 34115 bytes, sha256 cbe4589c2f587cd1b8df074ecdc0432bc2f8d245b75c4399c64cc2f53e458a9f
+inkrun: dense weights on cuda in 3.5 s
+NVRTC source: 89304 bytes, sha256 93872e877ae2850b25abe09a7236aedd940ac93b302f0b8b22617e1faf33b4b8 (9 parts), tile 64 (served: measured optimum for sm_89), prefill 8x64 (LLVQ_PREFILL), 49152 B staged of 49152, target compute_89
+NVRTC moe unit: 106143 bytes, sha256 c19304b473850ed67b90abc0ddcea537f04f77cd6c85a37e497170555804853e (10 parts)
+inkrun: 24 layers resident in 30.1 s: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23]
+NVRTC glue unit: 15885 bytes, sha256 83b2073f77b4dba2cedfbaade35ad7eb525ae437985fde26544b92c0b56f0700
+inkrun: prefill of 2000 tokens in 6.28 s
+inkrun: 32 tokens, median step 0.015 s, equal to the reference: None (first mismatch None), report /out/inkling-cuda-ttft-l40sx1-2026-11-24-rbias/inkrun-batch8.json

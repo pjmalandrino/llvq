@@ -1,0 +1,1 @@
+{"model": "inkling2-mini:local", "max_tokens": 48, "messages": [{"role": "user", "content": "Count from one to five in words, separated by commas."}], "stream": true, "stream_options": {"include_usage": true}}
