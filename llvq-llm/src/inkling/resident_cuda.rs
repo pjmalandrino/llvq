@@ -40,7 +40,12 @@ use super::expert_codes::{check_layer, layer_dir, read_expert, rotation_seed, te
 use super::layers::{MoeSource, Routing};
 use super::{Inkling, LayerExperts};
 use crate::fused::{EmbedMode, FuseMode, FusedLayout, FusedModel, Int4Layout, RotationTables};
-use crate::fused_cuda::{ExtRotation, FusedProj, FusedRuntime, MoeExpertRefs, MoeLayer, MOE_MAX_SELECTED};
+use crate::fused_cuda::{ExtRotation, FusedProj, FusedRuntime, MoeExpertRefs, MoeKernels, MoeLayer, MOE_MAX_SELECTED};
+
+/// Tokens one block of [`ResidentExperts::forward_rows_batched`] takes. The
+/// pair tensors of a block hold `8 * BATCH_TOKENS` rows, so the peak of a
+/// prompt's call is bounded by this count and not by the prompt.
+const BATCH_TOKENS: usize = 1024;
 
 fn err(e: anyhow::Error) -> candle_core::Error {
     candle_core::Error::msg(format!("{e:#}"))
@@ -318,6 +323,10 @@ impl ResidentExperts {
     /// each token's weighted rows added in ascending expert order from zero.
     /// The same kernels' bodies on the same rows and the same order of sums as
     /// [`Self::forward`]: the values are meant to be its own, bit for bit.
+    /// The tokens go in consecutive blocks of [`BATCH_TOKENS`] (see
+    /// [`Self::rows_block`]); a row's value does not depend on the other rows
+    /// of its launch, and a token's sum stays within its block, so the block
+    /// size does not move a bit.
     /// `None` when the path does not apply: the caller runs the other one.
     fn forward_rows_batched(&self, x: &Tensor, routing: &Routing, cfg: &InklingConfig) -> Result<Option<Tensor>> {
         let Some(layer) = self.moe.as_ref() else {
@@ -337,18 +346,56 @@ impl ResidentExperts {
         if !self.rt.moe_has_rows(k) {
             return Ok(None);
         }
-        // (expert, token, weight, rank of the expert among the token's own, ascending)
-        let mut pairs: Vec<(u32, u32, f32, u32)> = Vec::with_capacity(t_rows * k_sel);
+        // Each token's experts in ascending order, checked for the whole
+        // prompt before the first launch.
+        let mut owns: Vec<Vec<(u32, f32)>> = Vec::with_capacity(t_rows);
         for (t, (idx, w)) in routing.indices.iter().zip(&routing.weights).enumerate() {
             let mut own: Vec<(u32, f32)> = idx.iter().copied().zip(w.iter().copied()).collect();
             own.sort_by_key(|p| p.0);
             if own.windows(2).any(|p| p[0].0 == p[1].0) {
                 return Ok(None);
             }
-            for (rank, (e, wt)) in own.into_iter().enumerate() {
-                if e as usize >= self.experts.len() {
-                    candle_core::bail!("token {t}: expert {e} of a layer of {}", self.experts.len());
-                }
+            if let Some(&(e, _)) = own.iter().find(|p| p.0 as usize >= self.experts.len()) {
+                candle_core::bail!("token {t}: expert {e} of a layer of {}", self.experts.len());
+            }
+            owns.push(own);
+        }
+        let xd = x.to_device(&self.dev)?.to_dtype(DType::F32)?.contiguous()?;
+        // Consecutive token ranges, in token order. A token's rows stay in
+        // one block, so its sum is the same sum whatever the block size.
+        let mut parts: Vec<Tensor> = Vec::with_capacity(t_rows.div_ceil(BATCH_TOKENS));
+        let mut t0 = 0;
+        while t0 < t_rows {
+            let tb = BATCH_TOKENS.min(t_rows - t0);
+            parts.push(self.rows_block(k, layer, &xd, &owns[t0..t0 + tb], t0, cfg)?);
+            self.bump(4);
+            t0 += tb;
+        }
+        drop(xd);
+        let out = if parts.len() == 1 { parts.pop().expect("one block") } else { Tensor::cat(&parts, 0)? };
+        drop(parts);
+        out.to_device(x.device()).map(Some)
+    }
+
+    /// One block of [`Self::forward_rows_batched`]: the tokens `t0..t0 + owns.len()`
+    /// of `xd` (f32 `[T, H]` on the card), `owns` their experts in ascending
+    /// order. Returns f32 `[owns.len(), H]`. Each intermediate tensor is
+    /// dropped once its last reader has run, so the peak follows the block.
+    fn rows_block(
+        &self,
+        k: &MoeKernels,
+        layer: &MoeLayer,
+        xd: &Tensor,
+        owns: &[Vec<(u32, f32)>],
+        t0: usize,
+        cfg: &InklingConfig,
+    ) -> Result<Tensor> {
+        let t_rows = owns.len();
+        let k_sel = owns.first().map_or(0, Vec::len);
+        // (expert, token in the block, weight, rank of the expert among the token's own, ascending)
+        let mut pairs: Vec<(u32, u32, f32, u32)> = Vec::with_capacity(t_rows * k_sel);
+        for (t, own) in owns.iter().enumerate() {
+            for (rank, &(e, wt)) in own.iter().enumerate() {
                 pairs.push((e, t as u32, wt, rank as u32));
             }
         }
@@ -374,31 +421,40 @@ impl ResidentExperts {
         }
         let dev = &self.dev;
         let pair_expert = Tensor::from_vec(pairs.iter().map(|p| p.0).collect::<Vec<_>>(), n, dev)?;
-        let pair_token = Tensor::from_vec(pairs.iter().map(|p| p.1).collect::<Vec<_>>(), n, dev)?;
+        // Global token ids: the rows of `xd` this block reads.
+        let pair_token = Tensor::from_vec(pairs.iter().map(|p| t0 as u32 + p.1).collect::<Vec<_>>(), n, dev)?;
         let wts = Tensor::from_vec(pairs.iter().map(|p| p.2).collect::<Vec<_>>(), (n, 1), dev)?;
         let chunks = Tensor::from_vec(chunks, 3 * n_chunks, dev)?;
 
-        let xd = x.to_device(dev)?.to_dtype(DType::F32)?.contiguous()?;
         let xs = xd.index_select(&pair_token, 0)?.to_dtype(DType::F16)?.contiguous()?;
+        drop(pair_token);
         let xr = self.rt.moe_rotate_pairs(k, layer, false, &xs, &pair_expert)?;
+        drop(xs);
         let gu = self.rt.moe_matrix_pairs(k, layer, false, &xr, &chunks)?.to_dtype(DType::F32)?;
+        drop(xr);
         let (g, u) = (gu.get(0)?, gu.get(1)?);
+        // `g` and `u` are views: the storage goes when the last of the three does.
+        drop(gu);
         // line 771: softcap(gate) * sigmoid(gate) * softcap(up)
         let act = softcap(&g, cfg.mlp_gate_softcap)?
             .mul(&candle_nn::ops::sigmoid(&g)?)?
             .mul(&softcap(&u, cfg.mlp_up_softcap)?)?
             .to_dtype(DType::F16)?
             .contiguous()?;
+        drop((g, u));
         let ar = self.rt.moe_rotate_pairs(k, layer, true, &act, &pair_expert)?;
-        let y = self.rt.moe_matrix_pairs(k, layer, true, &ar, &chunks)?.get(0)?.to_dtype(DType::F32)?.broadcast_mul(&wts)?;
+        drop((act, pair_expert));
+        let yh = self.rt.moe_matrix_pairs(k, layer, true, &ar, &chunks)?;
+        drop((ar, chunks));
+        let y = yh.get(0)?.to_dtype(DType::F32)?.broadcast_mul(&wts)?;
+        drop((yh, wts));
         // zeros + the first expert's row, then the others, as `index_add` an expert at a time did.
-        let mut out = xd.zeros_like()?;
+        let mut out = Tensor::zeros((t_rows, xd.dim(1)?), DType::F32, dev)?;
         for sel in by_rank {
             let sel = Tensor::from_vec(sel, t_rows, dev)?;
             out = (out + y.index_select(&sel, 0)?)?;
         }
-        self.bump(4);
-        out.to_device(x.device()).map(Some)
+        Ok(out)
     }
 
     /// The MoE of this layer, see the module documentation.
