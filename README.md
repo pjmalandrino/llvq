@@ -1,11 +1,11 @@
-# LLVQ in Rust
+# Tetra: LLVQ in Rust
 
 [![arXiv](https://img.shields.io/badge/arXiv-2609.35465-b31b1b?logo=arxiv&logoColor=white)](https://arxiv.org/abs/2609.35465)
 [![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.22133606.svg)](https://doi.org/10.5281/zenodo.22133606)
 [![Rust 2021](https://img.shields.io/badge/Rust-2021-000000?logo=rust&logoColor=white)](https://www.rust-lang.org)
 [![CUDA](https://img.shields.io/badge/CUDA-NVRTC-76B900?logo=nvidia&logoColor=white)](llvq-cuda/)
 [![Metal](https://img.shields.io/badge/Metal-macOS-555555?logo=apple&logoColor=white)](llvq-metal/)
-[![Hugging Face](https://img.shields.io/badge/%F0%9F%A4%97%20Hub-Qwen3%204B%20%C2%B7%208B%20%C2%B7%2014B-FFD21E)](https://huggingface.co/Pier-Jean)
+[![Hugging Face](https://img.shields.io/badge/%F0%9F%A4%97%20Hub-Inkling%202%20Mini%20%C2%B7%20Qwen3%204B%20%C2%B7%208B%20%C2%B7%2014B-FFD21E)](https://huggingface.co/collections/Pier-Jean/llvq-tetra)
 [![PyPI](https://img.shields.io/pypi/v/llvq-tetra?label=PyPI%20llvq-tetra&logo=pypi&logoColor=white)](https://pypi.org/project/llvq-tetra/)
 [![License](https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-blue)](#licence)
 
@@ -14,9 +14,43 @@ An independent Rust implementation of Leech-lattice vector quantization for LLM 
 indexing, GPTQ, file format) have no external dependency. Fused CUDA and Metal kernels read the 2-bit codes inside
 the model without ever building a dense matrix.
 
+Two families are published: three dense Qwen3 models, and Inkling 2 Mini, a 26.4-billion-parameter mixture of
+experts. The `llvq` runtime pulls and serves them, with an OpenAI-compatible route and an Ollama-compatible one.
+
+```bash
+curl -fsSL https://github.com/pjmalandrino/llvq-tetra/releases/latest/download/install.sh | sh
+llvq run inkling2:mini
+```
+
 How it works, from the Golay code to the one-launch CUDA token: [`docs/how-it-works.md`](docs/how-it-works.md).
 
-## Results
+## Inkling 2 Mini, a mixture of experts
+
+[Inkling 2 Mini](https://huggingface.co/thinkingmachines/Inkling-2-Mini) has 3,072 experts in 24 layers, 8 routed
+per token, and its middle layers run three times. Each expert is stored as Tetra codes and stays compressed on the
+card: the kernel decodes and multiplies the routed experts' rows in a few launches a layer. The file is
+[Pier-Jean/Inkling-2-Mini-LLVQ-Tetra](https://huggingface.co/Pier-Jean/Inkling-2-Mini-LLVQ-Tetra), text only.
+
+| | NVIDIA L40S | NVIDIA L4 |
+|---|---|---|
+| decode after a 32-token prompt | 72.2 tok/s | 36.9 tok/s |
+| decode after a 9,000-token prompt | 62.1 tok/s | 31.2 tok/s |
+| card memory after load | 8.39 GB | 8.13 GB |
+| peak card memory reading a 9,000-token prompt | 12.0 GB | 11.5 GB |
+| time to read a 9,000-token prompt | 23.9 s | 77.1 s |
+
+- Size: 10.0 GB to download, 3.03 bits per parameter; 8.14 GB and 2.47 in the sealed form, which the engine does
+  not read yet. Both *computed* from the files. The native model is 19.5 GB.
+- Quality: KL 0.0880 nats against the native model on WikiText-2. GSM8K, first 200 problems: 191 through the dense
+  reference path and 186 through the fused kernels, not separated (p = 0.18). The native model was not run through
+  our GSM8K harness.
+- All *measured* on 2026-11-22 to 2026-11-24, batch 1; journals in
+  [inkling-cuda-ttft](docs/mesures/inkling-cuda-ttft-2026-11-24.txt), history in
+  [`docs/data/inkling-stats.csv`](docs/data/inkling-stats.csv). The two cards are not to be divided by one another.
+- Not done: no run on a 16 GB consumer card, no vision tower, no comparison with other 2-bit files of this model
+  through this engine. Reading a long prompt for the first time is slow; a follow-up turn reuses the cache.
+
+## Results on Qwen3
 
 Three Qwen3 models, sealed at about 2.7 bits per parameter and served on one NVIDIA L40S.
 
@@ -81,22 +115,41 @@ configuration and the open decisions are in [`docs/ETAT.md`](docs/ETAT.md).
 
 ## Run it
 
-The sealed files are on the Hugging Face Hub. A different hash is a different file.
+The `llvq` runtime installs from a prebuilt archive. Nothing to compile, and no CUDA toolkit: the archive carries
+the CUDA libraries it loads.
+
+```bash
+curl -fsSL https://github.com/pjmalandrino/llvq-tetra/releases/latest/download/install.sh | sh
+llvq run inkling2:mini                # 10.0 GB, checked against its pinned sha256
+llvq run qwen3:4b "Name three primary colours."
+llvq serve                            # OpenAI and Ollama routes on 127.0.0.1:11435, tool calls included
+```
+
+| system | needs |
+|---|---|
+| Linux x86_64, NVIDIA | driver 550 or newer, a card of compute capability 8.9 or newer (RTX 40 series, L4, L40S and later), glibc 2.35 (Ubuntu 22.04), OpenSSL 3 |
+| macOS, Apple Silicon | nothing else |
+
+Through the runtime, Inkling 2 Mini has been run on NVIDIA cards only; on a Mac it was measured in the bench
+binary, at 27.7 tok/s.
+
+The files are on the Hugging Face Hub, in [one collection](https://huggingface.co/collections/Pier-Jean/llvq-tetra).
+A different hash is a different file.
 
 | model | repository | file | SHA-256 |
 |---|---|---|---|
+| Inkling 2 Mini | [Pier-Jean/Inkling-2-Mini-LLVQ-Tetra](https://huggingface.co/Pier-Jean/Inkling-2-Mini-LLVQ-Tetra) | `llvq-files.json`, the index of 29 files | `9a4052a9…` |
 | Qwen3-4B | [Pier-Jean/Qwen3-4B-LLVQ-Tetra-sealed](https://huggingface.co/Pier-Jean/Qwen3-4B-LLVQ-Tetra-sealed) | `qwen3-4b-sealed.bin` | `886391a8…` |
 | Qwen3-8B | [Pier-Jean/Qwen3-8B-LLVQ-Tetra-sealed](https://huggingface.co/Pier-Jean/Qwen3-8B-LLVQ-Tetra-sealed) | `qwen3-8b-sealed-B.bin` | `7bdb9a55…` |
 | Qwen3-14B | [Pier-Jean/Qwen3-14B-LLVQ-Tetra-sealed](https://huggingface.co/Pier-Jean/Qwen3-14B-LLVQ-Tetra-sealed) | `qwen3-14b-sealed.bin` | `61db37fe…` |
 
-The container is this repository's own format; no other runtime reads it. The easiest way in is the `llvq` runtime,
-which speaks Ollama's and OpenAI's APIs ([`llvq-runtime/`](llvq-runtime/README.md)):
+The container is this repository's own format; no other runtime reads it. The runtime is documented in
+[`llvq-runtime/`](llvq-runtime/README.md). To build it from source instead, with a CUDA toolkit 12.x on Linux:
 
 ```bash
-git clone https://github.com/pjmalandrino/llvq && cd llvq
+git clone https://github.com/pjmalandrino/llvq-tetra && cd llvq-tetra
 cargo build --release -p llvq-runtime --features cuda    # Linux; --features metal on a Mac
-target/release/llvq pull qwen3:4b                        # checked against its pinned sha256
-target/release/llvq run qwen3:4b "Name three primary colours."
+target/release/llvq pull qwen3:4b
 ```
 
 On CUDA the runtime serves the v9 configs, greedy only. On a Mac it runs the Rust Metal engine; the faster MLX door
@@ -148,8 +201,8 @@ The earlier `Planes14` 4B of release `v0.0.1` stays at
 | `llvq-bench` | rate-distortion and decode-cost benches |
 | `llvq-metal` | macOS GPU shaders and benches |
 | `llvq-cuda` | CUDA kernels, 4E, benches (Linux) |
-| `llvq-llm` | Qwen3 forward pass, served configs, perplexity, MMLU, GSM8K |
-| `llvq-runtime` | the `llvq` binary: pull, run, serve |
+| `llvq-llm` | Qwen3 and Inkling 2 forward passes, served configs, perplexity, MMLU, GSM8K |
+| `llvq-runtime` | the `llvq` binary: pull, run, serve, with OpenAI and Ollama routes |
 
 The first five have no external dependency and forbid `unsafe`. Feature flags: `metal`, `cuda` (NVRTC at startup),
 `fast-linalg` (needed in practice to quantize: the dependency-free path is 40 times slower, bit for bit the same).
@@ -178,5 +231,6 @@ divided.
 
 Code: MIT OR Apache-2.0. The Qwen3 forward pass in `llvq-llm/src/model.rs` is derived from
 [candle-transformers](https://github.com/huggingface/candle) (MIT OR Apache-2.0). The published models are Apache 2.0,
-inherited from Qwen3. The QTIP kernel used in one bench is GPL v3 upstream and is not redistributed
+inherited from Qwen3 and from Inkling 2 Mini, whose use is also bound by Thinking Machines'
+[Model Acceptable Use Policy](https://thinkingmachines.ai/model-acceptable-use-policy/). The QTIP kernel used in one bench is GPL v3 upstream and is not redistributed
 ([`docs/qtip-provenance.md`](docs/qtip-provenance.md)).

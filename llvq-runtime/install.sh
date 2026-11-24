@@ -1,12 +1,13 @@
 #!/bin/sh
 # Install llvq from a prebuilt archive, in the manner of Ollama's install.sh.
 #
-#   curl -fsSL <url of this script> | LLVQ_URL=<archive url> sh
+#   curl -fsSL https://github.com/pjmalandrino/llvq-tetra/releases/latest/download/install.sh | sh
 #
 # What it does:
 #   1. reads the system: Linux x86_64 with an NVIDIA card, or macOS on Apple Silicon;
 #   2. on Linux, refuses a missing driver, a driver older than LLVQ_MIN_DRIVER, or a card older than Ada (sm_89);
-#   3. downloads the archive LLVQ_URL names and checks its sha256 (LLVQ_SHA256, or the file <url>.sha256);
+#   3. downloads the archive of release v$LLVQ_VERSION for this system, or the one LLVQ_URL names, and checks its
+#      sha256 (LLVQ_SHA256, or the file <url>.sha256);
 #   4. unpacks it into <prefix>/lib/llvq and links <prefix>/bin/llvq to it.
 #
 # The prefix is LLVQ_PREFIX, else /usr/local as root, else ~/.local. No root is needed for ~/.local.
@@ -14,7 +15,8 @@
 # The NVIDIA driver is the one thing it cannot carry: it must be installed already.
 #
 # Variables:
-#   LLVQ_URL         the archive (.tar.gz), https:// or file://. Required: no release is published yet.
+#   LLVQ_VERSION     the release to install, default the one this script shipped with.
+#   LLVQ_URL         another archive (.tar.gz), https:// or file://, instead of the release's.
 #   LLVQ_SHA256      its sha256. When unset, read from "$LLVQ_URL.sha256".
 #   LLVQ_PREFIX      where to install.
 #   LLVQ_MIN_DRIVER  oldest NVIDIA driver accepted, default 550 (the archive's CUDA 12.4 run-time and its PTX need it).
@@ -75,8 +77,8 @@ its kernels are built for sm_89. Build from source with CUDA_COMPUTE_CAP set for
 fi
 
 # --- the archive ---------------------------------------------------------------------------------------------------
-URL=${LLVQ_URL:-}
-[ -n "$URL" ] || die "LLVQ_URL is not set: no release is published yet, so name the archive yourself"
+VERSION=${LLVQ_VERSION:-0.1.0}
+URL=${LLVQ_URL:-https://github.com/pjmalandrino/llvq-tetra/releases/download/v$VERSION/llvq-$VERSION-$FLAVOR.tar.gz}
 need curl
 if command -v sha256sum > /dev/null 2>&1; then
   SUM="sha256sum"
@@ -144,4 +146,4 @@ case ":$PATH:" in
   *":$PREFIX/bin:"*) ;;
   *) say "add $PREFIX/bin to PATH, e.g. echo 'export PATH=\"$PREFIX/bin:\$PATH\"' >> ~/.profile" ;;
 esac
-say "done. Next: llvq run qwen3:4b"
+say "done. Next: llvq run inkling2:mini (10 GB to download), or llvq run qwen3:4b (1.4 GB)"

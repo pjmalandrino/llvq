@@ -6,12 +6,12 @@ plan, its gates and its open decisions are in [`docs/plan-runtime.md`](../docs/p
 
 ## Install
 
-No archive is published yet. Once one is, one command installs `llvq` with the CUDA libraries it needs, and
-nothing else is built or installed:
+One command installs `llvq` with the CUDA libraries it needs, from the
+[latest release](https://github.com/pjmalandrino/llvq-tetra/releases/latest). Nothing else is built or installed:
 
 ```bash
-curl -fsSL <url of llvq-runtime/install.sh> | LLVQ_URL=<archive url> sh
-llvq run qwen3:4b
+curl -fsSL https://github.com/pjmalandrino/llvq-tetra/releases/latest/download/install.sh | sh
+llvq run inkling2:mini
 ```
 
 `install.sh` reads the system and refuses, with the reason, what the archive cannot run on:
