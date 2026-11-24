@@ -37,6 +37,8 @@ struct Script {
     tool: u32,
     call: Vec<u32>,
     words: Vec<u32>,
+    /// When set, a rollback to a mark other than the end is refused, as a bounded sliding slot refuses a deep one.
+    refuse: Arc<std::sync::atomic::AtomicBool>,
 }
 
 impl Script {
@@ -73,6 +75,9 @@ impl TurnLm for Script {
 
     fn rollback(&mut self, m: &usize) -> anyhow::Result<()> {
         anyhow::ensure!(*m <= self.ctx.len(), "a mark past the cache");
+        if *m < self.ctx.len() && self.refuse.load(std::sync::atomic::Ordering::Relaxed) {
+            anyhow::bail!("too deep for a bounded sliding slot");
+        }
         self.ctx.truncate(*m);
         Ok(())
     }
@@ -84,6 +89,7 @@ impl TurnLm for Script {
 
 struct ScriptLoader {
     feeds: Arc<Mutex<Vec<Vec<u32>>>>,
+    refuse: Arc<std::sync::atomic::AtomicBool>,
 }
 
 impl Loader for ScriptLoader {
@@ -95,12 +101,21 @@ impl Loader for ScriptLoader {
         let chat = InkChat::new(ink::byte_tokenizer())?;
         let enc = |s: &str| chat.tokenizer().encode(s, false).unwrap().get_ids().to_vec();
         let tool = chat.tokenizer().token_to_id(llvq_llm::inkchat::mark::TOOL).unwrap();
-        let lm = Script { ctx: Vec::new(), feeds: self.feeds.clone(), tool, call: enc(CALL), words: enc(WORDS) };
+        let lm = Script { ctx: Vec::new(), feeds: self.feeds.clone(), tool, call: enc(CALL), words: enc(WORDS), refuse: self.refuse.clone() };
         Ok(Built::Inkling(InkEngine::new(lm, chat, 4096, "script", None)))
     }
 }
 
-fn serve(tag: &str) -> (Client, Arc<Mutex<Vec<Vec<u32>>>>) {
+/// Every call the scripted model was fed, in order.
+type Feeds = Arc<Mutex<Vec<Vec<u32>>>>;
+
+fn serve(tag: &str) -> (Client, Feeds) {
+    let (c, feeds, _) = serve_refusing(tag);
+    (c, feeds)
+}
+
+/// [`serve`], with the switch that makes the model refuse a rollback.
+fn serve_refusing(tag: &str) -> (Client, Feeds, Arc<std::sync::atomic::AtomicBool>) {
     let dir = std::env::temp_dir().join(format!("llvq-runtime-test-{tag}-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&dir);
     let store = Store::at(dir);
@@ -119,8 +134,36 @@ fn serve(tag: &str) -> (Client, Arc<Mutex<Vec<Vec<u32>>>>) {
     };
     store.write_manifest(&ModelName::parse("ink:test").unwrap(), &m).unwrap();
     let feeds = Arc::new(Mutex::new(Vec::new()));
-    let host = common::serve_with(Arc::new(store), "http://127.0.0.1:9", Arc::new(ScriptLoader { feeds: feeds.clone() }));
-    (Client::new(&host), feeds)
+    let refuse = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let loader = ScriptLoader { feeds: feeds.clone(), refuse: refuse.clone() };
+    let host = common::serve_with(Arc::new(store), "http://127.0.0.1:9", Arc::new(loader));
+    (Client::new(&host), feeds, refuse)
+}
+
+/// A cache that refuses to go back (a bounded sliding slot past its slack) costs a full read, not the request.
+#[test]
+fn a_refused_rollback_reads_the_prompt_again() {
+    let (c, feeds, refuse) = serve_refusing("ink-rollback");
+    let system = json!({"role": "system", "content": "You are a coding agent."});
+    let user = json!({"role": "user", "content": "list the files"});
+    let r = c
+        .send("POST", "/v1/chat/completions", &json!({"model": "ink:test", "messages": [system, user], "tools": tools()}))
+        .unwrap();
+    let call = r["choices"][0]["message"]["tool_calls"][0].clone();
+    let echo = json!({"role": "assistant", "content": null, "tool_calls": [call.clone()]});
+    let result = |text: &str| json!({"role": "tool", "tool_call_id": call["id"], "content": text});
+    let body = |text: &str| json!({"model": "ink:test", "tools": tools(), "messages": [system, user, echo, result(text)]});
+    c.send("POST", "/v1/chat/completions", &body("a.txt")).unwrap();
+    let n = feeds.lock().unwrap().len();
+
+    // Another tool result: the cache must go back to the end of the model's call, and it refuses.
+    refuse.store(true, std::sync::atomic::Ordering::Relaxed);
+    let r = c.send("POST", "/v1/chat/completions", &body("b.txt")).unwrap();
+    assert_eq!(r["choices"][0]["finish_reason"], "stop", "{r}");
+    assert_eq!(r["choices"][0]["message"]["content"], "the cat sat", "{r}");
+    let again = fed(&feeds, n);
+    assert!(again[0].starts_with("<|message_system|>tool_declare"), "the whole prompt is read again: {}", again[0]);
+    assert!(again.iter().any(|f| f.contains("b.txt")), "{again:?}");
 }
 
 fn tools() -> Value {

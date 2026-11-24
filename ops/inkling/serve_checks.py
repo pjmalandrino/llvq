@@ -100,7 +100,7 @@ def oai_stream(body):
 
 def req(name, prev=None):
     if name == "b":
-        return {"model": MODEL, "max_tokens": 32,
+        return {"model": MODEL, "max_tokens": 256,
                 "messages": [{"role": "user", "content": "What is the capital of France? Answer with one word."}]}
     if name == "c":
         return oai_stream({"model": MODEL, "max_tokens": 48,
@@ -145,7 +145,7 @@ def req(name, prev=None):
         msgs += [{"role": "tool", "content": "[]", "tool_name": c["function"]["name"]} for c in s["tool_calls"]]
         msgs.append({"role": "user", "content": LONG_FOLLOW})
         return {"model": MODEL, "messages": msgs, "tools": long_tools(), "stream": False, "keep_alive": -1,
-                "options": {"num_predict": 32}}
+                "options": {"num_predict": 256}}
     sys.exit(f"unknown request {name}")
 
 

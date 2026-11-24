@@ -213,7 +213,8 @@ impl TurnLm for InklingLm {
     type Mark = llvq_llm::inkling::InklingMark;
 
     fn feed(&mut self, ids: &[u32]) -> anyhow::Result<Tensor> {
-        Ok(self.model.forward(ids, &mut self.cache, false, false)?.logits)
+        // In pieces when the model is set to read a prompt so (`set_prefill_piece`), in one call otherwise.
+        Ok(self.model.forward_pieces(ids, &mut self.cache, false)?)
     }
 
     fn held(&self) -> usize {
@@ -255,6 +256,14 @@ fn make_resident(model: &mut llvq_llm::inkling::Inkling, layers: &Path, dev: &De
 /// CUDA a prompt's rows through the experts in one launch a step
 /// (`Inkling::set_moe_batch_rows`, byte-identical values). Returns the lines
 /// the load prints.
+/// Tokens of a prompt one forward call reads on CUDA.
+const PROMPT_PIECE: usize = 512;
+/// Query rows of one attention score tensor on CUDA.
+const SCORE_ROWS: usize = 128;
+/// Positions past its window a bounded sliding slot keeps, and so the deepest
+/// rollback it accepts.
+const KV_SLACK: usize = 1024;
+
 fn load_model(l: &LocalModel, dev: &Device) -> anyhow::Result<(llvq_llm::inkling::Inkling, Vec<String>)> {
     use llvq_llm::inkling::{tables, Inkling, LoadOptions};
     let fused = l.fused().map_err(anyhow::Error::msg)?;
@@ -284,6 +293,20 @@ fn load_model(l: &LocalModel, dev: &Device) -> anyhow::Result<(llvq_llm::inkling
     if matches!(dev, Device::Cuda(_)) {
         model.set_moe_batch_rows(true);
         lines.push("experts: a prompt's rows in one launch a step".into());
+    }
+    if fused && matches!(dev, Device::Cuda(_)) {
+        // The long-prompt settings measured on 2026-11-24 (9,000 tokens: 12.0 GB at the peak against 19.5, read
+        // in 23.85 s against 55.89 on an L40S). The pieces change values inside the perplexity band (-0.042 %);
+        // the bounded slots and the chunked scores add no difference. The slack is what a rollback may undo: an
+        // answer longer than it is read again from the start (`Worker::back_to`).
+        model.set_prefill_piece(PROMPT_PIECE);
+        model.set_attn_chunk(SCORE_ROWS);
+        model.set_kv_window(Some(KV_SLACK));
+        #[cfg(all(target_os = "linux", feature = "cuda"))]
+        llvq_llm::inkling::attn_bias::set_on_device(Some(dev))?;
+        lines.push(format!(
+            "prompt: pieces of {PROMPT_PIECE} tokens, scores in chunks of {SCORE_ROWS} rows, sliding slots bounded with a slack of {KV_SLACK}, bias on the card"
+        ));
     }
     let resident = model.substituted_layers();
     let need = l.require_layers.unwrap_or(model.cfg.num_hidden_layers);
@@ -647,6 +670,32 @@ impl<M: TurnLm> Worker<M> {
             0 => 0,
             n => self.held[n - 1].len,
         };
+        // Back to what is kept, before anything is counted: a bounded sliding slot refuses a rollback deeper than
+        // its slack, and the whole prompt is then read again.
+        let (kept, from, base) = if kept < self.held.len() || self.lm.held() != base {
+            let back = match kept {
+                0 => {
+                    self.lm.reset();
+                    Ok(())
+                }
+                n => self.lm.rollback(&self.held[n - 1].mark),
+            };
+            match back {
+                Ok(()) => {
+                    self.held.truncate(kept);
+                    (kept, from, base)
+                }
+                Err(e) => {
+                    eprintln!("llvq: the cache could not go back to its kept prefix, the prompt is read again: {e:#}");
+                    self.lm.reset();
+                    self.held.clear();
+                    (0, 0, 0)
+                }
+            }
+        } else {
+            (kept, from, base)
+        };
+        let _ = kept;
         let room = limit.saturating_sub(base + (r.ids.len() - from) + 1);
         if room == 0 {
             send(refusal(
@@ -662,13 +711,6 @@ impl<M: TurnLm> Worker<M> {
             Some(n) if n > 0 => (n as usize).min(room),
             _ => room,
         };
-        if kept < self.held.len() || self.lm.held() != base {
-            match kept {
-                0 => self.lm.reset(),
-                n => self.lm.rollback(&self.held[n - 1].mark)?,
-            }
-            self.held.truncate(kept);
-        }
         if !send(Event::Accepted { prompt_tokens: r.ids.len(), cached: from }) {
             return Ok(());
         }
@@ -756,13 +798,20 @@ impl<M: TurnLm> Worker<M> {
 
     /// Back to the end of the prompt: the answer is not kept.
     fn drop_answer(&mut self) -> anyhow::Result<()> {
-        match self.held.last() {
+        let back = match self.held.last() {
             Some(h) => self.lm.rollback(&h.mark),
             None => {
                 self.lm.reset();
                 Ok(())
             }
+        };
+        if let Err(e) = back {
+            // An answer longer than a bounded slot's slack: nothing is kept, the next prompt is read from its start.
+            eprintln!("llvq: the cache could not drop the answer, it starts empty again: {e:#}");
+            self.lm.reset();
+            self.held.clear();
         }
+        Ok(())
     }
 }
 
