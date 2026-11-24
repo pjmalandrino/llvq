@@ -77,7 +77,7 @@ its kernels are built for sm_89. Build from source with CUDA_COMPUTE_CAP set for
 fi
 
 # --- the archive ---------------------------------------------------------------------------------------------------
-VERSION=${LLVQ_VERSION:-0.1.0}
+VERSION=${LLVQ_VERSION:-0.1.1}
 URL=${LLVQ_URL:-https://github.com/pjmalandrino/llvq-tetra/releases/download/v$VERSION/llvq-$VERSION-$FLAVOR.tar.gz}
 need curl
 if command -v sha256sum > /dev/null 2>&1; then
