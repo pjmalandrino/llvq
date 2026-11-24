@@ -1,0 +1,5 @@
+The sky appears blue due to a phenomenon called Rayleigh scattering. Sunlight, which is composed of different colors, travels through the Earth's atmosphere and interacts with molecules like nitrogen and oxygen. Shorter wavelengths of light, such as blue and violet, are scattered more efficiently by these molecules than longer wavelengths like red and yellow. This scattering occurs in all directions, but our eyes perceive the scattered blue light more strongly because the human eye is more sensitive to blue. Additionally, the sun appears lower on the horizon during sunrise and sunset, which means the light travels through more atmosphere and scatters more, resulting in a reddish hue. Overall, the combination of Rayleigh scattering and the sensitivity of the human eye to blue makes the sky appear blue during the day.
+
+prompt: 27 tokens (0 cached) in 21.93 s
+answer: 152 tokens in 584.76 s, 0.3 tok/s (this client's rate, not a measurement)
+end: stop
