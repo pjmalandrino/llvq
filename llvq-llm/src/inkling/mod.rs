@@ -240,6 +240,8 @@ pub struct Inkling {
     pub embed_table: Option<tables::EmbedTable>,
     /// Query rows of one attention score tensor ([`layers::DEFAULT_ATTN_CHUNK`]; `0`: one chunk).
     attn_chunk: usize,
+    /// Tokens of a prompt one call of [`Self::forward`] reads ([`Self::set_prefill_piece`]; `0`: the whole prompt).
+    prefill_piece: usize,
     /// Called after every layer visit when set: a measurement reads the device memory there.
     visit_probe: std::sync::Mutex<Option<VisitProbe>>,
     /// The fused glue kernels, when [`Self::set_glue`] chose them: a one-row
@@ -469,6 +471,28 @@ impl MoeSource for TimedMoe<'_> {
     }
 }
 
+/// `(start, length)` of the calls a prompt of `t` tokens is read in, at most
+/// `piece` tokens a call (`0`: one call). No piece holds a single token
+/// unless the prompt does: a one-row call takes the decode path (the fused
+/// glue and attention kernels where they are on), so a lone last token joins
+/// the piece before it, which then holds `piece + 1`.
+pub fn prefill_pieces(t: usize, piece: usize) -> Vec<(usize, usize)> {
+    if piece == 0 || t <= piece {
+        return vec![(0, t)];
+    }
+    let mut out = vec![];
+    let mut start = 0;
+    while start < t {
+        let mut n = piece.min(t - start);
+        if t - start - n == 1 {
+            n += 1;
+        }
+        out.push((start, n));
+        start += n;
+    }
+    out
+}
+
 /// Output-head rows widened to f32 per matmul: bounds the f32 copy to
 /// `HEAD_CHUNK * H * 4` bytes (151 MB) whatever the vocabulary.
 const HEAD_CHUNK: usize = 16384;
@@ -546,6 +570,7 @@ impl Inkling {
             out_proj,
             embed_table: None,
             attn_chunk: layers::DEFAULT_ATTN_CHUNK,
+            prefill_piece: 0,
             visit_probe: std::sync::Mutex::new(None),
             #[cfg(ink_glue)]
             glue: None,
@@ -792,6 +817,40 @@ impl Inkling {
         self.attn_chunk
     }
 
+    /// Read a prompt `tokens` at a time ([`Self::forward_pieces`], and so
+    /// [`crate::lm::CausalLm::prefill`]); `0`, the default, reads it in one
+    /// call. Every transient of a prompt call is then bounded by the piece:
+    /// the hidden-wide copies, the relative logits `[heads, T, extent]`, the
+    /// rows the experts take. The cache holds the same positions either way.
+    /// The logits are not meant to be bit for bit those of one call: the
+    /// score products run over other lengths and the experts batch other rows.
+    pub fn set_prefill_piece(&mut self, tokens: usize) {
+        self.prefill_piece = tokens;
+    }
+
+    pub fn prefill_piece(&self) -> usize {
+        self.prefill_piece
+    }
+
+    /// `ids` through [`Self::forward`] in the pieces of [`prefill_pieces`],
+    /// each one appended to `cache` before the next is read. The logits of
+    /// the last position, `[1, vocab]`, or of every position, `[T, vocab]`.
+    pub fn forward_pieces(&self, ids: &[u32], cache: &mut InklingCache, all_logits: bool) -> Result<Tensor> {
+        let pieces = prefill_pieces(ids.len(), self.prefill_piece);
+        let mut logits = Vec::with_capacity(if all_logits { pieces.len() } else { 1 });
+        for (start, n) in pieces {
+            let out = self.forward(&ids[start..start + n], cache, false, all_logits)?;
+            if !all_logits {
+                logits.clear();
+            }
+            logits.push(out.logits);
+        }
+        if logits.len() == 1 {
+            return Ok(logits.pop().expect("one piece"));
+        }
+        Tensor::cat(&logits, 0)
+    }
+
     /// Call `probe` after every layer visit from now on (`None`: stop). It
     /// sees nothing of the forward; a measurement drains the device and reads
     /// its memory there.
@@ -997,8 +1056,8 @@ impl crate::lm::CausalLm for Inkling {
     }
 
     fn prefill(&self, tokens: &[u32], cache: &mut Self::Cache) -> Result<Tensor> {
-        let out = self.forward(tokens, cache, false, false)?;
-        out.logits.reshape((1, 1, self.cfg.unpadded_vocab_size))
+        let logits = self.forward_pieces(tokens, cache, false)?;
+        logits.reshape((1, 1, self.cfg.unpadded_vocab_size))
     }
 
     fn step(&self, token: u32, offset: usize, cache: &mut Self::Cache) -> Result<Tensor> {
@@ -1016,4 +1075,229 @@ impl crate::lm::CausalLm for Inkling {
     fn rollback(&self, cache: &mut Self::Cache, mark: &Self::Mark) -> Result<()> {
         cache.rollback(mark)
     }
+}
+
+#[cfg(test)]
+mod tests {
+    //! A tiny whole model, the one of `tests/inkling_wave1.rs`: 12 layers, the
+    //! loop of layers 6 to 11 run three times (24 visits), a sliding window of
+    //! 4 and a relative extent of 6, every layer on dense experts.
+
+    use super::*;
+    use crate::lm::CausalLm;
+    use layers::ExpertSource;
+
+    /// splitmix64, mapped to `[-a, a)`.
+    struct Gen(u64);
+
+    impl Gen {
+        fn next(&mut self) -> u64 {
+            self.0 = self.0.wrapping_add(0x9E37_79B9_7F4A_7C15);
+            let mut z = self.0;
+            z = (z ^ (z >> 30)).wrapping_mul(0xBF58_476D_1CE4_E5B9);
+            z = (z ^ (z >> 27)).wrapping_mul(0x94D0_49BB_1331_11EB);
+            z ^ (z >> 31)
+        }
+
+        fn uniform(&mut self, a: f32) -> f32 {
+            let u = (self.next() >> 40) as f32 / (1u64 << 24) as f32;
+            (2.0 * u - 1.0) * a
+        }
+
+        fn tensor(&mut self, shape: &[usize], a: f32) -> Tensor {
+            let n: usize = shape.iter().product();
+            let v: Vec<f32> = (0..n).map(|_| self.uniform(a)).collect();
+            Tensor::from_vec(v, shape, &Device::Cpu).expect("host tensor")
+        }
+
+        fn norm(&mut self, n: usize) -> Tensor {
+            let v: Vec<f32> = (0..n).map(|_| 1.0 + self.uniform(0.1)).collect();
+            Tensor::from_vec(v, n, &Device::Cpu).expect("host tensor")
+        }
+    }
+
+    struct DenseExperts(Vec<(Tensor, Tensor)>);
+
+    impl ExpertSource for DenseExperts {
+        fn count(&self) -> usize {
+            self.0.len()
+        }
+        fn expert(&self, e: usize, _dev: &Device) -> Result<(Tensor, Tensor)> {
+            Ok(self.0[e].clone())
+        }
+    }
+
+    /// The tiny model on the CPU, written to a directory of its own and loaded by [`Inkling::load`].
+    fn tiny_model() -> Inkling {
+        static CALL: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+        let n = CALL.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        let dir = std::env::temp_dir().join(format!("inkling_mod_tiny_{}_{n}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let cfg_path = dir.join("config.json");
+        let json = serde_json::json!({
+            "hidden_size": 48, "num_hidden_layers": 12, "vocab_size": 64, "unpadded_vocab_size": 60,
+            "num_attention_heads": 6, "num_key_value_heads": 2, "head_dim": 8,
+            "swa_head_dim": 8, "swa_num_attention_heads": 6, "swa_num_key_value_heads": 2,
+            "sliding_window_size": 4, "d_rel": 4, "rel_extent": 6,
+            "log_scaling_n_floor": 16, "log_scaling_alpha": 0.1, "rms_norm_eps": 1e-6,
+            "qk_l2_clip_threshold": 22.6, "rel_l2_clip_threshold": 8.0, "sconv_kernel_size": 4,
+            "final_logit_softcapping": 30.0, "n_layers_per_attn_res_block": 6,
+            "n_routed_experts": 8, "num_experts_per_tok": 2, "intermediate_size": 32,
+            "mlp_gate_softcap": 4.0, "mlp_up_softcap": 25.0, "route_scale": 2.5,
+            "loop_config": {"core_start": 6, "core_end": 12, "num_passes": 3, "gate_rank": 4}
+        });
+        std::fs::write(&cfg_path, json.to_string()).unwrap();
+        let cfg = InklingConfig::from_file(&cfg_path).unwrap();
+        let mut g = Gen(0x5eed_1a71);
+        let (h, k, rank) = (cfg.hidden_size, cfg.sconv_kernel_size, cfg.loop_config.gate_rank);
+        let mut t: Vec<(String, Tensor)> = vec![];
+        let mut put = |name: String, x: Tensor| t.push((format!("model.llm.{name}"), x));
+        for l in 0..cfg.num_hidden_layers {
+            let p = |s: &str| format!("layers.{l}.{s}");
+            let sliding = cfg.is_sliding(l);
+            let (nh, nkv, hd) = cfg.attn_shape(l);
+            let ext = cfg.layer_rel_extent(l);
+            let wa = 1.0 / (h as f32).sqrt();
+            put(p("attn.wq_du.weight"), g.tensor(&[nh * hd, h], wa));
+            put(p("attn.q_l2_clip.scale"), g.tensor(&[nh, hd], 1.0));
+            put(p("attn.wk_dv.weight"), g.tensor(&[nkv * hd, h], wa));
+            put(p("attn.wv_dv.weight"), g.tensor(&[nkv * hd, h], wa));
+            for which in ["k", "v"] {
+                if sliding {
+                    put(p(&format!("attn.{which}_sconv.weight")), g.tensor(&[nkv * hd, 1, k], 0.5));
+                } else {
+                    put(p(&format!("attn.{which}_sconv.static_w")), g.tensor(&[k, nkv * hd], 0.5));
+                    put(p(&format!("attn.{which}_sconv.weight_proj")), g.tensor(&[nkv * k, h], wa));
+                }
+            }
+            put(p("attn.gate_attn.weight"), g.tensor(&[nh * hd, h], wa));
+            put(p("attn.wo_ud.weight"), g.tensor(&[h, nh * hd], 1.0 / ((nh * hd) as f32).sqrt()));
+            put(p("attn.attn_sink_proj.weight"), g.tensor(&[nh, h], wa));
+            put(p("attn.wr_du.weight"), g.tensor(&[nh * cfg.d_rel, h], wa));
+            put(p("attn.rel_l2_clip.scale"), g.tensor(&[nh, cfg.d_rel], 1.0));
+            put(p("attn.rel_logits_proj.proj"), g.tensor(&[cfg.d_rel, ext], 1.0));
+            if l > 0 {
+                put(format!("attn_res.attn_queries.{}", l - 1), g.tensor(&[if sliding { 1 } else { 3 }, h], 1.0));
+            }
+            if sliding {
+                put(p("attn_norm.weight"), g.norm(h));
+            } else {
+                for n in ["q_input_norm", "k_input_norm", "v_input_norm"] {
+                    put(p(&format!("{n}.weight")), g.norm(h));
+                }
+            }
+            if cfg.is_loop_layer(l) {
+                for which in ["attn", "k", "v", "mlp"] {
+                    put(p(&format!("controllers.{which}.down_weight")), g.tensor(&[rank, 2 * h], 0.2));
+                    put(p(&format!("controllers.{which}.forget_weight")), g.tensor(&[h, rank], 0.3));
+                    put(p(&format!("controllers.{which}.gain_weight")), g.tensor(&[h, rank], 0.3));
+                }
+            }
+            put(format!("attn_res.mlp_queries.{l}"), g.tensor(&[h], 1.0));
+            put(p("mlp_norm.weight"), g.norm(h));
+            put(p("attn_sconv.weight"), g.tensor(&[h, 1, k], 0.5));
+            put(p("mlp_sconv.weight"), g.tensor(&[h, 1, k], 0.5));
+            put(p("mlp.gate.weight"), g.tensor(&[cfg.n_routed_experts, h], wa));
+            put(p("mlp.gate.bias"), g.tensor(&[cfg.n_routed_experts], 0.05));
+        }
+        let n_loop = cfg.loop_config.core_end - cfg.loop_config.core_start;
+        put("middle_cycle_cross_pass_queries".into(), g.tensor(&[2 * n_loop, h], 1.0));
+        put("middle_cycle_cross_pass_kv_queries".into(), g.tensor(&[2 * n_loop, h], 1.0));
+        put("attn_res.output_query".into(), g.tensor(&[h], 1.0));
+        put("norm.weight".into(), g.norm(h));
+        put("embed_norm.weight".into(), g.norm(h));
+        put("embed.weight".into(), g.tensor(&[cfg.vocab_size, h], 1.0).to_dtype(DType::BF16).unwrap());
+        put("unembed.weight".into(), g.tensor(&[cfg.vocab_size, h], 1.0).to_dtype(DType::BF16).unwrap());
+        let ck_path = dir.join("model.safetensors");
+        let map: std::collections::HashMap<String, Tensor> = t.into_iter().collect();
+        candle_core::safetensors::save(&map, &ck_path).unwrap();
+        let mut m = Inkling::load(&cfg_path, &ck_path, &Device::Cpu).unwrap();
+        let i = cfg.intermediate_size;
+        let mut g = Gen(0xe4be_7500);
+        for l in 0..cfg.num_hidden_layers {
+            let ex = (0..cfg.n_routed_experts)
+                .map(|_| (g.tensor(&[2 * i, h], 1.0 / (h as f32).sqrt()), g.tensor(&[h, i], 1.0 / (i as f32).sqrt())))
+                .collect();
+            m.set_experts(l, LayerExperts::Source(Box::new(DenseExperts(ex))));
+        }
+        let _ = std::fs::remove_dir_all(&dir);
+        m
+    }
+
+    fn prompt(n: usize) -> Vec<u32> {
+        let mut g = Gen(0x7070);
+        (0..n).map(|_| (g.next() % 60) as u32).collect()
+    }
+
+    fn row(logits: &Tensor) -> Vec<f32> {
+        logits.flatten_all().unwrap().to_dtype(DType::F32).unwrap().to_vec1::<f32>().unwrap()
+    }
+
+    fn argmax(v: &[f32]) -> u32 {
+        (0..v.len()).fold(0, |b, i| if v[i] > v[b] { i } else { b }) as u32
+    }
+
+    /// Every position's logits of a prompt read in pieces of `piece` tokens
+    /// on `cache`, then `steps` greedy steps: one row a position.
+    fn prompt_then_steps(m: &mut Inkling, cache: &mut InklingCache, ids: &[u32], piece: usize, steps: usize) -> Vec<Vec<f32>> {
+        m.set_prefill_piece(piece);
+        let logits = m.forward_pieces(ids, cache, true).unwrap();
+        assert_eq!(cache.len(), ids.len());
+        let mut rows: Vec<Vec<f32>> = (0..logits.dim(0).unwrap()).map(|r| row(&logits.narrow(0, r, 1).unwrap())).collect();
+        for _ in 0..steps {
+            let pos = cache.len();
+            let l = CausalLm::step(m, argmax(rows.last().unwrap()), pos, cache).unwrap();
+            rows.push(row(&l));
+        }
+        rows
+    }
+
+    /// The largest gap between two sets of rows, and the largest magnitude.
+    fn gap(a: &[Vec<f32>], b: &[Vec<f32>]) -> (f32, f32) {
+        assert_eq!(a.len(), b.len());
+        let (mut d, mut s) = (0f32, 0f32);
+        for (x, y) in a.iter().zip(b) {
+            for (u, v) in x.iter().zip(y) {
+                d = d.max((u - v).abs());
+                s = s.max(v.abs());
+            }
+        }
+        (d, s)
+    }
+
+    #[test]
+    fn prefill_pieces_cover_the_prompt_without_a_lone_token() {
+        assert_eq!(prefill_pieces(10, 0), vec![(0, 10)]);
+        assert_eq!(prefill_pieces(10, 16), vec![(0, 10)]);
+        assert_eq!(prefill_pieces(10, 4), vec![(0, 4), (4, 4), (8, 2)]);
+        assert_eq!(prefill_pieces(9, 4), vec![(0, 4), (4, 5)]);
+        assert_eq!(prefill_pieces(1, 4), vec![(0, 1)]);
+        for (t, p) in [(70, 16), (70, 23), (5, 2), (1000, 7)] {
+            let v = prefill_pieces(t, p);
+            assert_eq!(v.iter().map(|x| x.1).sum::<usize>(), t);
+            assert!(v.windows(2).all(|w| w[0].0 + w[0].1 == w[1].0));
+            assert!(v.iter().all(|x| x.1 >= 2 && x.1 <= p + 1), "{t} by {p}: {v:?}");
+        }
+    }
+
+    /// A 70-token prompt (far past the window of 4 and the extent of 6) read
+    /// in pieces of 16 and of 23 (its lone last token joins the piece before)
+    /// gives every position's logits, and the 6 steps after, within 1e-5 of
+    /// one call: the convolution states, the cache positions and the block
+    /// states carry across the pieces.
+    #[test]
+    fn prompt_in_pieces_matches_one_call() {
+        let mut m = tiny_model();
+        let ids = prompt(70);
+        let mut cache = m.new_cache();
+        let one = prompt_then_steps(&mut m, &mut cache, &ids, 0, 6);
+        for piece in [16, 23] {
+            let mut cache = m.new_cache();
+            let pieces = prompt_then_steps(&mut m, &mut cache, &ids, piece, 6);
+            let (d, s) = gap(&pieces, &one);
+            println!("pieces of {piece}: largest gap {d:e} over {s:e}");
+            assert!(d <= 1e-5 * s, "pieces of {piece} drift from one call: {d:e} of {s:e}");
+        }
+    }
+
 }

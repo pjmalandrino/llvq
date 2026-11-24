@@ -32,6 +32,12 @@
 //!
 //! `--attn-chunk N` reads a prompt's attention scores `N` query rows at a
 //! time (default 512, `0` for one score tensor whatever the prompt).
+//! `--prefill-chunk N` reads every prompt of the run `N` tokens a call of
+//! `Inkling::forward` (`Inkling::forward_pieces`), each piece appended to the
+//! cache before the next; a lone last token joins the piece before. Default
+//! `0`: one call, the behaviour before. It bounds every transient of a prompt
+//! call by `N` rows. Not meant to be bit for bit one call: compare the
+//! `--logits-out` bytes of the two arms. Refused with `--routing-out`.
 //! `--peak-probe` drains the device after every layer visit and keeps the
 //! largest allocated size it reads there (Metal only), the peak the report
 //! gives beside the four fixed points.
@@ -152,6 +158,7 @@ struct Args {
     prompt_len: Option<usize>,
     phases: usize,
     attn_chunk: Option<usize>,
+    prefill_chunk: usize,
     peak_probe: bool,
     rollback_gate: bool,
     routing_out: Option<PathBuf>,
@@ -178,7 +185,7 @@ fn usage() -> ! {
         "usage: inkrun --config <config.json> --checkpoint <model.safetensors> --layers <D/layers> \
          --tokens <tokens.json> --device cpu|metal|cuda --out <report.json> [--n 32] \
          [--resident verified|none] [--require-layers N] [--logits-out <file>] [--prompt-key <key>] \
-         [--prompt-len N] [--phases K] [--attn-chunk N] [--peak-probe on] \
+         [--prompt-len N] [--phases K] [--attn-chunk N] [--prefill-chunk N] [--peak-probe on] \
          [--rollback-gate on] [--prefill-rows 1|2|4|8] [--head bf16|int4 --head-table <file>] \
          [--glue candle|fused] [--attn candle|fused|fused+scores] [--routing device|host] [--moe-act fused|candle] [--moe four|one] [--moe-rows chunk|batch] [--attn-bias host|device] [--prefill-phases on] [--events on|off] [--kernel-times on|off] [--routing-steps-out <file>] [--score-from N | --score-prompt on] \
          [--nll-out <file>]"
@@ -217,6 +224,7 @@ fn parse() -> Result<Args> {
         prompt_len: take("prompt-len").map(|v| v.parse()).transpose().context("--prompt-len")?,
         phases: take("phases").map(|v| v.parse()).transpose().context("--phases")?.unwrap_or(0),
         attn_chunk: take("attn-chunk").map(|v| v.parse()).transpose().context("--attn-chunk")?,
+        prefill_chunk: take("prefill-chunk").map(|v| v.parse()).transpose().context("--prefill-chunk")?.unwrap_or(0),
         peak_probe: match take("peak-probe").as_deref() {
             None | Some("off") => false,
             Some("on") => true,
@@ -299,6 +307,12 @@ fn parse() -> Result<Args> {
     }
     if (args.score_from.is_some() || args.score_prompt) != args.nll_out.is_some() {
         bail!("--nll-out goes with --score-from or --score-prompt");
+    }
+    if args.prefill_chunk == 1 {
+        bail!("--prefill-chunk 1: a one-row call is a decode step; give 0 (one call) or at least 2");
+    }
+    if args.prefill_chunk > 0 && args.routing_out.is_some() {
+        bail!("--prefill-chunk with --routing-out: the routing dump reads the prompt in one recorded call");
     }
     if args.score_from == Some(0) {
         bail!("--score-from 0: the prefill needs at least one token");
@@ -510,6 +524,7 @@ fn main() -> Result<()> {
     if let Some(n) = args.attn_chunk {
         model.set_attn_chunk(n);
     }
+    model.set_prefill_piece(args.prefill_chunk);
     model.set_glue(args.glue)?;
     model.set_routing_on_device(args.routing_on_device);
     model.set_moe_act(args.moe_act);
@@ -731,6 +746,7 @@ fn main() -> Result<()> {
         "prompt_key": args.prompt_key,
         "phases": phases_report,
         "attn_chunk": model.attn_chunk(),
+        "prefill_chunk": model.prefill_piece(),
         "rollback_gate": rollback_gate,
         "peak_probe": if args.peak_probe {
             json!({"kind": "largest allocated size read after a layer visit, before and after a drain",
@@ -779,8 +795,8 @@ fn score(model: &Inkling, args: &Args, dev: &Device, text: &[u32], provenance: V
     dev.synchronize()?;
     let t = Instant::now();
     let (mode, seconds_prefill, steps) = if args.score_prompt {
-        let out = model.forward(text, &mut cache, false, true)?;
-        let rows = out.logits.to_dtype(candle_core::DType::F32)?.to_vec2::<f32>()?;
+        let logits = model.forward_pieces(text, &mut cache, true)?;
+        let rows = logits.to_dtype(candle_core::DType::F32)?.to_vec2::<f32>()?;
         if rows.len() != text.len() || rows[0].len() != vocab {
             bail!("{} logits rows of {} for {} tokens", rows.len(), rows[0].len(), text.len());
         }
@@ -823,6 +839,7 @@ fn score(model: &Inkling, args: &Args, dev: &Device, text: &[u32], provenance: V
         "prompt_key": args.prompt_key, "text_tokens": text.len(), "score_from": args.score_from,
         "scored": nlls.len(), "mean_nll": mean, "ppl": mean.exp(), "seconds": seconds,
         "seconds_prefill": seconds_prefill, "steps": steps, "attn_chunk": model.attn_chunk(),
+        "prefill_chunk": model.prefill_piece(),
         "nll_file": args.nll_out, "provenance": provenance,
         "memory": {"load": memory_load, "end": memory(dev)},
     });
