@@ -34,48 +34,47 @@
 <div class="mark"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3 L22.392 21 L21.238 21 L12 5 L2.762 21 L1.608 21 Z" fill="#B4502D"></path><path d="M12 6.677 L20.27 21 L19.115 21 L12 8.677 L4.885 21 L3.73 21 Z" fill="currentColor"></path><path d="M12 10.85 L17.86 21 L16.706 21 L12 12.85 L7.294 21 L6.14 21 Z" fill="currentColor"></path><path d="M12 15.8 L15.002 21 L13.848 21 L12 17.8 L10.152 21 L8.998 21 Z" fill="currentColor"></path></svg>
 </div>
 <h1>Big models on small cards.</h1>
-<p class="lead">Tetra keeps a model's weights compressed on the GPU, at about 2.5 bits per parameter.
-<code>llvq</code> downloads and serves them with one command.</p>
+<p class="lead">Run large AI models on your own computer. One command to install, one to chat.</p>
+<div class="os">
+<input type="radio" name="os" id="os-mac"><label for="os-mac">macOS</label>
+<input type="radio" name="os" id="os-linux" checked><label for="os-linux">Linux</label>
+<input type="radio" name="os" id="os-win" disabled><label for="os-win">Windows <small>coming soon</small></label>
+<div class="panel mac">
+<div class="cmd"><code>curl -fsSL https://github.com/pjmalandrino/llvq-tetra/releases/latest/download/install.sh | sh</code><button type="button" data-copy="curl -fsSL https://github.com/pjmalandrino/llvq-tetra/releases/latest/download/install.sh | sh">Copy</button></div>
+<div class="cmd"><code>llvq run qwen3:4b</code><button type="button" data-copy="llvq run qwen3:4b">Copy</button></div>
+<p class="note">Apple Silicon.</p>
+</div>
+<div class="panel linux">
 <div class="cmd"><code>curl -fsSL https://github.com/pjmalandrino/llvq-tetra/releases/latest/download/install.sh | sh</code><button type="button" data-copy="curl -fsSL https://github.com/pjmalandrino/llvq-tetra/releases/latest/download/install.sh | sh">Copy</button></div>
 <div class="cmd"><code>llvq run inkling2:mini</code><button type="button" data-copy="llvq run inkling2:mini">Copy</button></div>
-<p class="note">Linux with an NVIDIA card, RTX 40 series or newer, driver 550 or newer. Nothing to compile, no CUDA
-toolkit to install. macOS on Apple Silicon for the Qwen3 models.</p>
+<p class="note">NVIDIA card, RTX 40 series or newer.</p>
+</div>
+</div>
 </section>
 
 <section id="models">
 <h2>Models</h2>
 <ul class="models">
-<li><a href="models/inkling-2-mini/"><strong>Inkling 2 Mini</strong><span>26.4B mixture of experts · 8.15 GB</span><code>llvq run inkling2:mini</code></a></li>
-<li><a href="models/qwen3/"><strong>Qwen3 14B</strong><span>5.09 GB</span><code>llvq run qwen3:14b</code></a></li>
-<li><a href="models/qwen3/"><strong>Qwen3 8B</strong><span>2.82 GB</span><code>llvq run qwen3:8b</code></a></li>
-<li><a href="models/qwen3/"><strong>Qwen3 4B</strong><span>1.42 GB</span><code>llvq run qwen3:4b</code></a></li>
+<li><a href="models/inkling-2-mini/"><strong>Inkling 2 Mini</strong><span>26B · 8 GB</span><code>llvq run inkling2:mini</code></a></li>
+<li><a href="models/qwen3/"><strong>Qwen3 14B</strong><span>5 GB</span><code>llvq run qwen3:14b</code></a></li>
+<li><a href="models/qwen3/"><strong>Qwen3 8B</strong><span>2.8 GB</span><code>llvq run qwen3:8b</code></a></li>
+<li><a href="models/qwen3/"><strong>Qwen3 4B</strong><span>1.4 GB</span><code>llvq run qwen3:4b</code></a></li>
 </ul>
 </section>
 
 <section>
-<h2>Works with your tools</h2>
-<p><code>llvq serve</code> listens on <code>127.0.0.1:11435</code> with an OpenAI-compatible route and an
-Ollama-compatible one. Streaming and tool calls are included.</p>
-<pre><code>curl http://127.0.0.1:11435/v1/chat/completions \
-  -H "Content-Type: application/json" \
-  -d '{"model": "inkling2:mini", "messages": [{"role": "user", "content": "Hello"}]}'</code></pre>
+<h2>Works with your apps</h2>
+<p>Start <code>llvq serve</code> and point any app made for OpenAI or Ollama at it.</p>
 </section>
 
 <section>
-<h2>Guides</h2>
+<h2>Learn more</h2>
 <ul class="models">
-<li><a href="quantization/"><strong>LLM quantization, from 16 bits to 2</strong><span>What 4-bit and 2-bit mean, and what they cost</span></a></li>
-<li><a href="vram/"><strong>How much VRAM to run an LLM locally</strong><span>Measured memory, 4B to 26B</span></a></li>
-<li><a href="gguf/"><strong>Tetra and GGUF</strong><span>Measured against llama.cpp at 2 bits</span></a></li>
+<li><a href="quantization/"><strong>What is quantization?</strong><span>How a model gets eight times smaller</span></a></li>
+<li><a href="vram/"><strong>How much memory do I need?</strong><span>Measured for each model</span></a></li>
+<li><a href="gguf/"><strong>Tetra and GGUF</strong><span>What is different</span></a></li>
+<li><a href="https://github.com/pjmalandrino/llvq-tetra/blob/main/docs/how-it-works.md"><strong>How it works</strong><span>The full explanation</span></a></li>
 </ul>
-</section>
-
-<section>
-<h2>How it works</h2>
-<p>Each block of 24 weights is stored as one point of the Leech lattice, in 48 bits. One GPU kernel decodes the
-points and multiplies them in the same pass, so no full-size matrix is ever written to memory. Nothing is trained.</p>
-<p><a href="https://github.com/pjmalandrino/llvq-tetra/blob/main/docs/how-it-works.md">Read the full explanation</a> or
-<a href="https://arxiv.org/abs/2609.35465">the paper</a>.</p>
 </section>
 
 </main>
@@ -90,6 +89,7 @@ points and multiplies them in the same pass, so no full-size matrix is ever writ
 <span>MIT or Apache 2.0</span>
 </footer>
 <script>
+if (/Mac|iPhone|iPad/.test(navigator.platform)) document.getElementById("os-mac").checked = true;
 document.querySelectorAll("[data-copy]").forEach(function (b) {
   b.addEventListener("click", function () {
     navigator.clipboard.writeText(b.dataset.copy).then(function () {
