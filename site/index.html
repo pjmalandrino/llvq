@@ -29,16 +29,14 @@
 <a href="https://huggingface.co/Pier-Jean">Hugging Face</a>
 </nav>
 </header>
-<main>
+<main class="home">
 <section class="hero">
-<div class="mark"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3 L22.392 21 L21.238 21 L12 5 L2.762 21 L1.608 21 Z" fill="#B4502D"></path><path d="M12 6.677 L20.27 21 L19.115 21 L12 8.677 L4.885 21 L3.73 21 Z" fill="currentColor"></path><path d="M12 10.85 L17.86 21 L16.706 21 L12 12.85 L7.294 21 L6.14 21 Z" fill="currentColor"></path><path d="M12 15.8 L15.002 21 L13.848 21 L12 17.8 L10.152 21 L8.998 21 Z" fill="currentColor"></path></svg>
-</div>
-<h1>Big models on small cards.</h1>
-<p class="lead">Run large AI models on your own computer. One command to install, one to chat.</p>
+<h1>Tetra runs big AI models on small graphics cards.</h1>
+<p class="lead">Install it with one command and chat with a model on your own computer. It works with apps made
+for OpenAI or Ollama.</p>
 <div class="os">
-<input type="radio" name="os" id="os-mac"><label for="os-mac">macOS</label>
-<input type="radio" name="os" id="os-linux" checked><label for="os-linux">Linux</label>
-<input type="radio" name="os" id="os-win" disabled><label for="os-win">Windows <small>coming soon</small></label>
+<h2>Install</h2>
+<input type="radio" name="os" id="os-mac"><label for="os-mac">macOS</label><input type="radio" name="os" id="os-linux" checked><label for="os-linux">Linux</label><input type="radio" name="os" id="os-win"><label for="os-win">Windows</label>
 <div class="panel mac">
 <div class="cmd"><code>curl -fsSL https://github.com/pjmalandrino/llvq-tetra/releases/latest/download/install.sh | sh</code><button type="button" data-copy="curl -fsSL https://github.com/pjmalandrino/llvq-tetra/releases/latest/download/install.sh | sh">Copy</button></div>
 <div class="cmd"><code>llvq run qwen3:4b</code><button type="button" data-copy="llvq run qwen3:4b">Copy</button></div>
@@ -48,6 +46,10 @@
 <div class="cmd"><code>curl -fsSL https://github.com/pjmalandrino/llvq-tetra/releases/latest/download/install.sh | sh</code><button type="button" data-copy="curl -fsSL https://github.com/pjmalandrino/llvq-tetra/releases/latest/download/install.sh | sh">Copy</button></div>
 <div class="cmd"><code>llvq run inkling2:mini</code><button type="button" data-copy="llvq run inkling2:mini">Copy</button></div>
 <p class="note">NVIDIA card, RTX 40 series or newer.</p>
+</div>
+<div class="panel win">
+<div class="cmd soon"><code>Coming soon</code></div>
+<p class="note">Windows is not supported yet.</p>
 </div>
 </div>
 </section>
@@ -61,22 +63,6 @@
 <li><a href="models/qwen3/"><strong>Qwen3 4B</strong><span>1.4 GB</span><code>llvq run qwen3:4b</code></a></li>
 </ul>
 </section>
-
-<section>
-<h2>Works with your apps</h2>
-<p>Start <code>llvq serve</code> and point any app made for OpenAI or Ollama at it.</p>
-</section>
-
-<section>
-<h2>Learn more</h2>
-<ul class="models">
-<li><a href="quantization/"><strong>What is quantization?</strong><span>How a model gets eight times smaller</span></a></li>
-<li><a href="vram/"><strong>How much memory do I need?</strong><span>Measured for each model</span></a></li>
-<li><a href="gguf/"><strong>Tetra and GGUF</strong><span>What is different</span></a></li>
-<li><a href="https://github.com/pjmalandrino/llvq-tetra/blob/main/docs/how-it-works.md"><strong>How it works</strong><span>The full explanation</span></a></li>
-</ul>
-</section>
-
 </main>
 <footer>
 <a href="quantization/">Quantization</a>

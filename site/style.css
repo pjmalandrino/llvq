@@ -60,17 +60,28 @@ h1 { font-size: clamp(32px, 6vw, 46px); line-height: 1.12; letter-spacing: -0.02
 }
 .cmd button:hover { background: var(--accent); color: var(--paper); }
 
+/* The home page: a narrow column, left-aligned, little on it. */
+.home { max-width: 640px; }
+.home .hero { text-align: left; padding-top: 88px; }
+.home h1 { font-size: clamp(24px, 4.4vw, 30px); font-weight: 550; line-height: 1.25; letter-spacing: -0.01em; margin: 0 0 12px; }
+.home .lead { font-size: 17px; margin: 0 0 44px; max-width: none; }
+.home .cmd { margin-left: 0; max-width: none; border-radius: 12px; }
+.home .hero .note { margin: 12px 0 0; max-width: none; }
+.os { display: flex; flex-wrap: wrap; align-items: center; }
+.os h2 { font-size: 17px; margin: 0 auto 12px 0; }
 .os input { position: absolute; opacity: 0; pointer-events: none; }
 .os label {
-  display: inline-block; margin: 0 3px 14px; padding: 7px 18px; border-radius: 999px; cursor: pointer;
-  border: 1px solid var(--line); font-size: 15px; font-weight: 550;
+  padding: 5px 13px; margin-bottom: 12px; cursor: pointer; font-size: 13.5px; color: var(--muted);
+  background: var(--box); border: 1px solid var(--line); border-left-width: 0;
 }
-.os label small { font-weight: 400; font-size: 12.5px; color: var(--muted); margin-left: 4px; }
-.os input:checked + label { background: var(--fg); color: var(--bg); border-color: var(--fg); }
+.os label:first-of-type { border-left-width: 1px; border-radius: 999px 0 0 999px; }
+.os label:last-of-type { border-radius: 0 999px 999px 0; }
+.os input:checked + label { color: var(--fg); font-weight: 600; }
 .os input:focus-visible + label { outline: 2px solid var(--accent); outline-offset: 2px; }
-.os input:disabled + label { cursor: default; color: var(--muted); border-style: dashed; }
-.os .panel { display: none; }
-#os-mac:checked ~ .mac, #os-linux:checked ~ .linux { display: block; }
+.os .panel { display: none; width: 100%; }
+#os-mac:checked ~ .mac, #os-linux:checked ~ .linux, #os-win:checked ~ .win { display: block; }
+.cmd.soon code { color: var(--muted); padding: 8px 0; }
+.cmd.soon code::before { content: ""; }
 
 section { padding: 28px 0; }
 section + section { border-top: 1px solid var(--line); }
