@@ -1,0 +1,97 @@
+# The `llvq` archives that llvq-runtime/install.sh installs, built on demand and kept as workflow artifacts.
+#
+# Run by hand only (Actions tab, "Run workflow"): never on a push, never on a schedule. It publishes nothing: no
+# release, no tag, no upload outside the run's own artifacts, which expire. Making a release from them is the
+# operator's decision.
+#
+# Linux: the build runs in nvidia/cuda:12.4.1-devel-ubuntu22.04, the base of ops/Dockerfile.cuda, through
+# ops/release/build-linux-cuda.sh, which anyone with Docker can run the same way. No GPU is needed to build.
+# macOS: an Apple Silicon runner builds the Metal binary. It needs no library beside it.
+#
+# Neither job runs the binary on a GPU: a green run means it compiled, linked, and that every CUDA library it
+# names resolves into its own lib/. Whether it serves a model is checked on a card, by hand.
+
+name: llvq archives
+
+on:
+  workflow_dispatch:
+    inputs:
+      compute_cap:
+        description: "CUDA_COMPUTE_CAP for candle's kernels (89 = Ada; the archive runs on this and newer)"
+        required: false
+        default: "89"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: llvq-archives-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  linux-cuda:
+    name: Linux x86_64, CUDA
+    runs-on: ubuntu-22.04
+    timeout-minutes: 150
+    steps:
+      - uses: actions/checkout@v4
+      # The devel image and a release build of candle with CUDA do not fit the runner's free disk as shipped.
+      - name: Free disk
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
+          df -h /
+      - name: Build in the CUDA 12.4 devel image
+        env:
+          CAP: ${{ inputs.compute_cap }}
+        run: |
+          docker run --rm -e CUDA_COMPUTE_CAP="$CAP" -v "$PWD":/src -w /src \
+            nvidia/cuda:12.4.1-devel-ubuntu22.04 \
+            bash -c 'git config --global --add safe.directory /src && bash ops/release/build-linux-cuda.sh'
+      - uses: actions/upload-artifact@v4
+        with:
+          name: llvq-linux-x86_64-cuda
+          path: |
+            dist/*.tar.gz
+            dist/*.tar.gz.sha256
+          if-no-files-found: error
+          retention-days: 14
+
+  macos-metal:
+    name: macOS arm64, Metal
+    runs-on: macos-14
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install the pinned toolchain
+        # rust-toolchain.toml at the root names it; rustup installs it on first use.
+        run: |
+          rustup toolchain install
+          cargo --version
+      - name: Build
+        env:
+          CARGO_PROFILE_RELEASE_CODEGEN_UNITS: "16"
+        run: cargo build --release --locked -p llvq-runtime --features metal --bin llvq
+      - name: Pack
+        run: |
+          set -euo pipefail
+          VERSION=$(sed -n 's/^version = "\(.*\)"/\1/p' llvq-runtime/Cargo.toml | head -n 1)
+          FLAVOR=macos-arm64-metal
+          mkdir -p dist/llvq/licenses
+          cp target/release/llvq dist/llvq/llvq
+          echo "$FLAVOR" > dist/llvq/FLAVOR
+          printf 'llvq %s (%s), %s\n' "$VERSION" "$(git rev-parse --short=12 HEAD)" "$FLAVOR" > dist/llvq/VERSION
+          cp LICENSE-MIT LICENSE-APACHE dist/llvq/licenses/
+          dist/llvq/llvq -v
+          otool -L dist/llvq/llvq
+          NAME="llvq-$VERSION-$FLAVOR"
+          tar -czf "dist/$NAME.tar.gz" -C dist llvq
+          (cd dist && shasum -a 256 "$NAME.tar.gz" > "$NAME.tar.gz.sha256")
+          cat "dist/$NAME.tar.gz.sha256"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: llvq-macos-arm64-metal
+          path: |
+            dist/*.tar.gz
+            dist/*.tar.gz.sha256
+          if-no-files-found: error
+          retention-days: 14

@@ -4,6 +4,50 @@
 speaks OpenAI's chat format, streams, and describes itself in an OpenAPI 3.1 document. The
 plan, its gates and its open decisions are in [`docs/plan-runtime.md`](../docs/plan-runtime.md).
 
+## Install
+
+No archive is published yet. Once one is, one command installs `llvq` with the CUDA libraries it needs, and
+nothing else is built or installed:
+
+```bash
+curl -fsSL <url of llvq-runtime/install.sh> | LLVQ_URL=<archive url> sh
+llvq run qwen3:4b
+```
+
+`install.sh` reads the system and refuses, with the reason, what the archive cannot run on:
+
+| system | archive | the machine must already have |
+|---|---|---|
+| Linux x86_64 | `llvq-<version>-linux-x86_64-cuda.tar.gz`, the binary and its CUDA 12.4 libraries (cuBLAS, cuBLASLt, cuRAND, NVRTC, cudart) | an NVIDIA driver 550 or newer; a card of compute capability 8.9 or newer (RTX 40xx and 50xx, L4, L40S, H100); glibc 2.35 and libssl3 (Ubuntu 22.04, Debian 12 or later) |
+| macOS arm64 | `llvq-<version>-macos-arm64-metal.tar.gz`, the binary alone | Apple Silicon |
+
+The CUDA toolkit is not needed to run, and an installed one does not interfere: the binary finds its own libraries
+first (an rpath of `$ORIGIN/lib`). A toolkit 13.x beside it is fine, and so is a driver newer than 550. The install
+goes to `~/.local/lib/llvq` with a link in `~/.local/bin`, or `/usr/local` as root, or `LLVQ_PREFIX`. Models go to
+`~/.llvq` (`LLVQ_HOME`). The archives are built by `.github/workflows/llvq-archives.yml`, run by hand; the Linux
+one by `ops/release/build-linux-cuda.sh` in `nvidia/cuda:12.4.1-devel-ubuntu22.04`, which anyone with Docker can
+run the same way:
+
+```bash
+docker run --rm -v "$PWD":/src -w /src nvidia/cuda:12.4.1-devel-ubuntu22.04 bash ops/release/build-linux-cuda.sh
+```
+
+## Build from source
+
+- **Rust through rustup, not the distribution's cargo.** `rust-toolchain.toml` pins the compiler, and only the
+  rustup proxies read that file. Ubuntu's packaged cargo ignores it, and is too old for `Cargo.lock` (version 4
+  needs cargo 1.78 or newer): it fails with "lock file version 4 requires `-Znext-lockfile-bump`".
+- **On Linux, a CUDA toolkit with `nvcc`, version 12.0 to 12.6, 12.8 or 12.9.** The build needs it: candle compiles
+  its CUDA kernels with `nvcc` at build time, and cudarc reads the toolkit version from `nvcc --version` to choose
+  its bindings and the libraries it links. The toolkit the card jobs build with is 12.4. **A 13.x toolkit does not
+  build today**: cudarc 0.19.8, the version in `Cargo.lock`, knows 13.0 to 13.3 and stops on any other version
+  ("Unsupported cuda toolkit version: 13.5"), and candle 0.9.2 has never been built against CUDA 13 here. Install
+  a 12.x toolkit beside it (`/usr/local/cuda-12.4`, first in `PATH`), or build in the Docker image above.
+- **`CUDA_COMPUTE_CAP`** when the build machine has no GPU (`89` for Ada). With a GPU, candle reads it from
+  `nvidia-smi`. The binary then runs on that capability and newer. Our own kernels are compiled at run time by NVRTC,
+  not at build time.
+- **To run**, the NVIDIA driver (550 or newer for a 12.4 build) and the toolkit's libraries on the loader path.
+
 ```bash
 cargo build --release -p llvq-runtime --features metal   # macOS; --features cuda on Linux; neither: the CPU path (Tetra codes read on the CPU)
 llvq pull qwen3:4b                                       # 1.42 GB from the Hub, checked against its pinned sha256
@@ -17,6 +61,13 @@ llvq ls; llvq ps; llvq show qwen3:4b; llvq stop qwen3:4b; llvq rm qwen3:4b
 | `qwen3:4b`, also `qwen3:latest` | `qwen3-4b-sealed.bin`, 1.42 GB | 2.7320 | expanded | 4E v9 (greedy only) |
 | `qwen3:8b` | `qwen3-8b-sealed-B.bin`, 2.82 GB | 2.6953 | expanded, never run fused on Metal | 4E v9 (greedy only) |
 | `qwen3:14b` | `qwen3-14b-sealed.bin`, 5.09 GB | 2.7305 | expanded, never run fused on Metal | 4E v9 (greedy only) |
+
+`inkling2:mini` (also `inkling2`, `inklingmini-2-tetra`) is in the library and refused by name until it is
+published: its repository, revision and checksum are empty. It is a set of files, not one sealed file. The library
+pins an index, `llvq-files.json`, which pins every file by size and sha256 (`ops/inkling/files_index.py` writes it):
+the text-only checkpoint, the tokenizer, the two int4 tables, and one tar archive per layer of lattice codes. The
+pull unpacks them under `~/.llvq/models/` and writes the local file below, so `llvq run inkling2:mini` serves it
+as `llvq serve --local` does.
 
 The library is `library.json`: each model pins a Hub commit, a size and a sha256. The served
 configs are compiled in from `configs/`. The server listens on `127.0.0.1:11435`, one port above
@@ -47,7 +98,7 @@ tools to the model and reads nothing for calls. `tool_choice` `required` or a na
 
 ## Inkling 2 Mini from local files
 
-The Inkling 2 Mini file is not published, so it is not in the library. A small JSON file names its
+The Inkling 2 Mini files are not published, so `llvq pull` refuses them. A small JSON file names its
 parts, and `llvq serve --local` registers it in the store under its name, family `inkling2`
 (`src/inkling.rs`). Relative paths are read from the file's own directory.
 
