@@ -112,3 +112,37 @@ def test_a_forward_pass_runs_on_the_cpu(loaded):
         out = model(ids).logits
     assert out.shape == (1, 5, VOCAB), out.shape
     assert torch.isfinite(out).all(), "the logits are not finite"
+
+
+@pytest.mark.parametrize("dtype", ["float32", "float16"])
+def test_the_loaded_weights_are_the_rust_decoders_bit_for_bit(dtype):
+    """The `from_pretrained` route against `llvq-dense-digest.json`, not only the `PackedModel` one.
+
+    `tests/test_dequant.py` holds `PackedModel.dequantize` to the Rust digests on `tiny`. The module
+    path is another reader of the same bytes: its buffers come through the `transformers` loader,
+    which casts a floating tensor to the dtype of the buffer it fills. A row scale narrowed to f32
+    on the way, or a tail widened from f16, would change the last bits and nothing above would see
+    it. At f16 the layer holds the digest's f32 values narrowed once.
+    """
+    import hashlib
+    import json
+
+    from transformers import AutoModelForCausalLM
+
+    want = json.loads((MINI / "llvq-dense-digest.json").read_text())
+    model = AutoModelForCausalLM.from_pretrained(MINI, dtype=getattr(torch, dtype))
+    params = dict(model.named_parameters())
+    checked = 0
+    for name, digest in {**want["records"], **want["raw"]}.items():
+        w = params[name].detach()
+        assert w.dtype == getattr(torch, dtype), (name, w.dtype)
+        if dtype == "float32":
+            got = hashlib.sha256(w.contiguous().numpy().astype("<f4").tobytes()).hexdigest()
+            assert got == digest, name
+        else:
+            # Narrowing is a function of the f32 value, so equal f16 bits follow from the f32 path;
+            # what this checks is that the f16 load narrows the same values once, not twice.
+            ref = AutoModelForCausalLM.from_pretrained(MINI, dtype=torch.float32) if not checked else ref
+            assert torch.equal(w, dict(ref.named_parameters())[name].detach().to(torch.float16)), name
+        checked += 1
+    assert checked == len(want["records"]) + len(want["raw"]) == 8

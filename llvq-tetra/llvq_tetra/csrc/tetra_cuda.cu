@@ -19,6 +19,7 @@
 
 #include <torch/extension.h>
 #include <c10/cuda/CUDAException.h>
+#include <c10/cuda/CUDAGuard.h>
 #include <c10/cuda/CUDAStream.h>
 
 // The served translation unit, in the order `llvq_llm::fused::planes_source_names`
@@ -41,6 +42,18 @@
 #include "../data/kernels/llvq-cuda/kernels/llvq_tetra48.cuh"
 #include "../data/kernels/llvq-llm/kernels/tv_tetra48_h.cu"
 
+namespace {
+
+// Every buffer on the device of `ref`. The launch goes to that device's
+// current stream under a `CUDAGuard`, so a buffer left on another card would be
+// read through a pointer that device does not own.
+template <typename... T>
+void require_same_device(const torch::Tensor &ref, const T &...ts) {
+    TORCH_CHECK(((ts.device() == ref.device()) && ...), "every buffer must be on ", ref.device());
+}
+
+}  // namespace
+
 static torch::Tensor
 tv_tetra48_cuda(const torch::Tensor &words, const torch::Tensor &rows,
                 const torch::Tensor &prefixes, const torch::Tensor &branches,
@@ -50,6 +63,9 @@ tv_tetra48_cuda(const torch::Tensor &words, const torch::Tensor &rows,
                 int64_t nblocks, int64_t tail_w, int64_t row_stride_u32,
                 int64_t tile, int64_t threads) {
     TORCH_CHECK(threads % 32 == 0 && threads > 0, "threads must be a positive multiple of 32");
+    TORCH_CHECK(tile == static_cast<int64_t>(TILE_BLOCKS), "tile ", tile,
+                " is not the TILE_BLOCKS ", static_cast<int64_t>(TILE_BLOCKS),
+                " this extension was compiled with; the shared memory would be sized for another tile");
     TORCH_CHECK(d_out % (threads / 32) == 0,
                 "d_out ", d_out, " does not fill whole blocks of ", threads / 32,
                 " rows; the kernel carries no row guard");
@@ -61,7 +77,12 @@ tv_tetra48_cuda(const torch::Tensor &words, const torch::Tensor &rows,
         TORCH_CHECK(t.dtype() == torch::kFloat32 && t.is_contiguous() && t.is_cuda(),
                     "gscale, invnorm, rscale and x are contiguous f32 on cuda");
     }
-    TORCH_CHECK(tail.dtype() == torch::kFloat16, "the kernel reads the tail as half");
+    TORCH_CHECK(tail.dtype() == torch::kFloat16 && tail.is_contiguous() && tail.is_cuda(),
+                "the kernel reads the tail as contiguous half on cuda");
+    TORCH_CHECK(tail.numel() >= d_out * tail_w, "the tail holds ", tail.numel(),
+                " values for ", d_out, " rows of ", tail_w);
+    require_same_device(x, words, rows, prefixes, branches, suffixes, gscale, invnorm, rscale,
+                        tail);
     TORCH_CHECK(rscale.numel() == d_out, "one row scale a row");
     TORCH_CHECK(gscale.numel() == 2, "a Tetra record has two gain centroids");
     TORCH_CHECK(x.numel() == nblocks * 24 + tail_w, "x is the whole activation");
@@ -70,6 +91,7 @@ tv_tetra48_cuda(const torch::Tensor &words, const torch::Tensor &rows,
                 "the stream holds ", words.numel(), " bytes, which wants ", want,
                 " or one guard word more");
 
+    const c10::cuda::CUDAGuard guard(x.device());
     auto y = torch::empty({d_out}, x.options().dtype(torch::kFloat16));
     const dim3 grid(static_cast<unsigned>(d_out * 32 / threads), 1, 1);
     const dim3 block(static_cast<unsigned>(threads), 1, 1);

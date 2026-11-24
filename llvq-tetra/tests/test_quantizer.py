@@ -178,11 +178,36 @@ def test_a_cuda_tile_the_modules_do_not_allocate_is_refused(monkeypatch):
     from llvq_tetra import metal
 
     monkeypatch.setenv("LLVQ_HF_TILE", "128")
+    metal.cuda_tile.cache_clear()
     with pytest.raises(ValueError, match="LLVQ_HF_TILE=128"):
         metal._extension_cuda()
     if not torch.cuda.is_available():
         # The served tile and a smaller one pass the guard and reach the device check.
         for tile in ("64", "32"):
             monkeypatch.setenv("LLVQ_HF_TILE", tile)
+            metal.cuda_tile.cache_clear()
             with pytest.raises(RuntimeError, match="no device"):
                 metal._extension_cuda()
+    metal.cuda_tile.cache_clear()
+
+
+def test_the_cuda_tile_is_the_one_the_kernel_is_compiled_with(monkeypatch):
+    """`LLVQ_HF_TILE` sets `TILE_BLOCKS` in the CUDA build, and the kernel tiles by it. The shared
+    bytes come from the tile the caller passes, `tile_for("cuda")`, which reads the same cached
+    value as the build. Before 2026-11-21 the caller always passed 64 whatever the define."""
+    from llvq_tetra import integration, metal
+
+    for value, want in (("32", 32), ("64", 64), (None, 64)):
+        if value is None:
+            monkeypatch.delenv("LLVQ_HF_TILE", raising=False)
+        else:
+            monkeypatch.setenv("LLVQ_HF_TILE", value)
+        metal.cuda_tile.cache_clear()
+        assert integration.tile_for("cuda") == want
+        assert integration.tile_for("mps") == integration.TILE_BLOCKS
+    for bad in ("100", "48", "16", "128", "x"):
+        monkeypatch.setenv("LLVQ_HF_TILE", bad)
+        metal.cuda_tile.cache_clear()
+        with pytest.raises(ValueError, match="LLVQ_HF_TILE"):
+            metal.cuda_tile()
+    metal.cuda_tile.cache_clear()

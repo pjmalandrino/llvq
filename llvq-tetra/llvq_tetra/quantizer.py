@@ -136,9 +136,9 @@ class LlvqQuantizer(HfQuantizer):
             self.target_device = integration.target_device(None)
         return self.target_device
 
-    def _process_model_before_weight_loading(self, model, **kwargs):
-        """Swap the modules so the file's keys are the model's keys."""
-        integration.replace_modules(model, self.quantization_config, self._device())
+    def _process_model_before_weight_loading(self, model, checkpoint_files=None, **kwargs):
+        """Swap the modules so the file's keys are the model's keys, and check the files hold them."""
+        integration.replace_modules(model, self.quantization_config, self._device(), checkpoint_files)
 
     def get_weight_conversions(self):
         """The carried tensors the file stores group-affine, the embedding among them.

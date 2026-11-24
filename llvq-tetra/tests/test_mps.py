@@ -39,3 +39,19 @@ def test_the_fixture_stays_compressed_on_metal():
     err = ((got - ref).abs().amax(-1) / ref.abs().amax(-1)).max().item()
     # The kernel reads the tail in half and sums in its own order; the dense path is f64 then f32.
     assert err < 1e-2, f"compressed logits off the dense ones by {err:.2e}"
+
+
+def test_inference_mode_gives_the_no_grad_logits():
+    """`torch.inference_mode()` is how many callers run a model. Its tensors carry no version
+    counter, and until 2026-11-21 the shared rotation read `x._version` and raised on the first
+    projection."""
+    import llvq_tetra  # noqa: F401
+    from transformers import AutoModelForCausalLM
+
+    model = AutoModelForCausalLM.from_pretrained(MINI, dtype=torch.float32, device_map="mps")
+    ids = torch.tensor([[1, 2, 3, 4, 5]], device="mps")
+    with torch.no_grad():
+        want = model(ids).logits.cpu()
+    with torch.inference_mode():
+        got = model(ids).logits.cpu()
+    assert torch.equal(got, want)
