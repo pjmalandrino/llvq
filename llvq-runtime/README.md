@@ -62,12 +62,12 @@ llvq ls; llvq ps; llvq show qwen3:4b; llvq stop qwen3:4b; llvq rm qwen3:4b
 | `qwen3:8b` | `qwen3-8b-sealed-B.bin`, 2.82 GB | 2.6953 | expanded, never run fused on Metal | 4E v9 (greedy only) |
 | `qwen3:14b` | `qwen3-14b-sealed.bin`, 5.09 GB | 2.7305 | expanded, never run fused on Metal | 4E v9 (greedy only) |
 
-`inkling2:mini` (also `inkling2`, `inklingmini-2-tetra`) is in the library and refused by name until it is
-published: its repository, revision and checksum are empty. It is a set of files, not one sealed file. The library
+`inkling2:mini` (also `inkling2`, `inklingmini-2-tetra`) is a set of files, not one sealed file. The library
 pins an index, `llvq-files.json`, which pins every file by size and sha256 (`ops/inkling/files_index.py` writes it):
 the text-only checkpoint, the tokenizer, the two int4 tables, and one tar archive per layer of lattice codes. The
-pull unpacks them under `~/.llvq/models/` and writes the local file below, so `llvq run inkling2:mini` serves it
-as `llvq serve --local` does.
+pull fetches four files at once (`LLVQ_PULL_JOBS`, `1` for one after another), checks each one, unpacks them under
+`~/.llvq/models/` and writes the local file below, so `llvq run inkling2:mini` serves it as `llvq serve --local`
+does.
 
 The library is `library.json`: each model pins a Hub commit, a size and a sha256. The served
 configs are compiled in from `configs/`. The server listens on `127.0.0.1:11435`, one port above

@@ -99,11 +99,17 @@ pub struct Store {
     root: PathBuf,
     /// How long a pull waits for the next bytes before it fails.
     read_timeout: std::time::Duration,
+    /// How many files of a set download at once.
+    jobs: usize,
 }
 
 /// The default of [`Store::read_timeout`]: a Hub that sends nothing for a
 /// minute is gone.
 pub const READ_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(60);
+
+/// The default of [`Store::jobs`]: four files of a set at once. Each file is
+/// checked as it is alone; only the order in which they arrive changes.
+pub const PULL_JOBS: usize = 4;
 
 /// `<user home>/.llvq`, or `LLVQ_HOME`.
 pub fn default_home() -> anyhow::Result<PathBuf> {
@@ -117,21 +123,25 @@ pub fn default_home() -> anyhow::Result<PathBuf> {
     Ok(PathBuf::from(home).join(".llvq"))
 }
 
-/// Hash a whole file.
-pub fn sha256_file(path: &Path, mut on_bytes: impl FnMut(u64)) -> anyhow::Result<String> {
+/// Feed a whole file to `h`; the bytes read.
+fn hash_into(path: &Path, h: &mut Sha256) -> std::io::Result<u64> {
     let mut f = std::fs::File::open(path)?;
-    let mut h = Sha256::new();
     let mut buf = vec![0u8; 1 << 20];
     let mut done = 0u64;
     loop {
         let n = f.read(&mut buf)?;
         if n == 0 {
-            break;
+            return Ok(done);
         }
         h.update(&buf[..n]);
         done += n as u64;
-        on_bytes(done);
     }
+}
+
+/// Hash a whole file.
+pub fn sha256_file(path: &Path) -> anyhow::Result<String> {
+    let mut h = Sha256::new();
+    hash_into(path, &mut h)?;
     Ok(hex(&h.finalize()))
 }
 
@@ -158,7 +168,7 @@ impl Throttle {
 
 impl Store {
     pub fn at(root: impl Into<PathBuf>) -> Self {
-        Store { root: root.into(), read_timeout: READ_TIMEOUT }
+        Store { root: root.into(), read_timeout: READ_TIMEOUT, jobs: PULL_JOBS }
     }
 
     /// The same store, with another wait for a stalled download.
@@ -167,8 +177,22 @@ impl Store {
         self
     }
 
+    /// The same store, fetching `n` files of a set at once (at least one).
+    pub fn jobs(mut self, n: usize) -> Self {
+        self.jobs = n.max(1);
+        self
+    }
+
+    /// `LLVQ_HOME`, and `LLVQ_PULL_JOBS` files of a set at once (default
+    /// [`PULL_JOBS`]; `1` fetches them one after another).
     pub fn from_env() -> anyhow::Result<Self> {
-        Ok(Self::at(default_home()?))
+        let jobs = match std::env::var("LLVQ_PULL_JOBS") {
+            Ok(v) => v.trim().parse::<usize>().ok().filter(|n| *n > 0).ok_or_else(|| {
+                anyhow::anyhow!("LLVQ_PULL_JOBS={v:?}: a number of files at once, at least 1")
+            })?,
+            Err(_) => PULL_JOBS,
+        };
+        Ok(Self::at(default_home()?).jobs(jobs))
     }
 
     pub fn root(&self) -> &Path {
@@ -350,7 +374,7 @@ impl Store {
             e.model_name()
         );
         report(PullEvent::Status("verifying sha256 digest".into()));
-        let got = sha256_file(path, |_| {})?;
+        let got = sha256_file(path)?;
         anyhow::ensure!(
             got == e.sha256,
             "{}: sha256 {got}, the library pins {} for {}. Nothing was registered.",
@@ -419,16 +443,7 @@ impl Store {
         let mut h = Sha256::new();
         let mut done = 0u64;
         if partial.exists() {
-            let mut f = std::fs::File::open(&partial)?;
-            let mut buf = vec![0u8; 1 << 20];
-            loop {
-                let k = f.read(&mut buf)?;
-                if k == 0 {
-                    break;
-                }
-                h.update(&buf[..k]);
-                done += k as u64;
-            }
+            done = hash_into(&partial, &mut h)?;
             if done > pin.size {
                 std::fs::remove_file(&partial)?;
                 h = Sha256::new();
@@ -508,7 +523,12 @@ impl Store {
     ///
     /// A plain file already there is hashed again. An archive is unpacked
     /// once, removed, and remembered by `<path>.unpacked` holding its digest.
+    ///
+    /// Up to [`Self::jobs`] files go at once, each through [`Self::pull_one`]
+    /// as it would alone. The first failure stops the workers from taking
+    /// another file, and is the error returned.
     fn pull_files(&self, n: &ModelName, e: &Entry, endpoint: &str, report: &mut dyn FnMut(PullEvent)) -> anyhow::Result<Manifest> {
+        use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
         let text = std::fs::read_to_string(self.blob_path(&e.sha256))?;
         let index: FileIndex =
             serde_json::from_str(&text).map_err(|err| anyhow::anyhow!("{} index: {err}", e.model_name()))?;
@@ -516,37 +536,53 @@ impl Store {
         let dir = self.model_dir(&e.sha256);
         let total: u64 = index.files.iter().map(|f| f.size).sum();
         let digest = format!("sha256:{}", e.sha256);
-        let mut before = 0u64;
-        let mut th = Throttle { total, last: 0 };
-        for f in &index.files {
-            let dest = dir.join(&f.path);
-            let pin = Pin { path: &f.path, size: f.size, sha256: &f.sha256 };
-            let marker = dest.with_file_name(format!("{}.unpacked", dest.file_name().expect("a path has a name").to_string_lossy()));
-            let held = match &f.unpack {
-                Some(_) => std::fs::read_to_string(&marker).is_ok_and(|s| s.trim() == f.sha256),
-                None => dest.exists() && std::fs::metadata(&dest)?.len() == f.size && sha256_file(&dest, |_| {})? == f.sha256,
-            };
-            if !held {
-                if f.unpack.is_none() && dest.exists() {
-                    std::fs::remove_file(&dest)?;
-                }
-                self.fetch(endpoint, e, &pin, &dest, &mut |done| {
-                    if th.due(before + done) {
-                        report(PullEvent::Progress { digest: digest.clone(), total, completed: before + done });
+        let (next, failed) = (AtomicUsize::new(0), AtomicBool::new(false));
+        // The workers report through a channel: `report` stays on this thread.
+        let (tx, rx) = std::sync::mpsc::channel::<FileEvent>();
+        let results: Vec<anyhow::Result<()>> = std::thread::scope(|scope| {
+            let workers: Vec<_> = (0..self.jobs.min(index.files.len()))
+                .map(|_| {
+                    let (tx, next, failed, dir, files) = (tx.clone(), &next, &failed, &dir, &index.files);
+                    scope.spawn(move || -> anyhow::Result<()> {
+                        while !failed.load(Ordering::SeqCst) {
+                            let i = next.fetch_add(1, Ordering::SeqCst);
+                            let Some(f) = files.get(i) else { return Ok(()) };
+                            let sent = self.pull_one(
+                                endpoint,
+                                e,
+                                dir,
+                                f,
+                                &mut |b| drop(tx.send(FileEvent::Bytes(i, b))),
+                                &mut |s| drop(tx.send(FileEvent::Status(s))),
+                            );
+                            if let Err(err) = sent {
+                                failed.store(true, Ordering::SeqCst);
+                                return Err(err);
+                            }
+                        }
+                        Ok(())
+                    })
+                })
+                .collect();
+            drop(tx);
+            let mut held = vec![0u64; index.files.len()];
+            let mut sum = 0u64;
+            let mut th = Throttle { total, last: 0 };
+            for ev in rx {
+                match ev {
+                    FileEvent::Status(s) => report(PullEvent::Status(s)),
+                    FileEvent::Bytes(i, b) => {
+                        sum = sum - held[i] + b;
+                        held[i] = b;
+                        if th.due(sum) {
+                            report(PullEvent::Progress { digest: digest.clone(), total, completed: sum });
+                        }
                     }
-                })?;
-                if let Some(into) = &f.unpack {
-                    report(PullEvent::Status(format!("unpacking {}", f.path)));
-                    let to = dir.join(into);
-                    std::fs::create_dir_all(&to)?;
-                    untar(&mut std::io::BufReader::new(std::fs::File::open(&dest)?), &to)
-                        .map_err(|err| anyhow::anyhow!("{}: {err}", f.path))?;
-                    std::fs::write(&marker, &f.sha256)?;
-                    std::fs::remove_file(&dest)?;
                 }
             }
-            before += f.size;
-        }
+            workers.into_iter().map(|w| w.join().unwrap_or_else(|_| Err(anyhow::anyhow!("a pull worker panicked")))).collect()
+        });
+        results.into_iter().collect::<anyhow::Result<()>>()?;
         report(PullEvent::Progress { digest, total, completed: total });
         // The local file the engine reads, its paths relative to `dir`.
         let mut local = index.local.clone();
@@ -564,6 +600,44 @@ impl Store {
         self.write_manifest(n, &m)?;
         report(PullEvent::Status("success".into()));
         Ok(m)
+    }
+
+    /// One file of a set into `dir`: hashed again when a plain copy is
+    /// there, fetched when not, unpacked when it is an archive. `on_bytes`
+    /// gets the bytes of this file held so far.
+    fn pull_one(
+        &self,
+        endpoint: &str,
+        e: &Entry,
+        dir: &Path,
+        f: &IndexFile,
+        on_bytes: &mut dyn FnMut(u64),
+        on_status: &mut dyn FnMut(String),
+    ) -> anyhow::Result<()> {
+        let dest = dir.join(&f.path);
+        let marker = dest.with_file_name(format!("{}.unpacked", dest.file_name().expect("a path has a name").to_string_lossy()));
+        let held = match &f.unpack {
+            Some(_) => std::fs::read_to_string(&marker).is_ok_and(|s| s.trim() == f.sha256),
+            None => dest.exists() && std::fs::metadata(&dest)?.len() == f.size && sha256_file(&dest)? == f.sha256,
+        };
+        if held {
+            on_bytes(f.size);
+            return Ok(());
+        }
+        if f.unpack.is_none() && dest.exists() {
+            std::fs::remove_file(&dest)?;
+        }
+        self.fetch(endpoint, e, &Pin { path: &f.path, size: f.size, sha256: &f.sha256 }, &dest, on_bytes)?;
+        if let Some(into) = &f.unpack {
+            on_status(format!("unpacking {}", f.path));
+            let to = dir.join(into);
+            std::fs::create_dir_all(&to)?;
+            untar(&mut std::io::BufReader::new(std::fs::File::open(&dest)?), &to)
+                .map_err(|err| anyhow::anyhow!("{}: {err}", f.path))?;
+            std::fs::write(&marker, &f.sha256)?;
+            std::fs::remove_file(&dest)?;
+        }
+        Ok(())
     }
 
     /// Register a local copy of `e`'s file as `n`, with no network: the size
@@ -612,6 +686,13 @@ impl Store {
 /// The Hub endpoint: `HF_ENDPOINT`, or huggingface.co.
 pub fn hub_endpoint() -> String {
     std::env::var("HF_ENDPOINT").unwrap_or_else(|_| "https://huggingface.co".to_string())
+}
+
+/// What a worker of [`Store::pull_files`] reports: a status, or the bytes of
+/// file `i` held so far.
+enum FileEvent {
+    Status(String),
+    Bytes(usize, u64),
 }
 
 /// One file to fetch: its path in the repository, its size and sha256.

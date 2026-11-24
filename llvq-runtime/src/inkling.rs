@@ -168,7 +168,7 @@ pub fn register(store: &Store, path: &Path) -> anyhow::Result<(ModelName, Manife
     let file = path.to_str().ok_or_else(|| anyhow::anyhow!("{}: not UTF-8", path.display()))?.to_string();
     let manifest = Manifest {
         schema: 1,
-        sha256: crate::store::sha256_file(&path, |_| {})?,
+        sha256: crate::store::sha256_file(&path)?,
         size: std::fs::metadata(&m.checkpoint)?.len(),
         repo: "local".into(),
         revision: "local".into(),
@@ -341,7 +341,7 @@ pub fn load_local(name: &ModelName, path: &Path) -> anyhow::Result<InkEngine> {
     let template = local.tokenizer.with_file_name("chat_template.jinja");
     let mut first = vec![match template.exists() {
         true => {
-            let sha = crate::store::sha256_file(&template, |_| {})?;
+            let sha = crate::store::sha256_file(&template)?;
             anyhow::ensure!(
                 sha == llvq_llm::inkchat::TEMPLATE_SHA256,
                 "{}: sha256 {sha}, the template llvq_llm::inkchat renders is {}",

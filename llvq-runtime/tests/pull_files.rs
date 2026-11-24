@@ -14,6 +14,7 @@ use sha2::Digest;
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
+use futures_util::StreamExt;
 
 const REVISION: &str = "89abcdef0123456789abcdef0123456789abcdef";
 
@@ -62,15 +63,21 @@ fn tar(entries: &[(&str, Option<&[u8]>)]) -> Vec<u8> {
 
 /// The repository: two layers as archives, the rest as plain files.
 fn repo_files() -> Vec<(String, Vec<u8>, Option<String>)> {
+    repo_of(2, 3_000, 2_500_000)
+}
+
+/// `layers` archives whose first code file holds `codes` bytes, beside a
+/// checkpoint of `checkpoint` bytes.
+fn repo_of(layers: u32, codes: usize, checkpoint: usize) -> Vec<(String, Vec<u8>, Option<String>)> {
     let mut v = vec![
         ("config.json".to_string(), br#"{"fake": true}"#.to_vec(), None),
-        ("model.safetensors".to_string(), bytes(1, 2_500_000), None),
+        ("model.safetensors".to_string(), bytes(1, checkpoint), None),
         ("tokenizer.json".to_string(), b"{}".to_vec(), None),
         ("tables/embed.q4g64.llvqraw".to_string(), bytes(2, 70_000), None),
         ("tables/unembed.q4g64.llvqraw".to_string(), bytes(3, 70_001), None),
     ];
-    for l in 0..2 {
-        let (e0, e1) = (bytes(10 + l, 3_000), bytes(20 + l, 513));
+    for l in 0..layers {
+        let (e0, e1) = (bytes(10 + l, codes), bytes(20 + l, 513));
         let t = tar(&[
             (&format!("L{l:02}/"), None),
             (&format!("L{l:02}/VERIFIED"), Some(b"2026-11-21".as_slice())),
@@ -101,11 +108,27 @@ fn index_of(files: &[(String, Vec<u8>, Option<String>)]) -> FileIndex {
 struct Hub {
     files: HashMap<String, Vec<u8>>,
     gets: AtomicUsize,
+    /// Bodies sent at this many bytes a second per connection, as a CDN
+    /// does; 0 sends them at once.
+    rate: usize,
+    /// Bodies being sent now, and the most at any time.
+    sending: AtomicUsize,
+    most: AtomicUsize,
+}
+
+/// Leaves [`Hub::sending`] when a body ends or its client goes.
+struct Sending(Arc<Hub>);
+
+impl Drop for Sending {
+    fn drop(&mut self) {
+        self.0.sending.fetch_sub(1, Ordering::SeqCst);
+    }
 }
 
 /// Serves `files` at `/<org>/<repo>/resolve/<rev>/<path>`, honouring
-/// `Range: bytes=N-`, and counts the requests.
-fn hub(files: HashMap<String, Vec<u8>>) -> (String, Arc<Hub>) {
+/// `Range: bytes=N-`, at `rate` bytes a second per connection (0: at once),
+/// and counts the requests.
+fn hub_at(files: HashMap<String, Vec<u8>>, rate: usize) -> (String, Arc<Hub>) {
     async fn file(
         State(h): State<Arc<Hub>>,
         Path((_, _, rev, path)): Path<(String, String, String, String)>,
@@ -115,15 +138,29 @@ fn hub(files: HashMap<String, Vec<u8>>) -> (String, Arc<Hub>) {
         let Some(body) = h.files.get(&path).filter(|_| rev == REVISION) else {
             return StatusCode::NOT_FOUND.into_response();
         };
-        match hd.get("range").and_then(|v| v.to_str().ok()).and_then(|r| r.strip_prefix("bytes=")) {
-            Some(r) => {
-                let from: usize = r.trim_end_matches('-').parse().unwrap();
-                (StatusCode::PARTIAL_CONTENT, body[from..].to_vec()).into_response()
-            }
-            None => (StatusCode::OK, body.clone()).into_response(),
+        let (status, body) = match hd.get("range").and_then(|v| v.to_str().ok()).and_then(|r| r.strip_prefix("bytes=")) {
+            Some(r) => (StatusCode::PARTIAL_CONTENT, body[r.trim_end_matches('-').parse::<usize>().unwrap()..].to_vec()),
+            None => (StatusCode::OK, body.clone()),
+        };
+        if h.rate == 0 {
+            return (status, body).into_response();
         }
+        let now = h.sending.fetch_add(1, Ordering::SeqCst) + 1;
+        h.most.fetch_max(now, Ordering::SeqCst);
+        // 10 ms slices of the body at `rate`.
+        let slice = (h.rate / 100).max(1);
+        let guard = Sending(h.clone());
+        let chunks: Vec<Vec<u8>> = body.chunks(slice).map(<[u8]>::to_vec).collect();
+        let stream = futures_util::stream::iter(chunks).then(move |c| {
+            let _held = &guard;
+            async move {
+                tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+                Ok::<_, std::convert::Infallible>(c)
+            }
+        });
+        (status, axum::body::Body::from_stream(stream)).into_response()
     }
-    let state = Arc::new(Hub { files, gets: AtomicUsize::new(0) });
+    let state = Arc::new(Hub { files, gets: AtomicUsize::new(0), rate, sending: AtomicUsize::new(0), most: AtomicUsize::new(0) });
     let s2 = state.clone();
     let (tx, rx) = std::sync::mpsc::channel();
     std::thread::spawn(move || {
@@ -140,10 +177,15 @@ fn hub(files: HashMap<String, Vec<u8>>) -> (String, Arc<Hub>) {
 
 /// The hub for `index` over the repository's files, and the entry pinning it.
 fn setup(index: &FileIndex) -> (String, Arc<Hub>, Entry) {
+    setup_at(repo_files(), index, 0)
+}
+
+/// [`setup`] over `repo`, served at `rate` bytes a second per connection.
+fn setup_at(repo: Vec<(String, Vec<u8>, Option<String>)>, index: &FileIndex, rate: usize) -> (String, Arc<Hub>, Entry) {
     let text = serde_json::to_vec_pretty(index).unwrap();
-    let mut files: HashMap<String, Vec<u8>> = repo_files().into_iter().map(|(p, b, _)| (p, b)).collect();
+    let mut files: HashMap<String, Vec<u8>> = repo.into_iter().map(|(p, b, _)| (p, b)).collect();
     files.insert("llvq-files.json".into(), text.clone());
-    let (endpoint, h) = hub(files);
+    let (endpoint, h) = hub_at(files, rate);
     let e = Entry {
         name: "inkling2".into(),
         tag: "mini".into(),
@@ -314,4 +356,43 @@ fn an_unpublished_entry_is_refused_by_name_and_never_fetched() {
         assert!(s.pull(&n, lib, &endpoint, &mut |_| {}).is_err());
         assert_eq!(h.gets.load(Ordering::SeqCst), 0);
     }
+}
+
+/// The files of a set go `Store::jobs` at a time, each checked as alone:
+/// one job never holds two connections, the default holds several, and both
+/// register the same files. The set has Inkling 2 Mini's shape, 24 layer
+/// archives of one size beside a checkpoint; the two times print with
+/// `--nocapture`.
+#[test]
+fn the_files_of_a_set_download_in_parallel() {
+    let name = ModelName::parse("inkling2:mini").unwrap();
+    let repo = || repo_of(24, 200_000, 300_000);
+    let mut held = Vec::new();
+    for jobs in [1, llvq_runtime::store::PULL_JOBS] {
+        // 8 MB/s per connection: the 5.4 MB of the set take about 0.7 s alone.
+        let (endpoint, h, e) = setup_at(repo(), &index_of(&repo()), 8_000_000);
+        let s = store(&format!("jobs{jobs}")).jobs(jobs);
+        let t0 = std::time::Instant::now();
+        let mut last = 0;
+        let m = s
+            .pull(&name, &e, &endpoint, &mut |ev| {
+                if let llvq_runtime::store::PullEvent::Progress { completed, total, .. } = ev {
+                    assert!(completed <= total, "{completed} of {total}");
+                    last = completed;
+                }
+            })
+            .unwrap();
+        let most = h.most.load(Ordering::SeqCst);
+        eprintln!("jobs {jobs}: {:.3} s, {most} connections at most", t0.elapsed().as_secs_f64());
+        assert_eq!(last, m.size, "the progress does not end at the total");
+        match jobs {
+            1 => assert_eq!(most, 1, "one job held two connections"),
+            _ => assert!(most > 1, "{jobs} jobs never held two connections"),
+        }
+        let dir = s.model_dir(&e.sha256);
+        let read = |p: &str| std::fs::read(dir.join(p)).unwrap();
+        held.push([read("model.safetensors"), read("layers/L00/codes/e000.llvqrec"), read("layers/L23/codes/e001.llvqrec")]);
+        let _ = std::fs::remove_dir_all(s.root());
+    }
+    assert!(held[0] == held[1], "the two pulls registered different files");
 }
