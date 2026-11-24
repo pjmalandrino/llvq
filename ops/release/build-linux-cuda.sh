@@ -34,6 +34,9 @@ if ! command -v cargo > /dev/null; then
   curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal --default-toolchain none
   export PATH=$HOME/.cargo/bin:$PATH
 fi
+# Inside a container the checkout belongs to another user: git refuses it without this, and the commit in VERSION
+# would read "unknown".
+git config --global --add safe.directory "$PWD" 2> /dev/null || true
 # The toolchain of rust-toolchain.toml, installed explicitly: recent rustup no longer installs it on first use.
 if command -v rustup > /dev/null; then rustup toolchain install; fi
 cargo --version
