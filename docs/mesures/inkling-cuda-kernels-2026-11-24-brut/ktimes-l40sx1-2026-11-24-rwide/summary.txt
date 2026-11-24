@@ -1,0 +1,25 @@
+inkrun plain exit 0
+inkrun ktimes exit 0
+plain: median step 0.0139 s [0.0138, 0.0246], 72.17 tok/s; prefill of 32 tokens 0.77 s; GB at the end 8.762; tokens equal to the Mac's: False (prefix 4 of 32); events on, kernel launches a step [889], min top-2 margin 0.006611
+ktimes: median step 0.0263 s [0.0261, 0.0392], 37.99 tok/s; prefill of 32 tokens 0.79 s; GB at the end 8.661; tokens equal to the Mac's: False (prefix 4 of 32); events on, kernel launches a step [889], min top-2 margin 0.006611
+kernel times over 31 steps: 17.69 ms a step in 889 launches
+  attn-dense-products    48.0 a step     62.5 us each    3.00 ms a step   17.0 %
+  moe_rot                96.0 a step     18.2 us each    1.75 ms a step    9.9 %
+  moe_tetra_gu           48.0 a step     31.2 us each    1.50 ms a step    8.5 %
+  moe_tetra_down         48.0 a step     30.9 us each    1.48 ms a step    8.4 %
+  attn-dense-out         48.0 a step     27.1 us each    1.30 ms a step    7.4 %
+  glue-post-attn         48.0 a step     21.4 us each    1.03 ms a step    5.8 %
+  glue-gate-down         48.0 a step     19.0 us each    0.91 ms a step    5.1 %
+  attn_row               48.0 a step     18.7 us each    0.90 ms a step    5.1 %
+  glue-gate-apply        48.0 a step     16.5 us each    0.79 ms a step    4.5 %
+  attn-dense-finish      48.0 a step     14.0 us each    0.67 ms a step    3.8 %
+  glue-top8              48.0 a step     13.5 us each    0.65 ms a step    3.7 %
+  glue-router            48.0 a step     13.1 us each    0.63 ms a step    3.6 %
+  glue-post-mlp          48.0 a step      9.2 us each    0.44 ms a step    2.5 %
+  glue-pre               24.0 a step     18.4 us each    0.44 ms a step    2.5 %
+  glue-pre-a             24.0 a step     17.2 us each    0.41 ms a step    2.3 %
+  tv_emb_q4_xf            1.0 a step    405.0 us each    0.40 ms a step    2.3 %
+  glue-gate-norm         48.0 a step      8.2 us each    0.39 ms a step    2.2 %
+  glue-msg               24.0 a step     14.0 us each    0.34 ms a step    1.9 %
+  moe_act                48.0 a step      6.8 us each    0.33 ms a step    1.9 %
+  glue-sel               48.0 a step      6.8 us each    0.33 ms a step    1.8 %
