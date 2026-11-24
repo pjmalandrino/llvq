@@ -5,7 +5,7 @@
 [![Rust 2021](https://img.shields.io/badge/Rust-2021-000000?logo=rust&logoColor=white)](https://www.rust-lang.org)
 [![CUDA](https://img.shields.io/badge/CUDA-NVRTC-76B900?logo=nvidia&logoColor=white)](llvq-cuda/)
 [![Metal](https://img.shields.io/badge/Metal-macOS-555555?logo=apple&logoColor=white)](llvq-metal/)
-[![Hugging Face](https://img.shields.io/badge/%F0%9F%A4%97%20Hub-Inkling%202%20Mini%20%C2%B7%20Qwen3%204B%20%C2%B7%208B%20%C2%B7%2014B-FFD21E)](https://huggingface.co/collections/Pier-Jean/llvq-tetra)
+[![Hugging Face](https://img.shields.io/badge/%F0%9F%A4%97%20Hub-Inkling%202%20Mini%20%C2%B7%20Qwen3%204B%20%C2%B7%208B%20%C2%B7%2014B-FFD21E)](https://huggingface.co/Pier-Jean)
 [![PyPI](https://img.shields.io/pypi/v/llvq-tetra?label=PyPI%20llvq-tetra&logo=pypi&logoColor=white)](https://pypi.org/project/llvq-tetra/)
 [![License](https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-blue)](#licence)
 
@@ -133,7 +133,8 @@ llvq serve                            # OpenAI and Ollama routes on 127.0.0.1:11
 Through the runtime, Inkling 2 Mini has been run on NVIDIA cards only; on a Mac it was measured in the bench
 binary, at 27.7 tok/s.
 
-The files are on the Hugging Face Hub, in [one collection](https://huggingface.co/collections/Pier-Jean/llvq-tetra).
+The files are on the Hugging Face Hub, in two collections:
+[LLVQ Tetra - Thinking Machines](https://huggingface.co/collections/Pier-Jean/llvq-tetra-thinking-machines) and [LLVQ Tetra - Qwen](https://huggingface.co/collections/Pier-Jean/llvq-tetra-qwen).
 A different hash is a different file.
 
 | model | repository | file | SHA-256 |

@@ -57,7 +57,7 @@ compiler, the install command, an anonymous pull and `llvq run` answered, and th
 calls included.
 
 Other models of the same method, Qwen3 4B, 8B and 14B, are in the
-[LLVQ Tetra collection](https://huggingface.co/collections/Pier-Jean/llvq-tetra).
+[LLVQ Tetra - Qwen](https://huggingface.co/collections/Pier-Jean/llvq-tetra-qwen) collection.
 
 `llvq serve` exposes the same model on an OpenAI-compatible route and an Ollama-compatible one, with tool calls.
 The model writes a reasoning block before it answers, including at the lowest reasoning effort, so give it room:
@@ -134,4 +134,7 @@ Apache 2.0, as the native model. Use of these weights is also bound by Thinking 
 version of the model: read it before you use or serve this file.
 
 The code that made and serves the file is at [pjmalandrino/llvq-tetra](https://github.com/pjmalandrino/llvq-tetra). The method
-is LLVQ, vector quantization on the Leech lattice ([arXiv:2603.11021](https://arxiv.org/abs/2603.11021)).
+is LLVQ, vector quantization on the Leech lattice ([arXiv:2603.11021](https://arxiv.org/abs/2603.11021)). The
+Tetra format and its fused kernel are described in *Tetra: Serving Leech-Lattice Quantized LLMs at 2.7 Bits per
+Parameter* ([arXiv:2609.35465](https://arxiv.org/abs/2609.35465)). That paper measures Qwen3; the mixture-of-experts
+support and every Inkling figure on this card came after it.
