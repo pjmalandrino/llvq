@@ -68,6 +68,13 @@ THE SERVER
   returned as `tool_calls` and its follow-up answered, 8,791 of 8,811 tokens reused on a follow-up turn (20 read in
   0.36 s), first token of an 8,791-token prompt after 61.37 s (bias on the host, no pieces). 11 of 13 correctness
   checks; the two failures are answers cut at 32 tokens while the model was still reasoning, at effort `none`.
+  The same checks with the long-prompt settings in the server (pieces of 512, scores in chunks of 128, sliding
+  slots bounded with a slack of 1,024, bias on the card) and answer caps of 256, on an L4 (job
+  6b058c7a1460ffe1d5e82582; no L40S came in 40 minutes, deviation E1 of the prereg): 13 of 13 correctness checks.
+  Loaded in 46.6 s. First token of the 8,791-token prompt after 81.23 s, where `inkrun` read 9,000 tokens in 77.12 s
+  on the same card with the same settings. nvidia-smi after the long prompt: 11,082 MiB of 23,034, against 17,413 MiB
+  on the L40S without the settings. Follow-up turn: 8,791 of 8,811 tokens reused, 20 read in 0.56 s. The L40S
+  figure for the first token is not measured.
 
 RUNS (all on image builds of branch debit/inkling-ttft-2026-11-24; raw files in inkling-cuda-ttft-2026-11-24-brut/,
 inkling-serve-card-2026-11-24-brut/, inkling-cuda-pieces-ppl-2026-11-24-brut/)
@@ -80,7 +87,9 @@ inkling-serve-card-2026-11-24-brut/, inkling-cuda-pieces-ppl-2026-11-24-brut/)
   6b05708eaba0b0fd660a5494  l40sx1  memory levers                                   $0.33
   6b05708eaba0b0fd660a5493  l4x1    memory levers on an L4                          $0.23
   6b0575f61460ffe1d5e7c996  l40sx1  perplexity of the pieces                        $0.34
-  Card spend on this model after them: $8.33 of $25.
+  6b0582fbaba0b0fd660aaa55  l40sx1  the server with the settings: no card, canceled  $0.00
+  6b058c7a1460ffe1d5e82582  l4x1    the server with the long-prompt settings        $0.08
+  Card spend on this model after them: $8.41 of $25.
 
 AGAINST THE SIGNED PREDICTIONS
   quantity                                         predicted            measured           inside
@@ -100,3 +109,6 @@ AGAINST THE SIGNED PREDICTIONS
   pieces, pooled point inside the band             probability 0.6      inside             yes
   the differences cluster at piece boundaries      probability 0.3      they do not        yes
   the server passes every check on a first run     probability 0.3      11 of 13           yes (it did not)
+  server, first token at 8,791 tokens (L40S)       21 to 30 s           not measured (L4: 81.23 s)
+  server, nvidia-smi after the long prompt         11 to 14.5 GB        11.08 GB (on an L4)  yes
+  server, every check passes                       probability 0.55     13 of 13           yes

@@ -1,0 +1,18 @@
+{
+ "lines": 132,
+ "chunks": 65,
+ "done": true,
+ "first_chunk_s": 0.028650283813476562,
+ "first_token_s": 82.8034942150116,
+ "last_s": 84.76429438591003,
+ "content": "",
+ "reasoning": "The user asks: \"Do not call any tool. In one short sentence: what does section 7 of the policy ask for?\"\n\nNeed answer based on policy. Section 7, incidents, part 1: \"The rule is that an incident gets a short written account within two days, with",
+ "tool_calls": [],
+ "finish_reason": "length",
+ "usage": {
+  "completion_tokens": 64,
+  "prompt_tokens": 8791,
+  "total_tokens": 8855
+ },
+ "errors": []
+}
