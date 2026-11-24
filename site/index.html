@@ -1,0 +1,91 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Tetra: run 2-bit LLMs locally with one command (llvq)</title>
+<meta name="description" content="Tetra keeps LLM weights compressed on the GPU at about 2.5 bits per parameter. Install llvq in one command and run Inkling 2 Mini or Qwen3 locally, with an OpenAI-compatible API.">
+<link rel="canonical" href="https://pjmalandrino.github.io/llvq-tetra/">
+<link rel="icon" href="favicon.svg" type="image/svg+xml">
+<link rel="alternate icon" href="favicon.ico">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<meta property="og:type" content="website">
+<meta property="og:title" content="Tetra: run 2-bit LLMs locally with one command (llvq)">
+<meta property="og:description" content="Tetra keeps LLM weights compressed on the GPU at about 2.5 bits per parameter. Install llvq in one command and run Inkling 2 Mini or Qwen3 locally, with an OpenAI-compatible API.">
+<meta property="og:url" content="https://pjmalandrino.github.io/llvq-tetra/">
+<meta property="og:image" content="https://pjmalandrino.github.io/llvq-tetra/social-card.png">
+<meta name="twitter:card" content="summary_large_image">
+<link rel="stylesheet" href="style.css">
+<script type="application/ld+json">{"@context":"https://schema.org","@type":"SoftwareApplication","name":"llvq","alternateName":"Tetra","applicationCategory":"DeveloperApplication","operatingSystem":"Linux, macOS","softwareVersion":"0.1.1","license":"https://www.apache.org/licenses/LICENSE-2.0","url":"https://pjmalandrino.github.io/llvq-tetra/","downloadUrl":"https://github.com/pjmalandrino/llvq-tetra/releases/latest","codeRepository":"https://github.com/pjmalandrino/llvq-tetra","offers":{"@type":"Offer","price":"0","priceCurrency":"USD"},"description":"A runtime that pulls and serves LLMs quantized at about 2.5 bits per parameter on the Leech lattice, with OpenAI-compatible and Ollama-compatible routes."}</script>
+</head>
+<body>
+<header>
+<a class="brand" href="./" aria-label="Tetra, home"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 80.57 24" aria-hidden="true"><path d="M12 3 L22.392 21 L21.238 21 L12 5 L2.762 21 L1.608 21 Z" fill="#B4502D"></path><path d="M12 6.677 L20.27 21 L19.115 21 L12 8.677 L4.885 21 L3.73 21 Z" fill="currentColor"></path><path d="M12 10.85 L17.86 21 L16.706 21 L12 12.85 L7.294 21 L6.14 21 Z" fill="currentColor"></path><path d="M12 15.8 L15.002 21 L13.848 21 L12 17.8 L10.152 21 L8.998 21 Z" fill="currentColor"></path><path d="M34.467 21Q31.82 21 31.82 18.474V13.111H28.792V11.831H31.82V9.686H33.273V11.831H36.923V13.111H33.273V18.474Q33.273 19.72 34.467 19.72H36.923V21ZM43.601 21.208Q42.304 21.208 41.361 20.619Q40.418 20.031 39.908 18.95Q39.397 17.869 39.397 16.416Q39.397 14.962 39.908 13.89Q40.418 12.817 41.343 12.22Q42.269 11.623 43.532 11.623Q44.726 11.623 45.643 12.186Q46.559 12.748 47.078 13.82Q47.597 14.893 47.597 16.433V16.865H40.92Q41.006 18.336 41.707 19.08Q42.407 19.824 43.601 19.824Q44.501 19.824 45.08 19.4Q45.66 18.976 45.885 18.284L47.442 18.405Q47.078 19.633 46.066 20.42Q45.054 21.208 43.601 21.208ZM40.92 15.585H46.006Q45.902 14.253 45.227 13.63Q44.553 13.007 43.532 13.007Q42.477 13.007 41.793 13.656Q41.11 14.305 40.92 15.585ZM55.227 21Q52.58 21 52.58 18.474V13.111H49.552V11.831H52.58V9.686H54.033V11.831H57.683V13.111H54.033V18.474Q54.033 19.72 55.227 19.72H57.683V21ZM60.624 21V19.72H63.012V13.111H60.624V11.831H64.223L64.327 13.613Q64.759 11.831 66.524 11.831H68.409V13.146H66.541Q65.538 13.146 65.001 13.743Q64.465 14.34 64.465 15.464V19.72H67.371V21ZM73.426 21.208Q72.561 21.208 71.869 20.896Q71.177 20.585 70.779 20.023Q70.382 19.46 70.382 18.716Q70.382 17.54 71.082 16.891Q71.783 16.242 73.288 15.948L76.367 15.326Q76.367 14.149 75.84 13.578Q75.312 13.007 74.326 13.007Q73.374 13.007 72.838 13.431Q72.302 13.855 72.094 14.651L70.555 14.53Q70.814 13.232 71.791 12.428Q72.769 11.623 74.326 11.623Q75.987 11.623 76.904 12.618Q77.821 13.613 77.821 15.36V19.166Q77.821 19.478 77.959 19.599Q78.097 19.72 78.374 19.72H78.962V21Q78.686 21.035 78.201 21.035Q77.475 21.035 77.033 20.741Q76.592 20.446 76.437 19.789L76.419 19.703Q76.056 20.377 75.234 20.792Q74.412 21.208 73.426 21.208ZM73.565 19.927Q74.966 19.927 75.667 19.218Q76.367 18.509 76.367 17.367V16.571L73.565 17.125Q72.631 17.298 72.267 17.652Q71.904 18.007 71.904 18.578Q71.904 19.218 72.345 19.573Q72.786 19.927 73.565 19.927Z" fill="currentColor"></path></svg>
+</a>
+<nav>
+<a href="#models">Models</a>
+<a href="https://github.com/pjmalandrino/llvq-tetra#readme">Docs</a>
+<a href="https://github.com/pjmalandrino/llvq-tetra">GitHub</a>
+<a href="https://huggingface.co/Pier-Jean">Hugging Face</a>
+</nav>
+</header>
+<main>
+<section class="hero">
+<div class="mark"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3 L22.392 21 L21.238 21 L12 5 L2.762 21 L1.608 21 Z" fill="#B4502D"></path><path d="M12 6.677 L20.27 21 L19.115 21 L12 8.677 L4.885 21 L3.73 21 Z" fill="currentColor"></path><path d="M12 10.85 L17.86 21 L16.706 21 L12 12.85 L7.294 21 L6.14 21 Z" fill="currentColor"></path><path d="M12 15.8 L15.002 21 L13.848 21 L12 17.8 L10.152 21 L8.998 21 Z" fill="currentColor"></path></svg>
+</div>
+<h1>Big models on small cards.</h1>
+<p class="lead">Tetra keeps a model's weights compressed on the GPU, at about 2.5 bits per parameter.
+<code>llvq</code> downloads and serves them with one command.</p>
+<div class="cmd"><code>curl -fsSL https://github.com/pjmalandrino/llvq-tetra/releases/latest/download/install.sh | sh</code><button type="button" data-copy="curl -fsSL https://github.com/pjmalandrino/llvq-tetra/releases/latest/download/install.sh | sh">Copy</button></div>
+<div class="cmd"><code>llvq run inkling2:mini</code><button type="button" data-copy="llvq run inkling2:mini">Copy</button></div>
+<p class="note">Linux with an NVIDIA card, RTX 40 series or newer, driver 550 or newer. Nothing to compile, no CUDA
+toolkit to install. macOS on Apple Silicon for the Qwen3 models.</p>
+</section>
+
+<section id="models">
+<h2>Models</h2>
+<ul class="models">
+<li><a href="models/inkling-2-mini/"><strong>Inkling 2 Mini</strong><span>26.4B mixture of experts · 8.15 GB</span><code>llvq run inkling2:mini</code></a></li>
+<li><a href="models/qwen3/"><strong>Qwen3 14B</strong><span>5.09 GB</span><code>llvq run qwen3:14b</code></a></li>
+<li><a href="models/qwen3/"><strong>Qwen3 8B</strong><span>2.82 GB</span><code>llvq run qwen3:8b</code></a></li>
+<li><a href="models/qwen3/"><strong>Qwen3 4B</strong><span>1.42 GB</span><code>llvq run qwen3:4b</code></a></li>
+</ul>
+</section>
+
+<section>
+<h2>Works with your tools</h2>
+<p><code>llvq serve</code> listens on <code>127.0.0.1:11435</code> with an OpenAI-compatible route and an
+Ollama-compatible one. Streaming and tool calls are included.</p>
+<pre><code>curl http://127.0.0.1:11435/v1/chat/completions \
+  -H "Content-Type: application/json" \
+  -d '{"model": "inkling2:mini", "messages": [{"role": "user", "content": "Hello"}]}'</code></pre>
+</section>
+
+<section>
+<h2>How it works</h2>
+<p>Each block of 24 weights is stored as one point of the Leech lattice, in 48 bits. One GPU kernel decodes the
+points and multiplies them in the same pass, so no full-size matrix is ever written to memory. Nothing is trained.</p>
+<p><a href="https://github.com/pjmalandrino/llvq-tetra/blob/main/docs/how-it-works.md">Read the full explanation</a> or
+<a href="https://arxiv.org/abs/2609.35465">the paper</a>.</p>
+</section>
+
+</main>
+<footer>
+<a href="https://github.com/pjmalandrino/llvq-tetra">GitHub</a>
+<a href="https://huggingface.co/Pier-Jean">Hugging Face</a>
+<a href="https://arxiv.org/abs/2609.35465">Paper</a>
+<a href="https://github.com/pjmalandrino/llvq-tetra/releases/latest">Releases</a>
+<span>MIT or Apache 2.0</span>
+</footer>
+<script>
+document.querySelectorAll("[data-copy]").forEach(function (b) {
+  b.addEventListener("click", function () {
+    navigator.clipboard.writeText(b.dataset.copy).then(function () {
+      b.textContent = "Copied";
+      setTimeout(function () { b.textContent = "Copy"; }, 1500);
+    });
+  });
+});
+</script>
+</body>
+</html>

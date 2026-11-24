@@ -1,0 +1,45 @@
+# The public site, https://pjmalandrino.github.io/llvq-tetra/: the static files of site/, published as they are.
+#
+# No build step and no generator: what is in site/ is what is served. Runs on a push to main that touches site/, or
+# by hand. It publishes nothing else: no release, no tag, no file outside site/.
+#
+# The icons and the social card in site/ are copies of docs/brand/; the step below refuses a copy that drifted.
+
+name: site
+
+on:
+  push:
+    branches: [main]
+    paths: ['site/**', '.github/workflows/pages.yml']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: The brand copies are the brand files
+        run: |
+          cmp site/favicon.svg docs/brand/svg/favicon.svg
+          cmp site/favicon.ico docs/brand/favicon.ico
+          cmp site/apple-touch-icon.png docs/brand/png/apple-touch-icon-180.png
+          cmp site/social-card.png docs/brand/png/social-card-1200x630.png
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+      - id: deploy
+        uses: actions/deploy-pages@v4
