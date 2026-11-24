@@ -11,11 +11,12 @@ set -euo pipefail
 REPO=$(cd "$(dirname "$0")/../.." && pwd)
 cd "$REPO"
 
-PREREG=proofs/preregistration-inkling-cuda-ttft-2026-11-24.md
+PREREG=${PREREG:-proofs/preregistration-inkling-cuda-ttft-2026-11-24.md}
 FLAVOR=${FLAVOR:-l40sx1}
 UNEMBED_TABLE_SHA=cb26ce0c6145d35db52886b378185910b4adaf3de8024cb28e1e6f0062abcbb7
 OUT_NAME=inkling-cuda-ttft-$FLAVOR-2026-11-24
 EVENTS=${EVENTS:-on}
+ARMS=${ARMS:-chunk batch batch8 batch16 chunk16}
 W0_SHA=89ea14b9f41b5c2b4b9aa9bb88929b4a3c0dfde763fe4f30ece25f2d7e400dfb
 IMAGE_SHA=${IMAGE_SHA:-}
 BUCKET=Pier-Jean/jobs-artifacts
@@ -56,8 +57,8 @@ if [ "$DRY" != 1 ]; then
   echo "bucket inputs present; image $NOW"
 fi
 
-PRE=$(printf 'EVENTS=%q\nW0_SHA=%q\nUNEMBED_TABLE_SHA=%q\nO=%q\nIN=%q\nNTOK=%q\nLAYERS=%q\nTEXTONLY_SHA=%q\nCONFIG_SHA=%q\nTOKENS_SHA=%q\nMANIFEST_SHA=%q\nTEXTONLY_BYTES=%q\nexport HF_HOME=/tmp/hf' \
-  "$EVENTS" "$W0_SHA" "$UNEMBED_TABLE_SHA" "$O" "$IN" "$NTOK" "$LAYERS" "$TEXTONLY_SHA" "$CONFIG_SHA" "$TOKENS_SHA" "$MANIFEST_SHA" "$TEXTONLY_BYTES")
+PRE=$(printf 'export ARMS=%q\nEVENTS=%q\nW0_SHA=%q\nUNEMBED_TABLE_SHA=%q\nO=%q\nIN=%q\nNTOK=%q\nLAYERS=%q\nTEXTONLY_SHA=%q\nCONFIG_SHA=%q\nTOKENS_SHA=%q\nMANIFEST_SHA=%q\nTEXTONLY_BYTES=%q\nexport HF_HOME=/tmp/hf' \
+  "$ARMS" "$EVENTS" "$W0_SHA" "$UNEMBED_TABLE_SHA" "$O" "$IN" "$NTOK" "$LAYERS" "$TEXTONLY_SHA" "$CONFIG_SHA" "$TOKENS_SHA" "$MANIFEST_SHA" "$TEXTONLY_BYTES")
 
 IFS= read -r -d '' BODY <<'JOB' || true
 mkdir -p "$O"
@@ -89,13 +90,18 @@ test "$(sha256sum "$L/unembed.q4g64.llvqraw" | cut -d' ' -f1)" = "$UNEMBED_TABLE
 RC=0
 cp "$IN/windows/w0.json" "$L/"
 test "$(sha256sum "$L/w0.json" | cut -d' ' -f1)" = "$W0_SHA"
-for ARM in chunk batch batch8 batch16 chunk16; do
+for ARM in $ARMS; do
   case $ARM in
     chunk) F="--moe-rows chunk"; P=;;
     batch) F="--moe-rows batch"; P=;;
     batch8) F="--moe-rows batch"; P=8:64;;
     batch16) F="--moe-rows batch"; P=16:32;;
     chunk16) F="--moe-rows chunk"; P=16:32;;
+    phchunk) F="--moe-rows chunk --prefill-phases on"; P=;;
+    phbatch8) F="--moe-rows batch --prefill-phases on"; P=8:64;;
+    batch4x64) F="--moe-rows batch"; P=4:64;;
+    batch8x32) F="--moe-rows batch"; P=8:32;;
+    *) echo "unknown arm $ARM" >&2; exit 1;;
   esac
   F="$F --tokens $L/w0.json --prompt-key ids --prompt-len 2000 --attn fused+scores --events $EVENTS"
   echo "== inkrun $ARM ($F, LLVQ_PREFILL=${P:-unset}) =="
@@ -117,20 +123,25 @@ python3 - "$O" <<'PY' | tee -a "$O/summary.txt"
 import json, os, sys
 o = sys.argv[1]
 ref = None
-for arm in ("chunk", "batch", "batch8", "batch16", "chunk16"):
+for arm in os.environ["ARMS"].split():
     p = os.path.join(o, f"inkrun-{arm}.json")
     if not os.path.exists(p):
         print(f"{arm}: no report"); continue
     r = json.load(open(p))
     lp = os.path.join(o, f"logits-{arm}.f32")
     lg = open(lp, "rb").read() if os.path.exists(lp) else None
-    if arm == "chunk":
+    if ref is None:
         ref = (r["tokens"], lg)
-    same = None if ref is None else (r["tokens"] == ref[0], lg is not None and lg == ref[1])
+    same = (r["tokens"] == ref[0], lg is not None and lg == ref[1])
     print(f"{arm}: prefill of {r['prompt_tokens']} tokens {r['seconds_prefill']:.2f} s, "
           f"{r['prompt_tokens'] / r['seconds_prefill']:.0f} tok/s; lattice launches in the prefill {r.get('lattice_launches_prefill')}; "
           f"median step {r['step_seconds_median']:.4f} s; GB at the end {r['memory']['end'].get('used', 0) / 1e9:.3f}; "
-          f"moe_rows {r['provenance'].get('moe_rows')}; tokens equal to chunk, logits bytes equal to chunk: {same}")
+          f"moe_rows {r['provenance'].get('moe_rows')}; tokens equal to the first arm, logits bytes equal to the first arm: {same}")
+    pp = r.get("prefill_parts")
+    if pp:
+        tot = sum(pp.values())
+        for k, v in sorted(pp.items(), key=lambda kv: -kv[1]):
+            print(f"    {k:26s} {v:7.3f} s  {100 * v / tot:5.1f} %")
 PY
 ls -la "$O"
 exit $RC

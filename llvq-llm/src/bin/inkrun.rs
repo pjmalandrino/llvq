@@ -158,6 +158,7 @@ struct Args {
     routing_on_device: bool,
     moe_act: bool,
     moe_rows_batch: bool,
+    prefill_phases: bool,
     moe_four: bool,
     routing_steps_out: Option<PathBuf>,
     events_off: bool,
@@ -174,7 +175,7 @@ fn usage() -> ! {
          [--resident verified|none] [--require-layers N] [--logits-out <file>] [--prompt-key <key>] \
          [--prompt-len N] [--phases K] [--attn-chunk N] [--peak-probe on] \
          [--rollback-gate on] [--prefill-rows 1|2|4|8] [--head bf16|int4 --head-table <file>] \
-         [--glue candle|fused] [--attn candle|fused|fused+scores] [--routing device|host] [--moe-act fused|candle] [--moe four|one] [--moe-rows chunk|batch] [--events on|off] [--kernel-times on|off] [--routing-steps-out <file>] [--score-from N | --score-prompt on] \
+         [--glue candle|fused] [--attn candle|fused|fused+scores] [--routing device|host] [--moe-act fused|candle] [--moe four|one] [--moe-rows chunk|batch] [--prefill-phases on] [--events on|off] [--kernel-times on|off] [--routing-steps-out <file>] [--score-from N | --score-prompt on] \
          [--nll-out <file>]"
     );
     std::process::exit(2)
@@ -248,6 +249,11 @@ fn parse() -> Result<Args> {
             None | Some("fused") => true,
             Some("candle") => false,
             Some(o) => bail!("--moe-act {o}: fused or candle"),
+        },
+        prefill_phases: match take("prefill-phases").as_deref() {
+            None | Some("off") => false,
+            Some("on") => true,
+            Some(o) => bail!("--prefill-phases {o}: on or off"),
         },
         moe_rows_batch: match take("moe-rows").as_deref() {
             None | Some("chunk") => false,
@@ -534,6 +540,9 @@ fn main() -> Result<()> {
     dev.synchronize()?;
     let t = Instant::now();
     let mut logit_rows: Option<Vec<u8>> = args.logits_out.as_ref().map(|_| Vec::new());
+    if args.prefill_phases {
+        phases::start(&dev)?;
+    }
     let logits = match &args.routing_out {
         None => CausalLm::prefill(&model, &prompt, &mut cache)?,
         Some(p) => {
@@ -548,6 +557,14 @@ fn main() -> Result<()> {
         }
     };
     let (mut next, mut margin) = top2(&logits, logit_rows.as_mut())?;
+    // The prompt's read by part, the device drained at each mark (`--prefill-phases on`).
+    let prefill_parts: Option<serde_json::Map<String, Value>> = if args.prefill_phases {
+        phases::mark(&dev, phases::Phase::Readback)?;
+        let acc = phases::stop();
+        Some(phases::ALL.iter().zip(acc).map(|(p, s)| (p.name().to_string(), json!(s))).collect())
+    } else {
+        None
+    };
     let seconds_prefill = t.elapsed().as_secs_f64();
     let launches_prefill = model.take_launches();
     let peak_prefill = peak.load(std::sync::atomic::Ordering::Relaxed);
@@ -663,6 +680,7 @@ fn main() -> Result<()> {
         "seconds_dense_load": seconds_dense,
         "seconds_resident_load": seconds_resident,
         "seconds_prefill": seconds_prefill,
+        "prefill_parts": prefill_parts,
         "step_seconds": step_seconds,
         "step_seconds_median": median,
         "tokens_per_second_median_step": median.map(|m| 1.0 / m),
