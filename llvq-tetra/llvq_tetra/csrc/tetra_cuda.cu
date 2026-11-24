@@ -50,6 +50,9 @@ tv_tetra48_cuda(const torch::Tensor &words, const torch::Tensor &rows,
                 int64_t nblocks, int64_t tail_w, int64_t row_stride_u32,
                 int64_t tile, int64_t threads) {
     TORCH_CHECK(threads % 32 == 0 && threads > 0, "threads must be a positive multiple of 32");
+    TORCH_CHECK(tile == static_cast<int64_t>(TILE_BLOCKS), "tile ", tile,
+                " is not the TILE_BLOCKS ", static_cast<int64_t>(TILE_BLOCKS),
+                " this extension was compiled with; the shared memory would be sized for another tile");
     TORCH_CHECK(d_out % (threads / 32) == 0,
                 "d_out ", d_out, " does not fill whole blocks of ", threads / 32,
                 " rows; the kernel carries no row guard");
