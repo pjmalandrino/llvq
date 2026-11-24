@@ -1,0 +1,12 @@
+inkrun chunk exit 0
+inkrun d2000 exit 0
+inkrun c2000 exit 0
+60974683586440b110340a3b77f17818563449e123c209233425f891d5a5f05f  /out/inkling-cuda-ttft-l4x1-2026-11-24-rall/logits-c2000.f32
+ad2e86472796351ff0643bbdee3b2b54a05998906eeb869429438c830621a709  /out/inkling-cuda-ttft-l4x1-2026-11-24-rall/logits-chunk.f32
+ad2e86472796351ff0643bbdee3b2b54a05998906eeb869429438c830621a709  /out/inkling-cuda-ttft-l4x1-2026-11-24-rall/logits-d2000.f32
+chunk: prefill of 2000 tokens 27.80 s, 72 tok/s; lattice launches in the prefill 970985; median step 0.0293 s; GB at the end 10.849; moe_rows chunk; tokens and logits bytes equal to the first arm of this prompt length: (True, True)
+    GB after load 8.133, after the prompt 10.849, at the end 10.849; peak probe: prompt 0.000, whole run 0.000
+d2000: prefill of 2000 tokens 16.83 s, 119 tok/s; lattice launches in the prefill 384; median step 0.0296 s; GB at the end 10.446; moe_rows batch; tokens and logits bytes equal to the first arm of this prompt length: (True, True)
+    GB after load 8.133, after the prompt 10.446, at the end 10.446; peak probe: prompt 0.000, whole run 0.000
+c2000: prefill of 2000 tokens 17.45 s, 115 tok/s; lattice launches in the prefill 768; median step 0.0317 s; GB at the end 9.842; moe_rows batch; tokens and logits bytes equal to the first arm of this prompt length: (True, False, 'largest logit gap 1.5')
+    GB after load 8.133, after the prompt 9.909, at the end 9.842; peak probe: prompt 10.614, whole run 10.614
