@@ -1,6 +1,8 @@
 # The `llvq` archives that llvq-runtime/install.sh installs, built on demand and kept as workflow artifacts.
 #
-# Run by hand only (Actions tab, "Run workflow"): never on a push, never on a schedule. It publishes nothing: no
+# Run by hand (Actions tab, "Run workflow"), or by a push to the branch `build/llvq-archives`, which exists for that
+# alone: GitHub runs a hand-started workflow only once its file is on the default branch. Never on a push to any other
+# branch, never on a schedule. It publishes nothing: no
 # release, no tag, no upload outside the run's own artifacts, which expire. Making a release from them is the
 # operator's decision.
 #
@@ -20,6 +22,8 @@ on:
         description: "CUDA_COMPUTE_CAP for candle's kernels (89 = Ada; the archive runs on this and newer)"
         required: false
         default: "89"
+  push:
+    branches: [build/llvq-archives]
 
 permissions:
   contents: read
@@ -42,7 +46,7 @@ jobs:
           df -h /
       - name: Build in the CUDA 12.4 devel image
         env:
-          CAP: ${{ inputs.compute_cap }}
+          CAP: ${{ inputs.compute_cap || '89' }}
         run: |
           docker run --rm -e CUDA_COMPUTE_CAP="$CAP" -v "$PWD":/src -w /src \
             nvidia/cuda:12.4.1-devel-ubuntu22.04 \
