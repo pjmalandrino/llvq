@@ -80,3 +80,5 @@ date,seq,card,metric,value,unit,label,config,job_id
 2026-11-24,2,all,cold_storage_gb,8.145,GB,measured,file set the runtime pulls after the two BF16 tables left the checkpoint (10.0 GB at the first upload),6b05b0f0d0582cfbbefc8c71
 2026-11-24,2,l4,pull_s,52,s,measured,llvq pull inkling2:mini; 8.15 GB inside the datacentre,6b05b0f0d0582cfbbefc8c71
 2026-11-24,3,l4,served_vram_after_p8791_mib,10922,MiB,measured,slim file set; nvidia-smi memory.used after the long prompt,6b05b0f0d0582cfbbefc8c71
+2026-11-24,3,l4,pull_s,43,s,measured,release v0.1.1; llvq pull inkling2:mini anonymous; 8.15 GB inside the datacentre,6b05d5dad0582cfbbefcc7a5
+2026-11-24,3,l4,served_ttft_s_p8791,81.99,s,measured,release v0.1.1 installed by install.sh; slim file set,6b05d5dad0582cfbbefcc7a5
