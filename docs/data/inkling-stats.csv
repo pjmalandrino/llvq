@@ -74,3 +74,6 @@ date,seq,card,metric,value,unit,label,config,job_id
 2026-11-24,1,l4,served_ttft_s_p8791,81.23,s,measured,llvq serve with pieces of 512 + bounded slots (slack 1024) + scores in chunks of 128 + bias on the card,6b058c7a1460ffe1d5e82582
 2026-11-24,1,l4,served_followup_s_p8811,0.56,s,measured,llvq serve; follow-up turn reads 20 new tokens of 8811 (prefix reuse),6b058c7a1460ffe1d5e82582
 2026-11-24,1,l4,served_vram_after_p8791_mib,11082,MiB,measured,nvidia-smi memory.used after the long prompt,6b058c7a1460ffe1d5e82582
+2026-11-24,2,l4,served_ttft_s_p8791,80.94,s,measured,released archive installed by install.sh; model pulled from the Hub by name,6b0594c1aba0b0fd660af181
+2026-11-24,2,l4,served_vram_after_p8791_mib,11242,MiB,measured,released archive; nvidia-smi memory.used after the long prompt,6b0594c1aba0b0fd660af181
+2026-11-24,1,l4,pull_s,69,s,measured,llvq pull inkling2:mini anonymous; 10.0 GB inside the datacentre,6b0594c1aba0b0fd660af181

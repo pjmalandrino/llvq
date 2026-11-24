@@ -1,0 +1,30 @@
+llvq 0.1.0 (512356e5667c) serving on http://127.0.0.1:11435, backend cuda, store /tmp/llvq-home
+chat in the browser: http://127.0.0.1:11435/
+llvq: loading inklingmini-2-tetra:latest (inkling2, /tmp/llvq-home/models/sha256-9a4052a9b4847a2baf659f88d1de9607a3b8297004faad8585b243a158857efd/inkling.json) on cuda
+NVRTC attn unit: 10167 bytes, sha256 52fcac0a7e0eb05e6c36ed4ca9a77c2585411ea588e19084b5e6574e22869fd6
+NVRTC scores unit: 4112 bytes, sha256 6ee1bc26947d52c6ee637a9697433a2ad5c9d06c97335d62297f4670e2fb384f
+NVRTC source: 89305 bytes, sha256 b7b40685cb269c0111e2ed04d1a24927e39bbd607e366831dbf26c8b5ae379b7 (9 parts), tile 64 (served: measured optimum for sm_89), prefill 4x128 (served pair), 49152 B staged of 49152, target compute_89
+NVRTC head unit: 34116 bytes, sha256 26384fd83eca392bc9011a6a9d5e9fc4d6a7bbd7f57c5b3e0787a5ab25e93897
+NVRTC source: 89305 bytes, sha256 b7b40685cb269c0111e2ed04d1a24927e39bbd607e366831dbf26c8b5ae379b7 (9 parts), tile 64 (served: measured optimum for sm_89), prefill 4x128 (served pair), 49152 B staged of 49152, target compute_89
+NVRTC moe unit: 106144 bytes, sha256 7deac2bb424a401cf1372279b87bfa8efbc34a9ad90058af9c3450ed98e4acb4 (10 parts)
+NVRTC glue unit: 15885 bytes, sha256 83b2073f77b4dba2cedfbaade35ad7eb525ae437985fde26544b92c0b56f0700
+NVRTC bias unit: 1207 bytes, sha256 d1bde215ac61e3f39a20be770e805b71f8d81fa16ccaf437677bfdec74f5e845
+llvq: inklingmini-2-tetra:latest: template: no chat_template.jinja beside the tokenizer; inkchat renders sha256 53a9035f32559457
+llvq: inklingmini-2-tetra:latest: tables: embed b7e9979f589a8a84, unembed cb26ce0c6145d35d
+llvq: inklingmini-2-tetra:latest: experts: a prompt's rows in one launch a step
+llvq: inklingmini-2-tetra:latest: prompt: pieces of 512 tokens, scores in chunks of 128 rows, sliding slots bounded with a slack of 1024, bias on the card
+llvq: inklingmini-2-tetra:latest: stack fused, 24 layers resident, glue fused, attention fused+scores
+llvq: loading inkling2:mini (inkling2, /tmp/llvq-home/models/sha256-9a4052a9b4847a2baf659f88d1de9607a3b8297004faad8585b243a158857efd/inkling.json) on cuda
+NVRTC attn unit: 10167 bytes, sha256 52fcac0a7e0eb05e6c36ed4ca9a77c2585411ea588e19084b5e6574e22869fd6
+NVRTC scores unit: 4112 bytes, sha256 6ee1bc26947d52c6ee637a9697433a2ad5c9d06c97335d62297f4670e2fb384f
+NVRTC source: 89305 bytes, sha256 b7b40685cb269c0111e2ed04d1a24927e39bbd607e366831dbf26c8b5ae379b7 (9 parts), tile 64 (served: measured optimum for sm_89), prefill 4x128 (served pair), 49152 B staged of 49152, target compute_89
+NVRTC head unit: 34116 bytes, sha256 26384fd83eca392bc9011a6a9d5e9fc4d6a7bbd7f57c5b3e0787a5ab25e93897
+NVRTC source: 89305 bytes, sha256 b7b40685cb269c0111e2ed04d1a24927e39bbd607e366831dbf26c8b5ae379b7 (9 parts), tile 64 (served: measured optimum for sm_89), prefill 4x128 (served pair), 49152 B staged of 49152, target compute_89
+NVRTC moe unit: 106144 bytes, sha256 7deac2bb424a401cf1372279b87bfa8efbc34a9ad90058af9c3450ed98e4acb4 (10 parts)
+NVRTC glue unit: 15885 bytes, sha256 83b2073f77b4dba2cedfbaade35ad7eb525ae437985fde26544b92c0b56f0700
+NVRTC bias unit: 1207 bytes, sha256 d1bde215ac61e3f39a20be770e805b71f8d81fa16ccaf437677bfdec74f5e845
+llvq: inkling2:mini: template: no chat_template.jinja beside the tokenizer; inkchat renders sha256 53a9035f32559457
+llvq: inkling2:mini: tables: embed b7e9979f589a8a84, unembed cb26ce0c6145d35d
+llvq: inkling2:mini: experts: a prompt's rows in one launch a step
+llvq: inkling2:mini: prompt: pieces of 512 tokens, scores in chunks of 128 rows, sliding slots bounded with a slack of 1024, bias on the card
+llvq: inkling2:mini: stack fused, 24 layers resident, glue fused, attention fused+scores

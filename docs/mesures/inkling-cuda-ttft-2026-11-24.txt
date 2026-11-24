@@ -76,6 +76,17 @@ THE SERVER
   on the L40S without the settings. Follow-up turn: 8,791 of 8,811 tokens reused, 20 read in 0.56 s. The L40S
   figure for the first token is not measured.
 
+THE RELEASED ARCHIVE, AS A STRANGER GETS IT
+  Job 6b0594c1aba0b0fd660af181 on an L4, image nvidia/cuda:12.4.1-base-ubuntu22.04: ldconfig lists libcuda only,
+  no cuBLAS, no NVRTC, no nvcc, no cargo. PASS on the first run (prereg inkling-install-card).
+  install.sh from the prerelease llvq-runtime-v0.1.0-pre2 installed the archive (sha256 da59584d) and `llvq -v`
+  answered 0.1.0 (512356e5667c). `llvq pull inkling2:mini`, anonymous, from Pier-Jean/Inkling-2-Mini-LLVQ-Tetra:
+  10.0 GB in 69 s inside the datacentre. `llvq run inklingmini-2-tetra "<prompt>"` answered "Paris" in 59 s, load
+  included. The 13 correctness checks pass. First token of the 8,791-token prompt after 80.94 s. nvidia-smi:
+  7,786 MiB after the load, 11,242 MiB after the long prompt, 11,370 MiB at the end.
+  One wart: `llvq run` under the alias says the name is not in the store and pulls again; the blobs are there, so
+  it downloads nothing, but it verifies 10 GB again.
+
 RUNS (all on image builds of branch debit/inkling-ttft-2026-11-24; raw files in inkling-cuda-ttft-2026-11-24-brut/,
 inkling-serve-card-2026-11-24-brut/, inkling-cuda-pieces-ppl-2026-11-24-brut/)
   6b054af5ca8b51043c3b5983  l40sx1  batched experts, 5 arms                         $0.18
@@ -89,7 +100,8 @@ inkling-serve-card-2026-11-24-brut/, inkling-cuda-pieces-ppl-2026-11-24-brut/)
   6b0575f61460ffe1d5e7c996  l40sx1  perplexity of the pieces                        $0.34
   6b0582fbaba0b0fd660aaa55  l40sx1  the server with the settings: no card, canceled  $0.00
   6b058c7a1460ffe1d5e82582  l4x1    the server with the long-prompt settings        $0.08
-  Card spend on this model after them: $8.41 of $25.
+  6b0594c1aba0b0fd660af181  l4x1    the released archive installed, pulled, served   $0.09
+  Card spend on this model after them: $8.50 of $25.
 
 AGAINST THE SIGNED PREDICTIONS
   quantity                                         predicted            measured           inside
@@ -112,3 +124,7 @@ AGAINST THE SIGNED PREDICTIONS
   server, first token at 8,791 tokens (L40S)       21 to 30 s           not measured (L4: 81.23 s)
   server, nvidia-smi after the long prompt         11 to 14.5 GB        11.08 GB (on an L4)  yes
   server, every check passes                       probability 0.55     13 of 13           yes
+  released archive passes whole on the first run   probability 0.35     it does            no (it did)
+  released archive, nvidia-smi after the prompt    10.5 to 12.5 GB      11,242 MiB         yes
+  released archive, first token at 8,791 tokens    70 to 95 s           80.94 s            yes
+  released archive, the pull                       2 to 8 minutes       69 s               no, faster

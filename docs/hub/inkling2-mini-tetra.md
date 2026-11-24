@@ -9,20 +9,34 @@ pipeline_tag: text-generation
 inference: false
 tags:
   - inkling
+  - inkling-2
+  - inkling-2-mini
+  - thinking-machines
   - mixture-of-experts
+  - moe
   - quantization
+  - quantized
   - 2-bit
+  - low-bit
+  - tool-calling
+  - openai-compatible
+  - ollama-compatible
+  - rust
+  - cuda
   - leech-lattice
   - vector-quantization
   - llvq
   - tetra
 ---
 
-# Inkling 2 Mini on the Leech lattice, served compressed
+# Inkling 2 Mini, 2-bit quantized: a 26.4B mixture of experts in 10 GB (LLVQ Tetra)
 
 [Inkling 2 Mini](https://huggingface.co/thinkingmachines/Inkling-2-Mini), 26.4 billion parameters, with its 3,072
 experts stored as Leech-lattice codes, 48 bits for a block of 24 weights. The weights stay compressed on the card:
 one CUDA kernel decodes and multiplies them, and nothing is ever written out in full.
+
+A 2-bit quantization of Thinking Machines' Inkling 2 Mini that loads in 8.4 GB of card memory, decodes at 72 tokens
+per second on an L40S and 37 on an L4, and is served by one command with an OpenAI-compatible API and tool calls.
 
 **This is a preview.** It is text only: the vision tower is not in this repository. The files are the ones our
 engine reads today, not the final sealed format. Every figure below is ours, measured on the date given, on one
@@ -31,12 +45,19 @@ card, batch 1. Nothing was trained: the codes come from a Hessian-weighted searc
 ## Run it
 
 Linux with an NVIDIA card of the RTX 40 generation or newer, driver 550 or newer. Nothing to compile and no CUDA
-toolkit to install. Install `llvq` from the
-[releases of the repository](https://github.com/pjmalandrino/llvq-tetra/releases), then:
+toolkit to install:
 
 ```bash
+curl -fsSL https://github.com/pjmalandrino/llvq-tetra/releases/latest/download/install.sh | sh
 llvq run inkling2:mini
 ```
+
+Tested on 2026-11-24 as a stranger would get it: on an NVIDIA L4, in a machine with no CUDA toolkit and no
+compiler, the install command, an anonymous pull and `llvq run` answered, and the server passed its 13 checks, tool
+calls included.
+
+Other models of the same method, Qwen3 4B, 8B and 14B, are in the
+[LLVQ Tetra collection](https://huggingface.co/collections/Pier-Jean/llvq-tetra).
 
 `llvq serve` exposes the same model on an OpenAI-compatible route and an Ollama-compatible one, with tool calls.
 The model writes a reasoning block before it answers, including at the lowest reasoning effort, so give it room:
