@@ -74,7 +74,7 @@ fn usage() -> ! {
         "usage:\n  inkgsm run --config <config.json> --checkpoint <model.safetensors> --layers <D/layers> \
          --tokenizer <tokenizer.json> --device metal|cuda|cpu --dump <out.jsonl> [--problems {DEFAULT_PROBLEMS}] \
          [--limit {DEFAULT_LIMIT}] [--max-new {DEFAULT_MAX_NEW}] [--effort {DEFAULT_EFFORT}] \
-         [--resident verified|none] [--require-layers N] [--deadline-seconds S] [--parquet <test.parquet>]\n  \
+         [--resident verified|none] [--require-layers N] [--deadline-seconds S] [--parquet <test.parquet>] [--tables <dir>] [--stack candle|fused]\n  \
          inkgsm prompts --tokenizer <tokenizer.json> --out <ids.json> [--problems ..] [--limit 3] [--effort none]\n  \
          inkgsm score <a.jsonl> [<b.jsonl> ...]"
     );
@@ -504,6 +504,15 @@ fn cmd_run(args: &[String], t_start: Instant) -> Result<i32> {
     let parquet = a.remove("parquet").map(PathBuf::from);
     // The directory of the sealed file's two int4 tables (`bin/inktable`); absent, the tables are the checkpoint's.
     let tables_dir = a.remove("tables").map(PathBuf::from);
+    // `fused`: the stack `inkrun` measures (experts in four launches with the one-launch activation, fused glue,
+    // fused attention products and scores, the int4 head read as the file stores it). Absent or `candle`: the path
+    // of every dump written before 2026-11-24, whose header this leaves unchanged.
+    let fused = match a.remove("stack").as_deref() {
+        None | Some("candle") => false,
+        Some("fused") => true,
+        Some(o) => bail!("--stack {o}: candle or fused"),
+    };
+    ensure!(!fused || (resident && tables_dir.is_some()), "--stack fused needs the resident experts and --tables");
     no_more(&a)?;
 
     // Everything that can be refused without the model, first.
@@ -531,11 +540,12 @@ fn cmd_run(args: &[String], t_start: Instant) -> Result<i32> {
         Some(d) => json!({
             "embed_sha256": sha(&d.join(llvq_llm::inkling::tables::EMBED_FILE))?,
             "unembed_sha256": sha(&d.join(llvq_llm::inkling::tables::UNEMBED_FILE))?,
-            "encoding": "int4 g64, decoded to f32",
+            "encoding": (if fused { "int4 g64: embedding decoded to f32, head read as stored" }
+                         else { "int4 g64, decoded to f32" }),
         }),
         None => json!("checkpoint, BF16"),
     };
-    let base_header = |resident_layers: &Value| -> Result<Value> {
+    let base_header_candle = |resident_layers: &Value| -> Result<Value> {
         Ok(json!({
             gsm8k::DUMP_TAG: gsm8k::DUMP_VERSION,
             "model": "thinkingmachines/Inkling-2-Mini",
@@ -566,6 +576,13 @@ fn cmd_run(args: &[String], t_start: Instant) -> Result<i32> {
             "prompt_stream": fingerprint,
         }))
     };
+    let base_header = |resident_layers: &Value| -> Result<Value> {
+        let mut h = base_header_candle(resident_layers)?;
+        if fused {
+            h["stack"] = json!("fused: moe four + act, glue fused, attn fused+scores, head int4");
+        }
+        Ok(h)
+    };
 
     // A finished dump needs no model: read its header for the protocol fields only.
     let old_text = match std::fs::read_to_string(&dump_path) {
@@ -585,9 +602,21 @@ fn cmd_run(args: &[String], t_start: Instant) -> Result<i32> {
 
     let dev = device(&dev_name)?;
     let t = Instant::now();
-    let mut model = Inkling::load(&config, &checkpoint, &dev)?;
+    let mut model = if fused {
+        let head = tables_dir.as_ref().expect("checked with --stack").join(llvq_llm::inkling::tables::UNEMBED_FILE);
+        let opts = llvq_llm::inkling::LoadOptions { int4_head: Some(head) };
+        Inkling::load_with_attn(&config, &checkpoint, &dev, &opts, "fused+scores".parse()?)?
+    } else {
+        Inkling::load(&config, &checkpoint, &dev)?
+    };
     if resident {
         make_resident(&mut model, &layers, &dev)?;
+    }
+    if fused {
+        model.set_glue("fused".parse()?)?;
+        model.set_routing_on_device(true);
+        model.set_moe_act(true);
+        model.set_moe_four_launches(true);
     }
     if let Some(d) = &tables_dir {
         let t = llvq_llm::inkling::tables::load(d, &model.cfg, &dev)?;
@@ -598,7 +627,9 @@ fn cmd_run(args: &[String], t_start: Instant) -> Result<i32> {
             &t.unembed_sha256[..16]
         );
         model.embed_table = Some(t.embed);
-        model.out_proj = Some(Box::new(t.head));
+        if !fused {
+            model.out_proj = Some(Box::new(t.head));
+        }
     }
     dev.synchronize()?;
     let resident_layers = model.substituted_layers();

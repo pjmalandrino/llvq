@@ -1,0 +1,17 @@
+inkrun on exit 0
+inkrun off exit 0
+inkrun phases exit 0
+on: median step 0.0276 s [0.0263, 0.0368], 36.21 tok/s; prefill of 32 tokens 0.80 s; GB at the end 8.466; tokens equal to the Mac's: False (prefix 4 of 32); events on, kernel launches a step [889], min top-2 margin 0.006571
+off: median step 0.0276 s [0.0263, 0.0359], 36.24 tok/s; prefill of 32 tokens 0.75 s; GB at the end 8.466; tokens equal to the Mac's: False (prefix 4 of 32); events off, kernel launches a step [889], min top-2 margin 0.006571
+phases: profiled median 0.0312 s, untimed median 0.0276 s
+  attention_products          11.92 ms   38.2 %
+  moe                          8.21 ms   26.4 %
+  norms_gates_residual         6.23 ms   20.0 %
+  attention_scores_softmax     1.18 ms    3.8 %
+  head                         1.15 ms    3.7 %
+  routing                      0.94 ms    3.0 %
+  cache_append_copies          0.59 ms    1.9 %
+  convolutions                 0.54 ms    1.7 %
+  readback                     0.29 ms    0.9 %
+  embed                        0.09 ms    0.3 %
+  other                        0.00 ms    0.0 %
