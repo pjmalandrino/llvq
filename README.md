@@ -1,3 +1,8 @@
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/brand/svg/tetra-lockup-on-dark.svg">
+  <img src="docs/brand/svg/tetra-lockup.svg" alt="tetra" width="320">
+</picture>
+
 # Tetra: LLVQ in Rust
 
 [![arXiv](https://img.shields.io/badge/arXiv-2609.35465-b31b1b?logo=arxiv&logoColor=white)](https://arxiv.org/abs/2609.35465)

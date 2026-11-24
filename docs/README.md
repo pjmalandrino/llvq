@@ -9,6 +9,7 @@ Read in this order:
 | [`how-it-works.md`](how-it-works.md) | the maths, the Leech lattice, the Tetra format, the fused kernel and 4E |
 | [`METHODE.md`](METHODE.md) | the lab rules: prereg, labels, noise, tests |
 | [`STYLE.md`](STYLE.md) | how these documents are written |
+| [`brand/LOGO.md`](brand/LOGO.md) | the Tetra mark: its construction, colours, sizes, files and terminal banner |
 | [`HISTORIQUE.md`](HISTORIQUE.md) | the dated thread; append at the bottom, the past is not rewritten |
 
 Plans still in use:

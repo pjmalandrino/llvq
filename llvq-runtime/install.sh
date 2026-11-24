@@ -77,7 +77,7 @@ its kernels are built for sm_89. Build from source with CUDA_COMPUTE_CAP set for
 fi
 
 # --- the archive ---------------------------------------------------------------------------------------------------
-VERSION=${LLVQ_VERSION:-0.1.0}
+VERSION=${LLVQ_VERSION:-0.1.1}
 URL=${LLVQ_URL:-https://github.com/pjmalandrino/llvq-tetra/releases/download/v$VERSION/llvq-$VERSION-$FLAVOR.tar.gz}
 need curl
 if command -v sha256sum > /dev/null 2>&1; then
@@ -146,4 +146,7 @@ case ":$PATH:" in
   *":$PREFIX/bin:"*) ;;
   *) say "add $PREFIX/bin to PATH, e.g. echo 'export PATH=\"$PREFIX/bin:\$PATH\"' >> ~/.profile" ;;
 esac
+# The mark of docs/brand/LOGO.md, its outer chevron in terracotta on a colour terminal.
+if [ -t 2 ] && [ -z "${NO_COLOR:-}" ] && [ "${TERM:-}" != dumb ]; then A=$(printf '\033[38;2;180;80;45m'); R=$(printf '\033[0m'); else A=; R=; fi
+printf '%s\n' "   $A/$R$A\\$R" "  $A/$R/\\$A\\$R" " $A/$R//\\\\$A\\$R    tetra" "$A/$R///\\\\\\$A\\$R" >&2
 say "done. Next: llvq run inkling2:mini (8 GB to download), or llvq run qwen3:4b (1.4 GB)"

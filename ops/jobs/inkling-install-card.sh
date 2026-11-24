@@ -44,7 +44,8 @@ if [ "$DRY" != 1 ]; then
   fi
 fi
 
-PRE=$(printf 'O=%q\nREL=%q\nINSTALL=%q' "$O" "$REL" "$INSTALL")
+VER=$(sed -n 's/^version = "\(.*\)"/\1/p' llvq-runtime/Cargo.toml | head -n 1)
+PRE=$(printf 'O=%q\nREL=%q\nINSTALL=%q\nVER=%q' "$O" "$REL" "$INSTALL" "$VER")
 # The helper travels in the command: C is its path inside the container.
 PRE="$PRE"$'\n'"C=/tmp/serve_checks.py"$'\n'"cat > \"\$C\" <<'SERVECHECKS'"$'\n'"$(cat "$CHECKS")"$'\n'"SERVECHECKS"
 
@@ -67,7 +68,7 @@ if [ "$INSTALL" = release ]; then
   echo '== install =='
   B=https://github.com/pjmalandrino/llvq-tetra/releases/download/$REL
   date -u
-  curl -fsSL "$B/install.sh" | LLVQ_URL="$B/llvq-0.1.0-linux-x86_64-cuda.tar.gz" sh 2>&1 | grep -v '^#' | tee "$O/install.txt"
+  curl -fsSL "$B/install.sh" | LLVQ_URL="$B/llvq-$VER-linux-x86_64-cuda.tar.gz" sh 2>&1 | grep -v '^#' | tee "$O/install.txt"
   date -u
 fi
 command -v llvq
