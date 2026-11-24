@@ -1,0 +1,11 @@
+llvq install: system: Linux x86_64, archive flavor linux-x86_64-cuda
+llvq install: GPU: NVIDIA L4, compute capability 8.9, driver 620.70.06
+llvq install: downloading https://github.com/pjmalandrino/llvq-tetra/releases/download/v0.1.1/llvq-0.1.1-linux-x86_64-cuda.tar.gz
+llvq install: sha256 88773ba981c3cfbd2c52c255c0f062802d67b31d35814b30b5fa1f4cd0ffd9c8
+llvq install: installed /usr/local/lib/llvq, linked /usr/local/bin/llvq
+llvq version 0.1.1 (532af813a67e)
+   /\
+  //\\
+ ///\\\    tetra
+////\\\\
+llvq install: done. Next: llvq run inkling2:mini (8 GB to download), or llvq run qwen3:4b (1.4 GB)

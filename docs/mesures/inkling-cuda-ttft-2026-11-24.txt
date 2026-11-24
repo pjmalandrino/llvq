@@ -102,6 +102,13 @@ AFTER THE AUDITS, AND THE SLIM FILE SET (prereg inkling-audit-identity, deviatio
   correctness checks of 13, 7,786 MiB after the load, 11,242 MiB after the long prompt, first token after
   83.13 s. PASS. Nothing the model computes moved with the audits: no figure of this journal is to be redone.
 
+RELEASE v0.1.1, AS A STRANGER GETS IT (prereg inkling-install-card-v0.1.1)
+  Job 6b05d5dad0582cfbbefcc7a5 on an L4, image nvidia/cuda:12.4.1-base-ubuntu22.04, archive of release v0.1.1
+  (sha256 88773ba9, built from main at 532af813). PASS. The install ends on llvq 0.1.1; the anonymous pull of the
+  8.15 GB file set takes 43 s; `llvq run inklingmini-2-tetra` answers "Paris" in 57 s, load included; 13
+  correctness checks of 13; 7,786 MiB after the load, 11,242 MiB after the long prompt; first token of the
+  8,791-token prompt after 81.99 s. The server log opens on the banner of docs/brand.
+
 RUNS (all on image builds of branch debit/inkling-ttft-2026-11-24; raw files in inkling-cuda-ttft-2026-11-24-brut/,
 inkling-serve-card-2026-11-24-brut/, inkling-cuda-pieces-ppl-2026-11-24-brut/)
   6b054af5ca8b51043c3b5983  l40sx1  batched experts, 5 arms                         $0.18
@@ -120,7 +127,8 @@ inkling-serve-card-2026-11-24-brut/, inkling-cuda-pieces-ppl-2026-11-24-brut/)
   6b05b0f0d0582cfbbefc8c71  l4x1    the slim file set pulled and served               $0.08
   6b05b768d0582cfbbefc9774  l4x1    identity on the whole audit tree                  $0.07
   6b05ba0ed0582cfbbefc9c0f  l4x1    the slim file set on the whole audit tree         $0.08
-  Card spend on this model after them: $8.80 of $25.
+  6b05d5dad0582cfbbefcc7a5  l4x1    release v0.1.1 installed, pulled, served          $0.08
+  Card spend on this model after them: $8.88 of $25.
 
 AGAINST THE SIGNED PREDICTIONS
   quantity                                         predicted            measured           inside
@@ -150,3 +158,5 @@ AGAINST THE SIGNED PREDICTIONS
   audits: the three digests are the references     probability 0.9      they are           yes
   slim file set pulls and passes every check       probability 0.75     13 of 13           yes
   slim, nvidia-smi after load within 100 MiB       of 7,786 MiB         7,786 MiB          yes
+  v0.1.1 passes whole                              probability 0.85     it does            yes
+  v0.1.1, the pull                                 45 to 90 s           43 s               no, just faster

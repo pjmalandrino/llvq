@@ -7,6 +7,7 @@ language:
 library_name: llvq
 pipeline_tag: text-generation
 inference: false
+thumbnail: https://huggingface.co/Pier-Jean/Inkling-2-Mini-LLVQ-Tetra/resolve/main/brand/social-card-1200x630.png
 tags:
   - inkling
   - inkling-2
@@ -28,6 +29,8 @@ tags:
   - llvq
   - tetra
 ---
+
+<img src="https://huggingface.co/Pier-Jean/Inkling-2-Mini-LLVQ-Tetra/resolve/main/brand/social-card-1200x630.png" alt="tetra: Leech-lattice quantized LLMs" width="600">
 
 # Inkling 2 Mini, 2-bit quantized: a 26.4B mixture of experts in 8 GB (LLVQ Tetra)
 
