@@ -32,7 +32,7 @@ card, batch 1. Nothing was trained: the codes come from a Hessian-weighted searc
 
 Linux with an NVIDIA card of the RTX 40 generation or newer, driver 550 or newer. Nothing to compile and no CUDA
 toolkit to install. Install `llvq` from the
-[releases of the repository](https://github.com/pjmalandrino/llvq/releases), then:
+[releases of the repository](https://github.com/pjmalandrino/llvq-tetra/releases), then:
 
 ```bash
 llvq run inkling2:mini
@@ -112,5 +112,5 @@ Apache 2.0, as the native model. Use of these weights is also bound by Thinking 
 [Model Acceptable Use Policy](https://thinkingmachines.ai/model-acceptable-use-policy/), which covers any modified
 version of the model: read it before you use or serve this file.
 
-The code that made and serves the file is at [pjmalandrino/llvq](https://github.com/pjmalandrino/llvq). The method
+The code that made and serves the file is at [pjmalandrino/llvq-tetra](https://github.com/pjmalandrino/llvq-tetra). The method
 is LLVQ, vector quantization on the Leech lattice ([arXiv:2603.11021](https://arxiv.org/abs/2603.11021)).

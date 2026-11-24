@@ -55,7 +55,7 @@ echo '== what the machine has before the install =='
 { command -v nvcc cargo rustc llvq || true; } | tee "$O/system-tools.txt"
 
 echo '== install =='
-B=https://github.com/pjmalandrino/llvq/releases/download/$REL
+B=https://github.com/pjmalandrino/llvq-tetra/releases/download/$REL
 date -u
 curl -fsSL "$B/install.sh" | LLVQ_URL="$B/llvq-0.1.0-linux-x86_64-cuda.tar.gz" sh 2>&1 | grep -v '^#' | tee "$O/install.txt"
 date -u
