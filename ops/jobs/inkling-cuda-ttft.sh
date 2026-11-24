@@ -122,6 +122,14 @@ for ARM in $ARMS; do
     phd2000) F="--moe-rows batch --attn-bias device --prefill-phases on"; P=8:64;;
     d9000) F="--moe-rows batch --attn-bias device"; P=8:64; N=9000;;
     phd9000) F="--moe-rows batch --attn-bias device --prefill-phases on"; P=8:64; N=9000;;
+    r2000) F="--moe-rows batch --attn-bias device --peak-probe on"; P=8:64;;
+    c2000) F="--moe-rows batch --attn-bias device --peak-probe on --prefill-chunk 512"; P=8:64;;
+    k2000) F="--moe-rows batch --attn-bias device --peak-probe on --kv-window bounded"; P=8:64;;
+    r9000) F="--moe-rows batch --attn-bias device --peak-probe on"; P=8:64; N=9000;;
+    c9000) F="--moe-rows batch --attn-bias device --peak-probe on --prefill-chunk 512"; P=8:64; N=9000;;
+    k9000) F="--moe-rows batch --attn-bias device --peak-probe on --kv-window bounded"; P=8:64; N=9000;;
+    a9000) F="--moe-rows batch --attn-bias device --peak-probe on --prefill-chunk 512 --kv-window bounded --attn-chunk 128"; P=8:64; N=9000;;
+    ta9000) F="--moe-rows batch --attn-bias device --prefill-chunk 512 --kv-window bounded --attn-chunk 128"; P=8:64; N=9000;;
     *) echo "unknown arm $ARM" >&2; exit 1;;
   esac
   TOK=$L/w0.json
@@ -156,6 +164,10 @@ for arm in os.environ["ARMS"].split():
     if ref is None or ref[2] != r["prompt_tokens"]:
         ref = (r["tokens"], lg, r["prompt_tokens"])
     same = (r["tokens"] == ref[0], lg is not None and lg == ref[1])
+    if lg is not None and ref[1] is not None and len(lg) == len(ref[1]) and lg != ref[1]:
+        import struct
+        x = struct.unpack(f"<{len(lg) // 4}f", lg); y = struct.unpack(f"<{len(lg) // 4}f", ref[1])
+        same = same + (f"largest logit gap {max(abs(u - v) for u, v in zip(x, y)):.3g}",)
     print(f"{arm}: prefill of {r['prompt_tokens']} tokens {r['seconds_prefill']:.2f} s, "
           f"{r['prompt_tokens'] / r['seconds_prefill']:.0f} tok/s; lattice launches in the prefill {r.get('lattice_launches_prefill')}; "
           f"median step {r['step_seconds_median']:.4f} s; GB at the end {r['memory']['end'].get('used', 0) / 1e9:.3f}; "
