@@ -42,3 +42,12 @@ date,seq,card,metric,value,unit,label,config,job_id
 2026-11-24,1,l40s,vram_end_p9000_gb,20.506,GB,measured,batched read at 8 rows; no probe (14.332 with the probe's drains),6b055b55ca8b51043c3b6713
 2026-11-24,1,l40s,ttft_s_p9000,64.12,s,measured,batched read at 8 rows,6b055b55ca8b51043c3b6713
 2026-11-24,1,l40s,decode_tok_s_p9000,62.11,tok/s,measured,whole fused stack (step 0.0161 s),6b055b55ca8b51043c3b6713
+2026-11-24,1,l4,vram_after_load_gb,8.133,GB,measured,whole fused stack,6b055c5fca8b51043c3b68fa
+2026-11-24,1,l4,vram_end_p2000_gb,10.479,GB,measured,batched read at 8 rows,6b055c5fca8b51043c3b68fa
+2026-11-24,1,l4,vram_peak_p2000_gb,11.587,GB,measured,batched read at 8 rows; probe at visit boundaries,6b055c5fca8b51043c3b68fa
+2026-11-24,1,l4,vram_peak_p9000_gb,19.002,GB,measured,batched read at 8 rows; probe at visit boundaries; 20.210 at the end of the run without the probe,6b055c5fca8b51043c3b68fa
+2026-11-24,1,l4,vram_end_p9000_gb,20.210,GB,measured,batched read at 8 rows; no probe (13.533 with the probe's drains),6b055c5fca8b51043c3b68fa
+2026-11-24,1,l4,ttft_s_p2000,28.94,s,measured,prompt read by chunks (with the probe's drains),6b055c5fca8b51043c3b68fa
+2026-11-24,2,l4,ttft_s_p2000,18.74,s,measured,batched read at 8 rows (with the probe's drains),6b055c5fca8b51043c3b68fa
+2026-11-24,1,l4,ttft_s_p9000,152.06,s,measured,batched read at 8 rows,6b055c5fca8b51043c3b68fa
+2026-11-24,1,l4,decode_tok_s_p9000,31.15,tok/s,measured,whole fused stack (step 0.0321 s),6b055c5fca8b51043c3b68fa
