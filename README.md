@@ -31,13 +31,14 @@ per token, and its middle layers run three times. Each expert is stored as Tetra
 card: the kernel decodes and multiplies the routed experts' rows in a few launches a layer. The file is
 [Pier-Jean/Inkling-2-Mini-LLVQ-Tetra](https://huggingface.co/Pier-Jean/Inkling-2-Mini-LLVQ-Tetra), text only.
 
-| | NVIDIA L40S | NVIDIA L4 |
-|---|---|---|
-| decode after a 32-token prompt | 72.2 tok/s | 36.9 tok/s |
-| decode after a 9,000-token prompt | 62.1 tok/s | 31.2 tok/s |
-| card memory after load | 8.39 GB | 8.13 GB |
-| peak card memory reading a 9,000-token prompt | 12.0 GB | 11.5 GB |
-| time to read a 9,000-token prompt | 23.9 s | 77.1 s |
+| | NVIDIA L40S | NVIDIA L4 | Apple M3 Max, Metal |
+|---|---|---|---|
+| decode after a 32-token prompt | 72.2 tok/s | 36.9 tok/s | 27.7 tok/s |
+| decode after a 2,000-token prompt | 67.9 tok/s | not measured | 26.2 tok/s |
+| decode after a 9,000-token prompt | 62.1 tok/s | 31.2 tok/s | not measured |
+| device memory after load | 8.39 GB | 8.13 GB | 8.03 GB |
+| peak device memory reading a 9,000-token prompt | 12.0 GB | 11.5 GB | not measured |
+| time to read a 9,000-token prompt | 23.9 s | 77.1 s | not measured |
 
 - Size: 10.0 GB to download, 3.03 bits per parameter; 8.14 GB and 2.47 in the sealed form, which the engine does
   not read yet. Both *computed* from the files. The native model is 19.5 GB.
@@ -45,8 +46,11 @@ card: the kernel decodes and multiplies the routed experts' rows in a few launch
   reference path and 186 through the fused kernels, not separated (p = 0.18). The native model was not run through
   our GSM8K harness.
 - All *measured* on 2026-11-22 to 2026-11-24, batch 1; journals in
-  [inkling-cuda-ttft](docs/mesures/inkling-cuda-ttft-2026-11-24.txt), history in
-  [`docs/data/inkling-stats.csv`](docs/data/inkling-stats.csv). The two cards are not to be divided by one another.
+  [inkling-cuda-ttft](docs/mesures/inkling-cuda-ttft-2026-11-24.txt) and, for the Mac,
+  [inkling-debit-boucle](docs/mesures/inkling-debit-boucle-2026-11-22.txt); history in
+  [`docs/data/inkling-stats.csv`](docs/data/inkling-stats.csv). The three machines are not to be divided by one another.
+- The Mac column is the bench binary on a 64 GB M3 Max, measured before the long-prompt work: its prompt path has
+  none of it yet, and the runtime has not served Inkling 2 Mini on a Mac.
 - Not done: no run on a 16 GB consumer card, no vision tower, no comparison with other 2-bit files of this model
   through this engine. Reading a long prompt for the first time is slow; a follow-up turn reuses the cache.
 
