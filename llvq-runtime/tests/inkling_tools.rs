@@ -96,6 +96,9 @@ fn arguments_must_be_an_object() {
 
 #[test]
 fn numbers_keep_pythons_forms() {
+    // Python's types: the template's truthiness and comparisons read them.
+    assert_eq!(inkling2::to_json(&oj("[0.0, 0, 2.5e-7]")), Json::Array(vec![Json::Float(0.0), Json::Int("0".into()), Json::Float(2.5e-7)]));
+    assert!(!inkling2::to_json(&oj("0.0")).truthy());
     assert_eq!(inkling2::to_json(&oj("[1, -3, 0.5, 1e16, 2.5e-7, 12345678901234567890]")).dumps(false, true), "[1,-3,0.5,1e+16,2.5e-07,12345678901234567890]");
 }
 
