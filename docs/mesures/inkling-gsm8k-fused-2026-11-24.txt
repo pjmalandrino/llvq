@@ -49,3 +49,26 @@ WHAT IT DOES NOT SAY
   what a small real cost would look like. The int4 head in the kernel is the one arm with a measured perplexity
   cost (+0.413 %), so it is the first suspect. Separating it takes a second arm, fused without the int4 head,
   about $0.85 on an L40S. Not run: the operator decides.
+
+SECOND ARM, THE SAME DAY: THE FUSED STACK WITH THE HEAD DECODED TO F32
+  186 of 200 right, 9 cut by the cap (*measured*). The 200 completions are identical, character for character, to
+  those of the fused arm with the int4 head: 0 discordant pairs. Against the candle dump: the same 7 lost and 2
+  gained, exact McNemar p = 0.180 (*computed*).
+  Reading: HEAD CLEARED, on the rule of `proofs/preregistration-inkling-gsm8k-fused-f32head-2026-11-24.md`
+  (timestamped before the run). Reading the head as int4 in the kernel changes no answer on these 200 problems.
+  The five problems between 191 and 186 therefore sit in the rest of the fused stack (glue, attention products and
+  scores, the one-launch activation, routing on the device), or in nothing: p = 0.180 does not separate them.
+  Median step 0.0162 s, 61.7 tok/s (*measured*), against 0.0141 s with the int4 head: the f32 head is candle's
+  product.
+  Job `6b052ae3c97b8ed4fcd758f0`, `l40sx1`, image at Space sha 205a3d793fe96dcd4215faf4632ea21681cfe4e9, built from
+  commit 177cc8e. 0.50 h billed, $0.90. Card spend on this model after it: $6.31 of $25.
+  Controls 1 to 3 pass (32 of 32 equal). Raw files: `inkling-gsm8k-fused-f32head-2026-11-24-brut/`.
+
+  quantity                                        predicted               measured          inside
+  right of 200                                    186 to 192              186               yes, at the edge
+  discordant pairs against the candle dump        2 to 9                  9                 yes, at the edge
+  discordant pairs against the fused int4 dump    3 to 10                 0                 no
+  reading                                         HEAD CLEARED (0.8)      HEAD CLEARED      yes
+  median step, L40S                               0.0145 to 0.0175 s      0.0162 s          yes
+  The prediction of 3 to 10 discordant pairs was wrong in its premise: the two heads hold the same values, and the
+  perplexity gap of +0.413 % read on 2026-11-23 did not move one greedy answer here.
