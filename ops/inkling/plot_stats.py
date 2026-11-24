@@ -20,6 +20,8 @@ root = Path(__file__).resolve().parents[2]
 rows = list(csv.DictReader(open(root / "docs/data/inkling-stats.csv")))
 series = defaultdict(lambda: defaultdict(list))
 for r in rows:
+    if r["config"].startswith("control:"):
+        continue  # a reference arm read later than the path it precedes: kept in the file, not drawn
     series[r["metric"]][r["card"]].append((r["date"], int(r["seq"]), float(r["value"]), r["unit"], r["label"]))
 metrics = sorted(series)
 cols = 3

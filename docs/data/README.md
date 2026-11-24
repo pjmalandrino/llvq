@@ -446,7 +446,7 @@ Source: [raw pilot journal](../mesures/tetra-schur-pilot-2026-09-14.txt).
 
 The history of Inkling 2 Mini's headline figures, one row a reading: `date`, `seq` (the order of the readings of one
 day), `card` (`l40s`, `l4`, `mac`, `all`), `metric`, `value`, `unit`, `label` (*measured*, *computed* or *estimated*),
-`config` (the path that produced it) and `job_id`. A row is added each time a change moves a figure; no row is edited.
+`config` (the path that produced it; `control:` marks a reference arm, kept and not drawn) and `job_id`. A row is added each time a change moves a figure; no row is edited.
 Metrics: `cold_storage_gb`, `bits_per_param`, `vram_after_load_gb`, `vram_end_p<N>_gb` and `vram_peak_p<N>_gb` (after
 a prompt of N tokens), `decode_tok_s_p<N>`, `ttft_s_p<N>` (seconds to read a prompt of N tokens), and the quality
 readings `quality_gsm8k200_right`, `quality_ppl_delta_pct`, `quality_kl_wikitext`.

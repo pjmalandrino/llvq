@@ -35,3 +35,4 @@ date,seq,card,metric,value,unit,label,config,job_id
 2026-11-23,2,l40s,quality_ppl_delta_pct,0.413,%,measured,fused stack with the int4 head against the path with no switch,6b04a9a3c97b8ed4fcd66a3c
 2026-11-24,1,l40s,quality_gsm8k200_right,186,of 200,measured,fused stack with the int4 head (191 through candle; p = 0.18),6b04efaaca8b51043c3ae619
 2026-11-24,2,l40s,quality_gsm8k200_right,186,of 200,measured,fused stack with the f32 head (the same 200 answers),6b052ae3c97b8ed4fcd758f0
+2026-11-24,0,l40s,decode_tok_s_p32,9.98,tok/s,measured,control: candle glue and attention with experts in four launches (the reference arm of a GSM8K job; step 0.1002 s),6b04efaaca8b51043c3ae619
