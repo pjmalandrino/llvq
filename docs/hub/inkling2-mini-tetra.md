@@ -29,7 +29,7 @@ tags:
   - tetra
 ---
 
-# Inkling 2 Mini, 2-bit quantized: a 26.4B mixture of experts in 10 GB (LLVQ Tetra)
+# Inkling 2 Mini, 2-bit quantized: a 26.4B mixture of experts in 8 GB of VRAM (LLVQ Tetra)
 
 [Inkling 2 Mini](https://huggingface.co/thinkingmachines/Inkling-2-Mini), 26.4 billion parameters, with its 3,072
 experts stored as Leech-lattice codes, 48 bits for a block of 24 weights. The weights stay compressed on the card:
