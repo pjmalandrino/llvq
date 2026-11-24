@@ -1,0 +1,79 @@
+date,seq,card,metric,value,unit,label,config,job_id
+2026-11-22,1,all,cold_storage_gb,8.143,GB,measured,sealed file 6.777 + sidecar 1.366 (text model),
+2026-11-22,1,all,bits_per_param,2.473,b/param,measured,sealed file (text model; kernel accounting),
+2026-11-22,1,mac,quality_kl_wikitext,0.0880,nats,measured,experts24_tables against the native model,
+2026-11-22,1,l4,quality_gsm8k200_right,191,of 200,measured,candle path; sealed values,6b0347de130a00b5aa8100d2
+2026-11-22,1,mac,decode_tok_s_p32,8.22,tok/s,measured,Metal; evening of 2026-11-22,
+2026-11-23,1,mac,decode_tok_s_p32,27.70,tok/s,measured,Metal; fused stack,
+2026-11-22,1,l4,vram_after_load_gb,10.112,GB,measured,eager path; BF16 head on the card,6b033da68d268c0fbd2272e7
+2026-11-22,1,l4,decode_tok_s_p32,6.04,tok/s,measured,eager path,6b033da68d268c0fbd2272e7
+2026-11-23,1,l4,decode_tok_s_p32,6.11,tok/s,measured,one expert at a time,6b04189f7a38dcb7ff6e8e3a
+2026-11-23,2,l4,decode_tok_s_p32,9.15,tok/s,measured,experts in four launches,6b04189f7a38dcb7ff6e8e3a
+2026-11-23,3,l4,decode_tok_s_p32,15.21,tok/s,measured,+ fused glue,6b04360ca02d1cf5a7b7e3e7
+2026-11-23,4,l4,decode_tok_s_p32,21.46,tok/s,measured,+ fused attention products,6b043c86a02d1cf5a7b7f59e
+2026-11-23,5,l4,decode_tok_s_p32,32.66,tok/s,measured,+ int4 head,6b04ac50ca8b51043c3a652f
+2026-11-23,6,l4,decode_tok_s_p32,35.09,tok/s,measured,+ score kernel,6b04ac50ca8b51043c3a652f
+2026-11-23,7,l4,decode_tok_s_p32,36.30,tok/s,measured,+ activation in one launch (whole fused stack),6b04ac50ca8b51043c3a652f
+2026-11-24,1,l4,decode_tok_s_p32,36.90,tok/s,measured,whole fused stack; 128-bit weight loads (step 0.0271 s),6b04e695c97b8ed4fcd6f082
+2026-11-23,7,l4,vram_end_p32_gb,8.466,GB,measured,whole fused stack,6b04ac50ca8b51043c3a652f
+2026-11-23,1,l40s,decode_tok_s_p32,55.00,tok/s,measured,fused glue and attention + int4 head,6b04a9b3c97b8ed4fcd66a55
+2026-11-23,2,l40s,decode_tok_s_p32,68.03,tok/s,measured,+ score kernel,6b04a9b3c97b8ed4fcd66a55
+2026-11-23,3,l40s,decode_tok_s_p32,72.07,tok/s,measured,+ activation in one launch (whole fused stack),6b04a9b3c97b8ed4fcd66a55
+2026-11-24,1,l40s,decode_tok_s_p32,72.28,tok/s,measured,whole fused stack,6b04d2fdc97b8ed4fcd6c0a0
+2026-11-24,1,l40s,decode_tok_s_p2000,67.87,tok/s,measured,whole fused stack,6b04d2fdc97b8ed4fcd6c0a0
+2026-11-23,3,l40s,vram_end_p32_gb,8.762,GB,measured,whole fused stack,6b04a9b3c97b8ed4fcd66a55
+2026-11-24,1,l40s,vram_after_load_gb,8.387,GB,measured,whole fused stack,6b04d2fdc97b8ed4fcd6c0a0
+2026-11-24,1,l40s,vram_end_p600_gb,10.540,GB,measured,whole fused stack,6b04d2fdc97b8ed4fcd6c0a0
+2026-11-24,1,l40s,vram_end_p2000_gb,13.997,GB,measured,whole fused stack; prompt read by chunks,6b04d2fdc97b8ed4fcd6c0a0
+2026-11-24,2,l40s,vram_end_p2000_gb,16.043,GB,measured,prompt read in batches at 8 rows,6b054af5ca8b51043c3b5983
+2026-11-24,1,l40s,ttft_s_p32,0.76,s,measured,whole fused stack,6b04d2fdc97b8ed4fcd6c0a0
+2026-11-24,1,l40s,ttft_s_p600,5.06,s,measured,whole fused stack; prompt read by chunks,6b04d2fdc97b8ed4fcd6c0a0
+2026-11-24,1,l40s,ttft_s_p2000,16.64,s,measured,prompt read by chunks,6b04d2fdc97b8ed4fcd6c0a0
+2026-11-24,2,l40s,ttft_s_p2000,7.36,s,measured,experts in batches at 4 rows,6b054af5ca8b51043c3b5983
+2026-11-24,3,l40s,ttft_s_p2000,6.87,s,measured,experts in batches at 8 rows,6b054af5ca8b51043c3b5983
+2026-11-23,1,l40s,quality_ppl_delta_pct,0.027,%,measured,fused stack against the path with no switch,6b04a9a3c97b8ed4fcd66a3c
+2026-11-23,2,l40s,quality_ppl_delta_pct,0.413,%,measured,fused stack with the int4 head against the path with no switch,6b04a9a3c97b8ed4fcd66a3c
+2026-11-24,1,l40s,quality_gsm8k200_right,186,of 200,measured,fused stack with the int4 head (191 through candle; p = 0.18),6b04efaaca8b51043c3ae619
+2026-11-24,2,l40s,quality_gsm8k200_right,186,of 200,measured,fused stack with the f32 head (the same 200 answers),6b052ae3c97b8ed4fcd758f0
+2026-11-24,0,l40s,decode_tok_s_p32,9.98,tok/s,measured,control: candle glue and attention with experts in four launches (the reference arm of a GSM8K job; step 0.1002 s),6b04efaaca8b51043c3ae619
+2026-11-24,3,l40s,vram_end_p2000_gb,10.507,GB,measured,batched read at 8 rows; convolution state no longer pins its context,6b055b55ca8b51043c3b6713
+2026-11-24,1,l40s,vram_peak_p2000_gb,11.614,GB,measured,batched read at 8 rows; probe at visit boundaries; driver total minus free,6b055b55ca8b51043c3b6713
+2026-11-24,1,l40s,vram_peak_p9000_gb,19.600,GB,measured,batched read at 8 rows; probe at visit boundaries; 20.506 at the end of the run without the probe,6b055b55ca8b51043c3b6713
+2026-11-24,1,l40s,vram_end_p9000_gb,20.506,GB,measured,batched read at 8 rows; no probe (14.332 with the probe's drains),6b055b55ca8b51043c3b6713
+2026-11-24,1,l40s,ttft_s_p9000,64.12,s,measured,batched read at 8 rows,6b055b55ca8b51043c3b6713
+2026-11-24,1,l40s,decode_tok_s_p9000,62.11,tok/s,measured,whole fused stack (step 0.0161 s),6b055b55ca8b51043c3b6713
+2026-11-24,1,l4,vram_after_load_gb,8.133,GB,measured,whole fused stack,6b055c5fca8b51043c3b68fa
+2026-11-24,1,l4,vram_end_p2000_gb,10.479,GB,measured,batched read at 8 rows,6b055c5fca8b51043c3b68fa
+2026-11-24,1,l4,vram_peak_p2000_gb,11.587,GB,measured,batched read at 8 rows; probe at visit boundaries,6b055c5fca8b51043c3b68fa
+2026-11-24,1,l4,vram_peak_p9000_gb,19.002,GB,measured,batched read at 8 rows; probe at visit boundaries; 20.210 at the end of the run without the probe,6b055c5fca8b51043c3b68fa
+2026-11-24,1,l4,vram_end_p9000_gb,20.210,GB,measured,batched read at 8 rows; no probe (13.533 with the probe's drains),6b055c5fca8b51043c3b68fa
+2026-11-24,1,l4,ttft_s_p2000,28.94,s,measured,prompt read by chunks (with the probe's drains),6b055c5fca8b51043c3b68fa
+2026-11-24,2,l4,ttft_s_p2000,18.74,s,measured,batched read at 8 rows (with the probe's drains),6b055c5fca8b51043c3b68fa
+2026-11-24,1,l4,ttft_s_p9000,152.06,s,measured,batched read at 8 rows,6b055c5fca8b51043c3b68fa
+2026-11-24,1,l4,decode_tok_s_p9000,31.15,tok/s,measured,whole fused stack (step 0.0321 s),6b055c5fca8b51043c3b68fa
+2026-11-24,4,l40s,ttft_s_p2000,6.28,s,measured,batched read in blocks of 1024 with the sum in one launch,6b056428aba0b0fd660a258c
+2026-11-24,5,l40s,ttft_s_p2000,5.88,s,measured,+ attention bias on the card,6b056428aba0b0fd660a258c
+2026-11-24,2,l40s,ttft_s_p9000,61.88,s,measured,batched read in blocks of 1024 with the sum in one launch,6b056428aba0b0fd660a258c
+2026-11-24,3,l40s,ttft_s_p9000,51.29,s,measured,+ attention bias on the card,6b056428aba0b0fd660a258c
+2026-11-24,2,l40s,vram_end_p9000_gb,18.057,GB,measured,blocks of 1024 and the bias on the card; no probe,6b056428aba0b0fd660a258c
+2026-11-24,4,l40s,vram_end_p2000_gb,10.809,GB,measured,blocks of 1024 and the bias on the card; no probe,6b056428aba0b0fd660a258c
+2026-11-24,1,l40s,served_ttft_s_p8791,61.37,s,measured,llvq serve on the real model; first request of 8791 prompt tokens; bias on the host,6b0564281460ffe1d5e77db0
+2026-11-24,1,l40s,served_followup_s_p8811,0.36,s,measured,llvq serve; follow-up turn reads 20 new tokens of 8811 (prefix reuse),6b0564281460ffe1d5e77db0
+2026-11-24,2,l40s,vram_peak_p9000_gb,17.553,GB,measured,sliding slots bounded to their window; same bytes,6b05708eaba0b0fd660a5494
+2026-11-24,3,l40s,vram_peak_p9000_gb,15.305,GB,measured,prompt read in pieces of 512; values change (largest logit gap 8.69; band not read),6b05708eaba0b0fd660a5494
+2026-11-24,4,l40s,vram_peak_p9000_gb,12.017,GB,measured,pieces of 512 + bounded slots + scores in chunks of 128; values change (band not read),6b05708eaba0b0fd660a5494
+2026-11-24,4,l40s,ttft_s_p9000,23.85,s,measured,pieces of 512 + bounded slots + scores in chunks of 128; values change (band not read),6b05708eaba0b0fd660a5494
+2026-11-24,3,l40s,vram_end_p9000_gb,11.212,GB,measured,pieces of 512 + bounded slots + scores in chunks of 128; no probe; values change (band not read),6b05708eaba0b0fd660a5494
+2026-11-24,2,l40s,vram_peak_p2000_gb,10.406,GB,measured,prompt read in pieces of 512; values change (band not read),6b05708eaba0b0fd660a5494
+2026-11-24,2,l4,vram_peak_p9000_gb,17.157,GB,measured,sliding slots bounded to their window; same bytes,6b05708eaba0b0fd660a5493
+2026-11-24,3,l4,vram_peak_p9000_gb,11.486,GB,measured,pieces of 512 + bounded slots + scores in chunks of 128; values change (band not read),6b05708eaba0b0fd660a5493
+2026-11-24,2,l4,ttft_s_p9000,140.82,s,measured,blocks of 1024 and the bias on the card (with the probe's drains),6b05708eaba0b0fd660a5493
+2026-11-24,3,l4,ttft_s_p9000,77.12,s,measured,pieces of 512 + bounded slots + scores in chunks of 128; values change (band not read),6b05708eaba0b0fd660a5493
+2026-11-24,2,l4,vram_end_p9000_gb,10.849,GB,measured,pieces of 512 + bounded slots + scores in chunks of 128; no probe; values change (band not read),6b05708eaba0b0fd660a5493
+2026-11-24,1,l40s,quality_ppl_delta_pct,-0.042,%,measured,prompt read in pieces of 512 against one call; 6141 positions; [-0.127; +0.044],6b0575f61460ffe1d5e7c996
+2026-11-24,1,l4,served_ttft_s_p8791,81.23,s,measured,llvq serve with pieces of 512 + bounded slots (slack 1024) + scores in chunks of 128 + bias on the card,6b058c7a1460ffe1d5e82582
+2026-11-24,1,l4,served_followup_s_p8811,0.56,s,measured,llvq serve; follow-up turn reads 20 new tokens of 8811 (prefix reuse),6b058c7a1460ffe1d5e82582
+2026-11-24,1,l4,served_vram_after_p8791_mib,11082,MiB,measured,nvidia-smi memory.used after the long prompt,6b058c7a1460ffe1d5e82582
+2026-11-24,2,l4,served_ttft_s_p8791,80.94,s,measured,released archive installed by install.sh; model pulled from the Hub by name,6b0594c1aba0b0fd660af181
+2026-11-24,2,l4,served_vram_after_p8791_mib,11242,MiB,measured,released archive; nvidia-smi memory.used after the long prompt,6b0594c1aba0b0fd660af181
+2026-11-24,1,l4,pull_s,69,s,measured,llvq pull inkling2:mini anonymous; 10.0 GB inside the datacentre,6b0594c1aba0b0fd660af181

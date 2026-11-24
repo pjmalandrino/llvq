@@ -73,9 +73,21 @@ pub fn batch_from_env(v: Option<String>) -> anyhow::Result<Option<(usize, Option
     }
 }
 
+/// A model built and ready: a Qwen3 for the engine of this module, or
+/// Inkling 2 for its own engine ([`crate::inkling`]).
+pub enum Built {
+    Qwen3(Box<Loaded>),
+    Inkling(crate::inkling::InkEngine),
+}
+
 /// Builds a model from a manifest. Called on the engine's own thread.
 pub trait Loader: Send + Sync + 'static {
     fn load(&self, name: &ModelName, m: &Manifest, store: &Store) -> anyhow::Result<Loaded>;
+
+    /// The model of any family. By default a Qwen3, through [`Self::load`].
+    fn build(&self, name: &ModelName, m: &Manifest, store: &Store) -> anyhow::Result<Built> {
+        self.load(name, m, store).map(|l| Built::Qwen3(Box::new(l)))
+    }
 }
 
 /// The loader of this build: the fused backend under the library's served
@@ -84,6 +96,15 @@ pub trait Loader: Send + Sync + 'static {
 pub struct DeviceLoader;
 
 impl Loader for DeviceLoader {
+    /// Inkling 2 from its local file ([`crate::inkling::LocalModel`]), a
+    /// Qwen3 from the store's blob otherwise.
+    fn build(&self, name: &ModelName, m: &Manifest, store: &Store) -> anyhow::Result<Built> {
+        match m.family.as_str() {
+            crate::inkling::FAMILY => crate::inkling::load_local(name, std::path::Path::new(&m.file)).map(Built::Inkling),
+            _ => self.load(name, m, store).map(|l| Built::Qwen3(Box::new(l))),
+        }
+    }
+
     fn load(&self, name: &ModelName, m: &Manifest, store: &Store) -> anyhow::Result<Loaded> {
         use candle_core::DType;
         let path = store.blob_path(&m.sha256);
@@ -226,6 +247,10 @@ pub struct Options {
     pub num_predict: Option<i64>,
     pub stop: Vec<String>,
     pub num_ctx: Option<usize>,
+    /// OpenAI's `reasoning_effort`, as the client wrote it. Read by the
+    /// Inkling engine, whose template writes the level; the Qwen3 engine
+    /// reads `think` only.
+    pub effort: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -263,11 +288,11 @@ pub enum Event {
 
 pub type Events = tokio::sync::mpsc::Receiver<Event>;
 
-struct Job {
-    request: Request,
-    events: tokio::sync::mpsc::Sender<Event>,
-    keep_alive: KeepAlive,
-    queued_at: Instant,
+pub(crate) struct Job {
+    pub(crate) request: Request,
+    pub(crate) events: tokio::sync::mpsc::Sender<Event>,
+    pub(crate) keep_alive: KeepAlive,
+    pub(crate) queued_at: Instant,
 }
 
 /// What `/api/ps` reads about an engine.
@@ -303,7 +328,7 @@ pub struct EngineInfo {
 impl EngineInfo {
     /// The worker takes a job off the queue: busy first, then one less
     /// queued, so that no reader ever sees the engine idle in between.
-    fn take_job(&self) {
+    pub(crate) fn take_job(&self) {
         self.busy.store(true, Ordering::SeqCst);
         self.queue.fetch_sub(1, Ordering::SeqCst);
     }
@@ -406,11 +431,11 @@ pub const DEFAULT_TOP_P: f32 = 0.9;
 
 /// From the request to now. A job queued while the model loaded has waited
 /// the load already, so the load is added only to what the job did not wait.
-fn total(job: &Job, started: Instant, load: Duration) -> Duration {
+pub(crate) fn total(job: &Job, started: Instant, load: Duration) -> Duration {
     job.queued_at.elapsed().max(started.elapsed() + load)
 }
 
-fn nanos(d: Duration) -> u64 {
+pub(crate) fn nanos(d: Duration) -> u64 {
     d.as_nanos().min(u64::MAX as u128) as u64
 }
 
@@ -1289,7 +1314,15 @@ impl Engine {
         let inf = info.clone();
         std::thread::Builder::new().name(format!("llvq-engine-{name}")).spawn(move || {
             let t0 = Instant::now();
-            let built = loader.load(&name, &manifest, &store).and_then(|loaded| {
+            let loaded = match loader.build(&name, &manifest, &store) {
+                Ok(Built::Inkling(e)) => {
+                    crate::inkling::serve(e, &rx, &inf, &name, t0.elapsed());
+                    return;
+                }
+                Ok(Built::Qwen3(l)) => Ok(*l),
+                Err(e) => Err(e),
+            };
+            let built = loaded.and_then(|loaded| {
                 let marks = Marks::resolve(&loaded.tokenizer)?;
                 let rope = loaded.qwen.config().max_position_embeddings;
                 let context = loaded.decoder.max_positions().map_or(rope, |e| e.min(rope));

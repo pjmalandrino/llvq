@@ -1,0 +1,15 @@
+inkrun chunk exit 0
+inkrun batch exit 0
+inkrun batch8 exit 0
+inkrun batch16 exit 0
+inkrun chunk16 exit 0
+9c1624adfddbc2cab212b3a8ee4793ba88abd4d71994f2e390a92b7a3a9b014e  /out/inkling-cuda-ttft-l40sx1-2026-11-24/logits-batch.f32
+9c1624adfddbc2cab212b3a8ee4793ba88abd4d71994f2e390a92b7a3a9b014e  /out/inkling-cuda-ttft-l40sx1-2026-11-24/logits-batch16.f32
+9c1624adfddbc2cab212b3a8ee4793ba88abd4d71994f2e390a92b7a3a9b014e  /out/inkling-cuda-ttft-l40sx1-2026-11-24/logits-batch8.f32
+9c1624adfddbc2cab212b3a8ee4793ba88abd4d71994f2e390a92b7a3a9b014e  /out/inkling-cuda-ttft-l40sx1-2026-11-24/logits-chunk.f32
+9c1624adfddbc2cab212b3a8ee4793ba88abd4d71994f2e390a92b7a3a9b014e  /out/inkling-cuda-ttft-l40sx1-2026-11-24/logits-chunk16.f32
+chunk: prefill of 2000 tokens 16.56 s, 121 tok/s; lattice launches in the prefill 970955; median step 0.0150 s; GB at the end 13.997; moe_rows chunk; tokens equal to chunk, logits bytes equal to chunk: (True, True)
+batch: prefill of 2000 tokens 7.36 s, 272 tok/s; lattice launches in the prefill 192; median step 0.0151 s; GB at the end 15.507; moe_rows batch; tokens equal to chunk, logits bytes equal to chunk: (True, True)
+batch8: prefill of 2000 tokens 6.87 s, 291 tok/s; lattice launches in the prefill 192; median step 0.0150 s; GB at the end 16.043; moe_rows batch; tokens equal to chunk, logits bytes equal to chunk: (True, True)
+batch16: prefill of 2000 tokens 9.57 s, 209 tok/s; lattice launches in the prefill 192; median step 0.0151 s; GB at the end 16.043; moe_rows batch; tokens equal to chunk, logits bytes equal to chunk: (True, True)
+chunk16: prefill of 2000 tokens 10.13 s, 197 tok/s; lattice launches in the prefill 254245; median step 0.0151 s; GB at the end 13.997; moe_rows chunk; tokens equal to chunk, logits bytes equal to chunk: (True, True)

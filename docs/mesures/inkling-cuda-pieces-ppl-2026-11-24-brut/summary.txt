@@ -1,0 +1,24 @@
+inkrun w0 ref exit 0
+inkrun w0 c exit 0
+inkrun w0 all exit 0
+inkrun w1 ref exit 0
+inkrun w1 c exit 0
+inkrun w1 all exit 0
+inkrun w2 ref exit 0
+inkrun w2 c exit 0
+inkrun w2 all exit 0
+inkrun w01 ref exit 0
+inkrun w01 c exit 0
+inkrun w01 all exit 0
+c w0: 2047 positions, ppl ref 5.41876, c 5.41152, ratio -0.1335 % [-0.2861, +0.0193]
+c w1: 2047 positions, ppl ref 8.66668, c 8.67108, ratio +0.0508 % [-0.0783, +0.1800]
+c w2: 2047 positions, ppl ref 9.65062, c 9.64647, ratio -0.0429 % [-0.2029, +0.1173]
+c w01: 4095 positions, ppl ref 6.59952, c 6.59701, ratio -0.0381 % [-0.1383, +0.0622]
+c pooled: 6141 positions, ratio -0.0419 % [-0.1273, +0.0435]
+c band +-0.12 %: point inside, interval not inside
+all w0: 2047 positions, ppl ref 5.41876, all 5.41152, ratio -0.1335 % [-0.2861, +0.0193]
+all w1: 2047 positions, ppl ref 8.66668, all 8.67108, ratio +0.0508 % [-0.0783, +0.1800]
+all w2: 2047 positions, ppl ref 9.65062, all 9.64647, ratio -0.0429 % [-0.2029, +0.1173]
+all w01: 4095 positions, ppl ref 6.59952, all 6.59701, ratio -0.0381 % [-0.1383, +0.0622]
+all pooled: 6141 positions, ratio -0.0419 % [-0.1273, +0.0435]
+all band +-0.12 %: point inside, interval not inside

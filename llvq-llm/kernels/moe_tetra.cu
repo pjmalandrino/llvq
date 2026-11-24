@@ -221,3 +221,136 @@ extern "C" __global__ void moe_act(const float* __restrict__ gu,
     float su = __fmul_rn(tanhf(__fmul_rn(u, inv_cap_u)), cap_u);
     out[i] = f2h(__fmul_rn(__fmul_rn(sg, s), su));
 }
+
+// A prompt's rows through one matrix kind of every expert, in one launch
+// (the prefill twin of the launches above, 2026-11-24). Before it the rows of
+// a prompt went one expert and one chunk at a time: 970,955 launches for a
+// prompt of 2,000 tokens.
+//
+// `chunks`: three u32 a chunk, the expert, the first pair and the count of
+// pairs (1..=TETRA48_ROWS); a chunk's pairs are consecutive rows of `xall`
+// and share its expert. Warp g computes output row `row` of matrix
+// `mat0 + mi` for chunk `c`, g = (mi * nchunks + c) * d_out + row, and
+// stores y[(mi * npairs + pair) * d_out + row] as binary16: the output is
+// [nmat, npairs, d_out]. d_out is a multiple of the rows of a block, so the
+// warps of a block share one chunk and one staging.
+//
+// Exactness: the body is `tv_tetra48_rows_h`'s, which is `tv_tetra48_h` row
+// by row whatever the chunking; the values are those of the path that
+// launches `tv_tetra48_rows_h` an expert and a chunk at a time, bit for bit.
+// The host owes it `TETRA48_ROWS * TETRA48_TILE * LLVQ_DIM * 4` bytes of
+// shared memory.
+extern "C" __global__ void moe_tetra_rows(const MoePtr* __restrict__ ptr,
+                                          const u32* __restrict__ chunks,
+                                          u32 row_stride_u32,
+                                          const u32* __restrict__ rows,
+                                          const unsigned char* __restrict__ prefixes,
+                                          const unsigned short* __restrict__ branches,
+                                          const unsigned char* __restrict__ suffixes,
+                                          const float* __restrict__ invnorm,
+                                          const float* __restrict__ xall,
+                                          unsigned short* __restrict__ y,
+                                          u32 nblocks,
+                                          u32 tail_w,
+                                          u32 d_out,
+                                          u32 nchunks,
+                                          u32 npairs,
+                                          u32 mat0)
+{
+    extern __shared__ float xs[];
+    u32 lane = threadIdx.x & 31u;
+    u32 g = (blockIdx.x * blockDim.x + threadIdx.x) >> 5;
+    u32 per_mat = nchunks * d_out;
+    u32 mi = g / per_mat;
+    u32 c = (g - mi * per_mat) / d_out;
+    u32 row = g - mi * per_mat - c * d_out;
+    u32 mat = mat0 + mi;
+    const MoePtr* o = ptr + chunks[3u * c];
+    u32 p0 = chunks[3u * c + 1u];
+    u32 n_rows = chunks[3u * c + 2u];
+    u32 d_in = nblocks * LLVQ_DIM + tail_w;
+    const u32* wrow = o->words[mat] + row * row_stride_u32;
+    const float* gscale = o->gscale[mat];
+    const float* rscale = o->rscale[mat];
+    const unsigned short* tail = o->tail[mat];
+    const float* x = xall + (unsigned long long)p0 * d_in;
+    F1rTables tab = { rows, prefixes, branches, suffixes };
+    float acc[TETRA48_ROWS];
+#pragma unroll
+    for (u32 r = 0; r < TETRA48_ROWS; ++r) acc[r] = 0.0f;
+
+    const u32 xs_stride = TETRA48_TILE * LLVQ_DIM;
+    u32 ntiles = (nblocks + TETRA48_TILE - 1u) / TETRA48_TILE;
+    for (u32 t = 0; t < ntiles; ++t) {
+        u32 jlo = t * TETRA48_TILE;
+        u32 jhi = jlo + TETRA48_TILE < nblocks ? jlo + TETRA48_TILE : nblocks;
+        u32 n   = (jhi - jlo) * LLVQ_DIM;
+        __syncthreads();
+#pragma unroll
+        for (u32 r = 0; r < TETRA48_ROWS; ++r) {
+            // A row past `n_rows` reads row 0 again rather than another chunk.
+            const float* __restrict__ xr = x + (unsigned long long)(r < n_rows ? r : 0u) * d_in;
+            for (u32 i = threadIdx.x; i < n; i += blockDim.x) {
+                xs[r * xs_stride + i] = xr[jlo * LLVQ_DIM + i];
+            }
+        }
+        __syncthreads();
+
+        for (u32 j = jlo + lane; j < jhi; j += 32u) {
+            u32 lo, hi16;
+            f1r_load(wrow, j, lo, hi16);
+            tetra48_dot_rows<TETRA48_ROWS>(lo, hi16, tab,
+                                           xs + (j - jlo) * LLVQ_DIM, xs_stride,
+                                           gscale, invnorm, acc);
+        }
+    }
+
+#pragma unroll
+    for (u32 r = 0; r < TETRA48_ROWS; ++r) {
+        float a = warp_sum(acc[r]);
+        if (lane == 0 && r < n_rows) {
+            const float* __restrict__ xr = x + (unsigned long long)r * d_in;
+            float tv = tail_dot_h(tail, xr + nblocks * LLVQ_DIM, row, tail_w);
+            y[((unsigned long long)mi * npairs + p0 + r) * d_out + row] = f2h(a * rscale[row] + tv);
+        }
+    }
+}
+
+// Each token's weighted rows of a prompt's down output, summed in one launch
+// (2026-11-24). Before it the host ran a multiply, then K row gathers and K
+// adds through candle.
+//
+// `y`: the binary16 output of `moe_tetra_rows` for down, [npairs, d]. `side`:
+// 2 * ntok * k words. The first ntok * k give, for token t and rank r, the
+// pair holding the token's r-th expert in ascending expert order, at
+// side[t * k + r]. The next ntok * k give that pair's routing weight as f32
+// bits, at the same place. One thread a (token, column); the output is
+// [ntok, d] f32.
+//
+// Exactness. The host path widened `y` to f32 (exact), multiplied each row
+// by its weight (one rounded f32 product), and added the products rank by
+// rank into a row of +0. Here: the same widening (`rot_h2f`), the same
+// product (`__fmul_rn`), the same sums in the same order from +0
+// (`__fadd_rn`). NVRTC never contracts the two into an FMA. No barrier, so
+// the early return is safe. The host owes it ntok * d + blockDim.x below 2^32.
+extern "C" __global__ void moe_wsum(const unsigned short* __restrict__ y,
+                                    const u32* __restrict__ side,
+                                    float* __restrict__ out,
+                                    u32 ntok,
+                                    u32 d,
+                                    u32 k)
+{
+    const u32 i = blockIdx.x * blockDim.x + threadIdx.x;
+    if (i >= ntok * d) { return; }
+    const u32 t = i / d;
+    const u32 col = i - t * d;
+    const u32* __restrict__ pairs = side + t * k;
+    const u32* __restrict__ wbits = side + ntok * k + t * k;
+    float acc = 0.0f;
+    for (u32 r = 0; r < k; ++r) {
+        const u32 p = pairs[r];
+        const float v = rot_h2f(y[(unsigned long long)p * d + col]);
+        acc = __fadd_rn(acc, __fmul_rn(v, __uint_as_float(wbits[r])));
+    }
+    out[(unsigned long long)t * d + col] = acc;
+}

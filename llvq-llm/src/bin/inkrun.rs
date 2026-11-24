@@ -32,6 +32,20 @@
 //!
 //! `--attn-chunk N` reads a prompt's attention scores `N` query rows at a
 //! time (default 512, `0` for one score tensor whatever the prompt).
+//! `--prefill-chunk N` reads every prompt of the run `N` tokens a call of
+//! `Inkling::forward` (`Inkling::forward_pieces`), each piece appended to the
+//! cache before the next; a lone last token joins the piece before. Default
+//! `0`: one call, the behaviour before. It bounds every transient of a prompt
+//! call by `N` rows. Not meant to be bit for bit one call: compare the
+//! `--logits-out` bytes of the two arms. Refused with `--routing-out`.
+//! `--kv-window bounded` (or `bounded=S`) bounds the sliding slots of every
+//! cache of the run: each keeps the last `window + S` positions it has seen
+//! (`S` = 256 by default) in buffers of `window + 2 S`, the full slots every
+//! position (`Inkling::set_kv_window`). Default `full`, the behaviour before.
+//! Not meant to be bit for bit on the candle scores (a shorter softmax row);
+//! the one-row score kernel reads the same keys. A rollback deeper than `S`
+//! is refused by name, so `--rollback-gate on` fails on a prompt whose half
+//! is longer than `S`. The report gives the buffer positions allocated.
 //! `--peak-probe` drains the device after every layer visit and keeps the
 //! largest allocated size it reads there (Metal only), the peak the report
 //! gives beside the four fixed points.
@@ -72,6 +86,11 @@
 //! host first as before. Same logits, bit for bit; `host` is the reference.
 //! A run that dumps its routing reads it back in either case.
 //!
+//! `--moe-rows chunk|batch`: a prompt's rows through the resident experts one
+//! expert and one chunk at a time (`chunk`, the default and the reference), or
+//! one launch a step for every (token, expert) pair of a layer (`batch`).
+//! CUDA only; meant to be the same bits.
+//!
 //! `--moe-act fused|candle`: the activation between the launches of a
 //! resident layer's one-row experts in one launch (default), or through
 //! candle's operations as before. Same bits; `candle` is the reference.
@@ -106,6 +125,10 @@
 //! report gives the row count and the vocabulary. The class A gates compare
 //! two such files byte for byte.
 //!
+//! Every cache of a run reserves, before its prompt, the positions the run
+//! appends to it: the prompt plus `--n`. The key and value buffers are then
+//! allocated once and never grow by half. The values do not change.
+//!
 //! The report carries the tokens, the prefill and per-step seconds (each step
 //! ends on reading its logits back to the host, which waits for the device),
 //! the top-1 minus top-2 logit of every step (to read a divergence against a
@@ -116,6 +139,9 @@
 //! the resident layers and their upload costs, and the comparison with the
 //! reference. It exits non-zero only on an error; a token difference is a
 //! reading, written in the report.
+
+// The report is one json! literal; its fields outgrew the default macro recursion depth.
+#![recursion_limit = "256"]
 
 use std::path::PathBuf;
 use std::time::Instant;
@@ -143,6 +169,8 @@ struct Args {
     prompt_len: Option<usize>,
     phases: usize,
     attn_chunk: Option<usize>,
+    prefill_chunk: usize,
+    kv_slack: Option<usize>,
     peak_probe: bool,
     rollback_gate: bool,
     routing_out: Option<PathBuf>,
@@ -152,6 +180,9 @@ struct Args {
     attn: llvq_llm::inkling::AttnKind,
     routing_on_device: bool,
     moe_act: bool,
+    moe_rows_batch: bool,
+    prefill_phases: bool,
+    attn_bias_device: bool,
     moe_four: bool,
     routing_steps_out: Option<PathBuf>,
     events_off: bool,
@@ -166,9 +197,9 @@ fn usage() -> ! {
         "usage: inkrun --config <config.json> --checkpoint <model.safetensors> --layers <D/layers> \
          --tokens <tokens.json> --device cpu|metal|cuda --out <report.json> [--n 32] \
          [--resident verified|none] [--require-layers N] [--logits-out <file>] [--prompt-key <key>] \
-         [--prompt-len N] [--phases K] [--attn-chunk N] [--peak-probe on] \
+         [--prompt-len N] [--phases K] [--attn-chunk N] [--prefill-chunk N] [--kv-window full|bounded[=S]] [--peak-probe on] \
          [--rollback-gate on] [--prefill-rows 1|2|4|8] [--head bf16|int4 --head-table <file>] \
-         [--glue candle|fused] [--attn candle|fused|fused+scores] [--routing device|host] [--moe-act fused|candle] [--moe four|one] [--events on|off] [--kernel-times on|off] [--routing-steps-out <file>] [--score-from N | --score-prompt on] \
+         [--glue candle|fused] [--attn candle|fused|fused+scores] [--routing device|host] [--moe-act fused|candle] [--moe four|one] [--moe-rows chunk|batch] [--attn-bias host|device] [--prefill-phases on] [--events on|off] [--kernel-times on|off] [--routing-steps-out <file>] [--score-from N | --score-prompt on] \
          [--nll-out <file>]"
     );
     std::process::exit(2)
@@ -205,6 +236,15 @@ fn parse() -> Result<Args> {
         prompt_len: take("prompt-len").map(|v| v.parse()).transpose().context("--prompt-len")?,
         phases: take("phases").map(|v| v.parse()).transpose().context("--phases")?.unwrap_or(0),
         attn_chunk: take("attn-chunk").map(|v| v.parse()).transpose().context("--attn-chunk")?,
+        prefill_chunk: take("prefill-chunk").map(|v| v.parse()).transpose().context("--prefill-chunk")?.unwrap_or(0),
+        kv_slack: match take("kv-window").as_deref() {
+            None | Some("full") => None,
+            Some("bounded") => Some(llvq_llm::inkling::layers::DEFAULT_KV_SLACK),
+            Some(o) => match o.strip_prefix("bounded=").map(str::parse::<usize>) {
+                Some(Ok(n)) => Some(n),
+                _ => bail!("--kv-window {o}: full, bounded or bounded=<slack>"),
+            },
+        },
         peak_probe: match take("peak-probe").as_deref() {
             None | Some("off") => false,
             Some("on") => true,
@@ -243,6 +283,21 @@ fn parse() -> Result<Args> {
             Some("candle") => false,
             Some(o) => bail!("--moe-act {o}: fused or candle"),
         },
+        attn_bias_device: match take("attn-bias").as_deref() {
+            None | Some("host") => false,
+            Some("device") => true,
+            Some(o) => bail!("--attn-bias {o}: host or device"),
+        },
+        prefill_phases: match take("prefill-phases").as_deref() {
+            None | Some("off") => false,
+            Some("on") => true,
+            Some(o) => bail!("--prefill-phases {o}: on or off"),
+        },
+        moe_rows_batch: match take("moe-rows").as_deref() {
+            None | Some("chunk") => false,
+            Some("batch") => true,
+            Some(o) => bail!("--moe-rows {o}: chunk or batch"),
+        },
         moe_four: match take("moe").as_deref() {
             None | Some("four") => true,
             Some("one") => false,
@@ -272,6 +327,12 @@ fn parse() -> Result<Args> {
     }
     if (args.score_from.is_some() || args.score_prompt) != args.nll_out.is_some() {
         bail!("--nll-out goes with --score-from or --score-prompt");
+    }
+    if args.prefill_chunk == 1 {
+        bail!("--prefill-chunk 1: a one-row call is a decode step; give 0 (one call) or at least 2");
+    }
+    if args.prefill_chunk > 0 && args.routing_out.is_some() {
+        bail!("--prefill-chunk with --routing-out: the routing dump reads the prompt in one recorded call");
     }
     if args.score_from == Some(0) {
         bail!("--score-from 0: the prefill needs at least one token");
@@ -319,10 +380,17 @@ fn memory(dev: &Device) -> Value {
     }
 }
 
-/// Bytes the device has allocated, where the backend says (Metal).
+/// Bytes the device has allocated, where the backend says: Metal's own count, and on CUDA the driver's total
+/// minus free, which counts what the stream's pool still holds as well as the live buffers.
 #[allow(unused_variables)]
 fn allocated(dev: &Device) -> Option<u64> {
     match dev {
+        #[cfg(all(target_os = "linux", feature = "cuda"))]
+        Device::Cuda(d) => {
+            d.cuda_stream().context().bind_to_thread().ok()?;
+            let (free, total) = candle_core::cuda_backend::cudarc::driver::result::mem_get_info().ok()?;
+            Some((total - free) as u64)
+        }
         #[cfg(all(target_os = "macos", feature = "metal"))]
         Device::Metal(m) => Some(m.device().current_allocated_size() as u64),
         _ => None,
@@ -361,6 +429,7 @@ fn bits(logits: &Tensor) -> Result<Vec<u32>> {
 /// steps: the bits of the three logits rows.
 fn rollback_arm(model: &Inkling, a: &[u32], x: Option<&[u32]>, b: &[u32]) -> Result<Vec<Vec<u32>>> {
     let mut cache = model.new_cache();
+    cache.reserve(a.len() + x.map_or(0, <[u32]>::len) + b.len() + 2)?;
     CausalLm::prefill(model, a, &mut cache)?;
     if let Some(x) = x {
         let m = CausalLm::mark(model, &cache);
@@ -475,11 +544,20 @@ fn main() -> Result<()> {
     if let Some(n) = args.attn_chunk {
         model.set_attn_chunk(n);
     }
+    model.set_prefill_piece(args.prefill_chunk);
+    model.set_kv_window(args.kv_slack);
     model.set_glue(args.glue)?;
     model.set_routing_on_device(args.routing_on_device);
     model.set_moe_act(args.moe_act);
     model.set_moe_four_launches(args.moe_four);
-    let provenance = json!({"prefill_rows": args.prefill_rows, "glue": model.glue().name(),
+    model.set_moe_batch_rows(args.moe_rows_batch);
+    #[cfg(all(target_os = "linux", feature = "cuda"))]
+    llvq_llm::inkling::attn_bias::set_on_device(args.attn_bias_device.then_some(&dev))?;
+    #[cfg(not(all(target_os = "linux", feature = "cuda")))]
+    if args.attn_bias_device {
+        bail!("--attn-bias device: CUDA only");
+    }
+    let provenance = json!({"prefill_rows": args.prefill_rows, "moe_rows": if args.moe_rows_batch { "batch" } else { "chunk" }, "attn_bias": if args.attn_bias_device { "device" } else { "host" }, "glue": model.glue().name(),
         "head": if args.head_table.is_some() { "int4" } else { "bf16" }, "head_table": args.head_table,
         "bf16_head_on_device": model.has_bf16_head(), "attn": model.attn().name(),
         "routing_on_device": model.routing_on_device(), "moe": if args.moe_four { "four" } else { "one" }, "events": if args.events_off { "off" } else { "on" }, "moe_act": if args.moe_act { "fused" } else { "candle" },
@@ -492,9 +570,14 @@ fn main() -> Result<()> {
     if args.peak_probe {
         let (d, p) = (dev.clone(), peak.clone());
         model.set_visit_probe(Some(Box::new(move || {
-            let _ = d.synchronize();
-            if let Some(b) = allocated(&d) {
-                p.fetch_max(b, std::sync::atomic::Ordering::Relaxed);
+            // Read before the drain too: on CUDA the pool may hand memory back at a drain.
+            for drained in [false, true] {
+                if drained {
+                    let _ = d.synchronize();
+                }
+                if let Some(b) = allocated(&d) {
+                    p.fetch_max(b, std::sync::atomic::Ordering::Relaxed);
+                }
             }
         })));
     }
@@ -519,9 +602,15 @@ fn main() -> Result<()> {
     };
 
     let mut cache = model.new_cache();
+    // Every position the run appends, before the prompt is read: the key and value buffers are allocated once at
+    // this size and never grow by half. The values do not change.
+    cache.reserve(prompt.len() + args.n)?;
     dev.synchronize()?;
     let t = Instant::now();
     let mut logit_rows: Option<Vec<u8>> = args.logits_out.as_ref().map(|_| Vec::new());
+    if args.prefill_phases {
+        phases::start(&dev)?;
+    }
     let logits = match &args.routing_out {
         None => CausalLm::prefill(&model, &prompt, &mut cache)?,
         Some(p) => {
@@ -536,9 +625,19 @@ fn main() -> Result<()> {
         }
     };
     let (mut next, mut margin) = top2(&logits, logit_rows.as_mut())?;
+    // The prompt's read by part, the device drained at each mark (`--prefill-phases on`).
+    let prefill_parts: Option<serde_json::Map<String, Value>> = if args.prefill_phases {
+        phases::mark(&dev, phases::Phase::Readback)?;
+        let acc = phases::stop();
+        Some(phases::ALL.iter().zip(acc).map(|(p, s)| (p.name().to_string(), json!(s))).collect())
+    } else {
+        None
+    };
     let seconds_prefill = t.elapsed().as_secs_f64();
     let launches_prefill = model.take_launches();
     let peak_prefill = peak.load(std::sync::atomic::Ordering::Relaxed);
+    let mem_prefill = memory(&dev);
+    let kv_positions_prefill = cache.allocated_positions();
     eprintln!("inkrun: prefill of {} tokens in {seconds_prefill:.2} s", prompt.len());
 
     let mut tokens = vec![];
@@ -638,6 +737,12 @@ fn main() -> Result<()> {
     let mut sorted = step_seconds.clone();
     sorted.sort_by(f64::total_cmp);
     let median = sorted.get(sorted.len() / 2).copied();
+    let kv_window = match model.kv_window() {
+        None => json!("full"),
+        Some(s) => json!({"bounded_slack": s}),
+    };
+    let kv_positions = json!({"kind": "key and value buffer positions, summed over the slots of the run's cache",
+                              "after_prefill": kv_positions_prefill, "end": cache.allocated_positions()});
     let report = json!({
         "bin": "inkrun",
         "device": args.device,
@@ -647,10 +752,11 @@ fn main() -> Result<()> {
         "resident_layers": resident_layers,
         "native_layers": native_layers,
         "upload": upload,
-        "memory": {"before_load": mem_before, "after_dense": mem_dense, "after_resident": mem_resident, "end": mem_end},
+        "memory": {"before_load": mem_before, "after_dense": mem_dense, "after_resident": mem_resident, "after_prefill": mem_prefill, "end": mem_end},
         "seconds_dense_load": seconds_dense,
         "seconds_resident_load": seconds_resident,
         "seconds_prefill": seconds_prefill,
+        "prefill_parts": prefill_parts,
         "step_seconds": step_seconds,
         "step_seconds_median": median,
         "tokens_per_second_median_step": median.map(|m| 1.0 / m),
@@ -668,9 +774,12 @@ fn main() -> Result<()> {
         "prompt_key": args.prompt_key,
         "phases": phases_report,
         "attn_chunk": model.attn_chunk(),
+        "prefill_chunk": model.prefill_piece(),
+        "kv_window": kv_window,
+        "kv_positions_allocated": kv_positions,
         "rollback_gate": rollback_gate,
         "peak_probe": if args.peak_probe {
-            json!({"kind": "largest allocated size read after a layer visit, device drained",
+            json!({"kind": "largest allocated size read after a layer visit, before and after a drain",
                    "prefill": peak_prefill, "whole_run": peak.load(std::sync::atomic::Ordering::Relaxed)})
         } else {
             Value::Null
@@ -710,13 +819,14 @@ fn score(model: &Inkling, args: &Args, dev: &Device, text: &[u32], provenance: V
     }
     let vocab = CausalLm::vocab_size(model);
     let mut cache = model.new_cache();
+    cache.reserve(text.len())?;
     let mut nlls: Vec<f64> = vec![];
     let mut positions: Vec<usize> = vec![];
     dev.synchronize()?;
     let t = Instant::now();
     let (mode, seconds_prefill, steps) = if args.score_prompt {
-        let out = model.forward(text, &mut cache, false, true)?;
-        let rows = out.logits.to_dtype(candle_core::DType::F32)?.to_vec2::<f32>()?;
+        let logits = model.forward_pieces(text, &mut cache, true)?;
+        let rows = logits.to_dtype(candle_core::DType::F32)?.to_vec2::<f32>()?;
         if rows.len() != text.len() || rows[0].len() != vocab {
             bail!("{} logits rows of {} for {} tokens", rows.len(), rows[0].len(), text.len());
         }
@@ -759,6 +869,8 @@ fn score(model: &Inkling, args: &Args, dev: &Device, text: &[u32], provenance: V
         "prompt_key": args.prompt_key, "text_tokens": text.len(), "score_from": args.score_from,
         "scored": nlls.len(), "mean_nll": mean, "ppl": mean.exp(), "seconds": seconds,
         "seconds_prefill": seconds_prefill, "steps": steps, "attn_chunk": model.attn_chunk(),
+        "prefill_chunk": model.prefill_piece(),
+        "kv_window": match model.kv_window() { None => json!("full"), Some(s) => json!({"bounded_slack": s}) },
         "nll_file": args.nll_out, "provenance": provenance,
         "memory": {"load": memory_load, "end": memory(dev)},
     });

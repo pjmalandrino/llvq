@@ -1,0 +1,10 @@
+{
+  "name": "inkling2-mini:local",
+  "family": "inkling2",
+  "config": "config.json",
+  "checkpoint": "model.safetensors",
+  "layers": "layers",
+  "tokenizer": "tokenizer.json",
+  "tables": "tables",
+  "context": 32768
+}

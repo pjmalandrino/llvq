@@ -1,5 +1,5 @@
 {
-  "note": "The models `llvq pull` knows. Each entry pins a Hub commit, a file, its size and its full sha256, read on the Hub on 2026-11-06 and equal to configs/README.md. The three repositories are frozen because paper 2 cites them. `configs` names the served config per backend; the files are compiled into the binary from configs/.",
+  "note": "The models `llvq pull` knows. Each entry pins a Hub commit, a file, its size and its full sha256, read on the Hub on 2026-11-06 and equal to configs/README.md. The three repositories are frozen because paper 2 cites them. `configs` names the served config per backend; the files are compiled into the binary from configs/. An entry of kind `files` pins an index (`llvq-files.json`) that lists every file of the model with its size and sha256; its pins stay empty, and the entry is refused by name, until the operator publishes it.",
   "models": [
     {
       "name": "qwen3",
@@ -54,6 +54,26 @@
         "metal": "qwen3-14b-tetra-e4.json",
         "cpu": "qwen3-14b-tetra-e4.json",
         "cuda_batch": "qwen3-14b-tetra-e4-4e-v9-batch.json"
+      }
+    },
+    {
+      "name": "inkling2",
+      "tag": "mini",
+      "aliases": ["latest", "mini-tetra"],
+      "names": ["inklingmini-2-tetra"],
+      "kind": "files",
+      "repo": "Pier-Jean/Inkling-2-Mini-LLVQ-Tetra",
+      "revision": "a7d3b5cf1d38be294ec544df2060fea10f180bf3",
+      "file": "llvq-files.json",
+      "size": 5331,
+      "sha256": "9a4052a9b4847a2baf659f88d1de9607a3b8297004faad8585b243a158857efd",
+      "download_size": 9997951324,
+      "parameter_size": "26.1B",
+      "bits_per_param": "2.473",
+      "configs": {
+        "cuda": null,
+        "metal": null,
+        "cpu": null
       }
     }
   ]

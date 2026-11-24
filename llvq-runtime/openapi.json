@@ -151,7 +151,7 @@
                 ]
               },
               "reasoning_effort": {
-                "description": "Absent or `\"none\"`: no reasoning; any other level turns it on.",
+                "description": "Absent or `\"none\"`: no reasoning; any other level turns it on. The\ninkling2 family writes the level into its prompt, as its template does.",
                 "type": [
                   "string",
                   "null"
@@ -207,7 +207,7 @@
                 ]
               },
               "tools": {
-                "description": "Functions the model may call, `{\"type\": \"function\", \"function\":\n{\"name\", \"description\", \"parameters\"}}`. Served for the qwen3 family.",
+                "description": "Functions the model may call, `{\"type\": \"function\", \"function\":\n{\"name\", \"description\", \"parameters\"}}`. Served for the qwen3 and\ninkling2 families.",
                 "items": {
                   "type": "object"
                 },
@@ -332,7 +332,7 @@
             ]
           },
           "tools": {
-            "description": "Functions the model may call, `{\"type\": \"function\", \"function\":\n{\"name\", \"description\", \"parameters\"}}`. Served for the qwen3 family.",
+            "description": "Functions the model may call, `{\"type\": \"function\", \"function\":\n{\"name\", \"description\", \"parameters\"}}`. Served for the qwen3 and\ninkling2 families.",
             "items": {
               "type": "object"
             },

@@ -129,19 +129,44 @@ pub fn config_for<'a>(c: &'a Configs, backend: Backend, batch: bool, profile: Op
     }
 }
 
+/// What the pinned file of an entry is.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Kind {
+    /// One sealed file, served from the store's blob (the Qwen3 files).
+    #[default]
+    Sealed,
+    /// An index of files (`crate::store::FileIndex`): the pull fetches every
+    /// file it lists, each checked by size and sha256, into one directory,
+    /// and serves them as a local file of [`crate::inkling`] would.
+    Files,
+}
+
 /// One model of `library.json`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Entry {
+    /// Also the family the manifest records: `qwen3`, `inkling2`.
     pub name: String,
     pub tag: String,
+    /// Other tags of the same name.
     #[serde(default)]
     pub aliases: Vec<String>,
+    /// Other whole names, `name` or `name:tag`; a bare name means its
+    /// `latest` tag.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub names: Vec<String>,
+    #[serde(default)]
+    pub kind: Kind,
     pub repo: String,
     pub revision: String,
+    /// The sealed file, or for [`Kind::Files`] the index.
     pub file: String,
     pub size: u64,
     pub sha256: String,
+    /// Bytes on disk once pulled, where `size` is not that (an index).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub download_size: Option<u64>,
     pub parameter_size: String,
     pub bits_per_param: String,
     pub configs: Configs,
@@ -152,9 +177,31 @@ impl Entry {
         ModelName { name: self.name.clone(), tag: self.tag.clone() }
     }
 
-    /// Whether `n` names this entry, by its tag or one of its aliases.
+    /// Whether `n` names this entry, by its tag, one of its aliases or one of
+    /// its other names.
     pub fn answers(&self, n: &ModelName) -> bool {
-        n.name == self.name && (n.tag == self.tag || self.aliases.contains(&n.tag))
+        (n.name == self.name && (n.tag == self.tag || self.aliases.contains(&n.tag)))
+            || self.names.iter().any(|o| ModelName::parse(o).is_ok_and(|o| &o == n))
+    }
+
+    /// Whether the entry can be pulled: a Hub repository, a pinned commit,
+    /// a size and a full sha256. An entry whose pins are not filled yet is
+    /// refused by name, never guessed.
+    pub fn published(&self) -> Result<(), String> {
+        let hex = |s: &str, n: usize| s.len() == n && s.chars().all(|c| c.is_ascii_hexdigit() && !c.is_ascii_uppercase());
+        if self.repo.is_empty() || !hex(&self.revision, 40) || !hex(&self.sha256, 64) || self.size == 0 {
+            return Err(format!(
+                "{} is in the llvq library but not published yet: its Hub repository, revision, size and sha256 \
+                 are not filled. Serve it from local files with `llvq serve --local <file.json>`.",
+                self.model_name()
+            ));
+        }
+        Ok(())
+    }
+
+    /// The bytes a pull writes, as the chat page and `llvq show` give them.
+    pub fn bytes(&self) -> u64 {
+        self.download_size.unwrap_or(self.size)
     }
 }
 
@@ -314,8 +361,8 @@ mod tests {
     #[test]
     fn the_library_parses_and_every_entry_is_whole() {
         let e = entries();
-        assert_eq!(e.len(), 3);
-        for m in e {
+        assert_eq!(sealed().count(), 3);
+        for m in sealed() {
             assert_eq!(m.sha256.len(), 64, "{}: a full sha256", m.model_name());
             assert!(m.sha256.chars().all(|c| c.is_ascii_hexdigit() && !c.is_ascii_uppercase()));
             assert_eq!(m.revision.len(), 40, "{}: a pinned commit, not a branch", m.model_name());
@@ -331,11 +378,41 @@ mod tests {
         }
         // No two entries answer the same name.
         for a in e {
-            for t in std::iter::once(&a.tag).chain(&a.aliases) {
-                let n = ModelName { name: a.name.clone(), tag: t.clone() };
+            let tags = std::iter::once(&a.tag).chain(&a.aliases).map(|t| ModelName { name: a.name.clone(), tag: t.clone() });
+            let others = a.names.iter().map(|o| ModelName::parse(o).unwrap_or_else(|err| panic!("{o}: {err}")));
+            for n in tags.chain(others) {
                 assert_eq!(e.iter().filter(|b| b.answers(&n)).count(), 1, "{n} is ambiguous");
             }
         }
+    }
+
+    fn sealed() -> impl Iterator<Item = &'static Entry> {
+        entries().iter().filter(|e| e.kind == Kind::Sealed)
+    }
+
+    /// Inkling 2 Mini answers to its name, its tags and the operator's
+    /// wording, and is refused by name until its pins are filled: a pull
+    /// never guesses a repository or a digest.
+    #[test]
+    fn inkling_answers_its_names_and_is_refused_until_published() {
+        for s in ["inkling2:mini", "inkling2", "inkling2:mini-tetra", "inklingmini-2-tetra", "InklingMini-2-Tetra:latest"] {
+            let e = find(&ModelName::parse(s).unwrap()).unwrap_or_else(|| panic!("{s} names no entry"));
+            assert_eq!(e.model_name().to_string(), "inkling2:mini", "{s}");
+            assert_eq!(e.kind, Kind::Files);
+            assert_eq!(e.name, crate::inkling::FAMILY, "the manifest's family is the entry's name");
+        }
+        assert!(find(&ModelName::parse("inklingmini-2-tetra:4b").unwrap()).is_none());
+        let e = find(&ModelName::parse("inkling2:mini").unwrap()).unwrap();
+        if e.repo.is_empty() {
+            let err = e.published().unwrap_err();
+            assert!(err.contains("inkling2:mini") && err.contains("not published"), "{err}");
+        }
+        for m in sealed() {
+            assert_eq!(m.published(), Ok(()), "{}", m.model_name());
+        }
+        // A chat page never offers what cannot be pulled.
+        let page = crate::api::chat_page();
+        assert_eq!(page.contains("inkling2:mini"), e.published().is_ok());
     }
 
     #[test]
@@ -344,7 +421,7 @@ mod tests {
         assert_eq!(m.tag, "4b");
         // configs/README.md, the authority on these files.
         let readme = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../configs/README.md"));
-        for m in entries() {
+        for m in sealed() {
             assert!(readme.contains(&m.sha256[..8]), "{}: digest not in configs/README.md", m.model_name());
             assert!(readme.contains(&m.file), "{}: file not in configs/README.md", m.model_name());
         }
@@ -355,7 +432,7 @@ mod tests {
     fn metal_serves_only_the_expanded_form() {
         // served.rs refuses every other form on Metal; a library that named
         // one would fail at the first load instead of here.
-        for m in entries() {
+        for m in sealed() {
             let c = m.configs.metal.as_deref().unwrap();
             let f: ServedFile = serde_json::from_str(config_text(c).unwrap()).unwrap();
             let s = Served::of(f, c.into()).unwrap();
@@ -367,7 +444,7 @@ mod tests {
     fn the_cpu_serves_what_its_loader_reads() {
         // fused_cpu refuses anything but tetra48, no fused group, the file's
         // int4 order, an int4 or f16 embedding, and the eager decode.
-        for m in entries() {
+        for m in sealed() {
             let c = m.configs.cpu.as_deref().unwrap_or_else(|| panic!("{}: no CPU config", m.model_name()));
             let f: ServedFile = serde_json::from_str(config_text(c).unwrap()).unwrap();
             let s = Served::of(f, c.into()).unwrap();
@@ -439,7 +516,7 @@ mod tests {
 
     #[test]
     fn a_manifest_is_served_by_the_library_configs_of_its_file() {
-        for e in entries() {
+        for e in sealed() {
             // Pulled before the CPU backend existed: no CPU config.
             let old = Configs { cuda: e.configs.cuda.clone(), metal: e.configs.metal.clone(), cpu: None, cuda_batch: None, cuda_eager: None };
             assert_eq!(served_configs(&old, &e.sha256), e.configs, "{}: the CPU and batch configs filled", e.model_name());

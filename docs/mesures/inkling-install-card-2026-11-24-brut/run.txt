@@ -1,0 +1,15 @@
+inklingmini-2-tetra:latest is not in the store; pulling it
+[Kpulling manifest
+[Kverifying sha256 digest
+[Kpulling 9a4052a9b484… 100% 10.0 GB / 10.0 GB[Kwriting manifest
+[Ksuccess
+[2mThinking...
+The user asks for the capital of France, answer with one word. Need answer one word. Capital of France is Paris. Ensure no extra words. Final exactly Paris.
+...done thinking.[0m
+
+Paris
+
+prompt: 25 tokens (0 cached) in 9.80 s
+answer: 41 tokens in 1.13 s, 36.4 tok/s (this client's rate, not a measurement)
+end: stop
+run seconds, load included: 59

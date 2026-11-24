@@ -1,0 +1,16 @@
+inkrun pk2000c exit 0
+inkrun pk2000 exit 0
+inkrun t9000 exit 0
+inkrun pk9000 exit 0
+9c1624adfddbc2cab212b3a8ee4793ba88abd4d71994f2e390a92b7a3a9b014e  /out/inkling-cuda-ttft-l40sx1-2026-11-24-rmemory/logits-pk2000.f32
+9c1624adfddbc2cab212b3a8ee4793ba88abd4d71994f2e390a92b7a3a9b014e  /out/inkling-cuda-ttft-l40sx1-2026-11-24-rmemory/logits-pk2000c.f32
+a38aca4e36d81c43efa766621ee0309c785c706fb56aea1deced297f5eec950c  /out/inkling-cuda-ttft-l40sx1-2026-11-24-rmemory/logits-pk9000.f32
+a38aca4e36d81c43efa766621ee0309c785c706fb56aea1deced297f5eec950c  /out/inkling-cuda-ttft-l40sx1-2026-11-24-rmemory/logits-t9000.f32
+pk2000c: prefill of 2000 tokens 17.43 s, 115 tok/s; lattice launches in the prefill 970955; median step 0.0176 s; GB at the end 10.373; moe_rows chunk; tokens and logits bytes equal to the first arm of this prompt length: (True, True)
+    GB after load 8.387, after the prompt 10.641, at the end 10.373; peak probe: prompt 11.446, whole run 11.446
+pk2000: prefill of 2000 tokens 7.86 s, 254 tok/s; lattice launches in the prefill 192; median step 0.0176 s; GB at the end 10.507; moe_rows batch; tokens and logits bytes equal to the first arm of this prompt length: (True, True)
+    GB after load 8.387, after the prompt 10.842, at the end 10.507; peak probe: prompt 11.614, whole run 11.614
+t9000: prefill of 9000 tokens 64.12 s, 140 tok/s; lattice launches in the prefill 192; median step 0.0161 s; GB at the end 20.506; moe_rows batch; tokens and logits bytes equal to the first arm of this prompt length: (True, True)
+    GB after load 8.387, after the prompt 20.506, at the end 20.506; peak probe: prompt 0.000, whole run 0.000
+pk9000: prefill of 9000 tokens 69.72 s, 129 tok/s; lattice launches in the prefill 192; median step 0.0188 s; GB at the end 14.332; moe_rows batch; tokens and logits bytes equal to the first arm of this prompt length: (True, True)
+    GB after load 8.387, after the prompt 16.178, at the end 14.332; peak probe: prompt 19.600, whole run 19.600
