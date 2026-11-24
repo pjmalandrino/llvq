@@ -3,12 +3,13 @@
 //! ```text
 //! <home>/blobs/sha256-<hex>             the sealed file, named by its digest
 //! <home>/manifests/<name>/<tag>.json    name:tag -> blob, Hub origin, configs
+//! <home>/models/sha256-<hex>/           the files of a file set, under its index's digest
 //! ```
 //!
 //! A manifest is written only after the blob's size and sha256 match the
 //! library. A download that does not match leaves nothing registered.
 
-use crate::library::{Configs, Entry, ModelName};
+use crate::library::{Configs, Entry, Kind, ModelName};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::io::{Read, Write};
@@ -238,6 +239,12 @@ impl Store {
                 Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
                 Err(e) => return Err(e.into()),
             }
+            // The files a file set was pulled into, when it was one.
+            match std::fs::remove_dir_all(self.model_dir(&m.sha256)) {
+                Ok(()) => {}
+                Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+                Err(e) => return Err(e.into()),
+            }
         }
         Ok(true)
     }
@@ -286,7 +293,8 @@ impl Store {
     /// the way; a partial file left by an interrupted pull is hashed first,
     /// then resumed with a range request. Size and digest are checked before
     /// the rename, and the manifest after it. A blob already present is
-    /// checked again rather than trusted.
+    /// checked again rather than trusted. An entry of [`Kind::Files`] goes on
+    /// to fetch every file its index lists ([`Self::pull_files`]).
     pub fn pull(
         &self,
         n: &ModelName,
@@ -294,6 +302,7 @@ impl Store {
         endpoint: &str,
         report: &mut dyn FnMut(PullEvent),
     ) -> anyhow::Result<Manifest> {
+        e.published().map_err(anyhow::Error::msg)?;
         report(PullEvent::Status("pulling manifest".into()));
         let _lock = self.lock_blob(&e.sha256, report)?;
         let blob = self.blob_path(&e.sha256);
@@ -302,11 +311,29 @@ impl Store {
                 std::fs::remove_file(&blob)?;
                 return Err(err.context("the blob on disk was removed; pull again"));
             }
-            return self.register(n, e, report);
+        } else {
+            let digest = format!("sha256:{}", e.sha256);
+            let total = e.size;
+            let pin = Pin { path: &e.file, size: e.size, sha256: &e.sha256 };
+            self.fetch(endpoint, e, &pin, &blob, &mut |done| {
+                report(PullEvent::Progress { digest: digest.clone(), total, completed: done })
+            })?;
         }
-        std::fs::create_dir_all(blob.parent().expect("blobs has a parent"))?;
-        let partial = blob.with_file_name(format!("sha256-{}-partial", e.sha256));
-        let digest = format!("sha256:{}", e.sha256);
+        match e.kind {
+            Kind::Sealed => self.register(n, e, report),
+            Kind::Files => self.pull_files(n, e, endpoint, report),
+        }
+    }
+
+    /// Fetch one file of `e`'s repository at its revision into `dest`,
+    /// through `<dest>-partial`, resumed when that file exists. Size and
+    /// sha256 are checked before the rename; a mismatch removes the partial
+    /// file. `on_bytes` gets the bytes of this file held so far, first where
+    /// the partial file ends.
+    fn fetch(&self, endpoint: &str, e: &Entry, pin: &Pin, dest: &Path, on_bytes: &mut dyn FnMut(u64)) -> anyhow::Result<()> {
+        std::fs::create_dir_all(dest.parent().expect("a destination has a directory"))?;
+        let name = dest.file_name().expect("a destination has a name").to_string_lossy();
+        let partial = dest.with_file_name(format!("{name}-partial"));
         let mut h = Sha256::new();
         let mut done = 0u64;
         if partial.exists() {
@@ -320,16 +347,16 @@ impl Store {
                 h.update(&buf[..k]);
                 done += k as u64;
             }
-            if done > e.size {
+            if done > pin.size {
                 std::fs::remove_file(&partial)?;
                 h = Sha256::new();
                 done = 0;
             }
         }
         let mut out = std::fs::OpenOptions::new().create(true).append(true).open(&partial)?;
-        let url = format!("{}/{}/resolve/{}/{}", endpoint.trim_end_matches('/'), e.repo, e.revision, e.file);
-        report(PullEvent::Progress { digest: digest.clone(), total: e.size, completed: done });
-        if done < e.size {
+        let url = format!("{}/{}/resolve/{}/{}", endpoint.trim_end_matches('/'), e.repo, e.revision, pin.path);
+        on_bytes(done);
+        if done < pin.size {
             let tls = native_tls::TlsConnector::new()?;
             // Without a read timeout, a connection that stops sending holds
             // the pull, and the blob's lock, forever.
@@ -356,40 +383,105 @@ impl Store {
             }
             let mut body = resp.into_reader();
             let mut buf = vec![0u8; 1 << 20];
-            let mut th = Throttle { total: e.size, last: done };
+            let mut th = Throttle { total: pin.size, last: done };
             loop {
                 let k = body.read(&mut buf)?;
                 if k == 0 {
                     break;
                 }
                 done += k as u64;
-                anyhow::ensure!(
-                    done <= e.size,
-                    "GET {url}: more than the {} bytes the library pins; nothing was registered",
-                    e.size
-                );
+                anyhow::ensure!(done <= pin.size, "GET {url}: more than the {} bytes pinned; nothing was registered", pin.size);
                 h.update(&buf[..k]);
                 out.write_all(&buf[..k])?;
                 if th.due(done) {
-                    report(PullEvent::Progress { digest: digest.clone(), total: e.size, completed: done });
+                    on_bytes(done);
                 }
             }
             out.flush()?;
         }
         drop(out);
-        report(PullEvent::Status("verifying sha256 digest".into()));
         let got = hex(&h.finalize());
-        if done != e.size || got != e.sha256 {
+        if done != pin.size || got != pin.sha256 {
             std::fs::remove_file(&partial)?;
             anyhow::bail!(
-                "{url}: {done} bytes with sha256 {got}, the library pins {} bytes with sha256 {}. \
+                "{url}: {done} bytes with sha256 {got}, the pin is {} bytes with sha256 {}. \
                  The download was removed and nothing was registered.",
-                e.size,
-                e.sha256
+                pin.size,
+                pin.sha256
             );
         }
-        std::fs::rename(&partial, &blob)?;
-        self.register(n, e, report)
+        std::fs::rename(&partial, dest)?;
+        Ok(())
+    }
+
+    /// The directory a file set is pulled into, named by its index's digest.
+    pub fn model_dir(&self, sha256: &str) -> PathBuf {
+        self.root.join("models").join(format!("sha256-{sha256}"))
+    }
+
+    /// The second half of a [`Kind::Files`] pull, the index already a
+    /// checked blob: every file it lists into [`Self::model_dir`], each
+    /// checked by size and sha256, archives unpacked; then the local file
+    /// `inkling.json` the engine loads, and the manifest last.
+    ///
+    /// A plain file already there is hashed again. An archive is unpacked
+    /// once, removed, and remembered by `<path>.unpacked` holding its digest.
+    fn pull_files(&self, n: &ModelName, e: &Entry, endpoint: &str, report: &mut dyn FnMut(PullEvent)) -> anyhow::Result<Manifest> {
+        let text = std::fs::read_to_string(self.blob_path(&e.sha256))?;
+        let index: FileIndex =
+            serde_json::from_str(&text).map_err(|err| anyhow::anyhow!("{} index: {err}", e.model_name()))?;
+        index.check(e).map_err(|err| anyhow::anyhow!("{} index: {err}", e.model_name()))?;
+        let dir = self.model_dir(&e.sha256);
+        let total: u64 = index.files.iter().map(|f| f.size).sum();
+        let digest = format!("sha256:{}", e.sha256);
+        let mut before = 0u64;
+        let mut th = Throttle { total, last: 0 };
+        for f in &index.files {
+            let dest = dir.join(&f.path);
+            let pin = Pin { path: &f.path, size: f.size, sha256: &f.sha256 };
+            let marker = dest.with_file_name(format!("{}.unpacked", dest.file_name().expect("a path has a name").to_string_lossy()));
+            let held = match &f.unpack {
+                Some(_) => std::fs::read_to_string(&marker).is_ok_and(|s| s.trim() == f.sha256),
+                None => dest.exists() && std::fs::metadata(&dest)?.len() == f.size && sha256_file(&dest, |_| {})? == f.sha256,
+            };
+            if !held {
+                if f.unpack.is_none() && dest.exists() {
+                    std::fs::remove_file(&dest)?;
+                }
+                self.fetch(endpoint, e, &pin, &dest, &mut |done| {
+                    if th.due(before + done) {
+                        report(PullEvent::Progress { digest: digest.clone(), total, completed: before + done });
+                    }
+                })?;
+                if let Some(into) = &f.unpack {
+                    report(PullEvent::Status(format!("unpacking {}", f.path)));
+                    let to = dir.join(into);
+                    std::fs::create_dir_all(&to)?;
+                    untar(&mut std::io::BufReader::new(std::fs::File::open(&dest)?), &to)
+                        .map_err(|err| anyhow::anyhow!("{}: {err}", f.path))?;
+                    std::fs::write(&marker, &f.sha256)?;
+                    std::fs::remove_file(&dest)?;
+                }
+            }
+            before += f.size;
+        }
+        report(PullEvent::Progress { digest, total, completed: total });
+        // The local file the engine reads, its paths relative to `dir`.
+        let mut local = index.local.clone();
+        local.insert("name".into(), serde_json::Value::String(n.to_string()));
+        local.insert("family".into(), serde_json::Value::String(e.name.clone()));
+        let file = dir.join("inkling.json");
+        std::fs::write(&file, serde_json::to_vec_pretty(&local)?)?;
+        crate::inkling::LocalModel::read(&file)?;
+        report(PullEvent::Status("writing manifest".into()));
+        let m = Manifest {
+            size: total,
+            file: file.to_str().ok_or_else(|| anyhow::anyhow!("{}: not UTF-8", file.display()))?.to_string(),
+            ..Manifest::of(e)
+        };
+        self.write_manifest(n, &m)?;
+        report(PullEvent::Status("success".into()));
+        Ok(m)
     }
 
     /// Register a local copy of `e`'s file as `n`, with no network: the size
@@ -406,6 +498,13 @@ impl Store {
         file: &Path,
         report: &mut dyn FnMut(PullEvent),
     ) -> anyhow::Result<Manifest> {
+        e.published().map_err(anyhow::Error::msg)?;
+        anyhow::ensure!(
+            e.kind == Kind::Sealed,
+            "{} is a set of files: `pull --from` takes one sealed file. Pull it from the Hub, or serve local files \
+             with `llvq serve --local <file.json>`.",
+            e.model_name()
+        );
         let _lock = self.lock_blob(&e.sha256, report)?;
         let blob = self.blob_path(&e.sha256);
         if blob.exists() {
@@ -431,4 +530,142 @@ impl Store {
 /// The Hub endpoint: `HF_ENDPOINT`, or huggingface.co.
 pub fn hub_endpoint() -> String {
     std::env::var("HF_ENDPOINT").unwrap_or_else(|_| "https://huggingface.co".to_string())
+}
+
+/// One file to fetch: its path in the repository, its size and sha256.
+struct Pin<'a> {
+    path: &'a str,
+    size: u64,
+    sha256: &'a str,
+}
+
+/// The index of a [`Kind::Files`] entry, `llvq-files.json` in its Hub
+/// repository. The library pins the index; the index pins every file.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct FileIndex {
+    pub schema: u32,
+    /// The family the files serve; must be the entry's name.
+    pub family: String,
+    pub files: Vec<IndexFile>,
+    /// The local file the engine reads ([`crate::inkling::LocalModel`])
+    /// without `name` and `family`, its paths relative to the model's
+    /// directory.
+    pub local: serde_json::Map<String, serde_json::Value>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct IndexFile {
+    /// Relative, `/`-separated, no `..`.
+    pub path: String,
+    pub size: u64,
+    pub sha256: String,
+    /// A plain tar archive: unpacked into this directory, then removed.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub unpack: Option<String>,
+}
+
+/// Whether `p` is a relative path of plain parts: no root, no `..`, no `.`,
+/// no empty part. Every path an index or an archive names goes through it.
+pub fn plain_relative(p: &str) -> bool {
+    !p.is_empty() && !p.contains('\\') && p.split('/').all(|c| !c.is_empty() && c != "." && c != ".." && !c.contains('\0'))
+}
+
+impl FileIndex {
+    /// Refuse an index that does not belong to `e` or names a path outside
+    /// the model's directory.
+    pub fn check(&self, e: &Entry) -> Result<(), String> {
+        if self.schema != 1 {
+            return Err(format!("schema {}; this llvq reads schema 1", self.schema));
+        }
+        if self.family != e.name {
+            return Err(format!("family {:?}, the library entry is {:?}", self.family, e.name));
+        }
+        if self.files.is_empty() {
+            return Err("no file".into());
+        }
+        let mut seen = std::collections::HashSet::new();
+        for f in &self.files {
+            if !plain_relative(&f.path) || f.path == "inkling.json" {
+                return Err(format!("{:?} is not a plain relative path the pull may write", f.path));
+            }
+            if !seen.insert(f.path.as_str()) {
+                return Err(format!("{:?} is listed twice", f.path));
+            }
+            if f.sha256.len() != 64 || !f.sha256.chars().all(|c| c.is_ascii_hexdigit() && !c.is_ascii_uppercase()) {
+                return Err(format!("{}: not a full sha256", f.path));
+            }
+            if f.unpack.as_deref().is_some_and(|u| !plain_relative(u)) {
+                return Err(format!("{}: unpack into {:?}, not a plain relative path", f.path, f.unpack));
+            }
+        }
+        for k in ["name", "family"] {
+            if self.local.contains_key(k) {
+                return Err(format!("local carries {k:?}, which the pull writes"));
+            }
+        }
+        for k in ["config", "checkpoint", "layers", "tokenizer", "tables"] {
+            match self.local.get(k) {
+                None => {}
+                Some(serde_json::Value::String(s)) if plain_relative(s) => {}
+                Some(v) => return Err(format!("local {k} {v} is not a plain relative path")),
+            }
+        }
+        Ok(())
+    }
+}
+
+/// Unpack a plain tar stream (ustar or GNU, regular files and directories
+/// only) into `to`. Any other entry (a link, a long-name or pax record) is
+/// refused by its type, and every name must be a plain relative path.
+/// Returns the files written.
+pub fn untar(r: &mut dyn Read, to: &Path) -> anyhow::Result<usize> {
+    let mut files = 0;
+    let mut h = [0u8; 512];
+    loop {
+        r.read_exact(&mut h)?;
+        if h.iter().all(|&b| b == 0) {
+            return Ok(files);
+        }
+        let field = |a: usize, b: usize| {
+            let f = &h[a..b];
+            String::from_utf8_lossy(&f[..f.iter().position(|&c| c == 0).unwrap_or(f.len())]).into_owned()
+        };
+        let mut name = field(0, 100);
+        // POSIX ustar carries a name prefix at 345; GNU's "ustar  " header
+        // keeps other fields there.
+        if &h[257..263] == b"ustar\0" {
+            let prefix = field(345, 500);
+            if !prefix.is_empty() {
+                name = format!("{prefix}/{name}");
+            }
+        }
+        let size_text = field(124, 136);
+        let size = u64::from_str_radix(size_text.trim_matches(|c: char| c == ' ' || c == '\0'), 8)
+            .map_err(|_| anyhow::anyhow!("{name}: size {size_text:?} is not octal"))?;
+        let rel = name.trim_end_matches('/');
+        let rel = rel.strip_prefix("./").unwrap_or(rel);
+        let pad = (512 - size % 512) % 512;
+        match h[156] {
+            b'5' => {
+                if !rel.is_empty() && rel != "." {
+                    anyhow::ensure!(plain_relative(rel), "{name:?} is not a plain relative path");
+                    std::fs::create_dir_all(to.join(rel))?;
+                }
+                std::io::copy(&mut r.take(size + pad), &mut std::io::sink())?;
+            }
+            b'0' | 0 => {
+                anyhow::ensure!(plain_relative(rel), "{name:?} is not a plain relative path");
+                let dest = to.join(rel);
+                std::fs::create_dir_all(dest.parent().expect("a file has a directory"))?;
+                let mut out = std::fs::File::create(&dest)?;
+                let n = std::io::copy(&mut r.take(size), &mut out)?;
+                anyhow::ensure!(n == size, "{name}: {n} bytes of {size}, the archive is cut");
+                std::io::copy(&mut r.take(pad), &mut std::io::sink())?;
+                files += 1;
+            }
+            t => anyhow::bail!("{name:?}: entry type {:?}; only plain files and directories are unpacked", t as char),
+        }
+    }
 }

@@ -1109,7 +1109,8 @@ const CHAT_HTML: &str = include_str!("chat.html");
 pub fn chat_page() -> String {
     let lib: Vec<Value> = library::entries()
         .iter()
-        .map(|e| json!({ "name": e.model_name().to_string(), "size": e.size, "bits_per_param": e.bits_per_param }))
+        .filter(|e| e.published().is_ok())
+        .map(|e| json!({ "name": e.model_name().to_string(), "size": e.bytes(), "bits_per_param": e.bits_per_param }))
         .collect();
     // `</` would end the script element early.
     let lib = serde_json::to_string(&lib).expect("the library serializes").replace("</", "<\\/");
