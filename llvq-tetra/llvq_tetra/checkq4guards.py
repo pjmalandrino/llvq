@@ -32,7 +32,7 @@ SPLIT = "kernel void tv_q4_metal_tiled"
 
 
 def mutate(src: str, old: str, new: str, want: int) -> str:
-    """Rewrite `old` inside the tiled kernel only, asserting the site count.
+    """Rewrite `old` inside the tiled kernel only, refusing any other site count.
 
     `tv_q4_metal_tiled` comes FIRST in the file and the served `tv_q4_metal`
     after it, so the region has to be closed at the next entry point. Without
@@ -40,12 +40,15 @@ def mutate(src: str, old: str, new: str, want: int) -> str:
     subject, and the mutant reads as survived while testing nothing.
     """
     head, _, rest = src.partition(SPLIT)
-    assert rest, "the tiled entry point is not in the shader"
+    if not rest:
+        raise ValueError("the tiled entry point is not in the shader")
     cut = rest.index("\nkernel void")
     body, foot = rest[:cut], rest[cut:]
-    assert "tv_q4_metal(" not in body, "the region still contains the served kernel"
+    if "tv_q4_metal(" in body:
+        raise ValueError("the region still contains the served kernel")
     n = body.count(old)
-    assert n == want, f"{n} sites for {old!r} in the tiled kernel, not {want}"
+    if n != want:
+        raise ValueError(f"{n} sites for {old!r} in the tiled kernel, not {want}")
     return head + SPLIT + body.replace(old, new) + foot
 
 

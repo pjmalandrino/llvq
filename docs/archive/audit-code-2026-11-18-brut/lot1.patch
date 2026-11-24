@@ -1,0 +1,1790 @@
+diff --git a/configs/README.md b/configs/README.md
+index 810cb52..eebc124 100644
+--- a/configs/README.md
++++ b/configs/README.md
+@@ -29,6 +29,7 @@ replaced. Where a note and this table disagree, the table wins.
+ | written, never served, card gate run and not proposed | `qwen3-{4b,8b,14b}-tetra-e4-4e-v9-kprefill.json` |
+ | licensed 2026-11-08 by their gate, not served by default | `qwen3-{4b,8b,14b}-tetra-e4-4e-v9-batch.json` (`llvq serve` under `LLVQ_BATCH`), and the earlier `qwen3-{4b,8b,14b}-tetra-e4-batch.json` (file-order int4, no 4E) |
+ | earlier objects | `qwen3-{4b,8b,14b}-tetra-q5.json` |
++| written 2026-11-07, the speculative decode's drafter, never served | `qwen3-0p6b-tetra-e4-4e-v9.json` (`specrun`) |
+ 
+ The runtime `llvq` compiles in the v9 configs for CUDA, the `*-e4.json` configs for Metal and the CPU, the `*-4e-v9-batch.json` configs for CUDA under `LLVQ_BATCH`, and the 4B chain config as the 4B's CUDA config, the 4B v9 config under `LLVQ_PROFILE=eager` (`llvq-runtime/library.json`).
+ 
+@@ -40,21 +41,22 @@ The runtime `llvq` compiles in the v9 configs for CUDA, the `*-e4.json` configs
+ | `qwen3-4b-tetra-e4.json` | Qwen3-4B paper-2 object: `Tetra` with dclm-edu calibration and trained row scales, `v_proj` + `o_proj` + `down_proj@12-23` as int4 g128 records, the tied embedding stored int4 g64, `qwen3-4b-sealed.bin` (1,418,224,685 B, sha256 `886391a8c03f66dc269cc65c3598c6627dbdcd259180aff36604ef10d37371b8`). Built on 2026-09-23 from the 61.11 object by `int4swap` then `embedq q4` ([embed-q4-swap-2026-09-23](../docs/mesures/embed-q4-swap-2026-09-23.txt)) | **2.7320** as served (*computed* by `rtbits` over the file, tail f16, embedding q4); 2.5420 kernel b/weight | **63.37 micro** for the same weights on the dense path (*measured*, the restore arm of the same journal); the file itself is not scored yet |
+ | `qwen3-4b-tetra-e4-grouped.json` | **The 4B's served configuration from 2026-11-02 to 2026-11-05** (operator decision), replaced by the row below. The SAME object as the row above, `qwen3-4b-sealed.bin`, served with the grouped attention: `"attention": "grouped"` and nothing else differs. Added 2026-11-02 | **2.7320** as served, the row above's number: the form changes no stored bit | Not scored. **Perplexity** is what licensed it: WikiText-2 paired against the expanded form through the kernel, +0.0000 % by prefill (bit for bit) and +0.0095 % [-0.0048 ; +0.0238] by decode, inside the +-0.12 % band of `docs/ETAT.md` section 4 (*measured*, [gqa-ppl-2026-11-01](../docs/mesures/gqa-ppl-2026-11-01.txt)). Through the served door it decodes at **133.3 tok/s** after a 5-token prompt against 121.5, and by the context sweep **134.5 / 113.8 / 98.0 / 77.5** against 122.5 / 82.7 / 61.4 / 33.2 at 5 / 2,048 / 4,096 / 8,192, with the same 256-token text (*measured*, [served-grouped-2026-11-02](../docs/mesures/served-grouped-2026-11-02.txt)). **GSM8K** through the kernel, all 1,319 problems: **81.96 %** against 82.49 % for the expanded census, paired -0.53 pp [-1.07 ; +0.00], McNemar p = 0.092; on the 57-question MMLU door both configs write byte-identical rows (*measured*, [gsm8k-grouped-2026-11-04](../docs/mesures/gsm8k-grouped-2026-11-04.txt)). No full MMLU under this form |
+ | `qwen3-4b-tetra-e4-kernel-from1280.json` | **The 4B's served configuration on 2026-11-05, until the v4 config below** (operator decision, T8 of the kernel form with its threshold). The SAME object, `qwen3-4b-sealed.bin`, with `"attention": "kernel"` and nothing else different: decode rows at position 1,280 and later go to the split-KV kernel, rows below run the grouped arithmetic bit for bit. The threshold is `llvq_llm::kvq::KERNEL_FROM` in the code, not a field. Refused on Metal. Added 2026-11-05 | **2.7320** as served: the form changes no stored bit | Not scored. **Perplexity** licensed it: WikiText-2 paired against the grouped form on the positions the kernel takes, -0.0013 % [-0.0074 ; +0.0047] in 12 windows of 4,096 and +0.0001 % [-0.0076 ; +0.0077] in 6 windows of 8,192, inside +-0.12 %; every step below 1,280 bit for bit. Served sweep **134.7 / 120.5 / 117.6 / 104.0** at 5 / 2,048 / 4,096 / 8,192 against 135.0 / 114.1 / 97.9 / 77.5 for the grouped form, same 256 tokens at every length; the 50-problem GSM8K replay wrote the grouped census's rows (*measured*, [attn-t8-r2-2026-11-04](../docs/mesures/attn-t8-r2-2026-11-04.txt)). No task score past 1,280 of context |
+-| `qwen3-4b-tetra-e4-4e.json` | **Not served**: the v3 row loop, read at the served door; the served 4E config is the next row. The SAME object, `qwen3-4b-sealed.bin`, with `"attention": "kernel"` and `"decode": "persistent"`: every decode row goes to the split-KV kernel from position 0, and 4E decodes it in one cooperative launch a token run (512 threads). The kernel form below 1,280 is licensed by the operator's T8 extension of 2026-11-05 on this object only. Refused on Metal, on any shape but the 4B's, and beside any measurement-mode variable. Added 2026-11-05 | **2.7320** as served: the engine changes no stored bit | Not scored. **Perplexity** licensed the form below 1,280: paired WikiText-2 decode path against the grouped form, +0.0318 % [-0.0151 ; +0.0786] in 32 windows of 1,280 and +0.0018 % [-0.0053 ; +0.0088] in 12 windows of 4,096, inside +-0.12 % (*measured*, [attn-t8-below-4b-2026-11-05](../docs/mesures/attn-t8-below-4b-2026-11-05.txt)). 4E decodes the eager path's tokens under this form, **179.2 tok/s** against 133.0 after a 5-token prompt and 135.4 against 104.6 at 8,192, in the measurement form of `LLVQ_PERS_4E` (*measured*, [pers-4e-v3-2026-11-05](../docs/mesures/pers-4e-v3-2026-11-05.txt)). At the served door: **169.0 tok/s** against 133.7 for the kernel config, sweep **171.2 / 162.0 / 154.5 / 134.1** at 5 / 2,048 / 4,096 / 8,192 against 134.8 / 120.6 / 117.3 / 103.8, same 256 tokens as the kernel config at every length; GSM8K pilot 40/50 against 40/50 for the grouped census, McNemar p = 1 (*measured*, [served-4e-2026-11-05](../docs/mesures/served-4e-2026-11-05.txt)) |
++| `qwen3-4b-tetra-e4-4e.json` | **Not served**: the v3 row loop, read at the served door; the served 4E config is the next row. The SAME object, `qwen3-4b-sealed.bin`, with `"attention": "kernel"` and `"decode": "persistent"`: every decode row goes to the split-KV kernel from position 0, and 4E decodes it in one cooperative launch a token run (512 threads). The kernel form below 1,280 is licensed by the operator's T8 extension of 2026-11-05 on this object only. Refused on Metal, on any shape but the sealed 4B, 8B and 14B and the 0.6B drafter, and beside any measurement-mode variable. Added 2026-11-05 | **2.7320** as served: the engine changes no stored bit | Not scored. **Perplexity** licensed the form below 1,280: paired WikiText-2 decode path against the grouped form, +0.0318 % [-0.0151 ; +0.0786] in 32 windows of 1,280 and +0.0018 % [-0.0053 ; +0.0088] in 12 windows of 4,096, inside +-0.12 % (*measured*, [attn-t8-below-4b-2026-11-05](../docs/mesures/attn-t8-below-4b-2026-11-05.txt)). 4E decodes the eager path's tokens under this form, **179.2 tok/s** against 133.0 after a 5-token prompt and 135.4 against 104.6 at 8,192, in the measurement form of `LLVQ_PERS_4E` (*measured*, [pers-4e-v3-2026-11-05](../docs/mesures/pers-4e-v3-2026-11-05.txt)). At the served door: **169.0 tok/s** against 133.7 for the kernel config, sweep **171.2 / 162.0 / 154.5 / 134.1** at 5 / 2,048 / 4,096 / 8,192 against 134.8 / 120.6 / 117.3 / 103.8, same 256 tokens as the kernel config at every length; GSM8K pilot 40/50 against 40/50 for the grouped census, McNemar p = 1 (*measured*, [served-4e-2026-11-05](../docs/mesures/served-4e-2026-11-05.txt)) |
+ | `qwen3-4b-tetra-e4-4e-v4.json` | **The 4B's served configuration from 2026-11-05 to 2026-11-07**, replaced by the v9 config (operator decision, "Oui, sers 4E v4"). The 4E config above with `"rows": "v4"` and nothing else different: 4E runs the v2 row loop inside the v3 structure (row form 2). Same arithmetic, so the same tokens as the v3 config and as the eager path. Refused where the 4E config is. Added 2026-11-05 | **2.7320** as served: the row loop changes no stored bit | Not scored; the arithmetic and the tokens are the v3 config's, scored in the row above. v4 decodes **189.8 tok/s** after a 5-token prompt against 179.0 for v3 and 134.2 for the eager path (x1.060 over v3), and **140.1** at 8,192 against 135.4, same 64 tokens as the eager path at both contexts, in the measurement form of `LLVQ_PERS_4E` (*measured*, [shaker-4e-2026-11-05](../docs/mesures/shaker-4e-2026-11-05.txt)). At the served door: **178.0 tok/s**, decode 180.7, x1.404 over the eager path; sweep **180.8 / 169.5 / 162.1 / 139.5** at 5 / 2,048 / 4,096 / 8,192; the v3 config's tokens at the door and every length, and its 50 pilot completions (*measured*, [served-v4-2026-11-05](../docs/mesures/served-v4-2026-11-05.txt)) |
+ | `qwen3-4b-tetra-e4-4e-v6.json` | **Never served**: written 2026-11-07, its door read the same day with every gate held; the v9 config was served in its place. The v4 config above with `"rows": "v6"` and nothing else different: 4E runs v4's rows with ln1, ln2 and the down's input in one round trip a thread (row form 4). The install refuses it when an input of a vector prologue is not 16-byte aligned, so it never runs v4's scalar path under v6's name. Refused where the 4E config is | **2.7320** as served: the row loop changes no stored bit | Not scored; the arithmetic is v4's. v6 decodes **212.6 tok/s** after a 5-token prompt against 190.2 for v4 (x1.118 [1.117-1.118] round by round) and **152.0** at 8,192 against 138.9 (x1.094), same 64 tokens as the eager path at both contexts, in the measurement form of `LLVQ_PERS_4E` (*measured*, [pers-4e-v6-2026-11-05](../docs/mesures/pers-4e-v6-2026-11-05.txt)). At the served door: **197.2 tok/s** against 178.0 for v4, decode 200.6, x1.568 over the eager path; sweep **201.8 / 189.0 / 178.8 / 150.9** at 5 / 2,048 / 4,096 / 8,192; the v4 config's tokens at the door and every length, and its 50 pilot completions (*measured*, [served-v6-2026-11-07](../docs/mesures/served-v6-2026-11-07.txt)) |
+ | `qwen3-4b-tetra-e4-4e-v9.json` | **The 4B's served configuration since 2026-11-07** (operator decision, "Tu me fait 4,8 et 14 en V9"). The v6 config above with `"rows": "v9"` and nothing else different: 4E runs v8 (v6, the launch's constants staged during the barriers, attention's steps in a cp.async ring) with the int4 rows v, o and the int4 downs read from tiled words (row form 7). The rows field also lays the int4 words tiled on the card, written by the loader and held once: the eager path, which prefills, reads them through `tv_q4_hht`, checked at every load against `tv_q4_hh` on a file-order copy of one record of every width, then freed. Every other config keeps the file's order, and 4E v3 to v8 refuse tiled words by name. Refused where the 4E config is | **2.7320** as served: the tiling is a permutation inside each row, so neither the file nor a byte of the count moves (*computed*); the measurement form of step3-4e held the int4 words twice, 0.385 GB more on the card | Not scored; the arithmetic is v6's. v9 decodes **238.6 tok/s** after a 5-token prompt against 213.3 for v6 (x1.118 [1.118-1.119] round by round) and **163.5** at 8,192 against 154.2 (x1.060), same 64 tokens as the eager path at both contexts, in the measurement form of `LLVQ_PERS_4E` with the int4 bytes twice on the card (*measured*, [step3-4e-2026-11-07](../docs/mesures/step3-4e-2026-11-07.txt)). At the served door: **221.5 tok/s** against 197.4 for v6 in the same job, decode 225.8, x1.717 over the eager path; sweep **226.2 / 205.8 / 194.2 / 161.5** at 5 / 2,048 / 4,096 / 8,192; the v6 config's tokens at the door and every length, its 50 pilot completions, and 1.980 GB on the card under both (*measured*, [served-v9-2026-11-07](../docs/mesures/served-v9-2026-11-07.txt)) |
+-| `qwen3-8b-tetra-e4-4e-v9.json` | **The 8B's served configuration since 2026-11-07** (operator decision, same message). The 4B v9 config's keys on the sealed 8B (`qwen3-8b-sealed-B.bin`, sha256 `7bdb9a55…`): 4E v9 with the head on its own table and `o_proj` in Tetra under its own rotation, the int4 words tiled and held once. The attention form is the kernel form from position 0, not the grouped form the 8B serves; its door reads the paired perplexity band | the 8B object's **2.6953**: no stored bit moves (*computed*) | Not scored. 4E against the served chain byte for byte on the host with a Tetra o and an untied head (*measured*, `llvq-cuda/tests/pers_matches_served.rs`). At the served door: **142.5 tok/s** against 105.9 for the grouped config in the same job, x1.384 over the eager path, 256 of 256 tokens equal; sweep **144.5 / 135.2 / 129.3 / 110.0**; pilot 46/50 as the grouped census; the kernel form from position 0 against grouped, perplexity +0.0043 % [-0.0141 ; +0.0227] (*measured*, [served-v9-8b-2026-11-07](../docs/mesures/served-v9-8b-2026-11-07.txt)) |
+-| `qwen3-14b-tetra-e4-4e-v9.json` | **The 14B's served configuration since 2026-11-07** (operator decision, same message). The 4B v9 config's keys on the sealed 14B (`qwen3-14b-sealed.bin`, sha256 `61db37fe…`): 4E v9 with the head on its own table, `o_proj` int4, the int4 words tiled and held once; v9 asks 96,064 B of shared memory a CTA (*computed*). The attention form is the kernel form from position 0 (groups of 5), not the grouped form the 14B serves; its door reads the paired perplexity band | the 14B object's **2.7305**: no stored bit moves (*computed*) | Not scored. Same host proof as the 8B row. At the served door: **86.3 tok/s** against 62.8 for the grouped config in the same job, x1.375 over the eager path, 256 of 256 tokens equal; sweep **87.3 / 83.7 / 80.9 / 71.5**; pilot 46/50 as the grouped census; perplexity against grouped -0.0108 % [-0.0281 ; +0.0065] (*measured*, [served-v9-14b-2026-11-07](../docs/mesures/served-v9-14b-2026-11-07.txt)) |
++| `qwen3-8b-tetra-e4-4e-v9.json` | **The 8B's served configuration since 2026-11-07** (operator decision, same message). The 4B v9 config's keys on the sealed 8B (`qwen3-8b-sealed-B.bin`, sha256 `7bdb9a55…`): 4E v9 with the head on its own table and `o_proj` in Tetra under its own rotation, the int4 words tiled and held once. The attention form is the kernel form from position 0, not the grouped form the 8B served before it; its door reads the paired perplexity band | the 8B object's **2.6953**: no stored bit moves (*computed*) | Not scored. 4E against the served chain byte for byte on the host with a Tetra o and an untied head (*measured*, `llvq-cuda/tests/pers_matches_served.rs`). At the served door: **142.5 tok/s** against 105.9 for the grouped config in the same job, x1.384 over the eager path, 256 of 256 tokens equal; sweep **144.5 / 135.2 / 129.3 / 110.0**; pilot 46/50 as the grouped census; the kernel form from position 0 against grouped, perplexity +0.0043 % [-0.0141 ; +0.0227] (*measured*, [served-v9-8b-2026-11-07](../docs/mesures/served-v9-8b-2026-11-07.txt)) |
++| `qwen3-14b-tetra-e4-4e-v9.json` | **The 14B's served configuration since 2026-11-07** (operator decision, same message). The 4B v9 config's keys on the sealed 14B (`qwen3-14b-sealed.bin`, sha256 `61db37fe…`): 4E v9 with the head on its own table, `o_proj` int4, the int4 words tiled and held once; v9 asks 96,064 B of shared memory a CTA (*computed*). The attention form is the kernel form from position 0 (groups of 5), not the grouped form the 14B served before it; its door reads the paired perplexity band | the 14B object's **2.7305**: no stored bit moves (*computed*) | Not scored. Same host proof as the 8B row. At the served door: **86.3 tok/s** against 62.8 for the grouped config in the same job, x1.375 over the eager path, 256 of 256 tokens equal; sweep **87.3 / 83.7 / 80.9 / 71.5**; pilot 46/50 as the grouped census; perplexity against grouped -0.0108 % [-0.0281 ; +0.0065] (*measured*, [served-v9-14b-2026-11-07](../docs/mesures/served-v9-14b-2026-11-07.txt)) |
+ | `qwen3-{4b,8b,14b}-tetra-e4-4e-v9-kprefill.json` | **Not served**: written 2026-11-08, card gate run the same night (`proofs/preregistration-pic-vram-8k-2026-11-08.md`), not proposed. The v9 config of each size with `"prefill_attention": "kernel"` and nothing else different: a prefill chunk goes to the decode-attention kernel 8 rows a call instead of the grouped matmuls, so no heads x 4,096 x 8,192 score tensor is made. Every prompt row gets the bits a decode step at its position gets; it is not bit for bit with the grouped prefill of the served v9 configs | the v9 row of its size: the prefill form changes no stored bit | Not scored. Peak card memory after an 8,192-token prompt **4.77 / 7.15 / 9.30 GB** (*measured*, L40S), outside the 3.67 / 5.20 / 7.81 computed, against 5.95 / 7.39 / 10.54 for the served configs since the exact fixes of 2026-11-08 (*measured*) and 11.48 / 12.66 / 17.09 before them; time to first token 1.14 to 1.21 times served's; its logits do not move with the chunking, on the host and on the card (*measured*, [pic-vram-8k-2026-11-08](../docs/mesures/pic-vram-8k-2026-11-08.txt)) |
+ | `qwen3-4b-tetra-e4-4e-v9-chain.json` | **The 4B's served configuration on CUDA since 2026-11-15** (operator decision): `llvq` loads it with no variable set, and `LLVQ_PROFILE=eager` goes back to the v9 config. The 4B v9 config with `"prefill": "chain"` and nothing else different: a prompt goes through the tree verify pass as chains of known tokens, arm `a12ipg32ft@8.10.8.20.6` at 32 rows a launch on the served words read in place, then a one-row hand-over launch and 4E v9, whose module does not move. The tree modules load from a disk cache of their cubins (`LLVQ_MODULE_CACHE`), keyed by the kernel text's sha256, the NVRTC target and version, the driver version and the card's sm. Not bit for bit with the eager prefill: served under the ±0.12 % band of the attention forms. Its tree modules hold 744 B of local memory, accepted by the operator for them alone. The 4B only: the 8B's Tetra `o_proj` is refused by the tree install, the 14B was never installed | **2.7320**: the prefill changes no stored bit | Not scored by MMLU. At the door, first token after 1,024 / 4,096 / 8,192 tokens 0.45 / 2.47 / 6.74 s against 3.96 / 17.79 / 37.22 s for the v9 config, the same 256 tokens at each length, phase peak 3.633 GB against 6.047 at 8,192, GSM8K-200 165 against 165 with no discordant pair, load 509.2 s cold and 55.2 s from the cache (*measured*, L40S, [chain-prefill-served](../docs/mesures/chain-prefill-served-2026-11-15.txt)) |
+ | `qwen3-{4b,8b,14b}-tetra-e4-4e-v9-batch.json` | **Licensed by their gate on 2026-11-08, not served by default; the configs `llvq serve` takes under `LLVQ_BATCH`.** Each size's v9 config, byte for byte in its fields, with `"batch": {"max": 64, "context": 2048}`: a request with no other live decodes on 4E v9, and from the second on every live request steps through the tensor-core GEMM, which reads the int4 words in v9's tiled order. Added 2026-11-08 | each object's row above: the batch changes no stored bit | Not scored. The GEMM on the tiled words: check 4.2e-4 to 4.3e-4, 4B perplexity against the multi-row path -0.0009 % ([batch-l40s-v3](../docs/mesures/batch-l40s-v3-2026-11-08.txt)); the tiled order costs about 1 % at the door ([batch-l40s-v4](../docs/mesures/batch-l40s-v4-2026-11-08.txt)). Under `llvq serve`, a lone request 225.4 / 142.4 / 88.1 tok/s at 4B / 8B / 14B; the 4B under concurrent requests 221.9 / 757.8 / 1,976.5 / 3,067.5 tok/s aggregate at B = 1 / 8 / 32 / 128 (*measured*) |
+ | `qwen3-{4b,8b,14b}-tetra-e4-batch.json` | **Licensed by their gate on 2026-11-08, not served by default** (`proofs/preregistration-batch-l40s-2026-11-08.md`); their notes still say "NOT SERVED until its gate", frozen with the files. The v9 configs' object fields on each sealed file without 4E (`decode` and `rows` absent, so the int4 words keep the file's order) and with `"batch": {"max": 64, "context": 2048}`: up to 64 sequences a step through the tensor-core GEMM (`llvq-llm/kernels/tv_batch_gemm.cu`), each in a cache slot of 2,048 positions, the kernel attention form from position 0 for every decode row, the prompt prefilled alone on the eager path. The GEMM rounds each folded weight and the activation to f16 and sums in another order than batch 1, so a sequence's tokens are not bit for bit the served ones; the licence is the T8 band. `llvq serve` takes them under `LLVQ_BATCH`, `batchrun` under `LLVQ_CONFIG`. Refused on Metal. Added 2026-11-08 | each object's row above: the batch changes no stored bit | Not scored. Perplexity against the multi-row path: 4B -0.0001 % (16 x 2,048) and +0.0048 % (128 x 256), 8B +0.0053 %, 14B -0.0052 %, inside +-0.12 %; GSM8K pilot on the 4B 40/50 as served; every door row equal to batch 1. Aggregate at B = 1 / 32 / 128: 4B 107.2 / 2,102.0 / 3,996.7 tok/s, 8B 72.5 / 1,366.7 / 2,628.7, 14B 40.5 / 840.0 / 1,552.4 (*measured*, [batch-l40s](../docs/mesures/batch-l40s-2026-11-08.txt)) |
+ | `qwen3-4b-tetra-e4-4e-v9-kv8-NOT-SERVED.json` | **Not served**: a CUDA measurement config, written 2026-11-15 for the int8 KV cache as a memory lead (`proofs/preregistration-kv8-memory-2026-11-15-DRAFT.md`). The 4B v9 config with `"decode_cache": "int8"` and nothing else different: 4E decodes on research arm v9k8's group-affine int8 caches, filled from the prefill's binary16 caches at the hand-over, each layer's binary16 cache then released. Every served door refuses it (`Served::decoder`): the arm's token symbol holds 8 B of local memory at 128 registers on the L40S, which 4E's load rule refuses. Only `bin/prefillbench` and `bin/gsm8k` load it, through `Served::decoder_measurement`, and print MEASUREMENT ONLY | **2.7320**: the cache changes no stored bit | Not scored. The round trip +0.0126 % [-0.0485, +0.0737] of paired perplexity at 8,192 against binary16 ([recherche-debit-kv-ladder](../docs/mesures/recherche-debit-kv-ladder-2026-11-14.txt)); the arm x1.0109 of v9 at 8,192 and x0.9668 at 5 tokens with the binary16 caches beside it ([recherche-debit-kv8-local](../docs/mesures/recherche-debit-kv8-local-2026-11-15.txt), *measured*). Cache at 8,192 positions 1.208 GB in binary16, 0.642 GB in int8 (*computed*); the released form is not measured |
+ | `qwen3-4b-tetra-e4-metal-grouped-NOT-SERVED.json` | **Not served**: a Metal measurement config for the operator, written 2026-11-06. The SAME object, `qwen3-4b-sealed.bin`, with `"attention": "grouped"`. `served.rs` refuses the form on Metal by name, so only `bin/metalrun` loads it, through `Served::apply_measurement`, and says so on its first line | **2.7320**: the form changes no stored bit | Not scored. On the M3 Max the grouped form returned the expanded form's logits bit for bit over 49,140 decode steps of 12 WikiText-2 windows of 4,096, and decoded x1.750 [1.599-1.997] faster at 2,048 tokens of context and x2.380 [2.362-2.396] at 4,096, same tokens (*measured*, [metal-nuit-2026-11-06](../docs/mesures/metal-nuit-2026-11-06.txt), M4 and M5) |
+-| `qwen3-4b-tetra-e4-metal-kernel-NOT-SERVED.json` | **Not served**: a Metal measurement config for the operator, written 2026-11-06. The SAME object, `qwen3-4b-sealed.bin`, with `"attention": "kernel"` on the eager engine: decode rows at position 1,280 and later go to `kernels/attn_dec.metal`, rows below run the grouped arithmetic, bit for bit the expanded form's on Metal. Loaded only by `bin/metalrun`, through `Served::apply_measurement` | **2.7320**: the form changes no stored bit | Not scored. The kernel returns the canonical replay's bits (`tests/attn_metal.rs`); from position 0 against the grouped form it read +0.0051 % of WikiText-2 perplexity over 12 windows of 4,096, every window within [-0.0268 ; +0.0490] %, top-1 agreement 99.772 %, and decoded x0.864 [0.851-0.879] at 5 tokens, x0.974 [0.848-1.030] at 2,048 and x1.037 [0.996-1.093] at 4,096, same tokens (*measured*, [metal-nuit-2026-11-06](../docs/mesures/metal-nuit-2026-11-06.txt), M6). The threshold of 1,280 keeps the short contexts off the kernel; this config itself was not timed |
++| `qwen3-4b-tetra-e4-metal-kernel-NOT-SERVED.json` | **Not served**: a Metal measurement config for the operator, written 2026-11-06. The SAME object, `qwen3-4b-sealed.bin`, with `"attention": "kernel"` on the eager engine: decode rows at position 1,280 and later go to `kernels/attn_dec.metal`, rows below run the grouped arithmetic, bit for bit the expanded form's on Metal. On Metal only `bin/metalrun` loads it, through `Served::apply_measurement`. On CUDA nothing refuses it: it resolves like `qwen3-4b-tetra-e4-kernel-from1280.json`, whose fields it shares, and the `served config:` line prints its note, which says NOT SERVED | **2.7320**: the form changes no stored bit | Not scored. The kernel returns the canonical replay's bits (`tests/attn_metal.rs`); from position 0 against the grouped form it read +0.0051 % of WikiText-2 perplexity over 12 windows of 4,096, every window within [-0.0268 ; +0.0490] %, top-1 agreement 99.772 %, and decoded x0.864 [0.851-0.879] at 5 tokens, x0.974 [0.848-1.030] at 2,048 and x1.037 [0.996-1.093] at 4,096, same tokens (*measured*, [metal-nuit-2026-11-06](../docs/mesures/metal-nuit-2026-11-06.txt), M6). The threshold of 1,280 keeps the short contexts off the kernel; this config itself was not timed |
+ | `qwen3-8b-tetra-e4-grouped.json` | **The 8B's served configuration from 2026-11-04 to 2026-11-07**, replaced by its v9 config (operator decision, T8 granted on condition of a light MMLU check, which passed). The SAME object as `qwen3-8b-tetra-e4.json`, `qwen3-8b-sealed-B.bin`, with `"attention": "grouped"` and nothing else different. Added 2026-11-04 | the row of `qwen3-8b-tetra-e4.json`: the form changes no stored bit | **Perplexity** licensed it: WikiText-2 paired against the expanded form through the kernel, +0.0000 % by prefill and -0.0048 % [-0.0117 ; +0.0021] by decode, inside +-0.12 % (*measured*, [gqa-8b-2026-11-04](../docs/mesures/gqa-8b-2026-11-04.txt)). **MMLU**, 285 questions (5 a subject): the same 285 picks under both configs, 65.55 % each (*measured*, [served-grouped-8b-2026-11-04](../docs/mesures/served-grouped-8b-2026-11-04.txt)). Served door **105.8 tok/s** against 98.3, same 256-token text; sweep **106.9 / 93.1 / 82.1 / 67.1** at 5 / 2,048 / 4,096 / 8,192 (*measured*, same journal). **GSM8K**, all 1,319 problems: **88.55 %** against 88.63 % expanded, paired -0.08 pp [-0.61 ; +0.46], p = 1.000 (*measured*, [gsm8k-grouped-8b-2026-11-04](../docs/mesures/gsm8k-grouped-8b-2026-11-04.txt)) |
+ | `qwen3-14b-tetra-e4-grouped.json` | **The 14B's served configuration from 2026-11-04 to 2026-11-07**, replaced by its v9 config (operator decision, T8 granted at 14B after its control and a light MMLU check both passed). The SAME object as `qwen3-14b-tetra-e4.json`, `qwen3-14b-sealed.bin`, with `"attention": "grouped"` (groups of 5) and nothing else different. Added 2026-11-04 | the row of `qwen3-14b-tetra-e4.json`: the form changes no stored bit | **Perplexity**: WikiText-2 paired against the expanded form through the kernel, +0.0000 % by prefill and +0.0023 % [-0.0062 ; +0.0109] by decode, inside +-0.12 % (*measured*, [gqa-14b-2026-11-04](../docs/mesures/gqa-14b-2026-11-04.txt)). **MMLU**, 285 questions: the same 285 picks under both configs, 74.13 % each (*measured*, [served-grouped-14b-2026-11-04](../docs/mesures/served-grouped-14b-2026-11-04.txt)). Served door **62.5 tok/s** against 58.6, same 256-token text; bench sweep **63.1 / 57.7 / 52.6 / 45.3** at 5 / 2,048 / 4,096 / 8,192 against 59.2 / 42.7 / 34.7 / 21.2 (*measured*, gqa-14b). **GSM8K**, all 1,319 problems: **91.96 %** against 92.04 % expanded, paired -0.08 pp [-0.22 ; +0.07], p = 1.000 (*measured*, [gsm8k-grouped-14b-2026-11-04](../docs/mesures/gsm8k-grouped-14b-2026-11-04.txt)) |
++| `qwen3-0p6b-tetra-e4-4e-v9.json` | **Never served**: the drafter of the speculative decode, written 2026-11-07. Qwen3-0.6B in Tetra, `qwen3-0p6b-sealed.bin`, the 14B encode's recipe with `o_proj` in int4 too and no trained row scales (`proofs/preregistration-draft-0p6b-2026-11-07.md`), decoded by 4E v9 with the 4B v9 config's keys. `specrun` loads it as its draft config. Under greedy acceptance the target's tokens do not depend on the drafter, which sets the acceptance rate only (`docs/plan-speculation.md`); the route is closed in `docs/ETAT.md` §6 | not counted here | Not scored: a drafter's tokens are never served |
+ | `qwen3-8b-tetra-q5.json` | Qwen3-8B, `Tetra` + 36 `v_proj` int4 g128, calibrated on `dclm-edu`: `qwen3-8b-dclm.bin` (base, 4,364,205,777 B, sha256 `bcea0d5a7de2fbbfd244ecf1793dd74d94808eadc4a1103533d539829f41bc04`) and `qwen3-8b-dclm-ft.bin` (row scales trained and folded, same size, sha256 `783cef6700e0efa9bca1bf225861932879ce49f5509ec7a22c5c0b3a712ebdad`), in the bucket at `dclm-8b-2026-09-21/` and `dclm-8b-ft-2026-09-21/` ([dclm-8b-rowscales-2026-09-21](../docs/mesures/dclm-8b-rowscales-2026-09-21.txt)). The five values are the 4B's; only the object differs. The head is untied, so `q8` quantizes two tables | **3.0683** as served (*computed* by `rtbits` on the file's bytes, whole model, q8 embedding, tail f16; 3.1064 at tail f32; [dclm-8b-2026-09-21](../docs/mesures/dclm-8b-2026-09-21.txt)) | **68.16 micro, 69.93 macro** for the trained file on the full 14,042-question split, dense reconstruction with the f16 embedding, 4.2080 b/param (*measured*, [dclm-8b-rowscales-2026-09-21](../docs/mesures/dclm-8b-rowscales-2026-09-21.txt)); the base reads 64.87 / 66.58 ([census-8b-2026-09-21](../docs/mesures/census-8b-2026-09-21.txt)). No census through the served kernel: only the 57-question door ([served-8b-2026-09-21](../docs/mesures/served-8b-2026-09-21.txt)) |
+ | `qwen3-8b-tetra-e4.json` | Qwen3-8B paper-2 object, sealed 2026-09-24: `Tetra` with dclm-edu calibration and trained row scales, `v_proj` + `down_proj@10-26` as int4 g128 records, both untied tables stored int4 g64, `qwen3-8b-sealed-B.bin` (2,815,098,745 B, sha256 `7bdb9a55...`, *measured*, [sealed-8b-27-2026-09-24](../docs/mesures/sealed-8b-27-2026-09-24.txt)). Variant A, `o_proj` + `down_proj@15-20` (2,819,588,161 B, sha256 `0c6b08b3...`), scored 68.81 at 2.7047 and was declined: B beats it by 0.77 pp [+0.26 ; +1.28], p = 0.004, with fewer bytes | **2.6953** as served (*computed* by `rtbits` over the file's bytes, tail f16, both tables q4) | **69.58 micro** on the full 14,042-question split, dense reconstruction, +1.42 pp [+0.93 ; +1.92] over the 68.16 base (*measured*, same journal). Not scored through the kernel |
+ | `qwen3-14b-tetra-q5.json` | Qwen3-14B, `Tetra` + 40 `v_proj` int4 g128, calibrated on `dclm-edu`: `qwen3-14b-dclm.bin` (base, 6,563,782,117 B, sha256 `f8e975b8...`) and `qwen3-14b-dclm-ft.bin` (row scales trained and folded, same size, sha256 `c825cb92...`), written on the Mac under `~/q14b-dclm-2026-09-22/`, both digests read back on the card ([encode-14b-2026-09-22](../docs/mesures/encode-14b-2026-09-22.txt), [dclm-14b-rowscales-2026-09-22](../docs/mesures/dclm-14b-rowscales-2026-09-22.txt)). The five values are the 4B's; only the object differs. The head is untied, so `q8` quantizes two tables | **2.7371** as served (*computed* by `rtbits` on the file's bytes, whole model, q8 embedding, tail f16; 3.5272 at the f16 tables the census read) | **74.20 micro, 75.64 macro** for the trained file on the full 14,042-question split, dense reconstruction with the f16 tables (*measured*, dclm-14b-rowscales); the base reads 72.53 / 74.07 ([census-14b-base-2026-09-22](../docs/mesures/census-14b-base-2026-09-22.txt)). No census through the served kernel |
+@@ -62,7 +64,7 @@ The runtime `llvq` compiles in the v9 configs for CUDA, the `*-e4.json` configs
+ 
+ No field is model-specific. The loader reads every shape from the sealed
+ file's own `config.json`, and the values name runtime choices: five required
+-fields and four optional ones. Each object has a file of its own anyway, for the two things a run prints
++fields, seven optional ones, and a free-text `note`. Each object has a file of its own anyway, for the two things a run prints
+ from it: the note on the `served config:` line, and the path on every dump's
+ `# config=` line. Borrowing another size's file would record the wrong object on
+ every line of the run.
+@@ -102,9 +104,10 @@ that projection fusion was measured and declined.
+ 
+ ## The `attention` field, and why it is optional
+ 
+-Five fields are required and have no defaults. Three are optional:
+-`attention`, added on 2026-11-02, then `decode` and `rows`, added on
+-2026-11-05. An absent `attention` means `expanded`, the form every published
++Five fields are required and have no defaults. Seven are optional:
++`attention`, added on 2026-11-02, `decode` and `rows` on 2026-11-05,
++`prefill_attention` and `batch` on 2026-11-08, `prefill` and `decode_cache` on
++2026-11-15. An absent `attention` means `expanded`, the form every published
+ number ran. That is what makes the six files written before it keep serving
+ exactly what they served, down to the logits, while a file that SAYS
+ `grouped` or `kernel` changes path.
+@@ -129,10 +132,11 @@ from position 0, on 4E and on the eager path alike (the prefill, and any binary
+ that does not drive 4E), and 4E owes the eager path's tokens bit for bit. The
+ served door and `gsm8k` decode through 4E; `mmlu` scores prompts and decodes
+ nothing. It is accepted only with `"attention": "kernel"` and the served 4B's
+-other values, and refused on Metal, on any shape but the Qwen3-4B's, and beside
++other values, and refused on Metal, on any shape but the sealed 4B, 8B and 14B
++and the 0.6B drafter (`llvq_llm::served::check_persistent_object`), and beside
+ any measurement-mode variable
+-(`llvq_llm::served::MEASUREMENT_MODES`). It is accepted on the three sealed shapes,
+-4B, 8B and 14B: at 8B and 14B 4E reads the head on its own table (both are untied),
++(`llvq_llm::served::MEASUREMENT_MODES`). On the three sealed shapes, at 8B and
++14B 4E reads the head on its own table (both are untied),
+ and at 8B the Tetra `o_proj` under its own rotation. The kernel form from position
+ 0 passed the perplexity band against the grouped form at both sizes
+ (`served-v9-8b-2026-11-07`, `served-v9-14b-2026-11-07`).
+@@ -176,12 +180,15 @@ not under identity, and that is a change of gate the operator took on
+ 2026-11-01. The kernel form is served under the same tolerance. A run
+ that must reproduce a published line to the bit uses the expanded config.
+ 
+-## Why every value is a string
++## How the values are parsed
+ 
+-They go through the same `parse` the environment variables go through:
+-`FusedLayout::parse`, `EmbedMode::parse`, `RotShare::parse`, `FuseMode::parse`,
+-`KvMode::parse`, `AttnHeads::parse`, `Decode::parse`, `Rows4e::parse`. One
+-vocabulary, defined once. A second
++The five required values go through the same `parse` the environment
++variables go through: `FusedLayout::parse`, `EmbedMode::parse`,
++`RotShare::parse`, `FuseMode::parse`, `KvMode::parse`. Each optional value has
++one parser beside its type: `AttnHeads::parse`, `Decode::parse`,
++`Rows4e::parse`, `PrefillAttn::parse`, `Prefill::parse`, `DecodeCache::parse`.
++`batch` is the one field that is not a string: two numbers, `max` and
++`context`, bounded by `BatchServe::of`. One vocabulary, defined once. A second
+ spelling would be a second thing to keep in step.
+ 
+ ## Where they are, on a card
+diff --git a/docs/ENV.md b/docs/ENV.md
+index 1c0b8b2..ac1cd5c 100644
+--- a/docs/ENV.md
++++ b/docs/ENV.md
+@@ -44,7 +44,7 @@ modes set together (`ALONE` in that file).
+ | `LLVQ_DAMPING` | `smoke` | GPTQ damping; unset = published | tool |
+ | `LLVQ_H_SHRINK` | `smoke`, `hcapture` | Hessian shrink ρ; unset = published | tool |
+ | `LLVQ_GAIN_SCALE` | `smoke` | gain multiplier; unset = published | tool |
+-| `LLVQ_SEQ_BLOCK` | `smoke` | unset or `1`; any other value refused | tool |
++| `LLVQ_SEQ_BLOCK` | `smoke` | unset, empty or `0` (default), `1`; any other value refused | tool |
+ | `LLVQ_THREADS` | `smoke`, `errmap`, `f1recdump`, `tetra_cpu::pool` | thread count; about ncpu-4 on a shared machine; the CPU backend uses every core when unset | tool |
+ | `LLVQ_ARTIFACT` | `smoke` | path of the artifact to write; unset = none | tool |
+ | `LLVQ_RESUME` | `smoke` | shard to resume from; requires `LLVQ_ARTIFACT` | tool |
+@@ -66,7 +66,6 @@ modes set together (`ALONE` in that file).
+ | `LLVQ_KL_ARTIFACT`, `LLVQ_KL_VAL`, `LLVQ_KL_SKIP` | `kltemp` | artifact, validation set, skipped blocks | tool |
+ | `LLVQ_ROT`, `LLVQ_H_DENSE` | `hcapture` | rotation on, dense Hessian | tool |
+ | `LLVQ_ALT_K` | `tetraalt` | alternative count | tool |
+-| `LLVQ_Q4B` | `radixstudy` | int4 bit study switch | tool |
+ | `LLVQ_STEPPED`, `LLVQ_RUN_DUMP`, `LLVQ_VERIFY_CACHE` | `run` (dense demo) | stepped decode, dump path, cache check (set means on) | tool |
+ 
+ ## Measurement modes
+@@ -95,6 +94,7 @@ modes set together (`ALONE` in that file).
+ | variable | read by | what it does |
+ |---|---|---|
+ | `LLVQ_SEALED_ARTIFACT` | `llvq-artifact` tests | where to find the sealed file |
++| `LLVQ_Q4B` | `radixstudy`'s unit tests (`llvq-bench/src/bin/radixstudy.rs`) | path of the sealed 4B, default `~/llvq-q4b.llvq`; it moves the search, and a missing file still fails. These tests do not read `LLVQ_SEALED_ARTIFACT` |
+ | `LLVQ_HF_FIXTURE`, `LLVQ_HF_MINI_FIXTURE` | `llvq-llm/tests/hfpack.rs` | rewrite the packed fixtures |
+ | `LLVQ_Q4_WIDE_FIXTURE_WRITE` | `llvq-llm/tests/proj_q4_wide.rs` | rewrite the wide int4 fixture |
+ | `LLVQ_ROT_FIXTURE_WRITE` | `llvq-cuda/tests/rotation_matches_rust.rs` | rewrite the rotation fixture |
+@@ -104,7 +104,7 @@ modes set together (`ALONE` in that file).
+ 
+ ## Python
+ 
+-`llvq-tetra` reads `LLVQ_HF_FUSED` (`0` or `1`), `LLVQ_HF_DEVICE` and `LLVQ_HF_TILE` (default 64, no range check).
++`llvq-tetra` reads `LLVQ_HF_FUSED` (`0` or `1`), `LLVQ_HF_DEVICE` and `LLVQ_HF_TILE` (default 64; refused above 64, the tile the fused modules allocate for).
+ `ops/mlx_tetra` reads `LLVQ_MLX_ABLATE`, and its door refuses every other `LLVQ_*` name. `ops/awq_speed.py` reads
+ `LLVQ_IMAGE_TAG` and `LLVQ_IMAGE_DIGEST`. The registry test does not read Python.
+ 
+diff --git a/docs/ETAT.md b/docs/ETAT.md
+index a39df72..0c6e094 100644
+--- a/docs/ETAT.md
++++ b/docs/ETAT.md
+@@ -1,4 +1,4 @@
+-# Project state as of 2026-11-07
++# Project state as of 2026-11-17
+ 
+ ## 1. The project
+ 
+diff --git a/docs/audit-architecture-2026-11.md b/docs/audit-architecture-2026-11.md
+index 14897bb..947cd2b 100644
+--- a/docs/audit-architecture-2026-11.md
++++ b/docs/audit-architecture-2026-11.md
+@@ -238,8 +238,10 @@ living docs, journals, preregs and paper 2:
+ | measurement only (journals and preregs only) | 33 | 13,695 |
+ | dead (no reference outside code comments, `HISTORIQUE.md`, `docs/archive/`) | 9 | 1,027 |
+ 
+-Dead: `f1linear`, `f1mids`, `f1radii`, `f1rankenc`, `f1time`, `tetrascales` (examples, `llvq-bench`), `gaindiag`,
+-`probe` (`llvq-llm`), `hello` (`llvq-metal`).
++Dead: `f1linear`, `f1mids`, `f1radii`, `f1rankenc`, `f1time` (examples, `llvq-bench`), `gaindiag`, `probe`
++(`llvq-llm`), `hello` (`llvq-metal`). The example `tetrascales` (230 lines) meets the same rule but is not deleted:
++it is the provenance of `Encoder::ALPHA` and `Encoder::RATIO`, the two scales of the served Tetra encoder
++(`llvq-search/src/tetra/encoder.rs`), and its raw output is not committed. It is fenced with B1 in batch 5.
+ 
+ Grouped into batches (lines *measured*):
+ 
+@@ -422,9 +424,9 @@ HTML files 71 and 58. `ops/Dockerfile.cuda` comments keep French paragraphs and
+ |---:|---|---|---|---|
+ | 1 | **Defects and doc truth.** Fix or remove `LLVQ_PERS_SEGMENT`; put `LLVQ_PREFILL` and `LLVQ_METAL_KERNEL` under the served refusal; make `METAL_KERNEL` refuse unknown values; drop the three `planesbench`-only names from `MEASUREMENT_MODES`; rewrite the env table of `CLAUDE.md` (49 missing, 4 mismatches); fix `llvq-llm/src/lib.rs:7-10`, the `ci.yml` pointers, `proofs/README.md`; replace `AGENTS.md` by a pointer to `CLAUDE.md` | two served-path holes closed, one dead mode settled, the map true again | very low; no kernel text | none |
+ | 2 | **Runtime on the served configs.** Done by PR #15 (`7be533e`) | the `llvq` binary serves what ETAT says; unblocks removing v4 and grouped 8B/14B later | done | none |
+-| 3 | **Delete the 9 dead targets** (§2.6) | 1,027 lines, 9 targets | none | tag |
++| 3 | **Delete the 8 dead targets** (§2.6; `tetrascales` stays) | 797 lines, 8 targets | none | tag |
+ | 4 | **Delete the no-setter modes**: `GRAPH_AB`, `GRAPH_DIAG`, `KV_AB`, `KV_PREALLOC`, `FUSE_AB`, and `PERS_SEGMENT` with the host of `persist_cuda.rs` (move its five shared helpers into `persist4e_cuda.rs` first) | ~1,150 lines (*estimated*), 6 names out of `MEASUREMENT_MODES`, `KvStore::Prealloc` gone from `model.rs` | low; `fusedrun` and `model.rs` are not in a pinned unit; refusal-list tests to update | tag; coordinate with the batching branch, which edits `model.rs` |
+-| 5 | **Fence measurement-only targets** behind `archive` features: B1, B2, B3, B5, B6, B7, less the dead targets of batch 3 and the image's `gbench` (fence, never delete B7) | 52 targets, 21,317 lines out of the default build; about 30 % fewer `llvq-llm` link steps in CI's test job (*estimated*) | low; archived code stops being checked unless a non-blocking `--features archive` check job is added; gate the `CARGO_BIN_EXE_*` cases of `classhist`, `lswap`, `radixstudy` | tag; decide B5 with row 18 of `ROADMAP-27B-DEV.md`; `rankbench` and `mslcheck` in B3 are the operator's call |
++| 5 | **Fence measurement-only targets** behind `archive` features: B1, B2, B3, B5, B6, B7, less the dead targets of batch 3 and the image's `gbench` (fence, never delete B7) | 53 targets, 21,547 lines out of the default build; about 30 % fewer `llvq-llm` link steps in CI's test job (*estimated*) | low; archived code stops being checked unless a non-blocking `--features archive` check job is added; gate the `CARGO_BIN_EXE_*` cases of `classhist`, `lswap`, `radixstudy` | tag; decide B5 with row 18 of `ROADMAP-27B-DEV.md`; `rankbench` and `mslcheck` in B3 are the operator's call |
+ | 6 | **CUDA image diet**: B4 plus `gbench` out of the build, `COPY` and `image-smoke-14b.sh` lists, then fenced | 5 of 22 image link steps; 5 targets, 2,033 lines | low; the three-lists trap; the Space must be republished from the branch (shared resource, operator go) | batch 5's feature |
+ | 7 | **`llvq-bench` off the served build**: make it an optional or bin-only dependency of `llvq-cuda` (move `f1rankfloor`, `f1floorbench` behind a feature) | the served build stops compiling the bench crate | low | batch 6 for `f1floorbench` |
+ | 8 | **CI coverage**: a Python job (`test_served.py` and the pure `llvqtune` tests, about a minute, *estimated*), a grep check of the three image lists, a non-blocking archive check; add `paper2/**` and `proofs/**` to `paths-ignore` | 173 Python tests partly covered; the two-lists trap checked mechanically; fewer useless Rust runs | very low; a few CI minutes | batch 5 for the archive check |
+diff --git a/llvq-artifact/src/error.rs b/llvq-artifact/src/error.rs
+index 2627ee6..61d2e37 100644
+--- a/llvq-artifact/src/error.rs
++++ b/llvq-artifact/src/error.rs
+@@ -10,7 +10,8 @@ use core::fmt;
+ 
+ #[derive(Debug)]
+ pub enum Error {
+-    /// The file does not begin with [`crate::MAGIC`].
++    /// The file does not begin with one of the five magics `LVQ1`..`LVQ5`
++    /// ([`crate::MAGIC_V1`] to [`crate::MAGIC_V5`]).
+     NotAnArtifact { got: [u8; 4] },
+     /// Ran out of bytes mid-structure.
+     Truncated { reading: &'static str },
+diff --git a/llvq-artifact/src/format.rs b/llvq-artifact/src/format.rs
+index 2f8fd63..2acba67 100644
+--- a/llvq-artifact/src/format.rs
++++ b/llvq-artifact/src/format.rs
+@@ -1734,7 +1734,8 @@ impl<W: Write> ArtifactWriter<W> {
+ /// [`FIRST_FINGERPRINTED_VERSION`] on which codebook wrote it, and from
+ /// [`FIRST_KINDED_VERSION`] on which maps its records may belong to.
+ pub struct Header {
+-    /// 1 for projections only; 2+ for a self-contained file. 3 adds tagged
++    /// 1 for projections only; 2+ for a file that has the extra sections,
++    /// which may be empty (see [`Header::is_self_contained`]). 3 adds tagged
+     /// raw-tensor encodings; 4 adds the codebook fingerprint; 5 adds the Tetra
+     /// fingerprint, the default code kind and the set of kinds present.
+     pub version: u32,
+@@ -1762,8 +1763,11 @@ pub struct Header {
+ }
+ 
+ impl Header {
+-    /// Whether the file carries embeddings, norms and tokenizer — i.e. whether
+-    /// it can run without the original checkpoint.
++    /// Whether the file's version has the sections for embeddings, norms and
++    /// tokenizer (`version >= 2`). It does not say the sections are filled:
++    /// [`ArtifactWriter::finish`] writes them empty in the current version, so
++    /// a raw quantization output answers `true` and still needs the original
++    /// checkpoint until `bin/seal` completes it.
+     pub fn is_self_contained(&self) -> bool {
+         self.version >= 2
+     }
+diff --git a/llvq-bench/src/bin/rtbits.rs b/llvq-bench/src/bin/rtbits.rs
+index 2953c48..b1b821e 100644
+--- a/llvq-bench/src/bin/rtbits.rs
++++ b/llvq-bench/src/bin/rtbits.rs
+@@ -356,8 +356,10 @@ impl Shapes {
+ /// not cosmetic: `side_bits` charges the `KeepExact` tail at **f32**, and the
+ /// served path has stored it at **f16** since 2026-08-09
+ /// (`llvq_llm::fused::TAIL_BYTES = 2`). Every published kernel b/weight in the
+-/// record carries the f32 figure. Printing both is how a reader sees which one
+-/// a number came from instead of guessing.
++/// record carries the f32 figure. The whole-model b/param published for the
++/// three sealed files (paper 2, `docs/ETAT.md`) is the f16 row, q4 embedding
++/// column. Printing both is how a reader sees which one a number came from
++/// instead of guessing.
+ struct V5Rate {
+     /// Lattice records: their shapes, and the stream bits they spend.
+     lattice: Shapes,
+@@ -372,8 +374,9 @@ struct V5Rate {
+ impl V5Rate {
+     /// Bits per weight the kernel reads, over **all** projection weights.
+     ///
+-    /// `tail_f32` selects the tail width: `true` reproduces the accounting
+-    /// every published figure used, `false` the width the card actually holds.
++    /// `tail_f32` selects the tail width: `true` reproduces the accounting of
++    /// every published kernel b/weight, `false` the width the card actually
++    /// holds, the one the published whole-model b/param counts.
+     fn kernel_bpw(&self, tail_f32: bool) -> f64 {
+         let tail = if tail_f32 { F32_BITS } else { 16 };
+         let side = self.lattice.tail_weights * tail + self.lattice.rows * F32_BITS;
+@@ -467,7 +470,7 @@ fn report_v5(path: &str, r: &mut impl Read, h: &llvq_artifact::Header) {
+ 
+     println!("\n  kernel b/weight, over {total_q} projection weights");
+     println!(
+-        "    tail at f32 (the accounting every published figure used) ... {:.4}",
++        "    tail at f32 (the accounting of published kernel b/weight) ... {:.4}",
+         a.kernel_bpw(true)
+     );
+     println!(
+@@ -491,7 +494,8 @@ fn report_v5(path: &str, r: &mut impl Read, h: &llvq_artifact::Header) {
+             "  {:<22}{:>14}{:>14}{:>14}",
+             "tail width", "embed f16", "embed q8", "embed q4"
+         );
+-        for (name, lin) in [("f32 (published)", lin_f32), ("f16 (served)", lin_f16)] {
++        // The published whole-model b/param is the f16 row, embed q4 column.
++        for (name, lin) in [("f32", lin_f32), ("f16 (served)", lin_f16)] {
+             println!(
+                 "  {name:<22}{:>14.4}{:>14.4}{:>14.4}",
+                 model_bpw(&[lin, (carried_embed, 16.0), (other, 16.0)]),
+diff --git a/llvq-cuda/src/modcache.rs b/llvq-cuda/src/modcache.rs
+index 7a5fcff..98f0fad 100644
+--- a/llvq-cuda/src/modcache.rs
++++ b/llvq-cuda/src/modcache.rs
+@@ -22,7 +22,11 @@
+ //! The file name is a digest of the key, and the file repeats the key in a
+ //! header line beside the cubin's length and SHA-256. A read checks the three
+ //! before it returns a byte: a hash collision of names, a truncated write or a
+-//! file edited by hand reads as a miss, and the caller compiles again. A cubin
++//! corrupted body reads as a miss, and the caller compiles again. The SHA-256
++//! is the file's own, so it guards against corruption, not against an edit:
++//! anyone who can write the directory can put another cubin under the
++//! expected name with a matching header, and it is loaded. The cache is only
++//! as trusted as the directory that holds it. A cubin
+ //! is written to a temporary name and renamed, so a reader never sees half a
+ //! file.
+ //!
+diff --git a/llvq-cuda/src/pers.rs b/llvq-cuda/src/pers.rs
+index 387a078..fc857fb 100644
+--- a/llvq-cuda/src/pers.rs
++++ b/llvq-cuda/src/pers.rs
+@@ -697,12 +697,8 @@ pub fn n_bar_4e(layers: u32) -> u32 {
+     2 + 6 * layers
+ }
+ 
+-/// Shared bytes of a 4E CTA: the header, the decoder tables, then one region
+-/// that is the f32 vector of the row phases (`max(inter, 2 x hidden)` floats)
+-/// or the attention phase's stage, unit states and q (`PERS_ATTN_SMEM` of
+-/// llvq_pers.cuh), whichever is larger, rounded to 16 bytes.
+-/// 4E's row forms (`PERS_4E_ROWS` in `llvq_pers.cuh`): 1, the stream (4E v3,
+-/// what the served config runs); 2, v2's row loop on the same static rows
++/// 4E's row forms (`PERS_4E_ROWS` in `llvq_pers.cuh`): 1, the stream
++/// (4E v3); 2, v2's row loop on the same static rows
+ /// (4E v4); 3, form 2 with each CTA's last rows split over every warp (4E v5);
+ /// 4, form 2 with ln1, ln2 and the down's input in one round trip a thread
+ /// (4E v6, `llvq_pers.cuh` section 7b); 5, form 4 with the launch's
+@@ -711,14 +707,15 @@ pub fn n_bar_4e(layers: u32) -> u32 {
+ /// input widened from vectors (4E v7, section 7c); 6, form 5 with the
+ /// attention phase's steps staged by `cp.async` into a ring of
+ /// [`p4e_attn_ring`] stages, several steps in flight (4E v8, K3a of
+-/// `docs/plan-300.md`).
++/// `docs/plan-300.md`); 7, form 6 with the int4 rows read on tiled words
++/// (4E v9, K11), the form the served configs run.
+ pub const P4E_ROWS_FORMS: [(u32, &str); 7] = [(1, "v3"), (2, "v4"), (3, "v5"), (4, "v6"), (5, "v7"), (6, "v8"), (7, "v9")];
+ 
+ /// The forms `fusedrun LLVQ_PERS_4E` times, the first the reference of the
+-/// others' round-by-round ratios: v4, the served form since 2026-11-05; v6,
+-/// served on the operator's go of 2026-11-07; v7 (K2) and v8 (K2 and K3a),
+-/// step 2 of `docs/plan-300.md`; v9 (v8 with the int4 rows on tiled words,
+-/// K11), step 3. v3 and v5 were read by the shaker (job 6aec9a1d).
++/// others' round-by-round ratios: v4, the form served from 2026-11-05 until
++/// v9; v6; v7 (K2) and v8 (K2 and K3a), step 2 of `docs/plan-300.md`; v9 (v8
++/// with the int4 rows on tiled words, K11), step 3, the form the served
++/// configs run. v3 and v5 were read by the shaker (job 6aec9a1d).
+ pub const P4E_BENCH_FORMS: [(u32, &str); 5] = [(2, "v4"), (4, "v6"), (5, "v7"), (6, "v8"), (7, "v9")];
+ 
+ /// The line a module of row form `form` starts with; form 1 is the
+@@ -1571,7 +1568,11 @@ pub fn p4e_smem_bytes(hidden: u32, inter: u32, groups: u32) -> u32 {
+     p4e_smem_bytes_form(1, hidden, inter, groups)
+ }
+ 
+-/// Shared bytes of a 4E CTA of row form `form`, before the scratch.
++/// Shared bytes of a 4E CTA of row form `form`, before the scratch: the
++/// header, the decoder tables, then one region that is the f32 vector of the
++/// row phases (`max(inter, 2 x hidden)` floats) or the attention phase's
++/// stage, unit states and q (`PERS_ATTN_SMEM` of llvq_pers.cuh), whichever is
++/// larger, rounded to 16 bytes.
+ pub fn p4e_smem_bytes_form(form: u32, hidden: u32, inter: u32, groups: u32) -> u32 {
+     let vec = 4 * inter.max(2 * hidden);
+     let attn = 16 * 1024 * p4e_attn_ring(form) + 4 * 4 * groups * 130 + 4 * groups * 128;
+@@ -4783,7 +4784,7 @@ mod tests {
+     /// Writes the tree modules at the card's tile define into
+     /// `target/tree-modules/` for an offline compile (ops/tree-sass-probe.sh).
+     #[test]
+-    #[ignore]
++    #[ignore = "a dump tool, not a test: writes target/tree-modules/ for ops/tree-sass-probe.sh; run by hand with --ignored"]
+     fn dump_tree_modules() {
+         let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../target/tree-modules");
+         std::fs::create_dir_all(&dir).unwrap();
+diff --git a/llvq-cuda/src/rowcand.rs b/llvq-cuda/src/rowcand.rs
+index 0fbea14..3fbd73f 100644
+--- a/llvq-cuda/src/rowcand.rs
++++ b/llvq-cuda/src/rowcand.rs
+@@ -523,7 +523,7 @@ mod tests {
+     /// Writes the bench module at the L40S's tile (64) for the offline SASS
+     /// count, `ops/rowcand-sass.sh`. Ignored: it writes under target/.
+     #[test]
+-    #[ignore]
++    #[ignore = "a dump tool, not a test: writes target/rowcand/ for ops/rowcand-sass.sh and ops/rc-regprobe.sh; run by hand with --ignored"]
+     fn dump_rowcand_module() {
+         let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../target/rowcand");
+         std::fs::create_dir_all(&dir).unwrap();
+diff --git a/llvq-cuda/tests/golay70_decoder_matches_rust.rs b/llvq-cuda/tests/golay70_decoder_matches_rust.rs
+index ed89524..a864994 100644
+--- a/llvq-cuda/tests/golay70_decoder_matches_rust.rs
++++ b/llvq-cuda/tests/golay70_decoder_matches_rust.rs
+@@ -391,27 +391,51 @@ fn the_golay70_kernel_decides_what_the_rust_decoder_decides() {
+     );
+ }
+ 
++/// Path of the sealed 4B archive, or a failure that names it.
++///
++/// A local copy of `llvq-artifact/tests/common/mod.rs`, which a test of this
++/// crate cannot import. `LLVQ_SEALED_ARTIFACT` moves the search,
++/// `$HOME/llvq-q4b.llvq` is the default, and a missing file fails the sweep
++/// rather than reporting `ok`. The sweep is `#[ignore]`d, so running it is a
++/// request.
++fn sealed_artifact_path() -> std::path::PathBuf {
++    const ENV: &str = "LLVQ_SEALED_ARTIFACT";
++    const HOWTO: &str = "\
++This sweep checks the Golay70 layout against the real Qwen3-4B archive, block by
++block, and it is #[ignore]d so it never runs by accident. Point it at a
++`leech1c12` archive:
++
++    LLVQ_SEALED_ARTIFACT=/path/to/qwen3-4b-llvq.bin \\
++        cargo test --release -p llvq-cuda --test golay70_decoder_matches_rust -- --ignored
++
++To leave the sweep out, run without --ignored: it is then reported as `ignored`.";
++    let (path, origin) = match (std::env::var_os(ENV), std::env::var_os("HOME")) {
++        (Some(p), _) => (std::path::PathBuf::from(p), ENV),
++        (None, Some(h)) => (std::path::Path::new(&h).join("llvq-q4b.llvq"), "$HOME/llvq-q4b.llvq"),
++        (None, None) => {
++            panic!("neither ${ENV} nor $HOME is set, so there is no path to try.\n\n{HOWTO}")
++        }
++    };
++    assert!(
++        path.exists(),
++        "the sealed archive is not on this machine: {} (from {origin})\n\n{HOWTO}",
++        path.display()
++    );
++    path
++}
++
+ /// The integral proof on the sealed 4B artifact: every block of every matrix,
+ /// decoded through Golay70 (exceptions resolved) and through Slot32, must
+ /// equal the archive decoder bit for bit — the central claim of the layout on
+-/// the exact object the bench will time. Skipped (loudly) when the file is
+-/// not on this machine; ignored in debug like every heavy sweep in this repo.
++/// the exact object the bench will time. Ignored like every sealed-archive
++/// sweep in this repo, and failing by name when the file is not on this
++/// machine.
+ #[test]
+-#[cfg_attr(debug_assertions, ignore = "full 150 M-block artifact, run in release")]
++#[ignore = "full 150 M-block sweep of the sealed archive, run in release with --ignored"]
+ fn the_sealed_artifact_decodes_identically_through_golay70() {
+     use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
+ 
+-    let path = match std::env::var_os("HOME") {
+-        Some(h) => std::path::Path::new(&h).join("llvq-q4b.llvq"),
+-        None => {
+-            eprintln!("SKIP: no $HOME to find the sealed artifact");
+-            return;
+-        }
+-    };
+-    if !path.exists() {
+-        eprintln!("SKIP: {} not present on this machine", path.display());
+-        return;
+-    }
++    let path = sealed_artifact_path();
+ 
+     let fd = FastDecoder::new();
+     let golay = llvq_core::Golay::new();
+diff --git a/llvq-llm/src/bin/chat.rs b/llvq-llm/src/bin/chat.rs
+index f80d30d..1ab8469 100644
+--- a/llvq-llm/src/bin/chat.rs
++++ b/llvq-llm/src/bin/chat.rs
+@@ -49,11 +49,18 @@ use llvq_llm::repl::{ReplOptions, Sampler};
+ use std::io::Write;
+ 
+ fn env_f32(key: &str, default: f32) -> anyhow::Result<f32> {
++    env_parse(key, default)
++}
++
++/// A variable read at its own type: the seed as a `u64` and the token cap as
++/// a `usize`, so a seed keeps all its bits and a negative cap is refused
++/// rather than cast to zero.
++fn env_parse<T: std::str::FromStr>(key: &str, default: T) -> anyhow::Result<T> {
+     match std::env::var(key) {
+         Err(_) => Ok(default),
+         Ok(v) => v
+             .parse()
+-            .map_err(|_| anyhow::anyhow!("{key}={v:?} is not a number")),
++            .map_err(|_| anyhow::anyhow!("{key}={v:?} is not a {}", std::any::type_name::<T>())),
+     }
+ }
+ 
+@@ -128,9 +135,9 @@ fn main() -> anyhow::Result<()> {
+         sampler: Sampler {
+             temp,
+             top_p: env_f32("LLVQ_CHAT_TOP_P", 0.9)?,
+-            state: env_f32("LLVQ_CHAT_SEED", 0.0)? as u64 ^ 0x5EED_5EED_5EED_5EED,
++            state: env_parse::<u64>("LLVQ_CHAT_SEED", 0)? ^ 0x5EED_5EED_5EED_5EED,
+         },
+-        max_new: env_f32("LLVQ_CHAT_MAX_NEW", 512.0)? as usize,
++        max_new: env_parse::<usize>("LLVQ_CHAT_MAX_NEW", 512)?,
+         think: env_f32("LLVQ_CHAT_THINK", 0.0)? != 0.0,
+         // `LLVQ_CHAT_IDS=1` prints the raw ids of each answer.
+         show_ids: env_f32("LLVQ_CHAT_IDS", 0.0)? != 0.0,
+diff --git a/llvq-llm/src/bin/fusedrun.rs b/llvq-llm/src/bin/fusedrun.rs
+index 84e9b87..f4afac6 100644
+--- a/llvq-llm/src/bin/fusedrun.rs
++++ b/llvq-llm/src/bin/fusedrun.rs
+@@ -2130,11 +2130,10 @@ fn main() -> anyhow::Result<()> {
+         // the audit of 2026-09-11 found it. `LLVQ_PREFILL_TOKENS` and
+         // `LLVQ_CONTEXTS` are the two exceptions, handled below: they time the
+         // served object as served, and change only the prompt it is given.
++        // The list is `served::MEASUREMENT_MODES`, the one `check_env` reads
++        // beside a persistent config; here it is refused beside any config.
+         if served.is_some() {
+-            for var in ["LLVQ_GRAPH_AB", "LLVQ_GRAPH_DIAG", "LLVQ_KV_AB", "LLVQ_FUSE_AB",
+-                        "LLVQ_TIME_PHASES", "LLVQ_KV_PREALLOC", "LLVQ_SEG_ARMS",
+-                        "LLVQ_TRIM_AB", "LLVQ_GQA_AB", "LLVQ_GQA_PPL", "LLVQ_KV_CAPTURE", "LLVQ_KV_LADDER",
+-                        "LLVQ_INT4_WIDE_CHECK", "LLVQ_GESTURE_AB", "LLVQ_BOUNDARY_AB", "LLVQ_PERS_SEGMENT", "LLVQ_PERS_4E"] {
++            for var in llvq_llm::served::MEASUREMENT_MODES {
+                 if let Ok(v) = std::env::var(var) {
+                     anyhow::bail!(
+                         "{var}={v:?} beside LLVQ_CONFIG: that is a measurement mode, and the \
+diff --git a/llvq-llm/src/bin/gsm8k.rs b/llvq-llm/src/bin/gsm8k.rs
+index 84d2747..26cfbbd 100644
+--- a/llvq-llm/src/bin/gsm8k.rs
++++ b/llvq-llm/src/bin/gsm8k.rs
+@@ -301,9 +301,13 @@ fn main() -> anyhow::Result<()> {
+ 
+         // Prefill in chunks of `MAX_ROWS`: a served group without a rows
+         // kernel spends one launch a row and refuses past that budget. A
+-        // GSM8K prompt is far under it; the chunking only keeps a long one
+-        // from failing late, and a chunk boundary changes nothing the cache
+-        // does not already carry.
++        // GSM8K prompt is under it, so it goes in as one chunk. A boundary
++        // would not be neutral under the kernel attention form: a chunk of a
++        // few rows attends through the kernel, a longer one through the
++        // grouped path unless the config names the kernel prefill, and the
++        // two are not bit for bit. `Session::feed` cuts at
++        // `prefill_rows()` instead, so a prompt past `MAX_ROWS` tokens would
++        // not prefill here as the runtime prefills it.
+         let mut caches = model.fresh_caches();
+         let t0 = Instant::now();
+         let mut offset = 0usize;
+diff --git a/llvq-llm/src/bin/gsm8kpair.rs b/llvq-llm/src/bin/gsm8kpair.rs
+index 10d8701..cdc481b 100644
+--- a/llvq-llm/src/bin/gsm8kpair.rs
++++ b/llvq-llm/src/bin/gsm8kpair.rs
+@@ -12,7 +12,9 @@
+ //! forms or decode engines pair: that is the A/B each of those forms was
+ //! licensed by. Both are printed with the arm, as `bin/mmlupair` prints its
+ //! served keys, and a dump written before its header carried them reads as
+-//! the expanded form and the eager engine. Prints both accuracies, the
++//! the expanded form and the eager engine. The config, the prefill and the
++//! decode cache are printed on a line of their own; a dump without those keys
++//! reads as the eager prefill and the f16 cache. Prints both accuracies, the
+ //! discordant counts, the paired difference A − B with its 95 % interval, and
+ //! McNemar's exact p. The interval carries no finite-population correction: a
+ //! census of the test split is read as a draw from the problems a model could
+@@ -54,6 +56,12 @@ fn describe(tag: &str, d: &Dump) {
+         }
+     );
+     println!("    attention {} | decode {}", d.attention(), d.decode());
++    println!(
++        "    config {} | prefill {} | decode cache {}",
++        d.field("config"),
++        d.prefill(),
++        d.decode_cache()
++    );
+     println!(
+         "    {right}/{} right, mean {:.1} generated tokens, {capped} stopped at the cap, tokens {}",
+         d.rows.len(),
+diff --git a/llvq-llm/src/bin/mmlu.rs b/llvq-llm/src/bin/mmlu.rs
+index 21eef19..74735b8 100644
+--- a/llvq-llm/src/bin/mmlu.rs
++++ b/llvq-llm/src/bin/mmlu.rs
+@@ -482,6 +482,25 @@ fn dump_trailer(fingerprint: u64, questions: usize) -> String {
+     format!("# end fingerprint={fingerprint:016x} questions={questions}")
+ }
+ 
++/// The `limit` positional: questions per subject, absent for a census.
++///
++/// A value that does not parse is refused by name, never read as the census:
++/// `40` mistyped as `4O` would otherwise buy hours of card time. An empty
++/// positional is a shell accident (`$UNSET` expanded), so it is refused too.
++/// Zero is refused because it scores no question and prints 0.00 % and NaN.
++fn parse_limit(arg: Option<&str>) -> anyhow::Result<usize> {
++    let Some(s) = arg else {
++        return Ok(usize::MAX);
++    };
++    let n: usize = s.parse().map_err(|_| {
++        anyhow::anyhow!(
++            "limit {s:?} is not a count; usage: mmlu <sealed file | checkpoint> [device] [limit]"
++        )
++    })?;
++    anyhow::ensure!(n > 0, "limit 0 scores no question; omit it for a census");
++    Ok(n)
++}
++
+ fn main() -> anyhow::Result<()> {
+     let a: Vec<String> = std::env::args().skip(1).collect();
+     let model_arg = a
+@@ -492,7 +511,7 @@ fn main() -> anyhow::Result<()> {
+     // Questions per subject, for a cheap protocol check before the full run.
+     // Sampled at random from a fixed seed, never the first N: MMLU test sets
+     // are not shuffled, and the head of a subject is not a fair sample of it.
+-    let limit: usize = a.get(2).and_then(|s| s.parse().ok()).unwrap_or(usize::MAX);
++    let limit = parse_limit(a.get(2).map(String::as_str))?;
+     // F16 here, F32 in `bin/ppl` — internally consistent per metric, and a
+     // confound the moment the two are compared. `LLVQ_DTYPE` moves either one
+     // onto the other, and the resolved value is printed with the score.
+@@ -886,11 +905,14 @@ fn main() -> anyhow::Result<()> {
+     // 60.7 are. The macro is printed next to it because the gap between them
+     // is a property of MMLU, not noise, and a reader who sees only one number
+     // cannot tell which they are holding.
++    // The served arm loads the config's KV mode, not `LLVQ_KV`'s, so the line
++    // names the one the scored model ran, as the dump header does.
++    let kv_ran = served.as_ref().map_or(kv_mode, |cfg| cfg.kv);
+     println!(
+         "  MMLU (micro, = paper) = {:.2} % ± {:.2}  [kv {}]",
+         100.0 * mic,
+         100.0 * se,
+-        kv_mode.name()
++        kv_ran.name()
+     );
+     println!("  MMLU (macro, per subject) = {:.2} %", 100.0 * mac);
+     // On the result line, not only in the label: an arm whose defining
+@@ -1397,6 +1419,20 @@ mod tests {
+         assert!(half.iter().all(|&n| n >= MIN_PER_SUBJECT));
+     }
+ 
++    /// A limit that does not parse, or that scores nothing, is refused by name;
++    /// an absent one is the census and a valid one reads as itself.
++    #[test]
++    fn a_malformed_limit_is_refused_not_read_as_the_census() {
++        assert_eq!(parse_limit(None).unwrap(), usize::MAX);
++        assert_eq!(parse_limit(Some("40")).unwrap(), 40);
++        for bad in ["4O", "", "-1", "40 ", "1e3"] {
++            let e = parse_limit(Some(bad)).unwrap_err();
++            assert!(format!("{e}").contains("limit"), "{bad:?}: {e}");
++        }
++        let e = parse_limit(Some("0")).unwrap_err();
++        assert!(format!("{e}").contains("limit 0"), "{e}");
++    }
++
+     /// Ties are broken toward the lowest subject index, in both directions.
+     /// MMLU has fourteen subjects of exactly 100 questions, so ties are the
+     /// normal case, not the corner one: a plan that resolved them by hash order
+diff --git a/llvq-llm/src/bin/ppl.rs b/llvq-llm/src/bin/ppl.rs
+index 947a22a..ffa86f1 100644
+--- a/llvq-llm/src/bin/ppl.rs
++++ b/llvq-llm/src/bin/ppl.rs
+@@ -35,17 +35,44 @@ use llvq_llm::corpus::{c4_validation, wikitext2_test};
+ use llvq_llm::loader::Checkpoint;
+ use llvq_llm::model::{NoCapture, Qwen3};
+ 
++const USAGE: &str = "ppl [ctx] [max_windows] [device] [model] [wikitext2|c4]";
++
++/// A count positional: absent is `default`, anything else must parse to a
++/// positive number or is refused by name. `4096x` must not score at 2,048, and
++/// an empty positional (`$UNSET` expanded) is a shell accident, not a request
++/// for the default.
++fn count(arg: Option<&str>, name: &str, default: usize) -> anyhow::Result<usize> {
++    let Some(s) = arg else {
++        return Ok(default);
++    };
++    let n: usize = s
++        .parse()
++        .map_err(|_| anyhow::anyhow!("{name} {s:?} is not a count; usage: {USAGE}"))?;
++    anyhow::ensure!(n > 0, "{name} 0 scores nothing; usage: {USAGE}");
++    Ok(n)
++}
++
++/// The corpus positional: `wikitext2` (also the default) or `c4`. Any other
++/// name is refused, so `C4` cannot fall back to WikiText-2.
++fn corpus(arg: Option<&str>) -> anyhow::Result<&'static str> {
++    match arg {
++        None | Some("wikitext2") => Ok("wikitext2"),
++        Some("c4") => Ok("c4"),
++        Some(s) => anyhow::bail!("corpus {s:?} is neither wikitext2 nor c4; usage: {USAGE}"),
++    }
++}
++
+ fn main() -> anyhow::Result<()> {
+     let a: Vec<String> = std::env::args().skip(1).collect();
+-    let ctx: usize = a.first().and_then(|s| s.parse().ok()).unwrap_or(2048);
+-    let max_windows: usize = a.get(1).and_then(|s| s.parse().ok()).unwrap_or(usize::MAX);
++    let ctx = count(a.first().map(String::as_str), "ctx", 2048)?;
++    let max_windows = count(a.get(1).map(String::as_str), "max_windows", usize::MAX)?;
+     let device_arg = a.get(2).map(String::as_str).unwrap_or("cpu");
+     // A quantized model to score: a safetensors overlay of reconstructions, or
+     // the sealed artifact itself. See the module note.
+     let quantized = a.get(3).filter(|s| !s.is_empty() && *s != "none").cloned();
+-    // "c4" scores the same model out of domain; anything else keeps
+-    // wikitext-2, the corpus our calibration set is drawn from.
+-    let corpus = a.get(4).cloned().unwrap_or_else(|| "wikitext2".into());
++    // "c4" scores the same model out of domain; "wikitext2", the default, is
++    // the corpus our calibration set is drawn from.
++    let corpus = corpus(a.get(4).map(String::as_str))?;
+ 
+     let device = llvq_llm::eval::device(device_arg)?;
+     let dtype = llvq_llm::eval::dtype(DType::F32)?;
+@@ -172,3 +199,24 @@ fn main() -> anyhow::Result<()> {
+     );
+     Ok(())
+ }
++
++#[cfg(test)]
++mod tests {
++    use super::*;
++
++    #[test]
++    fn a_malformed_positional_is_refused_not_defaulted() {
++        assert_eq!(count(None, "ctx", 2048).unwrap(), 2048);
++        assert_eq!(count(Some("4096"), "ctx", 2048).unwrap(), 4096);
++        for bad in ["4096x", "", "-1", "0"] {
++            let e = count(Some(bad), "ctx", 2048).unwrap_err();
++            assert!(format!("{e}").contains("ctx"), "{bad:?}: {e}");
++        }
++        assert_eq!(corpus(None).unwrap(), "wikitext2");
++        assert_eq!(corpus(Some("wikitext2")).unwrap(), "wikitext2");
++        assert_eq!(corpus(Some("c4")).unwrap(), "c4");
++        for bad in ["C4", "c4 ", "", "wikitext"] {
++            assert!(corpus(Some(bad)).is_err(), "{bad:?}");
++        }
++    }
++}
+diff --git a/llvq-llm/src/bin/seal.rs b/llvq-llm/src/bin/seal.rs
+index 1149762..2f87ebd 100644
+--- a/llvq-llm/src/bin/seal.rs
++++ b/llvq-llm/src/bin/seal.rs
+@@ -44,13 +44,57 @@ impl Sealing {
+     }
+ }
+ 
++/// The checkpoint to seal from: `LLVQ_MODEL`, required, and equal to the
++/// `model` the encoding run wrote in `<in>.state` when that sidecar exists.
++///
++/// The sealed file takes its norms, embedding, config and tokenizer from this
++/// checkpoint and its projections from the artifact. A checkpoint of the same
++/// shapes but other weights (a Base or 2507 variant) would load and run with
++/// no message, so the name is compared as written on both sides, and there is
++/// no default to fall back on.
++fn checkpoint_name(
++    model: Option<String>,
++    state: Option<&llvq_llm::artifact2::RunState>,
++    state_path: &str,
++) -> anyhow::Result<String> {
++    let repo = model.filter(|m| !m.is_empty()).ok_or_else(|| {
++        anyhow::anyhow!(
++            "LLVQ_MODEL=<checkpoint> is required: the sealed file takes every tensor the \
++             artifact does not hold from it, so it must be the checkpoint the artifact was \
++             encoded from"
++        )
++    })?;
++    if let Some(encoded) = state.and_then(|s| s.get("model")) {
++        anyhow::ensure!(
++            encoded == repo,
++            "LLVQ_MODEL={repo}, but {state_path} says the artifact was encoded from \
++             model = {encoded}: the sealed file would pair one model's projections with \
++             another's norms, embedding and tokenizer"
++        );
++    }
++    Ok(repo)
++}
++
+ fn main() -> anyhow::Result<()> {
+     let a: Vec<String> = std::env::args().skip(1).collect();
+     let (src, dst) = match (a.first(), a.get(1)) {
+         (Some(s), Some(d)) => (s.clone(), d.clone()),
+         _ => anyhow::bail!("usage: seal <in.llvq> <out.llvq>"),
+     };
+-    let repo = std::env::var("LLVQ_MODEL").unwrap_or_else(|_| "Qwen/Qwen3-0.6B".into());
++    // The sidecar `bin/smoke` writes beside the artifact names the checkpoint
++    // it encoded. A file without one (copied alone, or older) is sealed on
++    // `LLVQ_MODEL` alone, and the line below says so.
++    let state_path = llvq_llm::artifact2::RunState::path_for(&src);
++    let state = if std::path::Path::new(&state_path).exists() {
++        Some(llvq_llm::artifact2::RunState::read(&src)?)
++    } else {
++        None
++    };
++    let repo = checkpoint_name(std::env::var("LLVQ_MODEL").ok(), state.as_ref(), &state_path)?;
++    match state.as_ref().and_then(|s| s.get("model")) {
++        Some(_) => eprintln!("checkpoint {repo}: the one {state_path} names"),
++        None => eprintln!("checkpoint {repo}: no model recorded beside {src}, not cross-checked"),
++    }
+ 
+     // ---- read the quantized side ----
+     let f = std::fs::File::open(&src)?;
+@@ -187,3 +231,35 @@ fn main() -> anyhow::Result<()> {
+     println!("\n   this file needs no checkpoint, no cache and no network.");
+     Ok(())
+ }
++
++#[cfg(test)]
++mod tests {
++    use super::*;
++    use llvq_llm::artifact2::RunState;
++
++    #[test]
++    fn the_checkpoint_is_required_and_must_be_the_encoded_one() {
++        let mut st = RunState::new();
++        st.set("model", "Qwen/Qwen3-4B");
++        let p = "a.llvq.state";
++        // Absent or empty: refused, with or without a sidecar, never the 0.6B.
++        for m in [None, Some(String::new())] {
++            for state in [Some(&st), None] {
++                let e = checkpoint_name(m.clone(), state, p).unwrap_err();
++                assert!(format!("{e}").contains("LLVQ_MODEL=<checkpoint> is required"), "{e}");
++            }
++        }
++        // The encoded one: accepted, as written.
++        assert_eq!(
++            checkpoint_name(Some("Qwen/Qwen3-4B".into()), Some(&st), p).unwrap(),
++            "Qwen/Qwen3-4B"
++        );
++        // Another model of the same shapes: refused, naming both.
++        let e = checkpoint_name(Some("Qwen/Qwen3-4B-Base".into()), Some(&st), p).unwrap_err();
++        let e = format!("{e}");
++        assert!(e.contains("Qwen/Qwen3-4B-Base") && e.contains("model = Qwen/Qwen3-4B"), "{e}");
++        // No sidecar, or one that records no model: nothing to compare against.
++        assert!(checkpoint_name(Some("x".into()), None, p).is_ok());
++        assert!(checkpoint_name(Some("x".into()), Some(&RunState::new()), p).is_ok());
++    }
++}
+diff --git a/llvq-llm/src/device.rs b/llvq-llm/src/device.rs
+index b632cc8..597423c 100644
+--- a/llvq-llm/src/device.rs
++++ b/llvq-llm/src/device.rs
+@@ -103,8 +103,9 @@ pub trait LatticeProj: Send + Sync {
+     }
+ 
+     /// The concrete projection, for a runtime that reaches its own device
+-    /// buffers (route P's segment, `persist_cuda.rs`). `None` unless the
+-    /// backend says otherwise; nothing on a served path calls it.
++    /// buffers (`persist_cuda.rs`'s `tetra_of` and `int4_of`). `None` unless
++    /// the backend says otherwise. The served persistent decode calls it
++    /// through those helpers when it installs (`persist4e_cuda.rs`).
+     fn as_any(&self) -> Option<&dyn std::any::Any> {
+         None
+     }
+@@ -148,8 +149,9 @@ pub trait Int4Proj: Send + Sync {
+     }
+ 
+     /// The concrete projection, for a runtime that reaches its own device
+-    /// buffers (route P's segment, `persist_cuda.rs`). `None` unless the
+-    /// backend says otherwise; nothing on a served path calls it.
++    /// buffers (`persist_cuda.rs`'s `tetra_of` and `int4_of`). `None` unless
++    /// the backend says otherwise. The served persistent decode calls it
++    /// through those helpers when it installs (`persist4e_cuda.rs`).
+     fn as_any(&self) -> Option<&dyn std::any::Any> {
+         None
+     }
+diff --git a/llvq-llm/src/fused.rs b/llvq-llm/src/fused.rs
+index 5425dae..431038b 100644
+--- a/llvq-llm/src/fused.rs
++++ b/llvq-llm/src/fused.rs
+@@ -2367,9 +2367,11 @@ impl Transcoder {
+ 
+ /// Load a sealed artifact in encoded form, transcoded to `layout`.
+ ///
+-/// Costs one transcode of every matrix — 142 s for the 4B on eight cores,
+-/// measured 2026-08-05 — against `sealed::load`'s full decode, which took
+-/// 208.7 s on the same file and produced eight gigabytes of f16.
++/// Costs one transcode of every matrix. Under `Planes14` that took 142 s for
++/// the 4B on eight cores, measured 2026-08-05, against `sealed::load`'s full
++/// decode, which took 208.7 s on the same file and produced eight gigabytes
++/// of f16. Under `Tetra48`, the served layout, the transcode only copies six
++/// bytes a block into the row layout (`llvq_artifact::tetra48`).
+ ///
+ /// ⚠️ `Planes12x` is a different order of magnitude and it is not a defect:
+ /// it runs one exact lattice search per 5-level block on top of the same
+diff --git a/llvq-llm/src/fused_cuda.rs b/llvq-llm/src/fused_cuda.rs
+index 1c76372..9944e16 100644
+--- a/llvq-llm/src/fused_cuda.rs
++++ b/llvq-llm/src/fused_cuda.rs
+@@ -15,12 +15,14 @@
+ //!   activation carries the `Q`. The identity is pinned on the CPU by
+ //!   `llvq-artifact/tests/fused_path_matches_dense.rs`; getting it backwards
+ //!   produces finite, plausible, wrong numbers and no error at all.
+-//! * **It does not handle more than one token per call.** `tv_slot` is a
++//! * **It does not loop a prompt through the one-row kernel** where the layout
++//!   carries a rows kernel. The one-row kernel (`tv_slot`, `tv_tetra48_h`) is a
+ //!   matrix–*vector* product: one warp per output row, one activation staged
+-//!   in shared memory. A prompt of `l` tokens loops `l` times, which is
+-//!   correct and slower than a GEMM would be — acceptable for generation
+-//!   (`l = 1` after the prompt), useless for scoring a 2048-token window.
+-//!   Perplexity therefore keeps the dense path, and `bin/ppl` is untouched.
++//!   in shared memory, what a decode token runs. A prompt goes through
++//!   [`FusedRuntime::forward_rotated_rows`] instead: the rows kernel
++//!   (`tv_tetra48_rows_h`), up to [`FusedRuntime::prefill_rows`] rows a launch,
++//!   in chunks `model::group_forward` cuts. A layout with no rows kernel still
++//!   takes a prompt row by row. `bin/ppl` keeps the dense path.
+ //! * **It does not keep a dense copy as a fallback.** That would put the 8 GB
+ //!   back and forfeit the only gain that is not in dispute — 8.04 GB of f16
+ //!   weights against 3.28 with the projections encoded.
+@@ -47,8 +49,9 @@ use crate::fused::{
+     FusedLayout, FusedMatrix, FusedModel, HostStream, RotKey, RotationTables, EMBED_GROUP,
+ };
+ 
+-/// Threads per block for `tv_slot`: 256 = eight rows per block, the shape the
+-/// bench has always measured.
++/// Threads per block for `tv_slot` and for the int4 launches (`tv_q4_h`,
++/// `tv_q4_hs`): 256 = eight rows per block, the shape the bench has always
++/// measured.
+ const THREADS: u32 = 256;
+ /// Entries in the device class table. The class field is nine bits, so 512
+ /// are addressable while 384 exist; the tail stays the origin so a truncated
+@@ -3883,9 +3886,9 @@ pub fn load_resolved(
+     // to the device bytes they decide — an A/B where the arm has to be
+     // inferred from a byte count is not an A/B.
+     //
+-    // Both refusals before the 145 s transcode, not after it: a job that pays
+-    // for a load and then discovers its two variables are incompatible has
+-    // spent the money for nothing.
++    // Both refusals before the transcode, not after it (145 s under Planes14,
++    // a copy under Tetra48): a job that pays for a load and then discovers its
++    // two variables are incompatible has spent the money for nothing.
+     crate::fused::check_fuse(layout, share, fuse).map_err(candle_core::Error::msg)?;
+     let mut model =
+         crate::fused::load_with(path, layout, fuse).map_err(candle_core::Error::msg)?;
+diff --git a/llvq-llm/src/gsm8k.rs b/llvq-llm/src/gsm8k.rs
+index fc75f8e..9317cfa 100644
+--- a/llvq-llm/src/gsm8k.rs
++++ b/llvq-llm/src/gsm8k.rs
+@@ -332,6 +332,28 @@ impl Dump {
+             None => engine.to_string(),
+         }
+     }
++
++    /// How the dump prefilled its prompts: `eager` or `chain`, followed by
++    /// `attention kernel` when the eager prefill ran the kernel form's own
++    /// attention. Absent keys read as the eager prefill with the grouped
++    /// attention, what every dump written before them ran.
++    pub fn prefill(&self) -> String {
++        let form = self.header.get("prefill").and_then(|v| v.as_str()).unwrap_or("eager");
++        match self.header.get("prefill_attention").and_then(|v| v.as_str()) {
++            Some(a) => format!("{form}, attention {a}"),
++            None => form.to_string(),
++        }
++    }
++
++    /// The cache 4E's decode held. Absent is `f16`, the only cache before the
++    /// key existed.
++    pub fn decode_cache(&self) -> String {
++        self.header
++            .get("decode_cache")
++            .and_then(|v| v.as_str())
++            .unwrap_or("f16")
++            .to_string()
++    }
+ }
+ 
+ /// The header keys a served run adds to its dump: every choice of the config
+@@ -361,6 +383,10 @@ pub fn served_header(cfg: &crate::served::Served) -> Vec<(&'static str, String)>
+     if cfg.decode_cache == crate::served::DecodeCache::Int8 {
+         keys.push(("decode_cache", cfg.decode_cache.label().to_string()));
+     }
++    // Only under the kernel prefill attention, for the same reason.
++    if cfg.prefill == crate::kvq::PrefillAttn::Kernel {
++        keys.push(("prefill_attention", cfg.prefill.label().to_string()));
++    }
+     keys
+ }
+ 
+@@ -570,6 +596,16 @@ mod tests {
+     }
+ 
+     fn served_file(attention: Option<&str>, decode: Option<&str>, rows: Option<&str>) -> crate::served::Served {
++        served_file_with(attention, decode, rows, None, None)
++    }
++
++    fn served_file_with(
++        attention: Option<&str>,
++        decode: Option<&str>,
++        rows: Option<&str>,
++        prefill_attention: Option<&str>,
++        prefill: Option<&str>,
++    ) -> crate::served::Served {
+         let f = crate::served::ServedFile {
+             layout: "tetra48".into(),
+             embed: "q4".into(),
+@@ -579,8 +615,8 @@ mod tests {
+             attention: attention.map(str::to_string),
+             decode: decode.map(str::to_string),
+             rows: rows.map(str::to_string),
+-            prefill_attention: None,
+-            prefill: None,
++            prefill_attention: prefill_attention.map(str::to_string),
++            prefill: prefill.map(str::to_string),
+             decode_cache: None,
+             batch: None,
+             note: None,
+@@ -637,6 +673,47 @@ mod tests {
+         assert_eq!(d.decode(), "persistent rows v4");
+     }
+ 
++    #[test]
++    fn the_prefill_keys_are_written_only_when_they_differ_and_read_as_eager_when_absent() {
++        let get = |s: &crate::served::Served, key: &str| {
++            served_header(s).into_iter().find(|p| p.0 == key).map(|p| p.1)
++        };
++        // The configs that predate the keys write the header they always did.
++        let v9 = served_file(Some("kernel"), Some("persistent"), Some("v9"));
++        assert_eq!(get(&v9, "prefill"), None);
++        assert_eq!(get(&v9, "prefill_attention"), None);
++        let kp = served_file_with(Some("kernel"), Some("persistent"), Some("v9"), Some("kernel"), None);
++        assert_eq!(get(&kp, "prefill_attention").as_deref(), Some("kernel"));
++
++        // An old header: no config, no prefill key, no decode cache. It reads
++        // as the eager prefill and the f16 cache, and pairs as it always did.
++        let rows = vec![row(0, "a", true), row(1, "b", false)];
++        let old = parse_dump(&dump_text(&rows, Some(2)), "old").unwrap();
++        assert_eq!(old.prefill(), "eager");
++        assert_eq!(old.decode_cache(), "f16");
++        assert_eq!(old.field("config"), "?");
++        let p = pair(&old, &old).unwrap();
++        assert_eq!((p.n, p.right_a, p.right_b, p.only_a, p.only_b), (2, 1, 1, 0, 0));
++
++        // A new header with both prefill keys pairs with the old one.
++        let mut header = serde_json::json!({ DUMP_TAG: DUMP_VERSION, "model": "m" });
++        let h = header.as_object_mut().unwrap();
++        for (k, v) in served_header(&kp) {
++            h.insert(k.into(), v.into());
++        }
++        h.insert("prefill".into(), "chain".into());
++        let mut text = format!("{header}\n");
++        for r in &rows {
++            text.push_str(&serde_json::to_string(r).unwrap());
++            text.push('\n');
++        }
++        text.push_str("{\"end\": true, \"fingerprint\": \"ab\", \"questions\": 2}\n");
++        let new = parse_dump(&text, "new").unwrap();
++        assert_eq!(new.prefill(), "chain, attention kernel");
++        assert_eq!(new.field("config"), "c.json");
++        assert_eq!(pair(&old, &new).unwrap().n, 2);
++    }
++
+     #[test]
+     fn a_prompt_past_the_engine_is_refused_before_the_run() {
+         let cap = crate::served_decode::P4E_MAX_CAP;
+diff --git a/llvq-llm/src/model.rs b/llvq-llm/src/model.rs
+index a45c0dd..7ea5c72 100644
+--- a/llvq-llm/src/model.rs
++++ b/llvq-llm/src/model.rs
+@@ -2219,11 +2219,15 @@ impl Block {
+             })?;
+             let grow = matches!(cache.store(), crate::kvq::KvStore::Grow(_));
+             let (k, v) = cache.append_with(&k, &v, self.kv_aux.as_ref())?;
+-            // Decode and verify rows at `kernel_from` or later go to the
+-            // kernel. A row below it, a prefill chunk, a batch, or the scratch
+-            // `Cat` cache of a full-window forward take the grouped path; the
+-            // cache bytes are the same either way, since `append` wrote them
+-            // before the branch.
++            // A chunk of at most `kern.max_rows()` rows on a growing cache,
++            // decode or prefill alike, sends its rows at `kernel_from` or later
++            // to the kernel (`kernel_rows`). A longer chunk goes to the kernel
++            // under the kernel prefill form (`kernel_prefill`), and to the
++            // grouped path otherwise, as do rows below `kernel_from`, a batch
++            // and the scratch `Cat` cache of a full-window forward. The two
++            // paths are not bit for bit, so where a prompt is cut into chunks
++            // decides the bits of its attention. The cache bytes are the same
++            // either way, since `append` wrote them before the branch.
+             let ctx = if b == 1 && l <= kern.max_rows() && grow {
+                 if q.dtype() != DType::F16 {
+                     candle_core::bail!(
+diff --git a/llvq-llm/src/persist4e_cuda.rs b/llvq-llm/src/persist4e_cuda.rs
+index f864d39..45ea51c 100644
+--- a/llvq-llm/src/persist4e_cuda.rs
++++ b/llvq-llm/src/persist4e_cuda.rs
+@@ -1,8 +1,8 @@
+ //! 4E on CUDA: the whole decode token in one cooperative launch, N tokens a
+ //! launch (`llvq-cuda/kernels/pers_4e.cu`). Built by `bin/fusedrun`'s
+ //! `LLVQ_PERS_4E` (a measurement), and by a served config that names the
+-//! persistent decode (`crate::served_decode`, kernel form from position 0 on
+-//! the sealed 4B, operator T8 of 2026-11-05).
++//! persistent decode (`crate::served_decode`: the v9 configs at 4B, 8B and
++//! 14B, kernel form from position 0).
+ //!
+ //! Every phase of the kernel equals the served chain bit for bit on the host
+ //! (`llvq-cuda/tests/pers_matches_served.rs`), attention included as the
+@@ -15,13 +15,13 @@
+ //! the kernel form (`configs/qwen3-4b-tetra-e4-kernel-from1280.json`) runs
+ //! candle's grouped arithmetic below 1,280 (cuBLAS matmuls, candle's
+ //! softmax), whose bits no hand kernel reproduces, so 4E owes that config's
+-//! tokens only from there. The served 4B config,
+-//! `configs/qwen3-4b-tetra-e4-4e-v4.json` (and its v6 twin,
+-//! `configs/qwen3-4b-tetra-e4-4e-v6.json`), names the persistent decode and
+-//! sends every decode row to the kernel from position 0, the form the
++//! tokens only from there. The served configs,
++//! `configs/qwen3-{4b,8b,14b}-tetra-e4-4e-v9.json` and the 4B's chain config
++//! `configs/qwen3-4b-tetra-e4-4e-v9-chain.json`, name the persistent decode
++//! and send every decode row to the kernel from position 0, the form the
+ //! operator's T8 extension of 2026-11-05 licenses on the sealed 4B
+ //! (`docs/mesures/attn-t8-below-4b-2026-11-05.txt`). `Served::decoder` sets
+-//! the threshold to 0 for it (`Runtime4e::set_served_kernel_from`). A
++//! the threshold to 0 for them (`Runtime4e::set_served_kernel_from`). A
+ //! measurement may lower it to 0 too
+ //! ([`Runtime4e::set_kernel_from_for_measurement`]), against an eager path
+ //! with every row on the kernel.
+@@ -190,8 +190,9 @@ struct Verify4e {
+ 
+ /// The tree verify pass (`pers_4et.cu`, `docs/plan-verify-tree.md`): its own
+ /// module (the v9 module and the tree kernel), its area and the model's
+-/// slices, and buffers for `pers::P4T_RMAX` rows. Not a served path: S1
+-/// measures it (`bin/vtreebench`).
++/// slices, and buffers for `pers::P4T_RMAX` rows. The served path of the
++/// 4B's chain config, whose prompt goes through it (`served_decode`'s
++/// `install_chain`); `bin/vtreebench` measures it too.
+ struct Tree4e {
+     _cuda: llvq_cuda::gpu::Cuda,
+     f: CudaFunction,
+@@ -485,8 +486,8 @@ pub fn install(model: &Qwen3, device: &Device, max_tokens: u32, threads: Option<
+ }
+ 
+ /// [`install`] with the module's row form (`pers::P4E_ROWS_FORMS`): 1 is v3;
+-/// 2 is v4, what the served config runs since 2026-11-05; 3 is v5; 4 is v6.
+-/// `LLVQ_PERS_4E` times `pers::P4E_BENCH_FORMS`.
++/// 2 is v4; 3 is v5; 4 is v6; 5 is v7; 6 is v8; 7 is v9, what the served
++/// configs run. `LLVQ_PERS_4E` times `pers::P4E_BENCH_FORMS`.
+ pub fn install_rows(model: &Qwen3, device: &Device, max_tokens: u32, threads: Option<u32>, rows_form: u32) -> anyhow::Result<Runtime4e> {
+     install_rows_as(model, device, max_tokens, threads, rows_form, None)
+ }
+diff --git a/llvq-llm/src/persist_cuda.rs b/llvq-llm/src/persist_cuda.rs
+index 0649d95..9f0ba3d 100644
+--- a/llvq-llm/src/persist_cuda.rs
++++ b/llvq-llm/src/persist_cuda.rs
+@@ -5,8 +5,11 @@
+ //! Host proof: `llvq-cuda/tests/pers_matches_served.rs` (the segment equals the
+ //! eager chain bit for bit on the Mac, its barrier and residual mutants killed).
+ //!
+-//! Measurement only. Nothing installs a segment unless `bin/fusedrun` is asked
+-//! for `LLVQ_PERS_SEGMENT=1`; every served path runs the eager ops.
++//! The segment is a measurement: nothing installs one unless `bin/fusedrun` is
++//! asked for `LLVQ_PERS_SEGMENT=1`. The module is on the served path all the
++//! same: the served persistent decode (`crate::persist4e_cuda`) builds its
++//! arguments with its helpers (`int4_of`, `mlp_args`, `seg_tetra`,
++//! `tensor_addr`, `tetra_of`).
+ //!
+ //! What install checks, layer by layer, before a segment may replace the eager
+ //! ops: the projections are the ones the kernel reads (Tetra48 gate and up under
+diff --git a/llvq-llm/src/sealed.rs b/llvq-llm/src/sealed.rs
+index be8648e..03bab0d 100644
+--- a/llvq-llm/src/sealed.rs
++++ b/llvq-llm/src/sealed.rs
+@@ -148,15 +148,19 @@ fn layer_of(name: &str) -> Option<usize> {
+ }
+ 
+ impl RestoreF16 {
+-    /// Parse a `LLVQ_RESTORE_F16` value: empty means nothing, `all` means the
+-    /// seven, otherwise a comma-separated subset of [`PROJ_TYPES`].
+     /// Resolve from the environment: `LLVQ_RESTORE_F16` and
+     /// `LLVQ_RESTORE_Q4` take the same type list and differ only in the
+     /// precision handed back. Setting both is refused — an arm whose defining
+     /// parameter is ambiguous is an arm nobody can re-read.
+     pub fn from_env() -> Result<Self, String> {
+-        let f16 = std::env::var("LLVQ_RESTORE_F16").unwrap_or_default();
+-        let q4 = std::env::var("LLVQ_RESTORE_Q4").unwrap_or_default();
++        Self::from_lookup(|k| std::env::var(k).ok())
++    }
++
++    /// [`Self::from_env`] on any source of variables, so the refusal is
++    /// testable without touching the process environment.
++    pub fn from_lookup(lookup: impl Fn(&str) -> Option<String>) -> Result<Self, String> {
++        let f16 = lookup("LLVQ_RESTORE_F16").unwrap_or_default();
++        let q4 = lookup("LLVQ_RESTORE_Q4").unwrap_or_default();
+         match (f16.trim().is_empty(), q4.trim().is_empty()) {
+             (true, true) => Ok(Self::default()),
+             (false, true) => Self::parse(&f16),
+@@ -179,6 +183,8 @@ impl RestoreF16 {
+         self.prec
+     }
+ 
++    /// Parse a `LLVQ_RESTORE_F16` value: empty means nothing, `all` means the
++    /// seven, otherwise a comma-separated subset of [`PROJ_TYPES`].
+     pub fn parse(spec: &str) -> Result<Self, String> {
+         let spec = spec.trim();
+         if spec.is_empty() {
+@@ -261,14 +267,24 @@ impl RestoreF16 {
+         })
+     }
+ 
+-    /// Comma-joined, for labels and error messages.
++    /// Comma-joined, for labels and error messages. A type restricted to a
++    /// window of layers is written with it, as `parse` reads it:
++    /// `down_proj@0-11`.
+     pub fn describe(&self) -> String {
+-        self.types.join(",")
++        self.types
++            .iter()
++            .enumerate()
++            .map(|(i, t)| match self.ranges.get(i).copied().flatten() {
++                Some((lo, hi)) => format!("{t}@{lo}-{hi}"),
++                None => (*t).to_string(),
++            })
++            .collect::<Vec<_>>()
++            .join(",")
+     }
+ 
+     /// Types and precision together — what goes on the result line.
+     pub fn describe_full(&self) -> String {
+-        format!("{} at {}", self.types.join(","), self.prec.describe())
++        format!("{} at {}", self.describe(), self.prec.describe())
+     }
+ }
+ 
+@@ -701,6 +717,42 @@ mod restore_tests {
+         // for the f16 arm of the same type.
+         assert!(q4.describe_full().contains("int4 g128"));
+         assert!(RestoreF16::parse("v_proj").unwrap().describe_full().contains("at f16"));
++
++        // The environment, read through a lookup: each variable alone selects
++        // its precision, neither is the empty set, and both together are
++        // refused by name.
++        fn env(
++            f16: Option<&'static str>,
++            q4: Option<&'static str>,
++        ) -> impl Fn(&str) -> Option<String> {
++            move |k| match k {
++                "LLVQ_RESTORE_F16" => f16.map(str::to_string),
++                "LLVQ_RESTORE_Q4" => q4.map(str::to_string),
++                _ => None,
++            }
++        }
++        assert!(RestoreF16::from_lookup(env(None, None)).unwrap().is_empty());
++        assert!(RestoreF16::from_lookup(env(Some(" "), Some(""))).unwrap().is_empty());
++        let f = RestoreF16::from_lookup(env(Some("v_proj"), None)).unwrap();
++        assert_eq!((f.types(), f.prec()), (&["v_proj"][..], RestorePrec::F16));
++        let q = RestoreF16::from_lookup(env(None, Some("v_proj"))).unwrap();
++        assert_eq!((q.types(), q.prec()), (&["v_proj"][..], RestorePrec::Q4 { group: Q4_GROUP }));
++        let e = RestoreF16::from_lookup(env(Some("v_proj"), Some("o_proj"))).unwrap_err();
++        assert!(e.contains("LLVQ_RESTORE_F16") && e.contains("LLVQ_RESTORE_Q4"), "{e}");
++    }
++
++    /// A window of layers travels into the label, so two arms of one type
++    /// over different depths do not print the same line.
++    #[test]
++    fn a_restored_window_is_named_in_the_label() {
++        let w = RestoreF16::parse("down_proj@0-11, o_proj").unwrap();
++        assert_eq!(w.describe(), "down_proj@0-11,o_proj");
++        assert_eq!(w.describe_full(), "down_proj@0-11,o_proj at f16");
++        assert_ne!(
++            RestoreF16::parse("down_proj@24-35").unwrap().describe(),
++            RestoreF16::parse("down_proj@0-11").unwrap().describe()
++        );
++        assert_eq!(RestoreF16::parse("all").unwrap().describe(), PROJ_TYPES.join(","));
+     }
+ 
+     /// Four bits must actually cost something: a round trip that returned its
+diff --git a/llvq-llm/src/served.rs b/llvq-llm/src/served.rs
+index c69b5ac..fcc1c8c 100644
+--- a/llvq-llm/src/served.rs
++++ b/llvq-llm/src/served.rs
+@@ -41,10 +41,12 @@
+ //!   rule, a refusal: whichever way one resolved it, half the readers of the
+ //!   run would believe the other. The comparison goes THROUGH the parsers, so
+ //!   `LLVQ_FUSE=""` beside `"fuse": "0"` agrees — both mean `Off`;
+-//! * four variables that reach BELOW the served door and that no field of this
+-//!   file carries: `LLVQ_KERNEL_DIR` swaps the kernel text, `LLVQ_TILE_BLOCKS`
+-//!   and `LLVQ_PREFILL` move served constants, `LLVQ_METAL_KERNEL` swaps the
+-//!   Metal matvec. Any one set beside `LLVQ_CONFIG` is refused by name. `LLVQ_NVRTC_ARCH` is deliberately NOT refused: it names the card,
++//! * seven variables that reach BELOW the served door and that no field of
++//!   this file carries ([`BELOW_THE_DOOR`]): `LLVQ_KERNEL_DIR` swaps the kernel
++//!   text, `LLVQ_TILE_BLOCKS` and `LLVQ_PREFILL` move served constants,
++//!   `LLVQ_METAL_KERNEL` swaps the Metal matvec, and `LLVQ_GUIDED_WEIGHTS`,
++//!   `LLVQ_GUIDED_GROUPS` and `LLVQ_GUIDED_CLIP` change how an object is
++//!   encoded. Any one set beside `LLVQ_CONFIG` is refused by name. `LLVQ_NVRTC_ARCH` is deliberately NOT refused: it names the card,
+ //!   not the object, and an A100 needs it; the runtime prints it on its
+ //!   `NVRTC source:` line so no served log is silent about its target.
+ //!
+diff --git a/llvq-llm/tests/served_config.rs b/llvq-llm/tests/served_config.rs
+index e5526cd..4fbaaed 100644
+--- a/llvq-llm/tests/served_config.rs
++++ b/llvq-llm/tests/served_config.rs
+@@ -144,22 +144,23 @@ fn the_file_accepts_exactly_what_the_variables_accept() {
+     }
+ }
+ 
+-/// The file this repository ships IS the object arbitrated on 2026-09-08.
++/// The q5 file is the object arbitrated on 2026-09-08, listed among the
++/// earlier objects of `configs/README.md`.
+ ///
+-/// Not a restatement of the struct: the shipped file is read from disk, by
+-/// the code a runner runs, and compared against the five values `docs/ETAT.md`
+-/// attributes 56.95 MMLU and 2.8138 b/param to. A config that drifted from the
+-/// dossier would make every run under it cite a provenance it does not have.
++/// Not a restatement of the struct: the file is read from disk, by the code a
++/// runner runs, and compared against its five values. A config that drifted
++/// from its record would make every run under it cite a provenance it does
++/// not have.
+ #[test]
+-fn the_shipped_config_is_the_served_object() {
++fn the_q5_config_is_the_object_arbitrated_on_2026_09_08() {
+     let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+         .join("../configs/qwen3-4b-tetra-q5.json");
+     // `read_file` + `of`, not `read`: `read` consults the shell, and a test
+     // whose verdict depends on what the developer exported is not a test of
+     // the file. Found the hard way — this line failed on any shell with
+     // `LLVQ_FUSED_LAYOUT` set, and passed on a clean one.
+-    let f = Served::read_file(&path).expect("the shipped config parses");
+-    let s = Served::of(f, path.clone()).expect("the shipped config resolves");
++    let f = Served::read_file(&path).expect("the q5 config parses");
++    let s = Served::of(f, path.clone()).expect("the q5 config resolves");
+     assert_eq!(s.layout, FusedLayout::Tetra48);
+     assert_eq!(s.embed, EmbedMode::Q8);
+     assert_eq!(s.rot_share, RotShare::On);
+@@ -175,6 +176,48 @@ fn the_shipped_config_is_the_served_object() {
+     );
+ }
+ 
++/// The config `llvq` serves the 4B on CUDA is the served object of
++/// `docs/ETAT.md` §2: layout `tetra48`, embedding `q4`, one rotation per
++/// group, no fusion, f16 KV, the kernel attention, 4E with the v9 rows, and
++/// the chain prefill.
++///
++/// The file is the one `llvq-runtime/library.json` names for the 4B on CUDA,
++/// read from disk as for the q5 test, so a runtime that moved to another file
++/// moves this test with it, and a file that drifted from the record fails it.
++#[test]
++fn the_shipped_config_is_the_served_object() {
++    use llvq_llm::kvq::PrefillAttn;
++    use llvq_llm::served::Prefill;
++    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("..");
++    let library: serde_json::Value = serde_json::from_str(
++        &std::fs::read_to_string(root.join("llvq-runtime/library.json")).expect("the library"),
++    )
++    .expect("the library parses");
++    let models = library["models"].as_array().expect("a model list");
++    let four_b = models.iter().find(|m| m["tag"] == "4b").expect("the 4B entry");
++    let name = four_b["configs"]["cuda"].as_str().expect("a CUDA config for the 4B");
++    assert_eq!(name, "qwen3-4b-tetra-e4-4e-v9-chain.json", "the 4B's served CUDA config moved");
++    let path = root.join("configs").join(name);
++    let f = Served::read_file(&path).expect("the served config parses");
++    let s = Served::of(f, path.clone()).expect("the served config resolves");
++    assert_eq!(s.layout, FusedLayout::Tetra48);
++    assert_eq!(s.embed, EmbedMode::Q4);
++    assert_eq!(s.rot_share, RotShare::On);
++    assert_eq!(s.kv, KvMode::F16);
++    assert_eq!(s.fuse, FuseMode::Off);
++    assert!(
++        !llvq_llm::fused::planes_source_names(s.layout).contains(&"tv_planes_seg_h.cu"),
++        "Tetra48 gained a segmented kernel: the shipped `fuse` value is now a choice, \
++         not a fact, and this config has to be revisited"
++    );
++    assert_eq!(s.attention, AttnHeads::Kernel);
++    assert_eq!(s.decode, Decode::Persistent);
++    assert_eq!(s.rows, Rows4e::V9);
++    assert_eq!(s.prefill_form, Prefill::Chain);
++    assert_eq!(s.prefill, PrefillAttn::Grouped);
++    assert_eq!(s.batch, None);
++}
++
+ /// The 8B config is the 4B's five values on another object, and nothing more.
+ ///
+ /// No field of a served config is model-specific: the five name a layout, an
+diff --git a/llvq-quant/src/gptq.rs b/llvq-quant/src/gptq.rs
+index 37e0ecb..7be07f2 100644
+--- a/llvq-quant/src/gptq.rs
++++ b/llvq-quant/src/gptq.rs
+@@ -282,10 +282,10 @@ pub fn quantize_layer_capturing(
+ 
+     // One reference scale per output row, fixed **before** the block loop.
+     //
+-    // It is stored as a single f16 per row, so it must not drift as error
+-    // feedback rewrites the row: recomputing it per block would make the
+-    // reconstruction depend on d_in/24 distinct scales that no artifact can
+-    // carry at the rate the accounting charges.
++    // It is stored as one float per row (f64 in the file, f32 on the card),
++    // so it must not drift as error feedback rewrites the row: recomputing it
++    // per block would make the reconstruction depend on d_in/24 distinct
++    // scales that no artifact can carry at the rate the accounting charges.
+     let row_scales: Vec<f64> = (0..d_out)
+         .map(|i| crate::quantizer::row_scale(weights.row(i)))
+         .collect();
+diff --git a/llvq-quant/src/linalg.rs b/llvq-quant/src/linalg.rs
+index cefeace..6fb28dc 100644
+--- a/llvq-quant/src/linalg.rs
++++ b/llvq-quant/src/linalg.rs
+@@ -13,10 +13,13 @@
+ //! passes ~615 G multiply-adds *per layer*.
+ //!
+ //! With `--features fast-linalg`, [`GptqFactor::new`] calls `faer` instead:
+-//! blocked, vectorized and threaded, same mathematics to the last rounding.
++//! blocked, vectorized and threaded. It is the same mathematics in a
++//! different order of operations, so the two factors agree to rounding, not
++//! to the bit, and codes encoded on the two paths may differ.
+ //! The tests assert *identities* (`L Lᵀ = H`, `(Uᵀ U) H = I`), not the
+ //! behaviour of one implementation, so they hold both paths — and
+-//! `both_factorizations_agree` requires the two to produce the same factor.
++//! `both_factorizations_agree` requires the two factors to agree entry by
++//! entry within `1e-8 · max(max|U|, 1)`, on sizes 7, 24, 64 and 129.
+ //!
+ //! Matrices are dense row-major `n × n` in a flat `Vec<f64>`.
+ 
+diff --git a/llvq-quant/src/quantizer.rs b/llvq-quant/src/quantizer.rs
+index c29a689..ce073ac 100644
+--- a/llvq-quant/src/quantizer.rs
++++ b/llvq-quant/src/quantizer.rs
+@@ -42,9 +42,10 @@ pub trait BlockQuantizer {
+     /// Block magnitudes vary by orders of magnitude *across* the rows of a
+     /// weight matrix but are homogeneous *within* one, so a gain code with a
+     /// handful of levels is only workable relative to a per-row scale. That
+-    /// scale is one float per row — `16/d_in` bits per weight, i.e. 0.006 on
+-    /// a 2560-wide layer — against `16/24 = 0.67` for an unquantized
+-    /// magnitude per block. Ignored by quantizers that carry no gain.
++    /// scale is one float per row, an f64 in the file (`64/d_in` bits per
++    /// weight, i.e. 0.025 on a 2560-wide layer) and an f32 on the card,
++    /// against `16/24 = 0.67` for an unquantized 16-bit magnitude per block.
++    /// Ignored by quantizers that carry no gain.
+     fn set_row_scale(&mut self, _scale: f64) {}
+ 
+     /// Write the reconstruction of `v` into `out` (same length as `v`).
+@@ -406,10 +407,13 @@ fn ties_even(x: f64) -> f64 {
+ ///
+ /// | | retraction | rate/block | gain code |
+ /// |---|---|---|---|
+-/// | [`Self::retract_to_level`] (default) | to the nearest code level | 47 + k | load-bearing |
+-/// | [`Self::with_free_magnitude`] | to the exact block norm | 47 + 16 | inert |
++/// | [`Self::retract_to_level`] (default) | to the nearest code level | 48 + k | load-bearing |
++/// | [`Self::with_free_magnitude`] | to the exact block norm | 48 + 16 | inert |
+ /// | Algorithm 3 as written | exact norm, then a closed-form solve | to be determined | deferred to the solve |
+ ///
++/// The rates are at the default shell cap 13, a 48-bit index; a cap of 12
++/// takes one bit off each.
++///
+ /// The default is the honest one: what the code claims to store is what the
+ /// reconstruction uses. The alternative is kept so the two can be A/B'd
+ /// rather than argued about — the choice is a measurement, not a preference.
+diff --git a/llvq-runtime/README.md b/llvq-runtime/README.md
+index 341daab..4dc6505 100644
+--- a/llvq-runtime/README.md
++++ b/llvq-runtime/README.md
+@@ -14,7 +14,7 @@ llvq ls; llvq ps; llvq show qwen3:4b; llvq stop qwen3:4b; llvq rm qwen3:4b
+ 
+ | model | file | b/param | Metal config | CUDA config |
+ |---|---|---|---|---|
+-| `qwen3:4b`, also `qwen3:latest` | `qwen3-4b-sealed.bin`, 1.42 GB | 2.7320 | expanded | 4E v9 (greedy only) |
++| `qwen3:4b`, also `qwen3:latest` | `qwen3-4b-sealed.bin`, 1.42 GB | 2.7320 | expanded | 4E v9 after the chain prefill (`LLVQ_PROFILE=eager`: the eager prefill), greedy only |
+ | `qwen3:8b` | `qwen3-8b-sealed-B.bin`, 2.82 GB | 2.6953 | expanded, never run fused on Metal | 4E v9 (greedy only) |
+ | `qwen3:14b` | `qwen3-14b-sealed.bin`, 5.09 GB | 2.7305 | expanded, never run fused on Metal | 4E v9 (greedy only) |
+ 
+@@ -39,7 +39,12 @@ blobs and `/v1/responses` answer `501` with the reason.
+ 
+ ## Limits
+ 
+-The engine decodes one sequence at a time, so requests to one model queue. On CUDA the three
+-models run 4E, which decodes greedily: a temperature above 0 is refused there. A chat history is read again
++By default the engine decodes one sequence at a time, so requests to one model queue. Under
++`LLVQ_BATCH=<n>[:<positions>]` on CUDA, `llvq serve` batches continuously through each model's
++`*-4e-v9-batch.json` config: a lone request decodes on 4E, and up to n step together through the
++batched GEMM, greedy only, with no conversation cache. `LLVQ_BATCH` is refused on Metal and the CPU.
++On CUDA the three models run 4E, which decodes greedily: a temperature above 0 is refused there.
++The 4B's chain prefill compiles two tree modules on a card's first start, then loads them from
++`LLVQ_MODULE_CACHE` (unset: `$XDG_CACHE_HOME/llvq/modules`, else `~/.cache/llvq/modules`). A chat history is read again
+ only from the first message that changed since the last request. Rates in a response are the
+ runtime's own, never a measurement.
+diff --git a/llvq-runtime/src/engine.rs b/llvq-runtime/src/engine.rs
+index 8b4b100..b0cba04 100644
+--- a/llvq-runtime/src/engine.rs
++++ b/llvq-runtime/src/engine.rs
+@@ -664,7 +664,8 @@ impl Worker {
+ 
+         let t_prompt = Instant::now();
+         // The prefill the config names: the eager path, or the chain through
+-        // the tree pass under a chain config (`LLVQ_PROFILE=chain`).
++        // the tree pass under a chain config (the 4B's default on CUDA;
++        // `LLVQ_PROFILE=eager` takes the eager prefill).
+         let fed = self.session.feed_with(&self.loaded.qwen, &mut self.loaded.decoder, &prompt[cached..])?;
+         let prompt_eval = t_prompt.elapsed();
+ 
+@@ -1605,13 +1606,15 @@ mod tests {
+         assert_eq!(s("10s"), KeepAlive::For(Duration::from_secs(10)));
+         assert_eq!(s("250ms"), KeepAlive::For(Duration::from_millis(250)));
+         assert_eq!(s("0"), KeepAlive::For(Duration::ZERO));
++        // A bare number in a string is seconds, as in a JSON number.
++        assert_eq!(s("5"), KeepAlive::For(Duration::from_secs(5)));
+         assert_eq!(s("-1"), KeepAlive::Forever);
+         assert_eq!(s("-1m"), KeepAlive::Forever);
+         assert_eq!(KeepAlive::parse(&serde_json::json!(30)).unwrap(), KeepAlive::For(Duration::from_secs(30)));
+         assert_eq!(KeepAlive::parse(&serde_json::json!(-1)).unwrap(), KeepAlive::Forever);
+-        for bad in ["5", "5x", "m", "1h5"] {
++        for bad in ["5x", "m", "1h5"] {
+             let r = KeepAlive::parse_str(bad);
+-            assert!(bad == "5" || r.is_err(), "{bad:?} must be refused");
++            assert!(r.is_err(), "{bad:?} must be refused");
+         }
+     }
+ }
+diff --git a/llvq-runtime/src/main.rs b/llvq-runtime/src/main.rs
+index a53e8f6..ce9ad4e 100644
+--- a/llvq-runtime/src/main.rs
++++ b/llvq-runtime/src/main.rs
+@@ -13,7 +13,7 @@
+ //!
+ //! `LLVQ_BATCH=<sequences>[:<positions>]` puts `llvq serve` on CUDA in
+ //! continuous batching: up to that many requests decode together, each in a
+-//! slot of the model's batch config (`configs/qwen3-*-tetra-e4-batch.json`),
++//! slot of the model's batch config (`configs/qwen3-*-tetra-e4-4e-v9-batch.json`),
+ //! greedy only. Unset or `0`, requests run one after another on the served
+ //! config.
+ //!
+diff --git a/llvq-search/src/lib.rs b/llvq-search/src/lib.rs
+index 4479894..8db9acd 100644
+--- a/llvq-search/src/lib.rs
++++ b/llvq-search/src/lib.rs
+@@ -17,11 +17,11 @@
+ //! therefore ranks 759–4096 closed-form class maxima instead of enumerating
+ //! up to 16.7 M lattice points — and it is *exact*, not approximate.
+ //!
+-//! ## Half-word tables
++//! ## Chunk tables
+ //!
+-//! Per query we build subset-sum DP tables over the two 12-coordinate
+-//! halves (4096 entries each): `Σxᵢ`, `Σ|xᵢ|`, negative-coordinate count,
+-//! and min/max trackers. Every per-codeword quantity then costs two table
++//! Per query we build subset-sum DP tables over three 8-coordinate chunks
++//! (256 entries each): `Σxᵢ`, `Σ|xᵢ|`, negative-coordinate count, and
++//! min/max trackers. Every per-codeword quantity then costs three table
+ //! lookups instead of a 24-iteration branchy loop, and an upper bound
+ //! (`base + 4·k·max|x|`) prunes codewords that cannot beat the running
+ //! best. This is what makes the search fast enough to be an encoder.
+@@ -31,9 +31,9 @@
+ //! Euclidean minimizes `‖x‖² + ‖v‖² − 2⟨x,v⟩`, angular maximizes
+ //! `⟨x,v⟩ / ‖v‖`. Both are supported.
+ //!
+-//! Shells currently covered: m = 2 and m = 3 (hand-derived class
++//! This module covers m = 2 and m = 3 (hand-derived class
+ //! decompositions, cross-checked by the G1/G2 suites). The generic
+-//! leader-table engine for m ≤ 13 (2 bits/dim regime) is Phase 2b.
++//! engine for m ≤ 13 (2 bits/dim regime) is in `generic`.
+ 
+ #![forbid(unsafe_code)]
+ 
+diff --git a/llvq-search/src/pack.rs b/llvq-search/src/pack.rs
+index c61bc3c..1b45255 100644
+--- a/llvq-search/src/pack.rs
++++ b/llvq-search/src/pack.rs
+@@ -44,7 +44,8 @@ impl BitWriter {
+     ///
+     /// Panics if `width > 64`, or if `value` does not fit in `width` bits —
+     /// a silently truncated index would be indistinguishable from a valid one
+-    /// belonging to a different lattice point.
++    /// belonging to a different lattice point. `width == 0` writes nothing and
++    /// returns before that check, so a non-zero `value` is dropped there.
+     pub fn push(&mut self, value: u64, width: u32) {
+         assert!(width <= 64, "width {width} exceeds 64");
+         if width == 0 {
+diff --git a/llvq-tetra/README.md b/llvq-tetra/README.md
+index 0e7804d..e30758c 100644
+--- a/llvq-tetra/README.md
++++ b/llvq-tetra/README.md
+@@ -34,16 +34,18 @@ loads. That needs no GPU and no compiler, but the model then takes 8 GB in f16,
+ and 16 GB in float32, the dtype of the snippet above. The download is still
+ 1.4 GB, which helps if disk or bandwidth is your limit rather than memory.
+ 
+-Set `LLVQ_HF_FUSED=1` and the weights stay compressed in memory. A kernel decodes
+-and multiplies in one pass. On Apple silicon the loaded 4B holds 2.75 GB on the
+-device, with all 252 projections compressed. On NVIDIA only 168 of them are
+-compressed and the rest fall back to dense, because the CUDA side has the
+-lattice kernel but not yet the 4-bit one. The package prints the count, so you
+-can see which case you are in.
+-
+-The fused path compiles a kernel the first time you use it, so it needs `ninja`
+-and a compiler: Xcode command line tools on a Mac, `nvcc` on Linux. There is no
+-precompiled kernel yet.
++Pass `device_map="mps"` or `device_map="cuda"` and the weights stay compressed
++in memory. A kernel decodes and multiplies in one pass. On Apple silicon the
++loaded 4B holds 2.75 GB on the device, with all 252 projections compressed. On
++NVIDIA only 168 of them are compressed and the rest fall back to dense, because
++the CUDA side has the lattice kernel but not yet the 4-bit one. The package
++prints the count, so you can see which case you are in. Without a `device_map`,
++`LLVQ_HF_FUSED=1` asks for the same path on whichever GPU is present.
++
++On a Mac nothing is built: PyTorch hands the shaders to the system's Metal
++compiler at first use, with no `ninja` and no command line tools. On NVIDIA the
++kernel compiles the first time you use it, so it needs `ninja` and `nvcc`. There
++is no precompiled CUDA kernel yet.
+ 
+ ## Before you use it
+ 
+diff --git a/llvq-tetra/llvq_tetra/checkmps.py b/llvq-tetra/llvq_tetra/checkmps.py
+index 53db0d3..fae0dfe 100644
+--- a/llvq-tetra/llvq_tetra/checkmps.py
++++ b/llvq-tetra/llvq_tetra/checkmps.py
+@@ -45,12 +45,14 @@ def apply_mutant(name: str) -> str:
+         def patched(tile):
+             src = base(tile)
+             kernel = mps.kernel_text(src, "tv_tetra48_metal")
+-            assert kernel.count(old) == 1, f"{name}: the served text matches {kernel.count(old)} times"
++            if kernel.count(old) != 1:
++                raise ValueError(f"{name}: the served text matches {kernel.count(old)} times")
+             return src.replace(kernel, kernel.replace(old, new))
+ 
+         metal.tiled_source = patched
+     elif where == "rows":
+-        assert mps.TETRA_ROWS_KERNEL.count(old) == 1
++        if mps.TETRA_ROWS_KERNEL.count(old) != 1:
++            raise ValueError(f"{name}: the served text matches {mps.TETRA_ROWS_KERNEL.count(old)} times")
+         mps.TETRA_ROWS_KERNEL = mps.TETRA_ROWS_KERNEL.replace(old, new)
+     elif where in ("vocab", "head", "rot"):
+         file = {"vocab": "emb_q4.metal", "head": "emb_q4.metal", "rot": "llvq_rot.metal"}[where]
+@@ -67,7 +69,8 @@ def apply_mutant(name: str) -> str:
+             # lines in its threadgroup variants.
+             scope = (mps.helper_text(src, "inline void rot_load(const device ushort* xin,")
+                      if where == "rot" else mps.kernel_text(src, "emb_q4_gather_metal"))
+-            assert scope.count(old) == 1, f"{name}: the served text matches {scope.count(old)} times"
++            if scope.count(old) != 1:
++                raise ValueError(f"{name}: the served text matches {scope.count(old)} times")
+             return src.replace(scope, scope.replace(old, new))
+ 
+         metal.shader_source = patched
+diff --git a/llvq-tetra/llvq_tetra/checkq4guards.py b/llvq-tetra/llvq_tetra/checkq4guards.py
+index e9787ee..cbf10e0 100644
+--- a/llvq-tetra/llvq_tetra/checkq4guards.py
++++ b/llvq-tetra/llvq_tetra/checkq4guards.py
+@@ -32,7 +32,7 @@ SPLIT = "kernel void tv_q4_metal_tiled"
+ 
+ 
+ def mutate(src: str, old: str, new: str, want: int) -> str:
+-    """Rewrite `old` inside the tiled kernel only, asserting the site count.
++    """Rewrite `old` inside the tiled kernel only, refusing any other site count.
+ 
+     `tv_q4_metal_tiled` comes FIRST in the file and the served `tv_q4_metal`
+     after it, so the region has to be closed at the next entry point. Without
+@@ -40,12 +40,15 @@ def mutate(src: str, old: str, new: str, want: int) -> str:
+     subject, and the mutant reads as survived while testing nothing.
+     """
+     head, _, rest = src.partition(SPLIT)
+-    assert rest, "the tiled entry point is not in the shader"
++    if not rest:
++        raise ValueError("the tiled entry point is not in the shader")
+     cut = rest.index("\nkernel void")
+     body, foot = rest[:cut], rest[cut:]
+-    assert "tv_q4_metal(" not in body, "the region still contains the served kernel"
++    if "tv_q4_metal(" in body:
++        raise ValueError("the region still contains the served kernel")
+     n = body.count(old)
+-    assert n == want, f"{n} sites for {old!r} in the tiled kernel, not {want}"
++    if n != want:
++        raise ValueError(f"{n} sites for {old!r} in the tiled kernel, not {want}")
+     return head + SPLIT + body.replace(old, new) + foot
+ 
+ 
+diff --git a/llvq-tetra/llvq_tetra/integration.py b/llvq-tetra/llvq_tetra/integration.py
+index 43a9005..16c5f82 100644
+--- a/llvq-tetra/llvq_tetra/integration.py
++++ b/llvq-tetra/llvq_tetra/integration.py
+@@ -61,9 +61,36 @@ def target_device(device_map) -> str:
+             raise ValueError(f"LLVQ models cannot be placed on {value!r}")
+     if len(kinds) != 1:
+         raise ValueError(f"LLVQ models run on a single device, the device_map spans {sorted(kinds)}")
++    if kinds == {"cuda"}:
++        _require_current_cuda(values)
+     return kinds.pop()
+ 
+ 
++def _require_current_cuda(values) -> None:
++    """The model goes to `"cuda"`, the current card, so a `device_map` that names another is refused.
++
++    `finalize` and the fused buffers address the device by its kind only. Without this a map that
++    names card 1 would load on the current one and say nothing.
++    """
++    current = None
++    for value in values:
++        name = str(value)
++        if isinstance(value, int) or name.isdigit():
++            index = int(name)
++        elif name.startswith("cuda:") and name[5:].isdigit():
++            index = int(name[5:])
++        else:
++            continue
++        if current is None:
++            current = torch.cuda.current_device() if torch.cuda.is_available() else 0
++        if index != current:
++            raise ValueError(
++                f"LLVQ models load on the current CUDA device, cuda:{current}, and the device_map "
++                f"names {value!r}. Select that card with torch.cuda.set_device or "
++                "CUDA_VISIBLE_DEVICES and pass device_map=\"cuda\""
++            )
++
++
+ def replace_modules(model: nn.Module, quantization_config, device: str) -> nn.Module:
+     """Swap each quantized `nn.Linear` for the layer that holds its codes, and on Metal the
+     vocabulary for the module that keeps it 4-bit."""
+diff --git a/llvq-tetra/llvq_tetra/metal.py b/llvq-tetra/llvq_tetra/metal.py
+index d641e12..6401e3e 100644
+--- a/llvq-tetra/llvq_tetra/metal.py
++++ b/llvq-tetra/llvq_tetra/metal.py
+@@ -113,10 +113,22 @@ def _extension_cuda():
+     under `site-packages`, so a pip user had no CUDA arm at all.
+ 
+     `TILE_BLOCKS` is the kernel's define, not Metal's `LLVQ_TILE_BLOCKS`, and the
+-    shared bytes the caller passes have to match it.
++    shared bytes the caller passes have to cover it. The caller passes
++    `integration.TILE_BLOCKS`, so `LLVQ_HF_TILE` is refused above it: a larger
++    define would stage past the shared memory the binding allocates. A smaller
++    one stages inside it.
+     """
+     from torch.utils.cpp_extension import load
+ 
++    from .integration import TILE_BLOCKS
++
++    tile = int(os.environ.get("LLVQ_HF_TILE", str(TILE_BLOCKS)))
++    if not 1 <= tile <= TILE_BLOCKS:
++        raise ValueError(
++            f"LLVQ_HF_TILE={tile}: the fused modules allocate shared memory for "
++            f"{TILE_BLOCKS} blocks, and the kernel would stage {tile}; "
++            f"give a value from 1 to {TILE_BLOCKS}"
++        )
+     if not torch.cuda.is_available():
+         raise RuntimeError("this op runs on CUDA, and no device is available")
+     missing = [p.name for p in CUDA_SOURCES if not p.exists()]
+@@ -126,7 +138,6 @@ def _extension_cuda():
+             "`cargo run --release -p llvq-llm --bin tetratables -- "
+             "llvq-tetra/llvq_tetra/data/tetra-tables.safetensors`"
+         )
+-    tile = int(os.environ.get("LLVQ_HF_TILE", "64"))
+     return load(
+         name="llvq_tetra_cuda",
+         sources=[str(CSRC_CUDA)],
+diff --git a/llvq-tetra/llvq_tetra/quantizer.py b/llvq-tetra/llvq_tetra/quantizer.py
+index ec67a16..e79c066 100644
+--- a/llvq-tetra/llvq_tetra/quantizer.py
++++ b/llvq-tetra/llvq_tetra/quantizer.py
+@@ -68,6 +68,12 @@ class LlvqConfig(QuantizationConfigMixin):
+             )
+         if not self.records:
+             raise ValueError("the quantization_config carries no record table")
++        for field in ("tetra_fingerprint", "block_dim"):
++            if getattr(self, field) is None:
++                raise ValueError(
++                    f"the quantization_config has no {field}: this directory is not a Tetra "
++                    "model packed by hfpack"
++                )
+ 
+ 
+ class LlvqQuantizer(HfQuantizer):
+diff --git a/llvq-tetra/tests/test_metal.py b/llvq-tetra/tests/test_metal.py
+index 45838a4..7230ce3 100644
+--- a/llvq-tetra/tests/test_metal.py
++++ b/llvq-tetra/tests/test_metal.py
+@@ -1,8 +1,8 @@
+ """The Metal op, against the numpy decode and against its own refusals.
+ 
+ The gate over the served 4B is `python -m llvq_tetra.checkdecode` and it needs the
+-1.4 GB object. These run on the fixture and on drawn labels, and they skip nothing:
+-a machine with no MPS device fails here by name rather than passing quietly.
++1.4 GB object. These run on the fixture and on drawn labels. On a machine with no
++MPS device the whole module is skipped, and pytest reports it as skipped, not passed.
+ """
+ 
+ import json
+diff --git a/llvq-tetra/tests/test_quantizer.py b/llvq-tetra/tests/test_quantizer.py
+index 004bdd4..d433670 100644
+--- a/llvq-tetra/tests/test_quantizer.py
++++ b/llvq-tetra/tests/test_quantizer.py
+@@ -67,3 +67,43 @@ def test_the_quantizer_cannot_quantize_or_serialize(qc):
+     assert q.requires_calibration is True
+     assert q.is_trainable is False
+     assert q.is_serializable() is False
++
++
++@pytest.mark.parametrize("field", ["tetra_fingerprint", "block_dim"])
++def test_a_config_without_its_map_fields_is_refused_by_name(qc, field):
++    from llvq_tetra.quantizer import LlvqConfig
++
++    without = {k: v for k, v in qc.items() if k != field}
++    with pytest.raises(ValueError, match=f"no {field}: this directory is not a Tetra model"):
++        LlvqConfig(**without)
++
++
++@pytest.mark.parametrize("device_map", ["cuda", "cuda:0", 0, {"": 0}, {"a": "cuda", "b": "cuda:0"}])
++def test_the_current_card_is_accepted(device_map):
++    from llvq_tetra.integration import target_device
++
++    assert target_device(device_map) == "cuda"
++
++
++@pytest.mark.parametrize("device_map", ["cuda:1", 1, "1", {"": 1}, {"a": 0, "b": 1}])
++def test_another_card_is_refused_rather_than_ignored(device_map):
++    from llvq_tetra.integration import target_device
++
++    with pytest.raises(ValueError, match="current CUDA device"):
++        target_device(device_map)
++
++
++def test_a_cuda_tile_the_modules_do_not_allocate_is_refused(monkeypatch):
++    import torch
++
++    from llvq_tetra import metal
++
++    monkeypatch.setenv("LLVQ_HF_TILE", "128")
++    with pytest.raises(ValueError, match="LLVQ_HF_TILE=128"):
++        metal._extension_cuda()
++    if not torch.cuda.is_available():
++        # The served tile and a smaller one pass the guard and reach the device check.
++        for tile in ("64", "32"):
++            monkeypatch.setenv("LLVQ_HF_TILE", tile)
++            with pytest.raises(RuntimeError, match="no device"):
++                metal._extension_cuda()
+diff --git a/ops/hf_cleanroom_check.py b/ops/hf_cleanroom_check.py
+index fd3747f..b5bd76d 100644
+--- a/ops/hf_cleanroom_check.py
++++ b/ops/hf_cleanroom_check.py
+@@ -76,6 +76,12 @@ def main(argv: list[str]) -> int:
+     if len(argv) < 2:
+         print(__doc__, file=sys.stderr)
+         return 2
++    if len(argv) == 3:
++        # Two arguments: the fixture and a packed directory without its dump. Running the
++        # fixture alone and returning 0 would read as the 4B gate passing.
++        print("REFUSED: the 4B gate needs both the packed directory and the bin/run dump; "
++              "give one argument for the fixture alone, or three", file=sys.stderr)
++        return 2
+     print(f"python {sys.version.split()[0]}, torch {torch.__version__}, "
+           f"transformers {transformers.__version__}")
+     for name in ("ninja", "accelerate"):
+@@ -88,8 +94,11 @@ def main(argv: list[str]) -> int:
+ 
+     print("\n== the fixture ==")
+     rc = fixture(Path(argv[1]))
+-    if rc or len(argv) < 4:
++    if rc:
+         return rc
++    if len(argv) < 4:
++        print("\n4B gate not run: no packed directory and bin/run dump were given")
++        return 0
+ 
+     print("\n== the 4B, dense on the CPU, against bin/run ==")
+     from llvq_tetra import comparetokens, gentokens

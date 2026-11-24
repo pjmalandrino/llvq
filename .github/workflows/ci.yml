@@ -55,12 +55,18 @@ name: CI
 # request runs once (its `pull_request` event); a push runs only on main. Both
 # events used to fire on every PR push, two identical 35-45 minute suites side
 # by side, and the second one hit the timeout.
+# `paths` and not `paths-ignore`, the form GitHub documents for negations, since two
+# Markdown files are read by tests: `docs/ENV.md` (llvq-llm/tests/env_registry.rs)
+# and `configs/README.md` (llvq-runtime/src/library.rs). The order matters: a
+# later positive pattern takes a path back after a negative one.
 on:
   push:
     branches: [main]
-    paths-ignore: ['**.md', 'docs/**', 'paper/**', 'paper2/**', 'proofs/**']
+    paths: ['**', '!**.md', '!docs/**', '!paper/**', '!paper2/**', '!proofs/**',
+            'docs/ENV.md', 'configs/README.md']
   pull_request:
-    paths-ignore: ['**.md', 'docs/**', 'paper/**', 'paper2/**', 'proofs/**']
+    paths: ['**', '!**.md', '!docs/**', '!paper/**', '!paper2/**', '!proofs/**',
+            'docs/ENV.md', 'configs/README.md']
 
 # Read-only, explicitly. No secret, no write scope, nothing that could push,
 # publish or bill anything.

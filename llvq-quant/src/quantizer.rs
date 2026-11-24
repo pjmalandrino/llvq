@@ -42,9 +42,10 @@ pub trait BlockQuantizer {
     /// Block magnitudes vary by orders of magnitude *across* the rows of a
     /// weight matrix but are homogeneous *within* one, so a gain code with a
     /// handful of levels is only workable relative to a per-row scale. That
-    /// scale is one float per row — `16/d_in` bits per weight, i.e. 0.006 on
-    /// a 2560-wide layer — against `16/24 = 0.67` for an unquantized
-    /// magnitude per block. Ignored by quantizers that carry no gain.
+    /// scale is one float per row, an f64 in the file (`64/d_in` bits per
+    /// weight, i.e. 0.025 on a 2560-wide layer) and an f32 on the card,
+    /// against `16/24 = 0.67` for an unquantized 16-bit magnitude per block.
+    /// Ignored by quantizers that carry no gain.
     fn set_row_scale(&mut self, _scale: f64) {}
 
     /// Write the reconstruction of `v` into `out` (same length as `v`).
@@ -406,9 +407,12 @@ fn ties_even(x: f64) -> f64 {
 ///
 /// | | retraction | rate/block | gain code |
 /// |---|---|---|---|
-/// | [`Self::retract_to_level`] (default) | to the nearest code level | 47 + k | load-bearing |
-/// | [`Self::with_free_magnitude`] | to the exact block norm | 47 + 16 | inert |
+/// | [`Self::retract_to_level`] (default) | to the nearest code level | 48 + k | load-bearing |
+/// | [`Self::with_free_magnitude`] | to the exact block norm | 48 + 16 | inert |
 /// | Algorithm 3 as written | exact norm, then a closed-form solve | to be determined | deferred to the solve |
+///
+/// The rates are at the default shell cap 13, a 48-bit index; a cap of 12
+/// takes one bit off each.
 ///
 /// The default is the honest one: what the code claims to store is what the
 /// reconstruction uses. The alternative is kept so the two can be A/B'd
@@ -777,6 +781,17 @@ impl BlockQuantizer for TetraShapeGain {
 
     fn quantize(&mut self, v: &[f64], out: &mut [f64]) {
         let x: &[f64; DIM] = v.try_into().expect("block must be 24 weights");
+        // Refused by name, in release too. Past this line a single NaN trips
+        // the encoder's own assert, and an all-NaN block slips past the zero
+        // test below (its norm is NaN) and is encoded as the origin. A finite
+        // block passes the test and runs the code below unchanged.
+        if let Some(i) = x.iter().position(|a| !a.is_finite()) {
+            panic!(
+                "non-finite weight {} at position {i} of a Tetra block: the Tetra \
+                 encoder has no word for it",
+                x[i]
+            );
+        }
         let norm = x.iter().map(|a| a * a).sum::<f64>().sqrt();
         if norm == 0.0 {
             out.fill(0.0);
@@ -982,4 +997,59 @@ pub fn index_bits(cap: u32) -> u32 {
     let cs = llvq_search::classes::enumerate_classes(cap);
     let n: u64 = (2..=cap).map(|m| cs.shell_cardinality(m)).sum();
     (128 - (n as u128).leading_zeros()).max(1)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A finite block away from the origin, the same on every run.
+    fn finite_block() -> [f64; DIM] {
+        core::array::from_fn(|i| (i as f64 * 0.37).sin() + 0.05)
+    }
+
+    fn quantize_tetra(x: &[f64; DIM]) {
+        let mut q = TetraShapeGain::new(vec![0.6, 1.4]);
+        q.quantize(x, &mut [0.0; DIM]);
+    }
+
+    #[test]
+    #[should_panic(expected = "non-finite weight NaN at position 7 of a Tetra block")]
+    fn a_tetra_block_with_one_nan_is_refused_by_name() {
+        let mut x = finite_block();
+        x[7] = f64::NAN;
+        quantize_tetra(&x);
+    }
+
+    #[test]
+    #[should_panic(expected = "non-finite weight NaN at position 0 of a Tetra block")]
+    fn an_all_nan_tetra_block_is_refused_not_coded_as_the_origin() {
+        quantize_tetra(&[f64::NAN; DIM]);
+    }
+
+    #[test]
+    #[should_panic(expected = "non-finite weight -inf at position 23 of a Tetra block")]
+    fn an_infinite_weight_in_a_tetra_block_is_refused_by_name() {
+        let mut x = finite_block();
+        x[23] = f64::NEG_INFINITY;
+        quantize_tetra(&x);
+    }
+
+    /// The other side of the refusal: a finite block is coded by the
+    /// encoder's own direction, and a zero block is still the origin.
+    #[test]
+    fn finite_tetra_blocks_still_code_as_the_encoder_says() {
+        let mut q = TetraShapeGain::new(vec![0.6, 1.4]);
+        let x = finite_block();
+        let mut out = [0.0; DIM];
+        q.quantize(&x, &mut out);
+        let code = q.last_code().expect("a finite block has a code");
+        assert_eq!(code.point, q.direction(&x), "the direction is the encoder's");
+        assert!(out.iter().all(|o| o.is_finite()), "{out:?}");
+
+        q.quantize(&[0.0; DIM], &mut out);
+        let code = q.last_code().expect("the zero block has a code");
+        assert_eq!(code.point, [0; DIM], "a zero block is word 0, the origin");
+        assert!(out.iter().all(|o| o.to_bits() == 0), "{out:?}");
+    }
 }

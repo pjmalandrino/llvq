@@ -42,6 +42,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import os
 import sys
 import time
@@ -679,7 +680,9 @@ def cmd_launch(args) -> int:
         volumes=volumes,
         # The default is 30 minutes, which would kill every real run. Padded
         # 50 % over the estimate — and the estimate excludes the forwards.
-        timeout=f"{max(1, int(wall * 1.5))}h",
+        # Rounded up to the minute, never under one hour: whole hours rounded
+        # down put a 1.3 h estimate under a 1 h timeout.
+        timeout=f"{max(60, math.ceil(wall * 1.5 * 60))}m",
         name=args.name,
         namespace=args.namespace,
     )
@@ -853,6 +856,28 @@ def cmd_publish(args) -> int:
     # Resolved here rather than at the upload below because the recipe is part
     # of what has to be committed.
     recipe = "Dockerfile.cuda" if args.cuda else "Dockerfile"
+    # The recipe ships as written — unless `--compute-cap` rewrites its one
+    # ENV line at upload time. One canonical file in the repo, no sm80 twin to
+    # drift (the two-Dockerfile-lists lesson of 2026-08-31, generalized): the
+    # transform happens here, is stamped into the uploaded bytes as a comment,
+    # and is named in the commit message and in COMMIT below. It is read and
+    # checked before anything reaches the Space, so a refusal leaves it as it was.
+    recipe_bytes = (args.root / "ops" / recipe).read_bytes()
+    recipe_label = recipe
+    if args.compute_cap is not None:
+        marker = b"ENV CUDA_COMPUTE_CAP="
+        if recipe_bytes.count(marker) != 1:
+            print(f"refused: {recipe} carries {recipe_bytes.count(marker)} "
+                  f"CUDA_COMPUTE_CAP line(s); the rewrite requires exactly one.",
+                  file=sys.stderr)
+            return 1
+        head, tail = recipe_bytes.split(marker, 1)
+        _old_cap, rest = tail.split(b"\n", 1)
+        note = (f"# WARNING: CUDA_COMPUTE_CAP rewritten to {args.compute_cap} by "
+                f"`ops/run.py publish --compute-cap` (canonical recipe: "
+                f"ops/{recipe}, which carries {_old_cap.decode()}).\n").encode()
+        recipe_bytes = head + note + marker + str(args.compute_cap).encode() + b"\n" + rest
+        recipe_label = f"{recipe} (compute_cap={args.compute_cap})"
     try:
         git_st = git_state(args.root)
     except ManifestError as exc:
@@ -947,27 +972,6 @@ def cmd_publish(args) -> int:
         commit_message=f"commit {git_st.commit[:12]}"
                        + (" (DIRTY TREE)" if blocking else ""),
     )
-    # The recipe ships as written — unless `--compute-cap` rewrites its one
-    # ENV line at upload time. One canonical file in the repo, no sm80 twin to
-    # drift (the two-Dockerfile-lists lesson of 2026-08-31, generalized): the
-    # transform happens here, is stamped into the uploaded bytes as a comment,
-    # and is named in the commit message and in COMMIT above.
-    recipe_bytes = (args.root / "ops" / recipe).read_bytes()
-    recipe_label = recipe
-    if args.compute_cap is not None:
-        marker = b"ENV CUDA_COMPUTE_CAP="
-        if recipe_bytes.count(marker) != 1:
-            print(f"refused: {recipe} carries {recipe_bytes.count(marker)} "
-                  f"CUDA_COMPUTE_CAP line(s); the rewrite requires exactly one.",
-                  file=sys.stderr)
-            return 1
-        head, tail = recipe_bytes.split(marker, 1)
-        _old_cap, rest = tail.split(b"\n", 1)
-        note = (f"# WARNING: CUDA_COMPUTE_CAP rewritten to {args.compute_cap} by "
-                f"`ops/run.py publish --compute-cap` (canonical recipe: "
-                f"ops/{recipe}, which carries {_old_cap.decode()}).\n").encode()
-        recipe_bytes = head + note + marker + str(args.compute_cap).encode() + b"\n" + rest
-        recipe_label = f"{recipe} (compute_cap={args.compute_cap})"
     upload_file(
         path_or_fileobj=recipe_bytes,
         path_in_repo="Dockerfile",
@@ -1009,6 +1013,22 @@ def cmd_oracle(args) -> int:
     """
     from huggingface_hub import run_job
 
+    # `oracle` is a candle binary, bound to the image's PTX like `smoke`: a
+    # card under that compute capability bills, pulls and then loads no kernel.
+    usable, why = cap_ok(args.flavor)
+    if args.kernels_cap is not None:
+        # The same escape as `bench`, stated by the operator per job: the
+        # compute capability the image's candle kernels were built for. The
+        # sm80 image (`publish --cuda --compute-cap 80`) carries 80, and
+        # `ops/jobs/a100-runner.sh` runs `oracle` on it.
+        card = FLAVORS.get(args.flavor, {}).get("cap")
+        usable = card is None or card >= args.kernels_cap
+        why = (f"sm_{card} against kernels declared for sm_{args.kernels_cap} "
+               f"(--kernels-cap, not the standard image's sm_{MIN_COMPUTE_CAP})")
+        print(f"compute cap: {why}")
+    if not usable:
+        print(f"refused, {args.flavor}: {why}.", file=sys.stderr)
+        return 2
     # Same cross-check as `launch`, and it belongs here too: the whole point of
     # this command is to prove the forward pass on **the backend the next run
     # will use**, so a `(flavor, device)` pair that cannot run is not a cheap
@@ -1018,11 +1038,19 @@ def cmd_oracle(args) -> int:
         print(f"refused: {why}", file=sys.stderr)
         return 2
 
+    timeout = "20m"
+    usd_h = FLAVORS.get(args.flavor, {}).get("usd_h")
+    if usd_h:
+        mins = _timeout_minutes(timeout)
+        print(
+            f"{args.flavor} at {usd_h:.2f} $/h = {usd_h / 60:.4f} $/min; "
+            f"ceiling {timeout} → at worst {usd_h * mins / 60:.2f} $"
+        )
     job = run_job(
         image=args.image,
         command=["oracle", args.model, str(args.tokens), args.device],
         flavor=args.flavor,
-        timeout="20m",
+        timeout=timeout,
         name=f"oracle-{args.device}",
         namespace=args.namespace,
     )
@@ -1132,6 +1160,7 @@ def cmd_bench(args) -> int:
             f"{args.flavor} at {usd_h:.2f} $/h = {usd_h / 60:.4f} $/min; "
             f"ceiling {args.timeout} → at worst {usd_h * mins / 60:.2f} $"
         )
+    secrets = _hf_token_secret(args.image)
     job = run_job(
         image=args.image,
         command=["bash", "-lc", script],
@@ -1143,8 +1172,8 @@ def cmd_bench(args) -> int:
         # Without this a private repo is simply unreachable: `hf-hub` reads its
         # token from `$HF_HOME/token` and nothing writes that file inside a
         # job. Passed as a secret rather than inlined in the script, which
-        # would put it in the logs.
-        secrets={"HF_TOKEN": os.environ["HF_TOKEN"]} if os.environ.get("HF_TOKEN") else None,
+        # would put it in the logs, and only to this repository's own image.
+        secrets=secrets,
     )
     print(f"{args.name} on {args.flavor}: {job.url}\n  id {job.id}")
     print(f"follow: uv run ops/run.py monitor {job.id} --flavor {args.flavor}")
@@ -1194,6 +1223,14 @@ def cmd_dequant(args) -> int:
         return 2
 
     out_dir = f"{args.out_mount}/{args.name}"
+    usd_h = FLAVORS.get(args.flavor, {}).get("usd_h")
+    if usd_h:
+        mins = _timeout_minutes(args.timeout)
+        print(f"{args.flavor} at {usd_h:.2f} $/h; ceiling {args.timeout} → "
+              f"at worst {usd_h * mins / 60:.2f} $")
+    # `run_uv_job` is given no image, so the job runs on the library's default
+    # `uv` image, never on this repository's runner: the token stays home.
+    secrets = _hf_token_secret(None)
     job = run_uv_job(
         script=str(script),
         script_args=[
@@ -1218,17 +1255,10 @@ def cmd_dequant(args) -> int:
         timeout=args.timeout,
         volumes=[Volume(type="bucket", source=args.bucket,
                         mount_path=args.out_mount, read_only=False)],
-        # Same reason as `bench`: without it a private bucket or repo is simply
-        # unreachable, and a secret rather than an inlined value keeps it out
-        # of the logs.
-        secrets={"HF_TOKEN": os.environ["HF_TOKEN"]} if os.environ.get("HF_TOKEN") else None,
+        # The bucket is reached through the volume above, not through a token.
+        secrets=secrets,
         namespace=args.namespace,
     )
-    usd_h = FLAVORS.get(args.flavor, {}).get("usd_h")
-    if usd_h:
-        mins = _timeout_minutes(args.timeout)
-        print(f"{args.flavor} at {usd_h:.2f} $/h; ceiling {args.timeout} → "
-              f"at worst {usd_h * mins / 60:.2f} $")
     print(f"  output: hf://buckets/{args.bucket}/{args.name} → {out_dir}")
     print(f"dequant {args.awq_repo}: {job.url}\n  id {job.id}")
     return 0
@@ -1262,6 +1292,48 @@ def _expected_repos() -> set[str]:
         if m:
             repos.add(ast.literal_eval(m.group(1)))
     return repos
+
+
+# The four spellings `huggingface_hub` reads as a Space image
+# (`_SPACE_IMAGE_PREFIXES` in its `_jobs_api.py`): what follows is sent as the
+# Space id, anything else as a Docker image.
+SPACE_IMAGE_PREFIXES = (
+    "https://huggingface.co/spaces/",
+    "https://hf.co/spaces/",
+    "huggingface.co/spaces/",
+    "hf.co/spaces/",
+)
+
+
+def _is_runner_image(image: str | None) -> bool:
+    """True for this repository's own image, the Space `<namespace>/llvq-runner*`
+    under any prefix of `SPACE_IMAGE_PREFIXES`."""
+    image = image or ""
+    for prefix in SPACE_IMAGE_PREFIXES:
+        if image.startswith(prefix):
+            parts = image[len(prefix):].split("/")
+            return (len(parts) == 2 and parts[0] != ""
+                    and parts[1].startswith("llvq-runner"))
+    return False
+
+
+def _hf_token_secret(image: str | None) -> dict | None:
+    """The `HF_TOKEN` secret for a job on `image`, or None.
+
+    The token can write to every Hub repository of the operator and launch
+    billed jobs, so it goes only to the image this repository builds. A third
+    party image (vLLM, llama.cpp, pytorch, the `uv` image) gets none: the
+    bucket is reached through its volume, and the repositories those jobs read
+    are public.
+    """
+    token = os.environ.get("HF_TOKEN")
+    if not token:
+        return None
+    if not _is_runner_image(image):
+        print(f"  HF_TOKEN not passed: {image or 'the default uv image'} is not "
+              f"hf.co/spaces/<namespace>/llvq-runner*")
+        return None
+    return {"HF_TOKEN": token}
 
 
 def _timeout_minutes(t: str) -> float:
@@ -1541,7 +1613,7 @@ def main() -> int:
     # same typo caught here costs nothing. Keep the two lists in step: a
     # corpus added there and not here is simply unreachable from `launch`.
     l.add_argument("--calib", default="c4",
-                   choices=["c4", "wikitext2", "wikitext2-test"])
+                   choices=["c4", "wikitext2", "wikitext2-test", "dclm-edu"])
     l.add_argument("--calib-windows", type=int, default=64)
     l.add_argument("--calib-len", type=int, default=2048)
     l.add_argument("--eval-windows", type=int, default=12)
@@ -1585,6 +1657,9 @@ def main() -> int:
     o.add_argument("--device", default="cuda", choices=["cpu", "cuda", "metal"])
     o.add_argument("--model", default="Qwen/Qwen3-0.6B")
     o.add_argument("--tokens", type=int, default=64)
+    o.add_argument("--kernels-cap", type=int, default=None, metavar="N",
+                   help="the compute capability the image's kernels target, when it is "
+                        "not the standard image's: 80 for the sm80 image on a100-large")
     o.add_argument("--namespace", default=None)
     o.set_defaults(fn=cmd_oracle)
 

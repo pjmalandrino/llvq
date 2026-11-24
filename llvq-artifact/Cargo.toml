@@ -14,3 +14,7 @@ llvq-quant = { path = "../llvq-quant" }
 # require a tensor runtime, an error crate, or anything else a reviewer would
 # have to audit — the decoder is the part a sceptical reader wants to check
 # line by line.
+
+# Every target of the package, not only the lib: bins, tests, examples, benches.
+[lints.rust]
+unsafe_code = "forbid"

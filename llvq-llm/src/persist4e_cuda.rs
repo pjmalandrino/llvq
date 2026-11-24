@@ -1,8 +1,8 @@
 //! 4E on CUDA: the whole decode token in one cooperative launch, N tokens a
 //! launch (`llvq-cuda/kernels/pers_4e.cu`). Built by `bin/fusedrun`'s
 //! `LLVQ_PERS_4E` (a measurement), and by a served config that names the
-//! persistent decode (`crate::served_decode`, kernel form from position 0 on
-//! the sealed 4B, operator T8 of 2026-11-05).
+//! persistent decode (`crate::served_decode`: the v9 configs at 4B, 8B and
+//! 14B, kernel form from position 0).
 //!
 //! Every phase of the kernel equals the served chain bit for bit on the host
 //! (`llvq-cuda/tests/pers_matches_served.rs`), attention included as the
@@ -15,13 +15,13 @@
 //! the kernel form (`configs/qwen3-4b-tetra-e4-kernel-from1280.json`) runs
 //! candle's grouped arithmetic below 1,280 (cuBLAS matmuls, candle's
 //! softmax), whose bits no hand kernel reproduces, so 4E owes that config's
-//! tokens only from there. The served 4B config,
-//! `configs/qwen3-4b-tetra-e4-4e-v4.json` (and its v6 twin,
-//! `configs/qwen3-4b-tetra-e4-4e-v6.json`), names the persistent decode and
-//! sends every decode row to the kernel from position 0, the form the
+//! tokens only from there. The served configs,
+//! `configs/qwen3-{4b,8b,14b}-tetra-e4-4e-v9.json` and the 4B's chain config
+//! `configs/qwen3-4b-tetra-e4-4e-v9-chain.json`, name the persistent decode
+//! and send every decode row to the kernel from position 0, the form the
 //! operator's T8 extension of 2026-11-05 licenses on the sealed 4B
 //! (`docs/mesures/attn-t8-below-4b-2026-11-05.txt`). `Served::decoder` sets
-//! the threshold to 0 for it (`Runtime4e::set_served_kernel_from`). A
+//! the threshold to 0 for them (`Runtime4e::set_served_kernel_from`). A
 //! measurement may lower it to 0 too
 //! ([`Runtime4e::set_kernel_from_for_measurement`]), against an eager path
 //! with every row on the kernel.
@@ -190,8 +190,9 @@ struct Verify4e {
 
 /// The tree verify pass (`pers_4et.cu`, `docs/plan-verify-tree.md`): its own
 /// module (the v9 module and the tree kernel), its area and the model's
-/// slices, and buffers for `pers::P4T_RMAX` rows. Not a served path: S1
-/// measures it (`bin/vtreebench`).
+/// slices, and buffers for `pers::P4T_RMAX` rows. The served path of the
+/// 4B's chain config, whose prompt goes through it (`served_decode`'s
+/// `install_chain`); `bin/vtreebench` measures it too.
 struct Tree4e {
     _cuda: llvq_cuda::gpu::Cuda,
     f: CudaFunction,
@@ -485,8 +486,8 @@ pub fn install(model: &Qwen3, device: &Device, max_tokens: u32, threads: Option<
 }
 
 /// [`install`] with the module's row form (`pers::P4E_ROWS_FORMS`): 1 is v3;
-/// 2 is v4, what the served config runs since 2026-11-05; 3 is v5; 4 is v6.
-/// `LLVQ_PERS_4E` times `pers::P4E_BENCH_FORMS`.
+/// 2 is v4; 3 is v5; 4 is v6; 5 is v7; 6 is v8; 7 is v9, what the served
+/// configs run. `LLVQ_PERS_4E` times `pers::P4E_BENCH_FORMS`.
 pub fn install_rows(model: &Qwen3, device: &Device, max_tokens: u32, threads: Option<u32>, rows_form: u32) -> anyhow::Result<Runtime4e> {
     install_rows_as(model, device, max_tokens, threads, rows_form, None)
 }
@@ -2246,6 +2247,10 @@ impl Runtime4e {
             }
             // the moved rows' positions exist once the launch's first phase wrote them
             let span = 1 + depth.iter().copied().max().unwrap_or(0) as usize;
+            // before any `reserve`, which never gives capacity back
+            if pos0 + span > MAX_CAP {
+                anyhow::bail!("4E tree: positions up to {}, the scratch holds {MAX_CAP}", pos0 + span);
+            }
             for c in caches.iter_mut() {
                 if c.len() != move_pos0 {
                     anyhow::bail!("4E tree: a cache holds {} positions, the move starts at {move_pos0}", c.len());
@@ -2441,6 +2446,11 @@ impl Runtime4e {
     /// the images re-uploaded when a buffer moved.
     fn prepare(&mut self, caches: &mut [KvCache], pos0: usize, n: usize) -> anyhow::Result<()> {
         let stream = self.cuda.stream().clone();
+        // Refused before any `reserve`: a buffer grown past the scratch keeps
+        // its capacity, and every later launch on that cache would be refused.
+        if pos0 + n > MAX_CAP {
+            anyhow::bail!("4E: positions up to {}, the attention scratch holds {MAX_CAP}", pos0 + n);
+        }
         // Grow every cache to hold the launch; the images carry the
         // addresses, re-uploaded only when a buffer moved.
         let mut seen = Vec::with_capacity(caches.len());

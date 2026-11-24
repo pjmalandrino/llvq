@@ -9,3 +9,7 @@ description = "Exact arithmetic core for Leech Lattice Vector Quantization (arXi
 [dependencies]
 # Intentionally empty: the mathematical core must stay auditable and
 # reproducible with zero external dependencies (gate G1 requirement).
+
+# Every target of the package, not only the lib: bins, tests, examples, benches.
+[lints.rust]
+unsafe_code = "forbid"

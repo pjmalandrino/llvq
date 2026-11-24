@@ -180,7 +180,22 @@ fn a_multi_row_twin_refuses_a_partial_threadgroup() {
 #[test]
 fn a_bad_tuning_is_refused_by_name() {
     let mut b = build(0x5EED_0030, 64, 7, 5, 64);
-    for bad in ["tv_tetra48_metal_ilp", "tv_q4_metal", "tv_tetra48_nope"] {
+    // The 8-lane kernel, a kernel of another family, an unknown name, then the
+    // Tetra kernels a tuning cannot name directly: the f16 twins (reached by
+    // half-io), `_lutg` (a second threadgroup table the host does not size),
+    // the prefill kernel (reached by prefill rows) and the probe.
+    for bad in [
+        "tv_tetra48_metal_ilp",
+        "tv_q4_metal",
+        "tv_tetra48_nope",
+        "tv_tetra48_metal_arh",
+        "tv_tetra48_metal_luth",
+        "tv_tetra48_metal_lutdh",
+        "tv_tetra48_metal_lutdth",
+        "tv_tetra48_metal_lutg",
+        "tv_tetra48_metal_lutdr",
+        "tetra48_probe",
+    ] {
         let e = b.rt.set_tuning(MetalTuning { tetra_kernel: bad, ..Default::default() }).unwrap_err().to_string();
         assert!(e.contains(bad), "{e}");
     }

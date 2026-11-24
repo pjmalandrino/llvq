@@ -1,8 +1,8 @@
 """The Metal op, against the numpy decode and against its own refusals.
 
 The gate over the served 4B is `python -m llvq_tetra.checkdecode` and it needs the
-1.4 GB object. These run on the fixture and on drawn labels, and they skip nothing:
-a machine with no MPS device fails here by name rather than passing quietly.
+1.4 GB object. These run on the fixture and on drawn labels. On a machine with no
+MPS device the whole module is skipped, and pytest reports it as skipped, not passed.
 """
 
 import json

@@ -206,3 +206,38 @@ def test_the_mix_refuses_two_shapes():
 def test_the_mix_refuses_a_ratio_outside_zero_one():
     with pytest.raises(ValueError, match="ratio"):
         MixCorpus(Fixed("m"), Fixed("d"), 1.5)
+
+
+def test_the_train_split_is_fetched_at_the_pinned_revision(monkeypatch):
+    hub = pytest.importorskip("huggingface_hub")
+    import llvqtune.adapters.mmlu_corpus as mmlu_corpus
+
+    asked = {}
+
+    def fake_download(**kwargs):
+        asked.update(kwargs)
+        return "/nowhere/auxiliary_train.parquet"
+
+    monkeypatch.setattr(hub, "hf_hub_download", fake_download)
+    fetch_split()
+    assert asked["repo_id"] == "cais/mmlu"
+    assert asked["revision"] == mmlu_corpus.REVISION
+    assert len(mmlu_corpus.REVISION) == 40
+
+
+def test_the_overlap_check_reads_the_revision_the_training_reads():
+    """`ops/mmlu_aux_overlap.py` carries a copy of the constant; read it without running it."""
+    import ast
+    from pathlib import Path
+
+    import llvqtune.adapters.mmlu_corpus as mmlu_corpus
+
+    script = Path(__file__).resolve().parents[2] / "mmlu_aux_overlap.py"
+    pinned = [
+        node.value.value
+        for node in ast.parse(script.read_text()).body
+        if isinstance(node, ast.Assign)
+        and [getattr(t, "id", None) for t in node.targets] == ["REVISION"]
+    ]
+    assert pinned == [mmlu_corpus.REVISION]
+    assert "revision=REVISION" in script.read_text()

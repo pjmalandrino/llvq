@@ -301,9 +301,13 @@ fn main() -> anyhow::Result<()> {
 
         // Prefill in chunks of `MAX_ROWS`: a served group without a rows
         // kernel spends one launch a row and refuses past that budget. A
-        // GSM8K prompt is far under it; the chunking only keeps a long one
-        // from failing late, and a chunk boundary changes nothing the cache
-        // does not already carry.
+        // GSM8K prompt is under it, so it goes in as one chunk. A boundary
+        // would not be neutral under the kernel attention form: a chunk of a
+        // few rows attends through the kernel, a longer one through the
+        // grouped path unless the config names the kernel prefill, and the
+        // two are not bit for bit. `Session::feed` cuts at
+        // `prefill_rows()` instead, so a prompt past `MAX_ROWS` tokens would
+        // not prefill here as the runtime prefills it.
         let mut caches = model.fresh_caches();
         let t0 = Instant::now();
         let mut offset = 0usize;

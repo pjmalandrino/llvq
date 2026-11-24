@@ -76,6 +76,12 @@ def main(argv: list[str]) -> int:
     if len(argv) < 2:
         print(__doc__, file=sys.stderr)
         return 2
+    if len(argv) == 3:
+        # Two arguments: the fixture and a packed directory without its dump. Running the
+        # fixture alone and returning 0 would read as the 4B gate passing.
+        print("REFUSED: the 4B gate needs both the packed directory and the bin/run dump; "
+              "give one argument for the fixture alone, or three", file=sys.stderr)
+        return 2
     print(f"python {sys.version.split()[0]}, torch {torch.__version__}, "
           f"transformers {transformers.__version__}")
     for name in ("ninja", "accelerate"):
@@ -88,8 +94,11 @@ def main(argv: list[str]) -> int:
 
     print("\n== the fixture ==")
     rc = fixture(Path(argv[1]))
-    if rc or len(argv) < 4:
+    if rc:
         return rc
+    if len(argv) < 4:
+        print("\n4B gate not run: no packed directory and bin/run dump were given")
+        return 0
 
     print("\n== the 4B, dense on the CPU, against bin/run ==")
     from llvq_tetra import comparetokens, gentokens

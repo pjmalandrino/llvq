@@ -49,11 +49,18 @@ use llvq_llm::repl::{ReplOptions, Sampler};
 use std::io::Write;
 
 fn env_f32(key: &str, default: f32) -> anyhow::Result<f32> {
+    env_parse(key, default)
+}
+
+/// A variable read at its own type: the seed as a `u64` and the token cap as
+/// a `usize`, so a seed keeps all its bits and a negative cap is refused
+/// rather than cast to zero.
+fn env_parse<T: std::str::FromStr>(key: &str, default: T) -> anyhow::Result<T> {
     match std::env::var(key) {
         Err(_) => Ok(default),
         Ok(v) => v
             .parse()
-            .map_err(|_| anyhow::anyhow!("{key}={v:?} is not a number")),
+            .map_err(|_| anyhow::anyhow!("{key}={v:?} is not a {}", std::any::type_name::<T>())),
     }
 }
 
@@ -128,9 +135,9 @@ fn main() -> anyhow::Result<()> {
         sampler: Sampler {
             temp,
             top_p: env_f32("LLVQ_CHAT_TOP_P", 0.9)?,
-            state: env_f32("LLVQ_CHAT_SEED", 0.0)? as u64 ^ 0x5EED_5EED_5EED_5EED,
+            state: env_parse::<u64>("LLVQ_CHAT_SEED", 0)? ^ 0x5EED_5EED_5EED_5EED,
         },
-        max_new: env_f32("LLVQ_CHAT_MAX_NEW", 512.0)? as usize,
+        max_new: env_parse::<usize>("LLVQ_CHAT_MAX_NEW", 512)?,
         think: env_f32("LLVQ_CHAT_THINK", 0.0)? != 0.0,
         // `LLVQ_CHAT_IDS=1` prints the raw ids of each answer.
         show_ids: env_f32("LLVQ_CHAT_IDS", 0.0)? != 0.0,

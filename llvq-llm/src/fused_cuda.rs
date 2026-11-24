@@ -1,13 +1,17 @@
 //! The fused projections, running inside candle.
 //!
 //! This is where the kernel stops being a bench and starts being inference.
-//! It holds the encoded streams on the device — `Planes14` by default,
-//! `Planes12x` or `Slot32` under `LLVQ_FUSED_LAYOUT` — and replaces one
-//! linear layer with two launches:
+//! It holds the encoded streams on the device, in the layout
+//! `LLVQ_FUSED_LAYOUT` names: `Tetra48` for the three served files,
+//! `Planes14` (the default), `Planes12x`, `Slot32` or `Golay70` for ball
+//! files. It replaces a lattice linear layer with two launches:
 //!
 //! ```text
 //! x (f16) ──rot_apply──▶ x' (f32, rotated basis) ──tv_*_h──▶ y (f16)
 //! ```
+//!
+//! and an int4 one with a single launch on the natural basis, with no
+//! rotation (`tv_q4_*`, see [`FusedInt4Proj`]).
 //!
 //! ## Three things it does not do, on purpose
 //!
@@ -15,12 +19,14 @@
 //!   activation carries the `Q`. The identity is pinned on the CPU by
 //!   `llvq-artifact/tests/fused_path_matches_dense.rs`; getting it backwards
 //!   produces finite, plausible, wrong numbers and no error at all.
-//! * **It does not handle more than one token per call.** `tv_slot` is a
+//! * **It does not loop a prompt through the one-row kernel** where the layout
+//!   carries a rows kernel. The one-row kernel (`tv_slot`, `tv_tetra48_h`) is a
 //!   matrix–*vector* product: one warp per output row, one activation staged
-//!   in shared memory. A prompt of `l` tokens loops `l` times, which is
-//!   correct and slower than a GEMM would be — acceptable for generation
-//!   (`l = 1` after the prompt), useless for scoring a 2048-token window.
-//!   Perplexity therefore keeps the dense path, and `bin/ppl` is untouched.
+//!   in shared memory, what a decode token runs. A prompt goes through
+//!   [`FusedRuntime::forward_rotated_rows`] instead: the rows kernel
+//!   (`tv_tetra48_rows_h`), up to [`FusedRuntime::prefill_rows`] rows a launch,
+//!   in chunks `model::group_forward` cuts. A layout with no rows kernel still
+//!   takes a prompt row by row. `bin/ppl` keeps the dense path.
 //! * **It does not keep a dense copy as a fallback.** That would put the 8 GB
 //!   back and forfeit the only gain that is not in dispute — 8.04 GB of f16
 //!   weights against 3.28 with the projections encoded.
@@ -47,8 +53,9 @@ use crate::fused::{
     FusedLayout, FusedMatrix, FusedModel, HostStream, RotKey, RotationTables, EMBED_GROUP,
 };
 
-/// Threads per block for `tv_slot`: 256 = eight rows per block, the shape the
-/// bench has always measured.
+/// Threads per block for `tv_slot` and for the int4 launches (`tv_q4_h`,
+/// `tv_q4_hs`): 256 = eight rows per block, the shape the bench has always
+/// measured.
 const THREADS: u32 = 256;
 /// Entries in the device class table. The class field is nine bits, so 512
 /// are addressable while 384 exist; the tail stays the origin so a truncated
@@ -174,19 +181,19 @@ pub struct FusedProj {
     rotation: Option<RotKey>,
 }
 
-/// One `v_proj` served as affine int4 g128, on the device.
-///
-/// It shares nothing with [`FusedProj`] and that is the point: an int4 record
-/// carries stored weights in the **natural basis** — never GPTQ, never the
-/// rotation, never a lattice index — so it has no rotation key, no gain scale,
-/// no row scale and no tail. `calib.rs` writes it that way and `tv_q4_h.cu`
-/// reads exactly those three arrays.
 /// What [`FusedRuntime::new`] hands back: the runtime, and the three lists of
 /// projections it uploaded — lattice, segmented, int4. Three because the model
 /// indexes all three by the same `(layer, name)` pair and none of them can be
 /// derived from another.
 type Loaded = (FusedRuntime, Vec<FusedProj>, Vec<FusedSegProj>, Vec<FusedInt4Proj>);
 
+/// One projection served as affine int4 g128, on the device.
+///
+/// It shares nothing with [`FusedProj`] and that is the point: an int4 record
+/// carries stored weights in the **natural basis** — never GPTQ, never the
+/// rotation, never a lattice index — so it has no rotation key, no gain scale,
+/// no row scale and no tail. `calib.rs` writes it that way and `tv_q4_h.cu`
+/// reads exactly those three arrays.
 pub struct FusedInt4Proj {
     pub name: String,
     pub d_out: usize,
@@ -526,7 +533,8 @@ impl crate::device::SegGroup for CudaSeg {
     }
 }
 
-/// The q8 embedding table on a card, and the `lm_head` that may share it.
+/// The quantized embedding table on a card (int8 or int4, by `LLVQ_EMBED`;
+/// int4 in the served configs), and the `lm_head` that may share it.
 ///
 /// `q` stays an `Arc` rather than being owned, because a tied model uploads
 /// ONE table and points both ends at it. Two `CudaEmbed` values then share one
@@ -672,8 +680,8 @@ pub struct FusedRuntime {
     /// numbers (`llvq_cuda::shared`).
     shared_limit: usize,
     device: candle_core::CudaDevice,
-    /// Largest `d_in` any projection takes — the staging bound the rotation
-    /// kernel needs in shared memory.
+    /// Largest `d_in` any lattice projection or fused group takes. Read by
+    /// [`Self::max_d_in`] only; the rotation's staging is decided per width.
     max_d_in: usize,
     /// The unit of `moe_tetra.cu`, compiled on first use ([`Self::moe_kernels`]).
     moe: std::sync::OnceLock<MoeKernels>,
@@ -867,13 +875,6 @@ impl FusedRuntime {
         if tiled {
             spill_checked.push(crate::fused::INT4_TILE_KERNEL_NAME);
             spill_checked.push(crate::fused::INT4_TILE_HALF_KERNEL_NAME);
-        }
-        // Keyed on the same answer the lookup uses. It carries one accumulator
-        // a row on top of the one-row kernel's 40 registers, so a spill here
-        // is the number that says PREFILL_ROWS is too high — and a spill is a
-        // hard stop, not a diagnostic.
-        if let Some(n) = crate::fused::rows_kernel_name(model.layout) {
-            spill_checked.push(n);
         }
         for name in spill_checked {
             let r = cuda.report(name).map_err(candle_core::Error::msg)?;
@@ -1445,11 +1446,12 @@ impl FusedRuntime {
         }
     }
 
-    /// The widest activation any projection takes.
+    /// The widest activation any lattice projection or fused group takes;
+    /// int4 records are not counted.
     ///
-    /// The rotation kernel stages the whole vector in shared memory, so this
-    /// is the bound a caller checks against the card before uploading
-    /// anything — `new` refuses past it rather than corrupting.
+    /// Informative only: `new` compares it to nothing. Which rotation kernel
+    /// a width gets, and whether it stages in shared or device memory, is
+    /// decided per width by `llvq_cuda::wide::rot_kernel` at upload.
     pub fn max_d_in(&self) -> usize {
         self.max_d_in
     }
@@ -1784,13 +1786,14 @@ impl FusedRuntime {
         ids.apply_op1_no_bwd(&op)
     }
 
-    /// `logits = W_q8 · h` for hidden states `(.., d)` in f16 — the tied
+    /// `logits = W · h` for hidden states `(.., d)` in f16, `W` the quantized
+    /// table of [`EmbedMode`] (int4 in the served configs) — the tied
     /// `lm_head`, one matvec launch per row, all rows into one buffer.
     pub fn lm_head(&self, q: &QuantEmbed, h: &Tensor) -> candle_core::Result<Tensor> {
         let dims = h.dims();
         let d_in = *dims.last().expect("rank >= 1");
         if d_in != q.d {
-            candle_core::bail!("lm_head q8 expects d={}, got {d_in}", q.d);
+            candle_core::bail!("lm_head {} expects d={}, got {d_in}", self.emode.name(), q.d);
         }
         let h = h.contiguous()?.to_dtype(DType::F16)?;
         let out_shape = {
@@ -1836,7 +1839,7 @@ struct EmbedOp<'a> {
 
 impl candle_core::CustomOp1 for EmbedOp<'_> {
     fn name(&self) -> &'static str {
-        "llvq-emb-q8-gather"
+        "llvq-emb-gather"
     }
 
     fn cpu_fwd(
@@ -1844,7 +1847,7 @@ impl candle_core::CustomOp1 for EmbedOp<'_> {
         _: &candle_core::CpuStorage,
         _: &Layout,
     ) -> candle_core::Result<(candle_core::CpuStorage, Shape)> {
-        candle_core::bail!("the q8 gather has no CPU path")
+        candle_core::bail!("the {} gather has no CPU path", self.rt.emode.name())
     }
 
     fn cuda_fwd(
@@ -1858,7 +1861,7 @@ impl candle_core::CustomOp1 for EmbedOp<'_> {
             .ok_or_else(|| candle_core::Error::msg("non-contiguous ids"))?;
         let ntok = end - start;
         if ntok == 0 {
-            candle_core::bail!("q8 gather: zero tokens");
+            candle_core::bail!("{} gather: zero tokens", self.rt.emode.name());
         }
         let mut y = unsafe {
             self.rt
@@ -1902,7 +1905,7 @@ struct HeadOp<'a> {
 
 impl candle_core::CustomOp1 for HeadOp<'_> {
     fn name(&self) -> &'static str {
-        "llvq-lmhead-q8"
+        "llvq-lmhead"
     }
 
     fn cpu_fwd(
@@ -1910,7 +1913,7 @@ impl candle_core::CustomOp1 for HeadOp<'_> {
         _: &candle_core::CpuStorage,
         _: &Layout,
     ) -> candle_core::Result<(candle_core::CpuStorage, Shape)> {
-        candle_core::bail!("the q8 lm_head has no CPU path")
+        candle_core::bail!("the {} lm_head has no CPU path", self.rt.emode.name())
     }
 
     fn cuda_fwd(
@@ -1924,7 +1927,7 @@ impl candle_core::CustomOp1 for HeadOp<'_> {
             .ok_or_else(|| candle_core::Error::msg("non-contiguous activation"))?;
         let len = end - start;
         if len == 0 || !len.is_multiple_of(self.q.d) {
-            candle_core::bail!("lm_head q8: {len} values for d={}", self.q.d);
+            candle_core::bail!("lm_head {}: {len} values for d={}", self.rt.emode.name(), self.q.d);
         }
         let rows = len / self.q.d;
         let mut y = unsafe {
@@ -2776,17 +2779,6 @@ fn launch_planes_h<T: candle_core::cuda_backend::cudarc::driver::DeviceRepr>(
     Ok(())
 }
 
-/// `tv_tetra48_h(words, row_stride_u32, rows, prefixes, branches, suffixes,
-/// gscale, invnorm, rscale, tail, x, y, nblocks, tail_w)`.
-///
-/// The grid is `launch_planes_h`'s, unchanged — one warp per row, eight rows a
-/// block — so a residency comparison between the two served layouts is like
-/// for like. What differs is the second argument: `row_stride_u32`, which
-/// Planes14 does not have because it addresses blocks flat. Passing the wrong
-/// stride there does not fail; it reads every row after the first at a shifted
-/// phase and returns plausible, wrong weights, which is why it travels with
-/// the buffer in [`DeviceStream::Tetra48`] rather than being re-derived here.
-#[allow(clippy::too_many_arguments)]
 /// One int4 record onto the card: three arrays, no transcode.
 ///
 /// The kernel reads these bytes as they sit on disk — that is what
@@ -3302,6 +3294,16 @@ fn launch_tetra48_rows_h(
 // Fifteen, and every one of them is a pointer the kernel takes: bundling them
 // into a struct would put a second description of the argument list beside the
 // `extern "C"` one, which is the drift this file spends its comments avoiding.
+/// `tv_tetra48_h(words, row_stride_u32, rows, prefixes, branches, suffixes,
+/// gscale, invnorm, rscale, tail, x, y, nblocks, tail_w)`.
+///
+/// The grid is `launch_planes_h`'s, unchanged — one warp per row, eight rows a
+/// block — so a residency comparison between the two served layouts is like
+/// for like. What differs is the second argument: `row_stride_u32`, which
+/// Planes14 does not have because it addresses blocks flat. Passing the wrong
+/// stride there does not fail; it reads every row after the first at a shifted
+/// phase and returns plausible, wrong weights, which is why it travels with
+/// the buffer in [`DeviceStream::Tetra48`] rather than being re-derived here.
 #[allow(clippy::too_many_arguments)]
 fn launch_tetra48_h<T: candle_core::cuda_backend::cudarc::driver::DeviceRepr>(
     cuda: &llvq_cuda::gpu::Cuda,
@@ -3776,7 +3778,8 @@ fn upload_group(
 /// return type cannot live in one backend's module.
 pub use crate::fused::FusedSealed;
 
-/// Load a sealed artifact straight onto the fused path.
+/// Load a sealed artifact straight onto the fused path, with the fusion mode
+/// named by the caller rather than read from the environment.
 ///
 /// The counterpart of [`crate::sealed::load`], and the two must produce the
 /// same logits — `bin/fusedrun` is what checks that. What differs is what
@@ -3794,8 +3797,10 @@ pub use crate::fused::FusedSealed;
 /// arm narrows the same columns to the run's dtype. At F32 that argument is
 /// false and the tail would be the one place the fused path is coarser than
 /// its reference. Refusing beats carrying a silently weaker claim.
-/// [`load`] with the fusion mode named by the caller rather than read from the
-/// environment — what lets `bin/fusedrun` run both arms in one process, each
+///
+/// ## The fusion mode is an argument
+///
+/// That is what lets `bin/fusedrun` run both arms in one process, each
 /// dropped before the next loads, so the card holds one arm at a time and the
 /// two share a card, a prompt and one NVRTC translation unit.
 pub fn load_with(
@@ -3886,9 +3891,9 @@ pub fn load_resolved(
     // to the device bytes they decide — an A/B where the arm has to be
     // inferred from a byte count is not an A/B.
     //
-    // Both refusals before the 145 s transcode, not after it: a job that pays
-    // for a load and then discovers its two variables are incompatible has
-    // spent the money for nothing.
+    // Both refusals before the transcode, not after it (145 s under Planes14,
+    // a copy under Tetra48): a job that pays for a load and then discovers its
+    // two variables are incompatible has spent the money for nothing.
     crate::fused::check_fuse(layout, share, fuse).map_err(candle_core::Error::msg)?;
     let mut model =
         crate::fused::load_with(path, layout, fuse).map_err(candle_core::Error::msg)?;
@@ -3941,6 +3946,8 @@ pub fn load_resolved(
             .map_err(|e| candle_core::Error::msg(format!("config.json: {e}")))?;
     let tokenizer = tokenizers::Tokenizer::from_bytes(&model.tokenizer_json)
         .map_err(|e| candle_core::Error::msg(format!("tokenizer.json: {e}")))?;
+    crate::fused_cpu::check_token_ids(&tokenizer, &model.raw)
+        .map_err(|e| candle_core::Error::msg(format!("{path}: {e}")))?;
 
     // Under q8, the embedding tables leave the carried list before any tensor
     // is built: nothing downstream may materialize an f16 copy of them. One

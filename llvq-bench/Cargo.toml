@@ -14,3 +14,7 @@ llvq-core = { path = "../llvq-core" }
 llvq-search = { path = "../llvq-search" }
 llvq-quant = { path = "../llvq-quant" }
 llvq-artifact = { path = "../llvq-artifact" }
+
+# Every target of the package, not only the lib: bins, tests, examples, benches.
+[lints.rust]
+unsafe_code = "forbid"

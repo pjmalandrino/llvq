@@ -104,18 +104,20 @@ pub enum Scan {
     Stop(usize),
 }
 
-/// Scan `text` for the first stop string, and otherwise hold back the longest
-/// tail that could still grow into one, and any trailing U+FFFD (a
-/// character split across tokens, see `repl::printable`).
+/// Scan `text` for the first stop string, and otherwise hold back any
+/// trailing U+FFFD (a character split across tokens, see `repl::printable`)
+/// and, before it, the longest tail that could still grow into a stop
+/// string: the split character may be the one that completes it.
 pub fn scan(text: &str, stops: &[String]) -> Scan {
     if let Some(at) = stops.iter().filter(|s| !s.is_empty()).filter_map(|s| text.find(s.as_str())).min() {
         return Scan::Stop(at);
     }
-    let mut safe = llvq_llm::repl::printable(text).len();
+    let shown = llvq_llm::repl::printable(text);
+    let mut safe = shown.len();
     for s in stops.iter().filter(|s| !s.is_empty()) {
         for (k, _) in s.char_indices().skip(1) {
-            if text.ends_with(&s[..k]) {
-                safe = safe.min(text.len() - k);
+            if shown.ends_with(&s[..k]) {
+                safe = safe.min(shown.len() - k);
             }
         }
     }
@@ -218,6 +220,27 @@ mod tests {
         let stops = vec!["é!".to_string()];
         assert_eq!(scan("caf\u{e9}", &stops), Scan::Safe(3));
         assert_eq!(scan("caf\u{e9}!", &stops), Scan::Stop(3));
+    }
+
+    /// The first character of a stop string, then the next one split across
+    /// two tokens: the text ends with that character and a U+FFFD, and the
+    /// character is held until the split one arrives. It was sent, and the
+    /// stop found one token later could no longer take it back.
+    #[test]
+    fn a_stop_prefix_before_a_split_character_is_held() {
+        let stops = vec!["x\u{e9}".to_string()];
+        let tok = byte_tokenizer();
+        // "ab x", then the first of the two bytes of "\u{e9}" (0xC3 0xA9).
+        let mut ids: Vec<u32> = "ab x".bytes().map(u32::from).collect();
+        ids.push(0xC3);
+        let text = tok.decode(&ids, false).unwrap();
+        assert_eq!(text, "ab x\u{FFFD}", "the test tokenizer decodes a split character to U+FFFD");
+        assert_eq!(scan(&text, &stops), Scan::Safe(3));
+        ids.push(0xA9);
+        assert_eq!(scan(&tok.decode(&ids, false).unwrap(), &stops), Scan::Stop(3));
+        // A split character after text that starts no stop string holds
+        // itself only.
+        assert_eq!(scan("ab y\u{FFFD}", &stops), Scan::Safe(4));
     }
 
     #[test]

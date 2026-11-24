@@ -11,6 +11,12 @@
 //!
 //! Random weights, on the CPU: the properties are arithmetic. Under the `Cat`
 //! store and the `Grow` store, the two stores a served config names.
+//!
+//! The persistent (4E) branch runs only on a card, so its accounting is
+//! pinned here through `Session::answer_launches` with a launch that stands
+//! in for 4E (`stand_in_launch`): the ids held and the cache lengths after
+//! each launch, a stop, a cancel, and a launch that fails after it moved the
+//! caches.
 
 use candle_core::{DType, Device, IndexOp, Tensor};
 use candle_nn::{Activation, VarBuilder, VarMap};
@@ -280,6 +286,17 @@ fn a_divergent_history_is_cut_back_to_the_common_prefix() {
         assert!(d <= 1e-4, "store {store:?}: a truncated cache kept a stale position, max |dlogit| {d:e}");
         assert_eq!(session.reuse_prefix(&[]).unwrap(), 0);
         assert!(session.is_empty());
+        // Cut to nothing, every cache holds nothing. Under `Cat` the count is
+        // the buffers' length, and `KvCache::len` stays at zero whatever they
+        // hold, so the ids alone say nothing about the cache.
+        for (l, c) in session.caches().iter().enumerate() {
+            let held = c.held().unwrap().map_or(0, |(k, _)| k.dim(2).unwrap());
+            assert_eq!(held, 0, "store {store:?}: layer {l} kept {held} positions after a cut to zero");
+        }
+        let h = session.feed(&qwen, &[1, 2, 9, 9]).unwrap();
+        let e = qwen.logits_last(&h).unwrap().flatten_all().unwrap().to_vec1::<f32>().unwrap();
+        let d = e.iter().zip(&b).map(|(x, y)| (x - y).abs()).fold(0f32, f32::max);
+        assert!(d <= 1e-4, "store {store:?}: a cache cut to zero kept a stale position, max |dlogit| {d:e}");
     }
 }
 
@@ -354,4 +371,189 @@ fn a_chain_first_token_needs_the_persistent_decode() {
     let e = Decoder::eager().chain_prefill(&qwen, &mut caches, 0, &[1, 2]).unwrap_err();
     assert!(e.to_string().contains("names the eager prefill"), "{e}");
     assert!(!Decoder::eager().has_chain());
+}
+
+/// One 4E launch, stood in for on the host. It checks what 4E's `prepare`
+/// checks, that every cache holds the position the launch starts at, and
+/// grows the buffers to hold the launch as 4E does. It writes nothing in
+/// them: the property is the accounting, not the arithmetic. Feeding position
+/// `p` yields `100 + p`, or ends the launch on a stop token when `p` is
+/// `stop_at`; the tokens come back cut before it, as `continue_greedy` cuts.
+fn stand_in_launch(
+    caches: &mut [KvCache],
+    offset: usize,
+    k: usize,
+    stop_at: Option<usize>,
+) -> anyhow::Result<(Vec<u32>, bool)> {
+    for c in caches.iter_mut() {
+        anyhow::ensure!(c.len() == offset, "a cache holds {} positions, the launch starts at {offset}", c.len());
+        c.reserve(offset + k)?;
+    }
+    let mut made = Vec::new();
+    for p in offset..offset + k {
+        if stop_at == Some(p) {
+            return Ok((made, true));
+        }
+        made.push(100 + p as u32);
+    }
+    Ok((made, false))
+}
+
+fn assert_caches_hold_the_ids(s: &Session, what: &str) {
+    for (l, c) in s.caches().iter().enumerate() {
+        assert_eq!(c.len(), s.len(), "{what}: layer {l} holds {} positions for {} ids", c.len(), s.len());
+    }
+}
+
+/// The persistent branch over several launches and two turns: each launch
+/// starts where the last one stopped, `ids` lists every token fed (the
+/// answer but its last token on a cap, all of it on a stop), and every cache
+/// holds `ids.len()` positions. An eager feed between the turns appends where
+/// the launches left the caches.
+#[test]
+fn the_persistent_branch_feeds_what_its_launches_wrote() {
+    let (qwen, _map) = model(KvStore::Grow(16));
+    let mut session = Session::new(&qwen);
+    let prompt = [1u32, 2, 3, 4, 5];
+    session.feed(&qwen, &prompt).unwrap();
+
+    // Turn 1, cut by its cap: the first token, then launches of 4, 4 and 2.
+    let mut log = Vec::new();
+    let a = session
+        .answer_launches(9, 11, &STOPS, 4, &mut |_| Flow::Continue, |caches, last, offset, k| {
+            log.push((offset, last, k));
+            stand_in_launch(caches, offset, k, None)
+        })
+        .unwrap();
+    let want: Vec<u32> = std::iter::once(9).chain(105..=114).collect();
+    assert_eq!(a.finish, Finish::Length);
+    assert_eq!(a.said, want);
+    assert_eq!(log, [(5usize, 9u32, 4usize), (9, 108, 4), (13, 112, 2)], "where each launch started, and on what");
+    assert_eq!(session.ids(), [&prompt[..], &a.said[..10]].concat().as_slice(), "the last token is not fed");
+    assert_caches_hold_the_ids(&session, "turn 1");
+
+    // Between the turns, the eager path appends where 4E stopped.
+    session.feed(&qwen, &CLOSE).unwrap();
+    session.feed(&qwen, &[1, 40, 41]).unwrap();
+    let before = session.ids().to_vec();
+    assert_eq!(before.len(), 15 + 2 + 3);
+    assert_caches_hold_the_ids(&session, "after the eager feeds");
+
+    // Turn 2, ended by a stop token on the second launch: every token said
+    // was fed, the one before the stop included.
+    let mut log = Vec::new();
+    let mut calls = 0;
+    let a = session
+        .answer_launches(
+            20,
+            8,
+            &STOPS,
+            4,
+            &mut |_| {
+                calls += 1;
+                Flow::Continue
+            },
+            |caches, last, offset, k| {
+                log.push((offset, last, k));
+                stand_in_launch(caches, offset, k, Some(25))
+            },
+        )
+        .unwrap();
+    let want: Vec<u32> = std::iter::once(20).chain(120..=124).collect();
+    assert_eq!(a.finish, Finish::Stop);
+    assert_eq!(a.said, want);
+    assert_eq!(log, [(20usize, 20u32, 4usize), (24, 123, 3)]);
+    assert_eq!(calls, 3, "the first token, the first launch, the stopped launch");
+    assert_eq!(session.ids(), [&before[..], &a.said[..]].concat().as_slice());
+    assert_caches_hold_the_ids(&session, "turn 2");
+}
+
+/// The persistent branch's other ends: a cancel leaves the last token made
+/// out of the cache, a stop on a launch's first token feeds only the token
+/// before it, a first token that is a stop or a cap of one launches nothing.
+#[test]
+fn the_persistent_branch_cuts_where_it_stops_or_is_cancelled() {
+    let (qwen, _map) = model(KvStore::Grow(16));
+    let prompt = [1u32, 2, 3];
+    let fresh = || {
+        let mut s = Session::new(&qwen);
+        s.feed(&qwen, &prompt).unwrap();
+        s
+    };
+
+    let mut s = fresh();
+    let cancel_at_five = &mut |said: &[u32]| match said.len() {
+        5 => Flow::Cancel,
+        _ => Flow::Continue,
+    };
+    let a = s
+        .answer_launches(9, 20, &STOPS, 4, cancel_at_five, |caches, _, offset, k| stand_in_launch(caches, offset, k, None))
+        .unwrap();
+    assert_eq!(a.finish, Finish::Cancelled);
+    assert_eq!(a.said, [9u32, 103, 104, 105, 106]);
+    assert_eq!(s.ids(), [&prompt[..], &a.said[..4]].concat().as_slice(), "cancel: the last token made is not fed");
+    assert_caches_hold_the_ids(&s, "cancel");
+
+    let mut s = fresh();
+    let a = s
+        .answer_launches(9, 20, &STOPS, 4, &mut |_| Flow::Continue, |caches, _, offset, k| {
+            stand_in_launch(caches, offset, k, Some(offset))
+        })
+        .unwrap();
+    assert_eq!(a.finish, Finish::Stop);
+    assert_eq!(a.said, [9u32]);
+    assert_eq!(s.ids(), [1u32, 2, 3, 9].as_slice(), "a stop first in a launch: only the token fed before it");
+    assert_caches_hold_the_ids(&s, "stop on the first launch token");
+
+    for (first, max_new, finish) in [(STOPS[0], 20, Finish::Stop), (9, 1, Finish::Length)] {
+        let mut s = fresh();
+        let a = s
+            .answer_launches(first, max_new, &STOPS, 4, &mut |_| Flow::Continue, |_, _, _, _| {
+                panic!("first {first}, cap {max_new}: no launch")
+            })
+            .unwrap();
+        assert_eq!(a.finish, finish);
+        assert_eq!(a.said.len(), usize::from(finish == Finish::Length));
+        assert_eq!(s.ids(), prompt.as_slice(), "first {first}, cap {max_new}: nothing fed");
+        assert_caches_hold_the_ids(&s, "no launch");
+    }
+}
+
+/// A launch that fails after it moved the caches, as a 4E launch of the
+/// chain prefill or of the decode does on its watchdog or on a NaN: no id is
+/// added and the caches run ahead. The next request that keeps every id held
+/// cuts them back, so its first launch starts where the ids stop.
+#[test]
+fn a_failed_launch_leaves_caches_the_next_request_cuts_back() {
+    let (qwen, _map) = model(KvStore::Grow(16));
+    let mut session = Session::new(&qwen);
+    let prompt: Vec<u32> = (1..=10).collect();
+    session.feed(&qwen, &prompt).unwrap();
+    let e = session
+        .answer_launches(9, 8, &[], 4, &mut |_| Flow::Continue, |caches, _, offset, _| {
+            for c in caches.iter_mut() {
+                c.reserve(offset + 4)?;
+                c.set_len(offset + 2)?;
+            }
+            anyhow::bail!("a barrier aborted on its watchdog")
+        })
+        .unwrap_err();
+    assert!(e.to_string().contains("watchdog"), "{e}");
+    assert_eq!(session.len(), 10, "a failed launch adds no id");
+    assert!(session.caches().iter().all(|c| c.len() == 12), "the launch moved the caches");
+
+    // The same conversation one token longer keeps every id held.
+    let next: Vec<u32> = prompt.iter().copied().chain([30]).collect();
+    assert_eq!(session.reuse_prefix(&next).unwrap(), 10);
+    assert_caches_hold_the_ids(&session, "after reuse_prefix");
+
+    // And the cut cache reads like a fresh one fed the same ids, to rounding
+    // (see `a_divergent_history_is_cut_back_to_the_common_prefix`).
+    let h = session.feed(&qwen, &[30]).unwrap();
+    let a = qwen.logits_last(&h).unwrap().flatten_all().unwrap().to_vec1::<f32>().unwrap();
+    let mut fresh = Session::new(&qwen);
+    let h = fresh.feed(&qwen, &next).unwrap();
+    let b = qwen.logits_last(&h).unwrap().flatten_all().unwrap().to_vec1::<f32>().unwrap();
+    let d = a.iter().zip(&b).map(|(x, y)| (x - y).abs()).fold(0f32, f32::max);
+    assert!(d <= 1e-4, "the cut cache kept a stale position, max |dlogit| {d:e}");
 }

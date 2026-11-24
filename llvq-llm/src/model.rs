@@ -2219,11 +2219,15 @@ impl Block {
             })?;
             let grow = matches!(cache.store(), crate::kvq::KvStore::Grow(_));
             let (k, v) = cache.append_with(&k, &v, self.kv_aux.as_ref())?;
-            // Decode and verify rows at `kernel_from` or later go to the
-            // kernel. A row below it, a prefill chunk, a batch, or the scratch
-            // `Cat` cache of a full-window forward take the grouped path; the
-            // cache bytes are the same either way, since `append` wrote them
-            // before the branch.
+            // A chunk of at most `kern.max_rows()` rows on a growing cache,
+            // decode or prefill alike, sends its rows at `kernel_from` or later
+            // to the kernel (`kernel_rows`). A longer chunk goes to the kernel
+            // under the kernel prefill form (`kernel_prefill`), and to the
+            // grouped path otherwise, as do rows below `kernel_from`, a batch
+            // and the scratch `Cat` cache of a full-window forward. The two
+            // paths are not bit for bit, so where a prompt is cut into chunks
+            // decides the bits of its attention. The cache bytes are the same
+            // either way, since `append` wrote them before the branch.
             let ctx = if b == 1 && l <= kern.max_rows() && grow {
                 if q.dtype() != DType::F16 {
                     candle_core::bail!(

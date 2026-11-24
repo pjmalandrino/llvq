@@ -391,27 +391,51 @@ fn the_golay70_kernel_decides_what_the_rust_decoder_decides() {
     );
 }
 
+/// Path of the sealed 4B archive, or a failure that names it.
+///
+/// A local copy of `llvq-artifact/tests/common/mod.rs`, which a test of this
+/// crate cannot import. `LLVQ_SEALED_ARTIFACT` moves the search,
+/// `$HOME/llvq-q4b.llvq` is the default, and a missing file fails the sweep
+/// rather than reporting `ok`. The sweep is `#[ignore]`d, so running it is a
+/// request.
+fn sealed_artifact_path() -> std::path::PathBuf {
+    const ENV: &str = "LLVQ_SEALED_ARTIFACT";
+    const HOWTO: &str = "\
+This sweep checks the Golay70 layout against the real Qwen3-4B archive, block by
+block, and it is #[ignore]d so it never runs by accident. Point it at a
+`leech1c12` archive:
+
+    LLVQ_SEALED_ARTIFACT=/path/to/qwen3-4b-llvq.bin \\
+        cargo test --release -p llvq-cuda --test golay70_decoder_matches_rust -- --ignored
+
+To leave the sweep out, run without --ignored: it is then reported as `ignored`.";
+    let (path, origin) = match (std::env::var_os(ENV), std::env::var_os("HOME")) {
+        (Some(p), _) => (std::path::PathBuf::from(p), ENV),
+        (None, Some(h)) => (std::path::Path::new(&h).join("llvq-q4b.llvq"), "$HOME/llvq-q4b.llvq"),
+        (None, None) => {
+            panic!("neither ${ENV} nor $HOME is set, so there is no path to try.\n\n{HOWTO}")
+        }
+    };
+    assert!(
+        path.exists(),
+        "the sealed archive is not on this machine: {} (from {origin})\n\n{HOWTO}",
+        path.display()
+    );
+    path
+}
+
 /// The integral proof on the sealed 4B artifact: every block of every matrix,
 /// decoded through Golay70 (exceptions resolved) and through Slot32, must
 /// equal the archive decoder bit for bit — the central claim of the layout on
-/// the exact object the bench will time. Skipped (loudly) when the file is
-/// not on this machine; ignored in debug like every heavy sweep in this repo.
+/// the exact object the bench will time. Ignored like every sealed-archive
+/// sweep in this repo, and failing by name when the file is not on this
+/// machine.
 #[test]
-#[cfg_attr(debug_assertions, ignore = "full 150 M-block artifact, run in release")]
+#[ignore = "full 150 M-block sweep of the sealed archive, run in release with --ignored"]
 fn the_sealed_artifact_decodes_identically_through_golay70() {
     use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 
-    let path = match std::env::var_os("HOME") {
-        Some(h) => std::path::Path::new(&h).join("llvq-q4b.llvq"),
-        None => {
-            eprintln!("SKIP: no $HOME to find the sealed artifact");
-            return;
-        }
-    };
-    if !path.exists() {
-        eprintln!("SKIP: {} not present on this machine", path.display());
-        return;
-    }
+    let path = sealed_artifact_path();
 
     let fd = FastDecoder::new();
     let golay = llvq_core::Golay::new();

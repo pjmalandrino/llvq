@@ -12,7 +12,9 @@
 //! forms or decode engines pair: that is the A/B each of those forms was
 //! licensed by. Both are printed with the arm, as `bin/mmlupair` prints its
 //! served keys, and a dump written before its header carried them reads as
-//! the expanded form and the eager engine. Prints both accuracies, the
+//! the expanded form and the eager engine. The config, the prefill and the
+//! decode cache are printed on a line of their own; a dump without those keys
+//! reads as the eager prefill and the f16 cache. Prints both accuracies, the
 //! discordant counts, the paired difference A − B with its 95 % interval, and
 //! McNemar's exact p. The interval carries no finite-population correction: a
 //! census of the test split is read as a draw from the problems a model could
@@ -54,6 +56,12 @@ fn describe(tag: &str, d: &Dump) {
         }
     );
     println!("    attention {} | decode {}", d.attention(), d.decode());
+    println!(
+        "    config {} | prefill {} | decode cache {}",
+        d.field("config"),
+        d.prefill(),
+        d.decode_cache()
+    );
     println!(
         "    {right}/{} right, mean {:.1} generated tokens, {capped} stopped at the cap, tokens {}",
         d.rows.len(),

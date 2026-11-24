@@ -90,8 +90,8 @@ python -m llvqtune "${COMMON[@]}" \
   --journal "$OUT/probe.jsonl" --out "$OUT/probe.json"
 PROBE_RC=$?
 set -e
-# 1 is the probe's normal exit: six steps at 1e-8 do not improve anything.
-# 2 is a refused wiring, the teacher pairing among them.
+# 0 is the probe's normal exit. 2 is a refused wiring, the teacher pairing
+# among them. Any other exit leaves the rate check below to decide.
 if [ "$PROBE_RC" -eq 2 ]; then
   echo "the probe refused its wiring (exit 2); nothing is trained"
   exit 2
@@ -129,8 +129,11 @@ if [ -z "$GAUGE" ] || [ "$GAUGE" = "null" ]; then
 fi
 
 if [ -n "${MAX_FIRST_KL:-}" ]; then
-  if python -c "import sys; sys.exit(0 if float('$FIRST_KL') > float('$MAX_FIRST_KL') else 1)"; then
-    echo "first loss $FIRST_KL is above MAX_FIRST_KL=$MAX_FIRST_KL: the export is suspect; nothing is trained"
+  # Passes only on exit 0, a finite first loss at or under the ceiling. A NaN,
+  # a missing value, and a value or a ceiling Python cannot read (an exception
+  # exits 1) all refuse.
+  if ! python -c "import math, sys; v = float('$FIRST_KL' or 'nan'); sys.exit(0 if math.isfinite(v) and v <= float('$MAX_FIRST_KL') else 3)"; then
+    echo "first loss $FIRST_KL is above MAX_FIRST_KL=$MAX_FIRST_KL, not finite, or unreadable: the export is suspect; nothing is trained"
     exit 4
   fi
 fi

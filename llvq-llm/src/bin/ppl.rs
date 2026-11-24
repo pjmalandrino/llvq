@@ -35,17 +35,44 @@ use llvq_llm::corpus::{c4_validation, wikitext2_test};
 use llvq_llm::loader::Checkpoint;
 use llvq_llm::model::{NoCapture, Qwen3};
 
+const USAGE: &str = "ppl [ctx] [max_windows] [device] [model] [wikitext2|c4]";
+
+/// A count positional: absent is `default`, anything else must parse to a
+/// positive number or is refused by name. `4096x` must not score at 2,048, and
+/// an empty positional (`$UNSET` expanded) is a shell accident, not a request
+/// for the default.
+fn count(arg: Option<&str>, name: &str, default: usize) -> anyhow::Result<usize> {
+    let Some(s) = arg else {
+        return Ok(default);
+    };
+    let n: usize = s
+        .parse()
+        .map_err(|_| anyhow::anyhow!("{name} {s:?} is not a count; usage: {USAGE}"))?;
+    anyhow::ensure!(n > 0, "{name} 0 scores nothing; usage: {USAGE}");
+    Ok(n)
+}
+
+/// The corpus positional: `wikitext2` (also the default) or `c4`. Any other
+/// name is refused, so `C4` cannot fall back to WikiText-2.
+fn corpus(arg: Option<&str>) -> anyhow::Result<&'static str> {
+    match arg {
+        None | Some("wikitext2") => Ok("wikitext2"),
+        Some("c4") => Ok("c4"),
+        Some(s) => anyhow::bail!("corpus {s:?} is neither wikitext2 nor c4; usage: {USAGE}"),
+    }
+}
+
 fn main() -> anyhow::Result<()> {
     let a: Vec<String> = std::env::args().skip(1).collect();
-    let ctx: usize = a.first().and_then(|s| s.parse().ok()).unwrap_or(2048);
-    let max_windows: usize = a.get(1).and_then(|s| s.parse().ok()).unwrap_or(usize::MAX);
+    let ctx = count(a.first().map(String::as_str), "ctx", 2048)?;
+    let max_windows = count(a.get(1).map(String::as_str), "max_windows", usize::MAX)?;
     let device_arg = a.get(2).map(String::as_str).unwrap_or("cpu");
     // A quantized model to score: a safetensors overlay of reconstructions, or
     // the sealed artifact itself. See the module note.
     let quantized = a.get(3).filter(|s| !s.is_empty() && *s != "none").cloned();
-    // "c4" scores the same model out of domain; anything else keeps
-    // wikitext-2, the corpus our calibration set is drawn from.
-    let corpus = a.get(4).cloned().unwrap_or_else(|| "wikitext2".into());
+    // "c4" scores the same model out of domain; "wikitext2", the default, is
+    // the corpus our calibration set is drawn from.
+    let corpus = corpus(a.get(4).map(String::as_str))?;
 
     let device = llvq_llm::eval::device(device_arg)?;
     let dtype = llvq_llm::eval::dtype(DType::F32)?;
@@ -171,4 +198,25 @@ fn main() -> anyhow::Result<()> {
         (nll / count as f64).exp()
     );
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_malformed_positional_is_refused_not_defaulted() {
+        assert_eq!(count(None, "ctx", 2048).unwrap(), 2048);
+        assert_eq!(count(Some("4096"), "ctx", 2048).unwrap(), 4096);
+        for bad in ["4096x", "", "-1", "0"] {
+            let e = count(Some(bad), "ctx", 2048).unwrap_err();
+            assert!(format!("{e}").contains("ctx"), "{bad:?}: {e}");
+        }
+        assert_eq!(corpus(None).unwrap(), "wikitext2");
+        assert_eq!(corpus(Some("wikitext2")).unwrap(), "wikitext2");
+        assert_eq!(corpus(Some("c4")).unwrap(), "c4");
+        for bad in ["C4", "c4 ", "", "wikitext"] {
+            assert!(corpus(Some(bad)).is_err(), "{bad:?}");
+        }
+    }
 }

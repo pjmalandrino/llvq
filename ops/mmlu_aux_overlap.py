@@ -50,13 +50,18 @@ import pyarrow.parquet as pq
 from huggingface_hub import hf_hub_download
 
 REPO = "cais/mmlu"
+# The revision the training reads: a copy of `REVISION` in
+# `ops/llvqtune/llvqtune/adapters/mmlu_corpus.py`, which imports torch and so
+# cannot be imported here. Change the two together.
+REVISION = "c30699e8356da336a370243923dbaf21066bb9fe"
 TRAIN = "auxiliary_train"
 SCORED = ("test", "dev", "validation")
 
 
 def load(split: str) -> list[dict]:
     path = hf_hub_download(
-        REPO, f"all/{split}-00000-of-00001.parquet", repo_type="dataset"
+        REPO, f"all/{split}-00000-of-00001.parquet", repo_type="dataset",
+        revision=REVISION,
     )
     return pq.read_table(path).to_pylist()
 
@@ -72,6 +77,7 @@ def main() -> int:
     aux = load(TRAIN)
     questions = {key(r, False) for r in aux}
     items = {key(r, True) for r in aux}
+    print(f"{REPO} at {REVISION}")
     print(f"rows: {TRAIN} {len(aux):,}")
 
     worst = 0

@@ -295,7 +295,8 @@ fn parse_codebook(spec: &str) -> Result<Codebook, String> {
     }
     let level_cap = level_cap as usize;
     // The cap combination has to leave something to search. `L1` passes every
-    // range check above and empties the codebook; the failure would otherwise
+    // range check above and empties the codebook up to shell 5; from shell 6
+    // it keeps the one class `(±2)²⁴`. An empty codebook would otherwise
     // surface as a searcher with no classes, well after the model is loaded.
     let classes = class_count(max_shell, level_cap);
     if classes == 0 {

@@ -83,7 +83,9 @@ def section_a(model, layers, t: Tally) -> None:
                 x = rows_f16(1, inner(att.q_proj).d_in, 100 + i).reshape(1, 1, -1)
                 qf, kf = att.q_proj(x), att.k_proj(x)
                 inner(att.q_proj).rot._last = None
-                e = max(rel(qf, inner(att.q_proj)(x)), rel(kf, inner(att.k_proj)(x)))
+                eq, ek = rel(qf, inner(att.q_proj)(x)), rel(kf, inner(att.k_proj)(x))
+                # `max(0.0, nan)` is 0.0: a NaN on either side must fail the line.
+                e = float("nan") if np.isnan(eq) or np.isnan(ek) else max(eq, ek)
                 t.hold(f"layer {li} q+k stacked against each alone, row {i}", e, 0.0, exact=True)
             # Again with k's two gains scaled apart from q's: a fixture can give
             # every record the same centroids (mini does), and then a stacked

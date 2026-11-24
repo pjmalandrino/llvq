@@ -61,7 +61,46 @@ def target_device(device_map) -> str:
             raise ValueError(f"LLVQ models cannot be placed on {value!r}")
     if len(kinds) != 1:
         raise ValueError(f"LLVQ models run on a single device, the device_map spans {sorted(kinds)}")
+    if kinds == {"cuda"}:
+        _require_current_cuda(values)
     return kinds.pop()
+
+
+def _require_current_cuda(values) -> None:
+    """Refuse a `device_map` that certainly names a CUDA card other than the current one.
+
+    `finalize` moves the model with `model.to("cuda")`, to the current card, so a map that names
+    another card would load on the current one and say nothing. transformers rewrites
+    `device_map="cuda"` as `cuda:$LOCAL_RANK` (0 when unset) before a quantizer sees it, so that
+    index, as a device or a `"cuda:N"` string, may be the caller's `"cuda"` and is accepted whatever
+    the current card is: after `torch.cuda.set_device(1)`, `device_map="cuda"` loads on card 1.
+    The limit: an explicit `"cuda:0"` after `set_device(1)` loads on card 1 too, since it reaches
+    this function in the same form. An integer, or any other index, comes from the caller only.
+    """
+    try:
+        rewritten = int(os.environ.get("LOCAL_RANK", "0"))
+    except ValueError:
+        rewritten = None
+    current = None
+    for value in values:
+        name = str(value)
+        if isinstance(value, int) or name.isdigit():
+            index = int(name)
+        elif name.startswith("cuda:") and name[5:].isdigit():
+            index = int(name[5:])
+            if index == rewritten:
+                continue
+        else:
+            continue
+        if current is None:
+            current = torch.cuda.current_device() if torch.cuda.is_available() else 0
+        if index != current:
+            raise ValueError(
+                f"LLVQ models load on the current CUDA device, cuda:{current}, and the device_map "
+                f"names {value!r}. Call torch.cuda.set_device({index}) before from_pretrained, or "
+                f"make that card the only visible one with CUDA_VISIBLE_DEVICES and pass "
+                "device_map=\"cuda\""
+            )
 
 
 def replace_modules(model: nn.Module, quantization_config, device: str) -> nn.Module:

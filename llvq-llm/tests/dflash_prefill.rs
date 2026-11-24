@@ -12,9 +12,10 @@
 //! Hugging Face cache, and fails naming the one that is missing. Runs on
 //! Metal under `--features metal`, else on the CPU in f32 (about 16 GB).
 //!
-//! The drafter runs in f32, bf16 and f16, and each must draft the fixture's
-//! first-round chain from the prefill's taps: in f16 its `fc` overflowed and
-//! drafted NaN (SP2, 2026-11-10), which this test caught on the Mac.
+//! On Metal the drafter runs in f32, bf16 and f16, and f32 and f16 must draft
+//! the fixture's first-round chain from the prefill's taps: in f16 its `fc`
+//! overflowed and drafted NaN (SP2, 2026-11-10), which this test caught on the
+//! Mac. On the CPU it runs in f32 only.
 //!
 //! Compiled where `llvq-cuda` is a dependency: macOS, or `--features cuda`.
 #![cfg(any(target_os = "macos", feature = "cuda"))]
@@ -104,7 +105,11 @@ fn prefill_taps_feed_the_drafter_as_the_fixture() {
             }
         }
         // 2. specbench's first call, then the loop's later calls with the fixture's taps as the pass's
-        for ddt in [DType::F32, DType::BF16, DType::F16] {
+        // The CPU run drafts in f32 only. candle's CPU backend has no bf16 matmul ("unsupported dtype
+        // BF16 for op matmul"), and its f16 drafter parts from the MLX fixture on near-ties (5/15 and
+        // 3/15 leading drafts on the first rounds, 2026-11-20): the f16 gate is Metal's, the served path.
+        let ddts: &[DType] = if cfg!(feature = "metal") { &[DType::F32, DType::BF16, DType::F16] } else { &[DType::F32] };
+        for &ddt in ddts {
         let mut sp = DFlashSpec::new(DFlashDrafter::load(&ddir, &dev, ddt).unwrap(), Box::new(dflash::vocab_from_sealed(&sealed, &dev, ddt).unwrap()), Shape::Chain(15)).unwrap();
         let fx_bits: Vec<u16> = fx_taps.iter().map(|&x| half::f16::from_f32(x).to_bits()).collect();
         let mut done = 0;

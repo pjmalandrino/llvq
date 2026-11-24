@@ -482,6 +482,25 @@ fn dump_trailer(fingerprint: u64, questions: usize) -> String {
     format!("# end fingerprint={fingerprint:016x} questions={questions}")
 }
 
+/// The `limit` positional: questions per subject, absent for a census.
+///
+/// A value that does not parse is refused by name, never read as the census:
+/// `40` mistyped as `4O` would otherwise buy hours of card time. An empty
+/// positional is a shell accident (`$UNSET` expanded), so it is refused too.
+/// Zero is refused because it scores no question and prints 0.00 % and NaN.
+fn parse_limit(arg: Option<&str>) -> anyhow::Result<usize> {
+    let Some(s) = arg else {
+        return Ok(usize::MAX);
+    };
+    let n: usize = s.parse().map_err(|_| {
+        anyhow::anyhow!(
+            "limit {s:?} is not a count; usage: mmlu <sealed file | checkpoint> [device] [limit]"
+        )
+    })?;
+    anyhow::ensure!(n > 0, "limit 0 scores no question; omit it for a census");
+    Ok(n)
+}
+
 fn main() -> anyhow::Result<()> {
     let a: Vec<String> = std::env::args().skip(1).collect();
     let model_arg = a
@@ -492,7 +511,7 @@ fn main() -> anyhow::Result<()> {
     // Questions per subject, for a cheap protocol check before the full run.
     // Sampled at random from a fixed seed, never the first N: MMLU test sets
     // are not shuffled, and the head of a subject is not a fair sample of it.
-    let limit: usize = a.get(2).and_then(|s| s.parse().ok()).unwrap_or(usize::MAX);
+    let limit = parse_limit(a.get(2).map(String::as_str))?;
     // F16 here, F32 in `bin/ppl` — internally consistent per metric, and a
     // confound the moment the two are compared. `LLVQ_DTYPE` moves either one
     // onto the other, and the resolved value is printed with the score.
@@ -886,11 +905,14 @@ fn main() -> anyhow::Result<()> {
     // 60.7 are. The macro is printed next to it because the gap between them
     // is a property of MMLU, not noise, and a reader who sees only one number
     // cannot tell which they are holding.
+    // The served arm loads the config's KV mode, not `LLVQ_KV`'s, so the line
+    // names the one the scored model ran, as the dump header does.
+    let kv_ran = served.as_ref().map_or(kv_mode, |cfg| cfg.kv);
     println!(
         "  MMLU (micro, = paper) = {:.2} % ± {:.2}  [kv {}]",
         100.0 * mic,
         100.0 * se,
-        kv_mode.name()
+        kv_ran.name()
     );
     println!("  MMLU (macro, per subject) = {:.2} %", 100.0 * mac);
     // On the result line, not only in the label: an arm whose defining
@@ -1395,6 +1417,20 @@ mod tests {
         let half = Alloc::Proportional(Some(1_191)).plan(&MMLU_TEST, usize::MAX).unwrap();
         assert_eq!(half.iter().sum::<usize>(), 1_191);
         assert!(half.iter().all(|&n| n >= MIN_PER_SUBJECT));
+    }
+
+    /// A limit that does not parse, or that scores nothing, is refused by name;
+    /// an absent one is the census and a valid one reads as itself.
+    #[test]
+    fn a_malformed_limit_is_refused_not_read_as_the_census() {
+        assert_eq!(parse_limit(None).unwrap(), usize::MAX);
+        assert_eq!(parse_limit(Some("40")).unwrap(), 40);
+        for bad in ["4O", "", "-1", "40 ", "1e3"] {
+            let e = parse_limit(Some(bad)).unwrap_err();
+            assert!(format!("{e}").contains("limit"), "{bad:?}: {e}");
+        }
+        let e = parse_limit(Some("0")).unwrap_err();
+        assert!(format!("{e}").contains("limit 0"), "{e}");
     }
 
     /// Ties are broken toward the lowest subject index, in both directions.

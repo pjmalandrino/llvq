@@ -523,7 +523,7 @@ mod tests {
     /// Writes the bench module at the L40S's tile (64) for the offline SASS
     /// count, `ops/rowcand-sass.sh`. Ignored: it writes under target/.
     #[test]
-    #[ignore]
+    #[ignore = "a dump tool, not a test: writes target/rowcand/ for ops/rowcand-sass.sh and ops/rc-regprobe.sh; run by hand with --ignored"]
     fn dump_rowcand_module() {
         let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../target/rowcand");
         std::fs::create_dir_all(&dir).unwrap();

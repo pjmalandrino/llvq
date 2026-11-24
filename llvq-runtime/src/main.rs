@@ -14,7 +14,7 @@
 //!
 //! `LLVQ_BATCH=<sequences>[:<positions>]` puts `llvq serve` on CUDA in
 //! continuous batching: up to that many requests decode together, each in a
-//! slot of the model's batch config (`configs/qwen3-*-tetra-e4-batch.json`),
+//! slot of the model's batch config (`configs/qwen3-*-tetra-e4-4e-v9-batch.json`),
 //! greedy only. Unset or `0`, requests run one after another on the served
 //! config.
 //!

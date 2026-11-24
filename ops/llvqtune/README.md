@@ -30,6 +30,10 @@ fine-tuning here is no more than learning the per-column scales
 | `free_params.py` | 17, Q6a | scales and tails, ~18 M values | 0 b/param |
 | `low_rank.py` | 20, Q6b | new factors `A @ B` | +0.131 at r=16, +0.263 at r=32 |
 
+`free_params` and `low_rank` export the shapes of what they train, not the
+values, and no tool folds them: `main` refuses both outside `--dry-run` and
+`--repeat-one-batch`.
+
 Adding a mode means one module and one line in `trainables/__init__.py`. The
 loop, the objectives, the corpus and the journal are untouched.
 
@@ -114,3 +118,8 @@ and `total_memory` at every checkpoint and in the closing summary.
 `llvq-llm/src/bin/rowscale.rs` folds `sigma.json` into a sealed file:
 `rowscale <in.bin> <out.bin> <sigma.json>`. Int4 records pass through, a
 sigma of all ones writes a byte-identical file.
+
+`sigma.json` carries `steps`, the steps run and planned, beside `result`;
+`rowscale` reads `result` only. A checkpoint writes the same file. A run whose
+corpus runs dry before its plan writes its partial result, says so in `steps`,
+and exits 6.

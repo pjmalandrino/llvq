@@ -10,12 +10,21 @@ uv run --project ops/llvqtune -m llvqtune \
 everything, prints the rate the run would cost, and stops before the first
 batch. Hard rule 1 asks for the cost up front, so that is the default way to
 look at a new configuration.
+
+Exit codes: 0 a run of every planned step written; 1 under
+`--repeat-one-batch`, a loss that did not fall; 2 a refused wiring; 6 a corpus
+that ran dry before the plan, its partial result written and marked.
 """
 
 from __future__ import annotations
 
 import argparse
 import sys
+
+# Modes whose export drops what they train: `free_params` writes the shapes of
+# its tails and not their values, `low_rank` the shapes of its factors. No
+# tool folds either, so a run would bill its hours for nothing.
+UNSAVED_MODES = ("free_params", "low_rank")
 
 
 def parse(argv: list[str] | None = None) -> argparse.Namespace:
@@ -55,6 +64,10 @@ def parse(argv: list[str] | None = None) -> argparse.Namespace:
 
 def main(argv: list[str] | None = None) -> int:
     args = parse(argv)
+    if args.mode in UNSAVED_MODES and not (args.dry_run or args.repeat_one_batch):
+        print(f"refused: mode {args.mode} exports no trained value and nothing folds "
+              "it; it runs under --dry-run or --repeat-one-batch only", file=sys.stderr)
+        return 2
 
     import torch
     from transformers import AutoConfig, AutoModelForCausalLM, AutoTokenizer
@@ -207,9 +220,19 @@ def main(argv: list[str] | None = None) -> int:
         sink=sink,
         gauge=gauge,
     )
-    path = sink.write(outcome.export, outcome.cost)
+    path = sink.write(outcome.export, outcome.cost,
+                      steps=(outcome.steps_run, outcome.steps_planned))
     print(f"wrote {path}", file=sys.stderr)
-    return 0 if outcome.improved else 1
+    if not outcome.complete:
+        print(f"the corpus ran dry at step {outcome.steps_run} of "
+              f"{outcome.steps_planned}; {path} records it, and it is not the "
+              "planned run", file=sys.stderr)
+        return 6
+    if args.repeat_one_batch:
+        # The one corpus on which a falling loss is a signal: the batch never
+        # changes. On streaming text the two thirds read different text.
+        return 0 if outcome.improved else 1
+    return 0
 
 
 if __name__ == "__main__":

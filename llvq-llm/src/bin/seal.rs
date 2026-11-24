@@ -44,13 +44,57 @@ impl Sealing {
     }
 }
 
+/// The checkpoint to seal from: `LLVQ_MODEL`, required, and equal to the
+/// `model` the encoding run wrote in `<in>.state` when that sidecar exists.
+///
+/// The sealed file takes its norms, embedding, config and tokenizer from this
+/// checkpoint and its projections from the artifact. A checkpoint of the same
+/// shapes but other weights (a Base or 2507 variant) would load and run with
+/// no message, so the name is compared as written on both sides, and there is
+/// no default to fall back on.
+fn checkpoint_name(
+    model: Option<String>,
+    state: Option<&llvq_llm::artifact2::RunState>,
+    state_path: &str,
+) -> anyhow::Result<String> {
+    let repo = model.filter(|m| !m.is_empty()).ok_or_else(|| {
+        anyhow::anyhow!(
+            "LLVQ_MODEL=<checkpoint> is required: the sealed file takes every tensor the \
+             artifact does not hold from it, so it must be the checkpoint the artifact was \
+             encoded from"
+        )
+    })?;
+    if let Some(encoded) = state.and_then(|s| s.get("model")) {
+        anyhow::ensure!(
+            encoded == repo,
+            "LLVQ_MODEL={repo}, but {state_path} says the artifact was encoded from \
+             model = {encoded}: the sealed file would pair one model's projections with \
+             another's norms, embedding and tokenizer"
+        );
+    }
+    Ok(repo)
+}
+
 fn main() -> anyhow::Result<()> {
     let a: Vec<String> = std::env::args().skip(1).collect();
     let (src, dst) = match (a.first(), a.get(1)) {
         (Some(s), Some(d)) => (s.clone(), d.clone()),
         _ => anyhow::bail!("usage: seal <in.llvq> <out.llvq>"),
     };
-    let repo = std::env::var("LLVQ_MODEL").unwrap_or_else(|_| "Qwen/Qwen3-0.6B".into());
+    // The sidecar `bin/smoke` writes beside the artifact names the checkpoint
+    // it encoded. A file without one (copied alone, or older) is sealed on
+    // `LLVQ_MODEL` alone, and the line below says so.
+    let state_path = llvq_llm::artifact2::RunState::path_for(&src);
+    let state = if std::path::Path::new(&state_path).exists() {
+        Some(llvq_llm::artifact2::RunState::read(&src)?)
+    } else {
+        None
+    };
+    let repo = checkpoint_name(std::env::var("LLVQ_MODEL").ok(), state.as_ref(), &state_path)?;
+    match state.as_ref().and_then(|s| s.get("model")) {
+        Some(_) => eprintln!("checkpoint {repo}: the one {state_path} names"),
+        None => eprintln!("checkpoint {repo}: no model recorded beside {src}, not cross-checked"),
+    }
 
     // ---- read the quantized side ----
     let f = std::fs::File::open(&src)?;
@@ -68,7 +112,8 @@ fn main() -> anyhow::Result<()> {
     // an index outside its codebook must fail while the checkpoint is still
     // being read, not the first time the sealed file is loaded to be scored.
     let cbs = llvq_artifact::Codebooks::new();
-    let mut matrices: Vec<Sealing> = Vec::with_capacity(head.matrices as usize);
+    let mut matrices: Vec<Sealing> =
+        Vec::with_capacity((head.matrices as usize).min(llvq_llm::fused::PREALLOC_CAP));
     for _ in 0..head.matrices {
         // An int4 record is carried across untouched: it holds its weights,
         // so there is no map to check it against and nothing to re-encode.
@@ -186,4 +231,36 @@ fn main() -> anyhow::Result<()> {
     );
     println!("\n   this file needs no checkpoint, no cache and no network.");
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use llvq_llm::artifact2::RunState;
+
+    #[test]
+    fn the_checkpoint_is_required_and_must_be_the_encoded_one() {
+        let mut st = RunState::new();
+        st.set("model", "Qwen/Qwen3-4B");
+        let p = "a.llvq.state";
+        // Absent or empty: refused, with or without a sidecar, never the 0.6B.
+        for m in [None, Some(String::new())] {
+            for state in [Some(&st), None] {
+                let e = checkpoint_name(m.clone(), state, p).unwrap_err();
+                assert!(format!("{e}").contains("LLVQ_MODEL=<checkpoint> is required"), "{e}");
+            }
+        }
+        // The encoded one: accepted, as written.
+        assert_eq!(
+            checkpoint_name(Some("Qwen/Qwen3-4B".into()), Some(&st), p).unwrap(),
+            "Qwen/Qwen3-4B"
+        );
+        // Another model of the same shapes: refused, naming both.
+        let e = checkpoint_name(Some("Qwen/Qwen3-4B-Base".into()), Some(&st), p).unwrap_err();
+        let e = format!("{e}");
+        assert!(e.contains("Qwen/Qwen3-4B-Base") && e.contains("model = Qwen/Qwen3-4B"), "{e}");
+        // No sidecar, or one that records no model: nothing to compare against.
+        assert!(checkpoint_name(Some("x".into()), None, p).is_ok());
+        assert!(checkpoint_name(Some("x".into()), Some(&RunState::new()), p).is_ok());
+    }
 }

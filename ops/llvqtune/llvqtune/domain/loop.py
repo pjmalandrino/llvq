@@ -72,6 +72,16 @@ class Outcome:
     """
     cost: BitCost
     export: dict[str, object]
+    steps_planned: int = 0
+
+    @property
+    def complete(self) -> bool:
+        """True when the loop ran every step its plan asked for.
+
+        A corpus that runs dry ends the loop early, and the scales it leaves
+        look like a full run's: the cosine never reached its floor.
+        """
+        return self.steps_run >= self.steps_planned
 
     @property
     def seconds_per_step(self) -> float:
@@ -219,7 +229,7 @@ def run(
             and done % plan.checkpoint_every == 0
             and done != plan.steps
         ):
-            path = sink.write(trainable.export(), cost)
+            path = sink.write(trainable.export(), cost, steps=(done, plan.steps))
             recorder.step(done, last, lr)
             recorder.checkpoint(done, path, gauge() if gauge is not None else None)
             checkpoints.append(path)
@@ -250,4 +260,5 @@ def run(
         seconds=elapsed,
         cost=cost,
         export=payload,
+        steps_planned=plan.steps,
     )

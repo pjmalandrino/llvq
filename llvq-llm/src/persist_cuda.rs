@@ -5,8 +5,11 @@
 //! Host proof: `llvq-cuda/tests/pers_matches_served.rs` (the segment equals the
 //! eager chain bit for bit on the Mac, its barrier and residual mutants killed).
 //!
-//! Measurement only. Nothing installs a segment unless `bin/fusedrun` is asked
-//! for `LLVQ_PERS_SEGMENT=1`; every served path runs the eager ops.
+//! The segment is a measurement: nothing installs one unless `bin/fusedrun` is
+//! asked for `LLVQ_PERS_SEGMENT=1`. The module is on the served path all the
+//! same: the served persistent decode (`crate::persist4e_cuda`) builds its
+//! arguments with its helpers (`int4_of`, `mlp_args`, `seg_tetra`,
+//! `tensor_addr`, `tetra_of`).
 //!
 //! What install checks, layer by layer, before a segment may replace the eager
 //! ops: the projections are the ones the kernel reads (Tetra48 gate and up under

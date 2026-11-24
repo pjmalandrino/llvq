@@ -144,22 +144,23 @@ fn the_file_accepts_exactly_what_the_variables_accept() {
     }
 }
 
-/// The file this repository ships IS the object arbitrated on 2026-09-08.
+/// The q5 file is the object arbitrated on 2026-09-08, listed among the
+/// earlier objects of `configs/README.md`.
 ///
-/// Not a restatement of the struct: the shipped file is read from disk, by
-/// the code a runner runs, and compared against the five values `docs/ETAT.md`
-/// attributes 56.95 MMLU and 2.8138 b/param to. A config that drifted from the
-/// dossier would make every run under it cite a provenance it does not have.
+/// Not a restatement of the struct: the file is read from disk, by the code a
+/// runner runs, and compared against its five values. A config that drifted
+/// from its record would make every run under it cite a provenance it does
+/// not have.
 #[test]
-fn the_shipped_config_is_the_served_object() {
+fn the_q5_config_is_the_object_arbitrated_on_2026_09_08() {
     let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("../configs/qwen3-4b-tetra-q5.json");
     // `read_file` + `of`, not `read`: `read` consults the shell, and a test
     // whose verdict depends on what the developer exported is not a test of
     // the file. Found the hard way — this line failed on any shell with
     // `LLVQ_FUSED_LAYOUT` set, and passed on a clean one.
-    let f = Served::read_file(&path).expect("the shipped config parses");
-    let s = Served::of(f, path.clone()).expect("the shipped config resolves");
+    let f = Served::read_file(&path).expect("the q5 config parses");
+    let s = Served::of(f, path.clone()).expect("the q5 config resolves");
     assert_eq!(s.layout, FusedLayout::Tetra48);
     assert_eq!(s.embed, EmbedMode::Q8);
     assert_eq!(s.rot_share, RotShare::On);
@@ -173,6 +174,48 @@ fn the_shipped_config_is_the_served_object() {
         "Tetra48 gained a segmented kernel: the shipped `fuse` value is now a choice, \
          not a fact, and this config has to be revisited"
     );
+}
+
+/// The config `llvq` serves the 4B on CUDA is the served object of
+/// `docs/ETAT.md` §2: layout `tetra48`, embedding `q4`, one rotation per
+/// group, no fusion, f16 KV, the kernel attention, 4E with the v9 rows, and
+/// the chain prefill.
+///
+/// The file is the one `llvq-runtime/library.json` names for the 4B on CUDA,
+/// read from disk as for the q5 test, so a runtime that moved to another file
+/// moves this test with it, and a file that drifted from the record fails it.
+#[test]
+fn the_shipped_config_is_the_served_object() {
+    use llvq_llm::kvq::PrefillAttn;
+    use llvq_llm::served::Prefill;
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("..");
+    let library: serde_json::Value = serde_json::from_str(
+        &std::fs::read_to_string(root.join("llvq-runtime/library.json")).expect("the library"),
+    )
+    .expect("the library parses");
+    let models = library["models"].as_array().expect("a model list");
+    let four_b = models.iter().find(|m| m["tag"] == "4b").expect("the 4B entry");
+    let name = four_b["configs"]["cuda"].as_str().expect("a CUDA config for the 4B");
+    assert_eq!(name, "qwen3-4b-tetra-e4-4e-v9-chain.json", "the 4B's served CUDA config moved");
+    let path = root.join("configs").join(name);
+    let f = Served::read_file(&path).expect("the served config parses");
+    let s = Served::of(f, path.clone()).expect("the served config resolves");
+    assert_eq!(s.layout, FusedLayout::Tetra48);
+    assert_eq!(s.embed, EmbedMode::Q4);
+    assert_eq!(s.rot_share, RotShare::On);
+    assert_eq!(s.kv, KvMode::F16);
+    assert_eq!(s.fuse, FuseMode::Off);
+    assert!(
+        !llvq_llm::fused::planes_source_names(s.layout).contains(&"tv_planes_seg_h.cu"),
+        "Tetra48 gained a segmented kernel: the shipped `fuse` value is now a choice, \
+         not a fact, and this config has to be revisited"
+    );
+    assert_eq!(s.attention, AttnHeads::Kernel);
+    assert_eq!(s.decode, Decode::Persistent);
+    assert_eq!(s.rows, Rows4e::V9);
+    assert_eq!(s.prefill_form, Prefill::Chain);
+    assert_eq!(s.prefill, PrefillAttn::Grouped);
+    assert_eq!(s.batch, None);
 }
 
 /// The 8B config is the 4B's five values on another object, and nothing more.

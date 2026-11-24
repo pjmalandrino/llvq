@@ -113,10 +113,22 @@ def _extension_cuda():
     under `site-packages`, so a pip user had no CUDA arm at all.
 
     `TILE_BLOCKS` is the kernel's define, not Metal's `LLVQ_TILE_BLOCKS`, and the
-    shared bytes the caller passes have to match it.
+    shared bytes the caller passes have to cover it. The caller passes
+    `integration.TILE_BLOCKS`, so `LLVQ_HF_TILE` is refused above it: a larger
+    define would stage past the shared memory the binding allocates. A smaller
+    one stages inside it.
     """
     from torch.utils.cpp_extension import load
 
+    from .integration import TILE_BLOCKS
+
+    tile = int(os.environ.get("LLVQ_HF_TILE", str(TILE_BLOCKS)))
+    if not 1 <= tile <= TILE_BLOCKS:
+        raise ValueError(
+            f"LLVQ_HF_TILE={tile}: the fused modules allocate shared memory for "
+            f"{TILE_BLOCKS} blocks, and the kernel would stage {tile}; "
+            f"give a value from 1 to {TILE_BLOCKS}"
+        )
     if not torch.cuda.is_available():
         raise RuntimeError("this op runs on CUDA, and no device is available")
     missing = [p.name for p in CUDA_SOURCES if not p.exists()]
@@ -126,7 +138,6 @@ def _extension_cuda():
             "`cargo run --release -p llvq-llm --bin tetratables -- "
             "llvq-tetra/llvq_tetra/data/tetra-tables.safetensors`"
         )
-    tile = int(os.environ.get("LLVQ_HF_TILE", "64"))
     return load(
         name="llvq_tetra_cuda",
         sources=[str(CSRC_CUDA)],

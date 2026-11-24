@@ -41,10 +41,12 @@
 //!   rule, a refusal: whichever way one resolved it, half the readers of the
 //!   run would believe the other. The comparison goes THROUGH the parsers, so
 //!   `LLVQ_FUSE=""` beside `"fuse": "0"` agrees — both mean `Off`;
-//! * four variables that reach BELOW the served door and that no field of this
-//!   file carries: `LLVQ_KERNEL_DIR` swaps the kernel text, `LLVQ_TILE_BLOCKS`
-//!   and `LLVQ_PREFILL` move served constants, `LLVQ_METAL_KERNEL` swaps the
-//!   Metal matvec. Any one set beside `LLVQ_CONFIG` is refused by name. `LLVQ_NVRTC_ARCH` is deliberately NOT refused: it names the card,
+//! * seven variables that reach BELOW the served door and that no field of
+//!   this file carries ([`BELOW_THE_DOOR`]): `LLVQ_KERNEL_DIR` swaps the kernel
+//!   text, `LLVQ_TILE_BLOCKS` and `LLVQ_PREFILL` move served constants,
+//!   `LLVQ_METAL_KERNEL` swaps the Metal matvec, and `LLVQ_GUIDED_WEIGHTS`,
+//!   `LLVQ_GUIDED_GROUPS` and `LLVQ_GUIDED_CLIP` change how an object is
+//!   encoded. Any one set beside `LLVQ_CONFIG` is refused by name. `LLVQ_NVRTC_ARCH` is deliberately NOT refused: it names the card,
 //!   not the object, and an A100 needs it; the runtime prints it on its
 //!   `NVRTC source:` line so no served log is silent about its target.
 //!

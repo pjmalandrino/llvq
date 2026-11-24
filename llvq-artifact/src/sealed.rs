@@ -119,6 +119,10 @@ impl RawTensor {
     /// Decode to f32, whatever the encoding. This is the reader's one entry
     /// point: quality measurements must go through the same bytes the file
     /// stores, not through a shortcut.
+    ///
+    /// A quantized payload must hold the counts its dims name, which
+    /// [`read_raw`] and [`write_raw`] both check: on a tensor built by hand
+    /// that skips them, this indexes past its arrays and panics.
     pub fn to_f32(&self) -> Vec<f32> {
         match &self.data {
             RawData::F16(d) => d.iter().map(|&b| f16_to_f32(b)).collect(),
@@ -169,7 +173,12 @@ fn get_u64(r: &mut impl Read, what: &'static str) -> Result<u64> {
     Ok(u64::from_le_bytes(b))
 }
 fn put_str(w: &mut impl Write, s: &str) -> Result<()> {
-    put_u32(w, s.len() as u32)?;
+    let n = u32::try_from(s.len()).map_err(|_| Error::Inconsistent {
+        // Past 2^32 bytes the whole name is no use in a message.
+        name: s.chars().take(64).collect(),
+        detail: format!("name length {} does not fit the u32 field that stores it", s.len()),
+    })?;
+    put_u32(w, n)?;
     w.write_all(s.as_bytes())?;
     Ok(())
 }
@@ -220,6 +229,54 @@ fn get_u16s(r: &mut impl Read, n: usize, what: &'static str) -> Result<Vec<u16>>
         .collect())
 }
 
+/// The value count `dims` name. Refused by name when it does not fit a
+/// `usize`: no buffer could back it, and a wrapped product would let a short
+/// payload pass the length checks.
+fn value_count(name: &str, dims: &[usize]) -> Result<usize> {
+    dims.iter()
+        .try_fold(1usize, |acc, &d| acc.checked_mul(d))
+        .ok_or_else(|| Error::Inconsistent {
+            name: name.to_string(),
+            detail: format!("dims {dims:?} name more values than a usize holds"),
+        })
+}
+
+/// The invariants of a quantized payload against its dims, and the group
+/// count they imply: a non-zero group, a value count that fits a `usize`, a
+/// width of 4 or 8, and packed bytes, scales and biases in the counts the dims
+/// name. [`write_raw`] checks them before the payload goes out and
+/// [`read_raw`] after it comes in, so a tensor either one passes decodes
+/// through [`RawTensor::to_f32`] without an index past its arrays.
+fn check_quant(name: &str, dims: &[usize], q: &QuantData) -> Result<usize> {
+    let bad = |detail: String| Error::Inconsistent {
+        name: name.to_string(),
+        detail,
+    };
+    if q.group == 0 {
+        return Err(bad("quant group 0: a group holds at least one value".to_string()));
+    }
+    let n = value_count(name, dims)?;
+    let row_len = dims.last().copied().unwrap_or(1).max(1);
+    let rows = n / row_len;
+    let groups = rows * row_len.div_ceil(q.group);
+    let need = match q.bits {
+        8 => n,
+        4 => n.div_ceil(2),
+        b => return Err(bad(format!("unsupported quant width {b}"))),
+    };
+    if q.packed.len() != need || q.scales.len() != groups || q.biases.len() != groups {
+        return Err(bad(format!(
+            "{} packed bytes / {} scales / {} biases for {n} values in \
+             groups of {} (want {need} / {groups} / {groups})",
+            q.packed.len(),
+            q.scales.len(),
+            q.biases.len(),
+            q.group
+        )));
+    }
+    Ok(groups)
+}
+
 /// Serialize one raw tensor in `LVQ3` framing (tagged).
 pub fn write_raw(w: &mut impl Write, t: &RawTensor) -> Result<u64> {
     let tag = match &t.data {
@@ -228,13 +285,13 @@ pub fn write_raw(w: &mut impl Write, t: &RawTensor) -> Result<u64> {
     };
     put_u32(w, tag)?;
     put_str(w, &t.name)?;
-    put_u32(w, t.dims.len() as u32)?;
+    put_u32(w, crate::format::u32_field(&t.name, "rank", t.dims.len())?)?;
     for d in &t.dims {
         put_u64(w, *d as u64)?;
     }
     match &t.data {
         RawData::F16(data) => {
-            if data.len() != t.len() {
+            if data.len() != value_count(&t.name, &t.dims)? {
                 return Err(Error::Inconsistent {
                     name: t.name.clone(),
                     detail: format!("{} values for dims {:?}", data.len(), t.dims),
@@ -244,35 +301,9 @@ pub fn write_raw(w: &mut impl Write, t: &RawTensor) -> Result<u64> {
             put_u16s(w, data)?;
         }
         RawData::Quant(q) => {
-            let n = t.len();
-            let row_len = t.dims.last().copied().unwrap_or(1).max(1);
-            let rows = n / row_len;
-            let groups = rows * row_len.div_ceil(q.group);
-            let need = match q.bits {
-                8 => n,
-                4 => n.div_ceil(2),
-                b => {
-                    return Err(Error::Inconsistent {
-                        name: t.name.clone(),
-                        detail: format!("unsupported quant width {b}"),
-                    })
-                }
-            };
-            if q.packed.len() != need || q.scales.len() != groups || q.biases.len() != groups {
-                return Err(Error::Inconsistent {
-                    name: t.name.clone(),
-                    detail: format!(
-                        "{} packed bytes / {} scales / {} biases for {n} values in \
-                         groups of {} (want {need} / {groups} / {groups})",
-                        q.packed.len(),
-                        q.scales.len(),
-                        q.biases.len(),
-                        q.group
-                    ),
-                });
-            }
+            let groups = check_quant(&t.name, &t.dims, q)?;
             put_u32(w, q.bits as u32)?;
-            put_u32(w, q.group as u32)?;
+            put_u32(w, crate::format::u32_field(&t.name, "quant group", q.group)?)?;
             put_u64(w, q.packed.len() as u64)?;
             w.write_all(&q.packed)?;
             put_u64(w, groups as u64)?;
@@ -305,23 +336,45 @@ pub fn read_raw(r: &mut impl Read, version: u32) -> Result<RawTensor> {
     let data = match tag {
         TAG_F16 => {
             let n = get_u64(r, "raw tensor length")? as usize;
-            RawData::F16(get_u16s(r, n, "raw tensor data")?)
+            let data = get_u16s(r, n, "raw tensor data")?;
+            // After the values are in, so a lying count still fails as
+            // `Truncated` on the data it promised.
+            if data.len() != value_count(&name, &dims)? {
+                return Err(Error::Inconsistent {
+                    name,
+                    detail: format!("{} values for dims {:?}", data.len(), dims),
+                });
+            }
+            RawData::F16(data)
         }
         TAG_QUANT => {
-            let bits = get_u32(r, "quant width")? as u8;
+            // Checked as the u32 the file stores, before any narrowing: a
+            // field of 0x104 is not 4.
+            let bits = match get_u32(r, "quant width")? {
+                b @ (4 | 8) => b as u8,
+                b => {
+                    return Err(Error::Inconsistent {
+                        name,
+                        detail: format!("unsupported quant width {b}"),
+                    })
+                }
+            };
             let group = get_u32(r, "quant group")? as usize;
             let nbytes = get_u64(r, "quant packed length")?;
             let packed = get_bytes(r, nbytes, "quant packed data")?;
             let groups = get_u64(r, "quant group count")? as usize;
             let scales = get_u16s(r, groups, "quant scales")?;
             let biases = get_u16s(r, groups, "quant biases")?;
-            RawData::Quant(QuantData {
+            let q = QuantData {
                 bits,
                 group,
                 packed,
                 scales,
                 biases,
-            })
+            };
+            // What `write_raw` checks before writing, checked after reading.
+            check_quant(&name, &dims, &q)?;
+            RawData::Quant(q)
         }
         tag => return Err(Error::BadRawEncoding { tag }),
     };

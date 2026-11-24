@@ -83,6 +83,31 @@ def wht_torch(v: torch.Tensor) -> torch.Tensor:
     return v * (1.0 / np.sqrt(float(n)))
 
 
+def _require_resident_device(resident: torch.Tensor | None, fn, prefix: str) -> None:
+    """Refuse a conversion that would move a fused projection off the device of its codes.
+
+    The resident tensors are plain attributes in the kernel's layout, and `nn.Module.to` moves
+    parameters and buffers only: the bias would leave and the codes would stay. A conversion that
+    keeps the device passes this check; whether its dtype is safe is `_require_rotation_dtype`'s
+    question.
+    """
+    if resident is None:
+        return
+    target = fn(torch.empty(0, device=resident.device)).device
+    if target != resident.device:
+        raise RuntimeError(
+            f"{prefix} holds its codes on {resident.device} and cannot be moved to {target}; "
+            f"load the model again with device_map=\"{target.type}\""
+        )
+
+
+def _require_input_device(x: torch.Tensor, resident: torch.Tensor, prefix: str) -> None:
+    if x.device != resident.device:
+        raise RuntimeError(
+            f"{prefix} holds its codes on {resident.device} and was given an input on {x.device}"
+        )
+
+
 class Rotation(nn.Module):
     """`x ← Q x` on the device, the transform the codes were written under."""
 
@@ -108,6 +133,26 @@ class Rotation(nn.Module):
         if self.k > 1:
             v = torch.einsum("gt,...tm->...gm", self.small, v)
         return v.reshape(*x.shape)
+
+
+def _require_rotation_dtype(rotation, fn, prefix: str) -> None:
+    """Refuse a dtype conversion that would reach a rotation's mix.
+
+    `Rotation` holds its tables as buffers, so `nn.Module.to(dtype)` converts them, and its mix is
+    an `einsum` against the float32 activation, which takes a single dtype. A conversion that
+    leaves a float32 tensor float32, `model.to("cuda")` among them, passes, and so does any
+    conversion of a rotation with no mix (`k == 1`). The Metal rotation is not a module and keeps
+    its tables whatever the conversion.
+    """
+    if not isinstance(rotation, Rotation) or rotation.k == 1:
+        return
+    held = rotation.small
+    target = fn(torch.empty(0, device=held.device, dtype=held.dtype)).dtype
+    if target != held.dtype:
+        raise RuntimeError(
+            f"{prefix} rotates its input with {held.dtype} tables and cannot be converted to "
+            f"{target}; load the model again with dtype={target}"
+        )
 
 
 class FusedTetraLinear(LlvqLinear):
@@ -170,6 +215,11 @@ class FusedTetraLinear(LlvqLinear):
         self.rotation = rotation
         self._tile = tile
 
+    def _apply(self, fn, recurse=True):
+        _require_resident_device(self._words, fn, self.desc["prefix"])
+        _require_rotation_dtype(self.rotation, fn, self.desc["prefix"])
+        return super()._apply(fn, recurse)
+
     def resident_bytes(self) -> int:
         return sum(t.numel() * t.element_size()
                    for t in (self._words, self._gscale, self._rscale, self._tail))
@@ -177,6 +227,7 @@ class FusedTetraLinear(LlvqLinear):
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         if self._words is None:
             raise RuntimeError("this projection was never armed with its device buffers")
+        _require_input_device(x, self._words, self.desc["prefix"])
         d = self.desc
         shape = x.shape
         if x.device.type == "mps":
@@ -277,6 +328,10 @@ class Int4FusedLinear(LlvqLinear):
         out._tile = tile_cols
         return out
 
+    def _apply(self, fn, recurse=True):
+        _require_resident_device(self._wq, fn, self.desc["prefix"])
+        return super()._apply(fn, recurse)
+
     def resident_bytes(self) -> int:
         return sum(t.numel() * t.element_size()
                    for t in (self._wq, self._scales, self._biases))
@@ -284,6 +339,7 @@ class Int4FusedLinear(LlvqLinear):
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         if self._wq is None:
             raise RuntimeError("this int4 projection was never armed")
+        _require_input_device(x, self._wq, self.desc["prefix"])
         d = self.desc
         shape = x.shape
         flat = x.reshape(-1, d["d_in"]).to(torch.float32).contiguous()

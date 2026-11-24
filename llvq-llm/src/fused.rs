@@ -10,11 +10,13 @@
 //! much memory as an f16 checkpoint and runs at exactly its speed. The
 //! 2026-08-05 miniature run measured that plainly — 42.7 tok/s against 42.8.
 //!
-//! This module keeps the weights encoded. It transcodes each matrix to the
-//! runtime layout the fused matvec reads — `Planes14` by default, `Planes12x`
-//! or `Slot32` under `LLVQ_FUSED_LAYOUT` (see [`FusedLayout`]) — and hands
-//! the host tables over. Nothing here touches a GPU: this is the portable
-//! half, and it is testable without a card.
+//! This module keeps the weights encoded. It transcodes each lattice matrix
+//! to the runtime layout the fused matvec reads, the one `LLVQ_FUSED_LAYOUT`
+//! names (see [`FusedLayout`]): `Tetra48` for the three served files, which
+//! hold Tetra records, and `Planes14` (the default), `Planes12x`, `Slot32` or
+//! `Golay70` for ball files. An int4 record is carried as it is stored. It
+//! hands the host tables over. Nothing here touches a GPU: this is the
+//! portable half, and it is testable without a card.
 //!
 //! ## The rotation tables, and why they are here
 //!
@@ -31,8 +33,11 @@
 //! `(width, seed)` and ships three small tables.
 //!
 //! Distinct pairs are far fewer than matrices: q/k/v share an activation and
-//! therefore a rotation, and so do gate/up. Qwen3-4B has 252 projections and
-//! **144** rotations, and the tables together weigh under a megabyte.
+//! therefore a rotation, and so do gate/up. An int4 record is stored in the
+//! natural basis and has none. The served Qwen3-4B carries 84 of its 252
+//! projections as int4, so its 168 lattice projections share **96** rotations
+//! (36 for q/k, 36 for gate/up, one for each of the 24 Tetra `down_proj`);
+//! an all-lattice 4B has 144. The tables together weigh under a megabyte.
 
 use std::collections::HashMap;
 use std::io::Read;
@@ -1359,14 +1364,6 @@ pub fn tail_f16_bits(tail: &[f64]) -> Vec<u16> {
         .collect()
 }
 
-/// Device bytes a matrix costs **beside** its block stream: the narrowed tail
-/// and the row scales.
-///
-/// Extracted from `load` so the accounting is a function with a name and a
-/// test rather than an expression inside a loop — `runtime_bytes` is the
-/// number `fusedrun` prints as "GB on the card" and that
-/// [`FusedModel::runtime_bits_per_weight`] divides, so an arithmetic slip
-/// here is published, not caught.
 /// Device bytes the quantized projections occupy — every list the model holds.
 ///
 /// A function with a name and a test rather than an expression inside `load`,
@@ -1389,6 +1386,14 @@ pub fn runtime_bytes_of(
         + int4.iter().map(|q| q.bytes).sum::<u64>()
 }
 
+/// Device bytes a matrix costs **beside** its block stream: the narrowed tail
+/// and the row scales.
+///
+/// Extracted from `load` so the accounting is a function with a name and a
+/// test rather than an expression inside a loop — `runtime_bytes` is the
+/// number `fusedrun` prints as "GB on the card" and that
+/// [`FusedModel::runtime_bits_per_weight`] divides, so an arithmetic slip
+/// here is published, not caught.
 pub fn matrix_side_bytes(d_out: usize, tail_w: usize) -> u64 {
     (d_out * tail_w) as u64 * TAIL_BYTES + d_out as u64 * ROW_SCALE_BYTES
 }
@@ -2367,9 +2372,11 @@ impl Transcoder {
 
 /// Load a sealed artifact in encoded form, transcoded to `layout`.
 ///
-/// Costs one transcode of every matrix — 142 s for the 4B on eight cores,
-/// measured 2026-08-05 — against `sealed::load`'s full decode, which took
-/// 208.7 s on the same file and produced eight gigabytes of f16.
+/// Costs one transcode of every matrix. Under `Planes14` that took 142 s for
+/// the 4B on eight cores, measured 2026-08-05, against `sealed::load`'s full
+/// decode, which took 208.7 s on the same file and produced eight gigabytes
+/// of f16. Under `Tetra48`, the served layout, the transcode only copies six
+/// bytes a block into the row layout (`llvq_artifact::tetra48`).
 ///
 /// ⚠️ `Planes12x` is a different order of magnitude and it is not a defect:
 /// it runs one exact lattice search per 5-level block on top of the same
@@ -2379,6 +2386,13 @@ impl Transcoder {
 pub fn load(path: &str, layout: FusedLayout) -> Result<FusedModel, String> {
     load_with(path, layout, FuseMode::Off)
 }
+
+/// The most elements a reader reserves up front for a count it read from the
+/// file, the bound `llvq_artifact` keeps private for its own readers. A torn
+/// or hostile header can announce four billion records; reserving that many
+/// would abort the process before the first short read could return an error.
+/// A valid file only grows the vector past it, element by element.
+pub const PREALLOC_CAP: usize = 1 << 20;
 
 /// [`load`] with the fusion mode named by the caller rather than read from the
 /// environment.
@@ -2418,7 +2432,7 @@ pub fn load_with(path: &str, layout: FusedLayout, fuse: FuseMode) -> Result<Fuse
     // a Ball record.
     check_kinds(layout, head.kinds())?;
     let tr = Transcoder::for_kind(layout, lattice_kind(layout))?;
-    let mut matrices = Vec::with_capacity(head.matrices as usize);
+    let mut matrices = Vec::with_capacity((head.matrices as usize).min(PREALLOC_CAP));
     let mut int4: Vec<FusedInt4> = Vec::new();
     let mut rotations: HashMap<RotKey, RotationTables> = HashMap::new();
     let mut quantized_weights = 0usize;
@@ -2541,7 +2555,7 @@ pub fn load_with(path: &str, layout: FusedLayout, fuse: FuseMode) -> Result<Fuse
     let runtime_bytes = runtime_bytes_of(&matrices, &groups, &int4);
 
     let n_raw = read_u32(&mut r)?;
-    let mut raw = Vec::with_capacity(n_raw as usize);
+    let mut raw = Vec::with_capacity((n_raw as usize).min(PREALLOC_CAP));
     let mut carried_weights = 0usize;
     for _ in 0..n_raw {
         let t = llvq_artifact::read_raw(&mut r, head.version).map_err(|e| e.to_string())?;
@@ -3078,5 +3092,27 @@ mod tests {
         assert_eq!((t.m, t.k), (512, 19));
         assert!((t.inv as f64 - 1.0 / 512f64.sqrt()).abs() < 1e-9);
         assert!((t.inv as f64 - 1.0 / 9728f64.sqrt()).abs() > 1e-3);
+    }
+
+    /// A header that announces four billion records with nothing behind it is
+    /// a short read and an `Err`, not a reservation the allocator aborts the
+    /// process on. The same for the count of carried tensors.
+    #[test]
+    fn a_huge_count_in_a_short_file_is_an_error_not_an_abort() {
+        let path = std::env::temp_dir().join(format!("llvq-fused-count-{}.llvq", std::process::id()));
+        let path_s = path.to_str().expect("a UTF-8 temp path").to_string();
+
+        let mut bytes = Vec::new();
+        llvq_artifact::write_header_kind(&mut bytes, 5, u32::MAX, CodeKind::Tetra).expect("a header");
+        std::fs::write(&path, &bytes).expect("write the header");
+        assert!(load(&path_s, FusedLayout::Tetra48).is_err(), "u32::MAX records, none written");
+
+        let mut bytes = Vec::new();
+        llvq_artifact::write_header_kind(&mut bytes, 5, 0, CodeKind::Tetra).expect("a header");
+        bytes.extend_from_slice(&u32::MAX.to_le_bytes());
+        std::fs::write(&path, &bytes).expect("write the header and the tensor count");
+        assert!(load(&path_s, FusedLayout::Tetra48).is_err(), "u32::MAX carried tensors, none written");
+
+        let _ = std::fs::remove_file(&path);
     }
 }

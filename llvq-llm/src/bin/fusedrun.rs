@@ -2130,11 +2130,10 @@ fn main() -> anyhow::Result<()> {
         // the audit of 2026-09-11 found it. `LLVQ_PREFILL_TOKENS` and
         // `LLVQ_CONTEXTS` are the two exceptions, handled below: they time the
         // served object as served, and change only the prompt it is given.
+        // The list is `served::MEASUREMENT_MODES`, the one `check_env` reads
+        // beside a persistent config; here it is refused beside any config.
         if served.is_some() {
-            for var in ["LLVQ_GRAPH_AB", "LLVQ_GRAPH_DIAG", "LLVQ_KV_AB", "LLVQ_FUSE_AB",
-                        "LLVQ_TIME_PHASES", "LLVQ_KV_PREALLOC", "LLVQ_SEG_ARMS",
-                        "LLVQ_TRIM_AB", "LLVQ_GQA_AB", "LLVQ_GQA_PPL", "LLVQ_KV_CAPTURE", "LLVQ_KV_LADDER",
-                        "LLVQ_INT4_WIDE_CHECK", "LLVQ_GESTURE_AB", "LLVQ_BOUNDARY_AB", "LLVQ_PERS_SEGMENT", "LLVQ_PERS_4E"] {
+            for var in llvq_llm::served::MEASUREMENT_MODES {
                 if let Ok(v) = std::env::var(var) {
                     anyhow::bail!(
                         "{var}={v:?} beside LLVQ_CONFIG: that is a measurement mode, and the \

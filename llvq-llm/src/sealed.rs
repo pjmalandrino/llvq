@@ -148,15 +148,19 @@ fn layer_of(name: &str) -> Option<usize> {
 }
 
 impl RestoreF16 {
-    /// Parse a `LLVQ_RESTORE_F16` value: empty means nothing, `all` means the
-    /// seven, otherwise a comma-separated subset of [`PROJ_TYPES`].
     /// Resolve from the environment: `LLVQ_RESTORE_F16` and
     /// `LLVQ_RESTORE_Q4` take the same type list and differ only in the
     /// precision handed back. Setting both is refused — an arm whose defining
     /// parameter is ambiguous is an arm nobody can re-read.
     pub fn from_env() -> Result<Self, String> {
-        let f16 = std::env::var("LLVQ_RESTORE_F16").unwrap_or_default();
-        let q4 = std::env::var("LLVQ_RESTORE_Q4").unwrap_or_default();
+        Self::from_lookup(|k| std::env::var(k).ok())
+    }
+
+    /// [`Self::from_env`] on any source of variables, so the refusal is
+    /// testable without touching the process environment.
+    pub fn from_lookup(lookup: impl Fn(&str) -> Option<String>) -> Result<Self, String> {
+        let f16 = lookup("LLVQ_RESTORE_F16").unwrap_or_default();
+        let q4 = lookup("LLVQ_RESTORE_Q4").unwrap_or_default();
         match (f16.trim().is_empty(), q4.trim().is_empty()) {
             (true, true) => Ok(Self::default()),
             (false, true) => Self::parse(&f16),
@@ -179,6 +183,8 @@ impl RestoreF16 {
         self.prec
     }
 
+    /// Parse a `LLVQ_RESTORE_F16` value: empty means nothing, `all` means the
+    /// seven, otherwise a comma-separated subset of [`PROJ_TYPES`].
     pub fn parse(spec: &str) -> Result<Self, String> {
         let spec = spec.trim();
         if spec.is_empty() {
@@ -261,14 +267,24 @@ impl RestoreF16 {
         })
     }
 
-    /// Comma-joined, for labels and error messages.
+    /// Comma-joined, for labels and error messages. A type restricted to a
+    /// window of layers is written with it, as `parse` reads it:
+    /// `down_proj@0-11`.
     pub fn describe(&self) -> String {
-        self.types.join(",")
+        self.types
+            .iter()
+            .enumerate()
+            .map(|(i, t)| match self.ranges.get(i).copied().flatten() {
+                Some((lo, hi)) => format!("{t}@{lo}-{hi}"),
+                None => (*t).to_string(),
+            })
+            .collect::<Vec<_>>()
+            .join(",")
     }
 
     /// Types and precision together — what goes on the result line.
     pub fn describe_full(&self) -> String {
-        format!("{} at {}", self.types.join(","), self.prec.describe())
+        format!("{} at {}", self.describe(), self.prec.describe())
     }
 }
 
@@ -701,6 +717,42 @@ mod restore_tests {
         // for the f16 arm of the same type.
         assert!(q4.describe_full().contains("int4 g128"));
         assert!(RestoreF16::parse("v_proj").unwrap().describe_full().contains("at f16"));
+
+        // The environment, read through a lookup: each variable alone selects
+        // its precision, neither is the empty set, and both together are
+        // refused by name.
+        fn env(
+            f16: Option<&'static str>,
+            q4: Option<&'static str>,
+        ) -> impl Fn(&str) -> Option<String> {
+            move |k| match k {
+                "LLVQ_RESTORE_F16" => f16.map(str::to_string),
+                "LLVQ_RESTORE_Q4" => q4.map(str::to_string),
+                _ => None,
+            }
+        }
+        assert!(RestoreF16::from_lookup(env(None, None)).unwrap().is_empty());
+        assert!(RestoreF16::from_lookup(env(Some(" "), Some(""))).unwrap().is_empty());
+        let f = RestoreF16::from_lookup(env(Some("v_proj"), None)).unwrap();
+        assert_eq!((f.types(), f.prec()), (&["v_proj"][..], RestorePrec::F16));
+        let q = RestoreF16::from_lookup(env(None, Some("v_proj"))).unwrap();
+        assert_eq!((q.types(), q.prec()), (&["v_proj"][..], RestorePrec::Q4 { group: Q4_GROUP }));
+        let e = RestoreF16::from_lookup(env(Some("v_proj"), Some("o_proj"))).unwrap_err();
+        assert!(e.contains("LLVQ_RESTORE_F16") && e.contains("LLVQ_RESTORE_Q4"), "{e}");
+    }
+
+    /// A window of layers travels into the label, so two arms of one type
+    /// over different depths do not print the same line.
+    #[test]
+    fn a_restored_window_is_named_in_the_label() {
+        let w = RestoreF16::parse("down_proj@0-11, o_proj").unwrap();
+        assert_eq!(w.describe(), "down_proj@0-11,o_proj");
+        assert_eq!(w.describe_full(), "down_proj@0-11,o_proj at f16");
+        assert_ne!(
+            RestoreF16::parse("down_proj@24-35").unwrap().describe(),
+            RestoreF16::parse("down_proj@0-11").unwrap().describe()
+        );
+        assert_eq!(RestoreF16::parse("all").unwrap().describe(), PROJ_TYPES.join(","));
     }
 
     /// Four bits must actually cost something: a round trip that returned its

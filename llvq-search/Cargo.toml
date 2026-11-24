@@ -8,3 +8,7 @@ description = "Exact nearest-neighbour search on unions of Leech lattice shells 
 
 [dependencies]
 llvq-core = { path = "../llvq-core" }
+
+# Every target of the package, not only the lib: bins, tests, examples, benches.
+[lints.rust]
+unsafe_code = "forbid"

@@ -168,6 +168,71 @@ fn import_checks_a_local_copy_and_rm_keeps_a_blob_another_name_holds() {
     let _ = std::fs::remove_dir_all(s.root());
 }
 
+/// A removal while an import of the same file holds its lock is refused by
+/// name: the import registers its manifest after its check, and a removal
+/// in between left a manifest that names no file. The removal runs inside
+/// the import's own report of "writing manifest", the last step before the
+/// manifest is written.
+#[test]
+fn rm_during_an_import_of_the_same_file_is_refused() {
+    let name = ModelName::parse("fake:1b").unwrap();
+    let good = digest(&content());
+    let s = store("rm-import");
+    let src = s.root().with_extension("src.bin");
+    std::fs::write(&src, content()).unwrap();
+    s.import(&name, &entry(good.clone()), &src, &mut |_| {}).unwrap();
+    // The blob is there: a second import checks it and registers again.
+    let mut removed = None;
+    s.import(&name, &entry(good.clone()), &src, &mut |e| {
+        if e == PullEvent::Status("writing manifest".into()) {
+            removed = Some(s.remove(&name));
+        }
+    })
+    .unwrap();
+    let err = removed.expect("the import wrote no manifest").expect_err("the removal ran while the import held the file");
+    assert!(err.downcast_ref::<llvq_runtime::store::BlobBusy>().is_some(), "{err:#}");
+    assert!(s.get(&name).unwrap().is_some());
+    assert!(s.blob_path(&good).exists(), "the manifest names a blob that is gone");
+    // Once the import has ended, the removal goes through.
+    assert!(s.remove(&name).unwrap());
+    assert!(!s.blob_path(&good).exists());
+    std::fs::remove_file(src).unwrap();
+    let _ = std::fs::remove_dir_all(s.root());
+}
+
+/// A manifest that does not read, as one a newer `llvq` wrote with a field
+/// this build does not know: the other models still list, and a removal
+/// beside it goes through whole. The listing failed on it, and a removal
+/// deleted its manifest, then failed, leaving its blob behind.
+#[test]
+fn a_manifest_that_does_not_read_leaves_the_others_listed_and_removable() {
+    let name = ModelName::parse("fake:1b").unwrap();
+    let good = digest(&content());
+    let s = store("unread");
+    let src = s.root().with_extension("src.bin");
+    std::fs::write(&src, content()).unwrap();
+    s.import(&name, &entry(good.clone()), &src, &mut |_| {}).unwrap();
+    let copy = ModelName::parse("fake:copy").unwrap();
+    assert!(s.copy(&name, &copy).unwrap());
+    let unread = s.root().join("manifests").join("other").join("1b.json");
+    std::fs::create_dir_all(unread.parent().unwrap()).unwrap();
+    std::fs::write(&unread, r#"{"schema": 2, "written_by": "a newer llvq"}"#).unwrap();
+    let listed: Vec<ModelName> = s.list().unwrap().into_iter().map(|(n, _)| n).collect();
+    assert_eq!(listed, vec![name.clone(), copy.clone()]);
+    // Another name holds the blob: it stays.
+    assert!(s.remove(&name).unwrap());
+    assert_eq!(s.get(&name).unwrap(), None);
+    assert!(s.blob_path(&good).exists(), "fake:copy still names the blob");
+    // The last name that reads: its manifest goes, and its blob stays, since
+    // the manifest that does not read may name it.
+    assert!(s.remove(&copy).unwrap());
+    assert_eq!(s.get(&copy).unwrap(), None);
+    assert!(s.blob_path(&good).exists(), "a blob that a manifest may name was removed");
+    assert!(s.list().unwrap().is_empty());
+    std::fs::remove_file(src).unwrap();
+    let _ = std::fs::remove_dir_all(s.root());
+}
+
 /// Serves `content()` slowly, in 256 KiB chunks 20 ms apart, so that two
 /// pulls overlap. Returns the endpoint.
 fn slow_hub() -> String {

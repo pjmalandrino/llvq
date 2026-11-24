@@ -67,6 +67,34 @@ pub enum PullEvent {
     Progress { digest: String, total: u64, completed: u64 },
 }
 
+/// A removal refused while a pull or an import of the model's file runs.
+/// The server answers it with `409`.
+#[derive(Debug)]
+pub struct BlobBusy(pub ModelName);
+
+impl std::fmt::Display for BlobBusy {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "model '{}': a pull or an import of its file is running; delete it once that ends", self.0)
+    }
+}
+
+impl std::error::Error for BlobBusy {}
+
+/// Which file a blob's path names on disk. A pull that finds the blob sound
+/// leaves the same file; a pull that wrote it again (after a damaged blob was
+/// removed) leaves another one, with another inode or modification time.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct BlobId {
+    len: u64,
+    modified: Option<std::time::SystemTime>,
+    /// Device, inode, and status-change time in seconds and nanoseconds,
+    /// where the platform has them.
+    node: (u64, u64, i64, i64),
+}
+
+/// The manifests that read, and the errors of those that do not.
+type Manifests = (Vec<(ModelName, Manifest)>, Vec<anyhow::Error>);
+
 pub struct Store {
     root: PathBuf,
     /// How long a pull waits for the next bytes before it fails.
@@ -151,6 +179,19 @@ impl Store {
         self.root.join("blobs").join(format!("sha256-{sha256}"))
     }
 
+    /// The file the blob of `sha256` is now, `None` when there is none.
+    pub fn blob_id(&self, sha256: &str) -> Option<BlobId> {
+        let m = std::fs::metadata(self.blob_path(sha256)).ok()?;
+        #[cfg(unix)]
+        let node = {
+            use std::os::unix::fs::MetadataExt;
+            (m.dev(), m.ino(), m.ctime(), m.ctime_nsec())
+        };
+        #[cfg(not(unix))]
+        let node = (0, 0, 0, 0);
+        Some(BlobId { len: m.len(), modified: m.modified().ok(), node })
+    }
+
     /// Hold the lock of one blob: a pull or an import of it, in this
     /// process or another, waits until the lock is released. Two writers
     /// appending to one partial file would register a file that is neither,
@@ -185,13 +226,26 @@ impl Store {
         }
     }
 
-    /// Every registered model, sorted by name.
+    /// Every registered model, sorted by name. A manifest that does not read
+    /// (damaged, or written by a newer `llvq` with a field this build does
+    /// not know) is left out and named on stderr: the others still list.
     pub fn list(&self) -> anyhow::Result<Vec<(ModelName, Manifest)>> {
+        let (out, unread) = self.manifests()?;
+        for e in &unread {
+            eprintln!("llvq: a manifest that does not read is left out: {e:#}");
+        }
+        Ok(out)
+    }
+
+    /// Every manifest that reads, sorted by name, and the error of each one
+    /// that does not.
+    fn manifests(&self) -> anyhow::Result<Manifests> {
         let dir = self.root.join("manifests");
         let mut out = Vec::new();
+        let mut unread = Vec::new();
         let names = match std::fs::read_dir(&dir) {
             Ok(r) => r,
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(out),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok((out, unread)),
             Err(e) => return Err(e.into()),
         };
         for n in names {
@@ -205,13 +259,15 @@ impl Store {
                 let file = t.file_name().to_string_lossy().into_owned();
                 let Some(tag) = file.strip_suffix(".json") else { continue };
                 let Ok(mn) = ModelName::parse(&format!("{name}:{tag}")) else { continue };
-                if let Some(m) = self.get(&mn)? {
-                    out.push((mn, m));
+                match self.get(&mn) {
+                    Ok(Some(m)) => out.push((mn, m)),
+                    Ok(None) => {}
+                    Err(e) => unread.push(e),
                 }
             }
         }
         out.sort_by(|a, b| a.0.cmp(&b.0));
-        Ok(out)
+        Ok((out, unread))
     }
 
     /// Write a manifest, atomically: a reader sees the old one or the new.
@@ -224,16 +280,36 @@ impl Store {
         Ok(())
     }
 
-    /// Remove `n`, then its blob if no other manifest names it. False when
-    /// `n` is not registered.
+    /// Remove `n`, then its blob if no other manifest names it and every
+    /// other manifest reads. False when `n` is not registered.
+    ///
+    /// Refused with [`BlobBusy`] while a pull or an import of the same file
+    /// holds its lock: that pull would register its manifest after the blob
+    /// is gone. The lock is tried, never waited for, since the server calls
+    /// this from a request handler.
     pub fn remove(&self, n: &ModelName) -> anyhow::Result<bool> {
         let Some(m) = self.get(n)? else { return Ok(false) };
+        let dir = self.root.join("locks");
+        std::fs::create_dir_all(&dir)?;
+        let lock_path = dir.join(format!("sha256-{}.lock", m.sha256));
+        let lock = std::fs::OpenOptions::new().create(true).truncate(false).write(true).open(&lock_path)?;
+        if let Err(e) = lock.try_lock() {
+            return Err(match e {
+                std::fs::TryLockError::WouldBlock => BlobBusy(n.clone()).into(),
+                other => anyhow::anyhow!("{}: {other:?}", lock_path.display()),
+            });
+        }
+        // Whether another name holds the blob is read before anything is
+        // removed, so that an error here leaves the store as it was. A
+        // manifest that does not read may name the blob: it is kept then.
+        let (others, unread) = self.manifests()?;
+        let held = others.iter().any(|(o, om)| o != n && om.sha256 == m.sha256);
         let p = self.manifest_path(n);
         std::fs::remove_file(&p)?;
         if let Some(dir) = p.parent() {
             let _ = std::fs::remove_dir(dir);
         }
-        if !self.list()?.iter().any(|(_, o)| o.sha256 == m.sha256) {
+        if !held && unread.is_empty() {
             match std::fs::remove_file(self.blob_path(&m.sha256)) {
                 Ok(()) => {}
                 Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
@@ -245,6 +321,12 @@ impl Store {
                 Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
                 Err(e) => return Err(e.into()),
             }
+        } else if !held {
+            eprintln!(
+                "llvq: {} is kept: {} manifest(s) do not read and may name it",
+                self.blob_path(&m.sha256).display(),
+                unread.len()
+            );
         }
         Ok(true)
     }

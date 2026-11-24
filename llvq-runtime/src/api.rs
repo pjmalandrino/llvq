@@ -140,17 +140,31 @@ fn options(o: &Option<Map<String, Value>>, warnings: &mut Vec<String>) -> Result
     Ok(out)
 }
 
-/// A stop list, as a string or an array of strings.
+/// The most stop strings a request may send. Every step scans the whole
+/// answer for each of them, on the engine's one thread.
+pub const MAX_STOPS: usize = 16;
+/// The longest stop string a request may send, in bytes.
+pub const MAX_STOP_BYTES: usize = 256;
+
+/// A stop list, as a string or an array of strings, within [`MAX_STOPS`]
+/// strings of [`MAX_STOP_BYTES`] bytes.
 pub fn stop_list(v: &Value) -> Result<Vec<String>, String> {
-    match v {
-        Value::Null => Ok(Vec::new()),
-        Value::String(s) => Ok(vec![s.clone()]),
+    let list = match v {
+        Value::Null => Vec::new(),
+        Value::String(s) => vec![s.clone()],
         Value::Array(a) => a
             .iter()
             .map(|x| x.as_str().map(str::to_string).ok_or_else(|| "stop: strings only".to_string()))
-            .collect(),
-        _ => Err("stop: a string or an array of strings".into()),
+            .collect::<Result<Vec<String>, String>>()?,
+        _ => return Err("stop: a string or an array of strings".into()),
+    };
+    if list.len() > MAX_STOPS {
+        return Err(format!("stop: {} strings, at most {MAX_STOPS}", list.len()));
     }
+    if let Some(s) = list.iter().find(|s| s.len() > MAX_STOP_BYTES) {
+        return Err(format!("stop: a string of {} bytes, at most {MAX_STOP_BYTES}", s.len()));
+    }
+    Ok(list)
 }
 
 /// Refuse what the engine does not do, by name.
@@ -682,6 +696,7 @@ pub async fn delete(State(st): State<AppState>, body: Bytes) -> Response {
     match st.models.store.remove(&name) {
         Ok(true) => StatusCode::OK.into_response(),
         Ok(false) => error(404, format!("model '{name}' not found")),
+        Err(e) if e.downcast_ref::<crate::store::BlobBusy>().is_some() => error(409, format!("{e:#}")),
         Err(e) => error(500, format!("{e:#}")),
     }
 }
@@ -1038,6 +1053,9 @@ pub async fn generate(State(st): State<AppState>, body: Bytes) -> Response {
     }
     if req.logprobs == Some(true) {
         warnings.push("logprobs are not implemented by llvq and were ignored".into());
+    }
+    if req.raw == Some(true) && req.system.as_ref().is_some_and(|s| !s.is_empty()) {
+        warnings.push("system is not applied under raw: the prompt is read as it is".into());
     }
     let options = match options(&req.options, &mut warnings) {
         Ok(o) => o,

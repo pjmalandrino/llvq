@@ -356,12 +356,24 @@ impl Shapes {
 /// not cosmetic: `side_bits` charges the `KeepExact` tail at **f32**, and the
 /// served path has stored it at **f16** since 2026-08-09
 /// (`llvq_llm::fused::TAIL_BYTES = 2`). Every published kernel b/weight in the
-/// record carries the f32 figure. Printing both is how a reader sees which one
-/// a number came from instead of guessing.
+/// record carries the f32 figure. The whole-model b/param published for the
+/// three sealed files (paper 2, `docs/ETAT.md`) is the f16 row, q4 embedding
+/// column. Printing both is how a reader sees which one a number came from
+/// instead of guessing.
+///
+/// The lattice stream is counted twice as well. `lattice_stream_bits` is the
+/// stream as the file stores it, 48 bits a block back to back.
+/// `lattice_card_stream_bits` is the stream as the card holds it: a Tetra row
+/// is padded to [`llvq_artifact::tetra48::stride_u32`], 0 to 4 bytes on the
+/// shapes of the sealed files, and the served loader counts that pad. Every
+/// line printed before the card count existed keeps the file count.
 struct V5Rate {
     /// Lattice records: their shapes, and the stream bits they spend.
     lattice: Shapes,
     lattice_stream_bits: u64,
+    /// The same records with every Tetra row at the card's stride. A Ball
+    /// record has no `tetra48` layout and is carried at its file count.
+    lattice_card_stream_bits: u64,
     lattice_matrices: u64,
     /// int4 records: weights, and the bits the three arrays actually occupy.
     int4_weights: u64,
@@ -372,14 +384,32 @@ struct V5Rate {
 impl V5Rate {
     /// Bits per weight the kernel reads, over **all** projection weights.
     ///
-    /// `tail_f32` selects the tail width: `true` reproduces the accounting
-    /// every published figure used, `false` the width the card actually holds.
+    /// `tail_f32` selects the tail width: `true` reproduces the accounting of
+    /// every published kernel b/weight, `false` the width the card actually
+    /// holds, the one the published whole-model b/param counts.
     fn kernel_bpw(&self, tail_f32: bool) -> f64 {
         let tail = if tail_f32 { F32_BITS } else { 16 };
         let side = self.lattice.tail_weights * tail + self.lattice.rows * F32_BITS;
         let bits = self.lattice_stream_bits + side + self.int4_bits;
         bits as f64 / (self.lattice.weights + self.int4_weights) as f64
     }
+
+    /// [`Self::kernel_bpw`] at the f16 tail, with the lattice stream as the
+    /// card holds it ([`Self::lattice_card_stream_bits`]) instead of as the
+    /// file stores it.
+    fn card_kernel_bpw(&self) -> f64 {
+        let side = self.lattice.tail_weights * 16 + self.lattice.rows * F32_BITS;
+        let bits = self.lattice_card_stream_bits + side + self.int4_bits;
+        bits as f64 / (self.lattice.weights + self.int4_weights) as f64
+    }
+}
+
+/// Bits one Tetra matrix's words occupy on the card: `d_out` rows of
+/// [`llvq_artifact::tetra48::stride_u32`] u32 each, the pad that rounds a row
+/// to 8 bytes included. The file stores the same words without the pad,
+/// `d_out · (d_in / 24) · 48` bits.
+fn tetra_card_stream_bits(d_out: usize, d_in: usize) -> u64 {
+    (d_out * llvq_artifact::tetra48::stride_u32(d_in / DIM)) as u64 * 32
 }
 
 /// Walk a v5 file and print its rate accounting, then stop.
@@ -393,6 +423,7 @@ fn report_v5(path: &str, r: &mut impl Read, h: &llvq_artifact::Header, sidecar: 
     let mut a = V5Rate {
         lattice: Shapes::default(),
         lattice_stream_bits: 0,
+        lattice_card_stream_bits: 0,
         lattice_matrices: 0,
         int4_weights: 0,
         int4_bits: 0,
@@ -407,7 +438,13 @@ fn report_v5(path: &str, r: &mut impl Read, h: &llvq_artifact::Header, sidecar: 
                 // The word is the unit of the format: `LABEL_BITS` of index
                 // and one gain bit, whatever the shell cap field says.
                 let per_block = llvq_search::tetra::WORD_BITS as u64;
-                a.lattice_stream_bits += (m.d_out * (m.d_in / DIM)) as u64 * per_block;
+                let file_bits = (m.d_out * (m.d_in / DIM)) as u64 * per_block;
+                a.lattice_stream_bits += file_bits;
+                a.lattice_card_stream_bits += if m.kind == llvq_artifact::CodeKind::Tetra {
+                    tetra_card_stream_bits(m.d_out, m.d_in)
+                } else {
+                    file_bits
+                };
                 a.lattice_matrices += 1;
                 gain_widths.insert(m.centroids.len());
                 whole.push_lattice(&m);
@@ -474,6 +511,13 @@ fn report_v5(path: &str, r: &mut impl Read, h: &llvq_artifact::Header, sidecar: 
         a.lattice_stream_bits as f64 / lat_w.max(1) as f64
     );
     println!(
+        "  the stream above is the file's; on the card, Tetra rows at the tetra48 stride: \
+         {} bits, {:.4} b/weight, {} pad bits the file does not store",
+        a.lattice_card_stream_bits,
+        a.lattice_card_stream_bits as f64 / lat_w.max(1) as f64,
+        a.lattice_card_stream_bits - a.lattice_stream_bits
+    );
+    println!(
         "  {} int4 matrices,    {} weights at {:.4} b/weight, side data included",
         a.int4_matrices,
         a.int4_weights,
@@ -491,12 +535,16 @@ fn report_v5(path: &str, r: &mut impl Read, h: &llvq_artifact::Header, sidecar: 
 
     println!("\n  kernel b/weight, over {total_q} projection weights");
     println!(
-        "    tail at f32 (the accounting every published figure used) ... {:.4}",
+        "    tail at f32 (the accounting of published kernel b/weight) ... {:.4}",
         a.kernel_bpw(true)
     );
     println!(
         "    tail at f16 (the width the card has held since 2026-08-09) .. {:.4}",
         a.kernel_bpw(false)
+    );
+    println!(
+        "    tail at f16, Tetra rows at the card's tetra48 stride ........ {:.4}",
+        a.card_kernel_bpw()
     );
 
     if carried_params > 0 {
@@ -507,6 +555,7 @@ fn report_v5(path: &str, r: &mut impl Read, h: &llvq_artifact::Header, sidecar: 
         let embed_q4 = 4.0 + EMBED_GROUP_BITS / EMBED_GROUP;
         let lin_f32 = (total_q, a.kernel_bpw(true));
         let lin_f16 = (total_q, a.kernel_bpw(false));
+        let lin_card = (total_q, a.card_kernel_bpw());
         println!(
             "\n  b/param WHOLE MODEL over {} parameters ({carried_embed} embedding, {other} norms)",
             total_q + carried_params
@@ -515,7 +564,14 @@ fn report_v5(path: &str, r: &mut impl Read, h: &llvq_artifact::Header, sidecar: 
             "  {:<22}{:>14}{:>14}{:>14}",
             "tail width", "embed f16", "embed q8", "embed q4"
         );
-        for (name, lin) in [("f32 (published)", lin_f32), ("f16 (served)", lin_f16)] {
+        // The published whole-model b/param is the f16 row, embed q4 column.
+        // The third row is the f16 row with the Tetra stream at the card's
+        // row stride, the bits the card holds.
+        for (name, lin) in [
+            ("f32", lin_f32),
+            ("f16 (served)", lin_f16),
+            ("f16 + tetra48 stride", lin_card),
+        ] {
             println!(
                 "  {name:<22}{:>14.4}{:>14.4}{:>14.4}",
                 model_bpw(&[lin, (carried_embed, 16.0), (other, 16.0)]),
@@ -2024,5 +2080,69 @@ mod tests {
         // Sanity on the direction: carrying 15.2 % of the model in f16 costs
         // more per parameter than the linears do.
         assert!(f16 > lin && q8 > lin);
+    }
+
+    /// The pad between the file's Tetra stream and the card's, on the Tetra
+    /// records of the sealed 4B: q, k, gate and up at `d_in = 2560` in all 36
+    /// layers, down at `d_in = 9728` in 24 of them. The shapes are pinned by
+    /// the 946,176 rows and 14,647,296 tail weights `rtbits` printed for that
+    /// file (`docs/mesures/sealed-4b-2026-09-23-brut/rtbits-sealed.txt`). A
+    /// row of 106 blocks is 636 bytes of words in a 640-byte stride, a row of
+    /// 405 is 2,430 in 2,432: 884,736 rows × 32 bits + 61,440 × 16 bits =
+    /// 29,294,592 bits, computed by hand.
+    #[test]
+    fn the_card_stream_adds_the_tetra48_row_pad_to_the_file_stream() {
+        let word = llvq_search::tetra::WORD_BITS as u64;
+        let file_bits = |d_out: usize, d_in: usize| (d_out * (d_in / DIM)) as u64 * word;
+        // One row at each width: 4 bytes of pad, then 2.
+        assert_eq!(tetra_card_stream_bits(1, 2560) - file_bits(1, 2560), 32);
+        assert_eq!(tetra_card_stream_bits(1, 9728) - file_bits(1, 9728), 16);
+
+        // (layers, d_out, d_in) of every Tetra record of the sealed 4B.
+        let records = [
+            (36usize, 4096usize, 2560usize), // q_proj
+            (36, 1024, 2560),                // k_proj
+            (36, 9728, 2560),                // gate_proj
+            (36, 9728, 2560),                // up_proj
+            (24, 2560, 9728),                // down_proj
+        ];
+        let mut shapes = Shapes::default();
+        let (mut rows_2560, mut rows_9728) = (0u64, 0u64);
+        let (mut file, mut card) = (0u64, 0u64);
+        for (layers, d_out, d_in) in records {
+            for _ in 0..layers {
+                shapes.push(d_out, d_in);
+            }
+            let rows = (layers * d_out) as u64;
+            match d_in {
+                2560 => rows_2560 += rows,
+                _ => rows_9728 += rows,
+            }
+            file += layers as u64 * file_bits(d_out, d_in);
+            card += layers as u64 * tetra_card_stream_bits(d_out, d_in);
+        }
+        assert_eq!(shapes.rows, 946_176, "rows of the sealed 4B's Tetra records");
+        assert_eq!(shapes.tail_weights, 14_647_296, "tail of the sealed 4B's Tetra records");
+        assert_eq!((rows_2560, rows_9728), (884_736, 61_440));
+        assert_eq!(card - file, 29_294_592);
+
+        // Carried into the kernel accounting with the file's 84 int4 records
+        // (770,703,360 weights at 4.25 b/weight): the file count keeps the
+        // 2.5420 `rtbits` printed, and the card count lands on the 2.550 the
+        // served door prints for the same file
+        // (`docs/mesures/served-v9-2026-11-07-brut/door.txt`).
+        let int4_weights = 770_703_360u64;
+        let rate = V5Rate {
+            lattice: shapes,
+            lattice_stream_bits: file,
+            lattice_card_stream_bits: card,
+            lattice_matrices: 168,
+            int4_weights,
+            int4_bits: int4_weights * 17 / 4,
+            int4_matrices: 84,
+        };
+        let (at_file, at_card) = (rate.kernel_bpw(false), rate.card_kernel_bpw());
+        assert!((at_file - 2.5420).abs() < 1e-4, "file stream: {at_file:.4} against 2.5420");
+        assert!((at_card - 2.5501).abs() < 1e-4, "card stream: {at_card:.4} against 2.5501");
     }
 }

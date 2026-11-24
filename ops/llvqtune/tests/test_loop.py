@@ -116,6 +116,25 @@ def test_checkpointing_writes_on_the_stride_and_not_on_the_last_step():
     assert len(sink.writes) == 2  # steps 2 and 4, never step 6
 
 
+def test_every_checkpoint_says_how_far_the_run_got():
+    sink = FakeSink()
+    run(**wire(plan=Plan(steps=6, seed=0, log_every=1, checkpoint_every=2), sink=sink))
+    assert sink.steps == [(2, 6), (4, 6)]
+
+
+def test_a_full_run_is_complete():
+    outcome = run(**wire())
+    assert (outcome.steps_run, outcome.steps_planned) == (5, 5)
+    assert outcome.complete
+
+
+def test_a_corpus_that_runs_dry_leaves_an_incomplete_outcome():
+    """`MixCorpus` states no size, so `check` cannot see this before the run."""
+    outcome = run(**wire(corpus=FakeCorpus(available=3)))
+    assert (outcome.steps_run, outcome.steps_planned) == (3, 5)
+    assert not outcome.complete
+
+
 def test_checkpointing_is_off_by_default():
     sink = FakeSink()
     run(**wire(sink=sink))

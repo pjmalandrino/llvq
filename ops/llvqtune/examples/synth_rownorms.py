@@ -98,7 +98,7 @@ class Quiet:
 
 
 class NoSink:
-    def write(self, payload, cost): return ""
+    def write(self, payload, cost, steps=None): return ""
 
 
 @torch.no_grad()

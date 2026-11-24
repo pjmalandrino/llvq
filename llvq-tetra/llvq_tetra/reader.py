@@ -23,6 +23,20 @@ MODEL_FILE = "model.safetensors"
 CONFIG_FILE = "config.json"
 QUANT_METHOD = "llvq"
 CODE_ORDER = "msb_first_dense"
+# `hfpack::LAYOUT_VERSION`, the tensor names and byte conventions this reader unpacks.
+LAYOUT_VERSION = 1
+
+
+def require_layout_version(version) -> None:
+    """Refuse a `llvq_layout_version` other than this reader's.
+
+    A block without the field passes: every `hfpack` has written it, so its absence means a block
+    `hfpack` did not write, and the fingerprint and record checks are what refuse that.
+    """
+    if version is not None and version != LAYOUT_VERSION:
+        raise ValueError(
+            f"llvq_layout_version is {version!r}, and this reader unpacks layout {LAYOUT_VERSION} only"
+        )
 
 
 class PackedModel:
@@ -37,6 +51,7 @@ class PackedModel:
             raise ValueError(f"{self.path / CONFIG_FILE} has no quantization_config") from e
         if self.qc.get("quant_method") != QUANT_METHOD:
             raise ValueError(f"quant_method is {self.qc.get('quant_method')!r}, not {QUANT_METHOD!r}")
+        require_layout_version(self.qc.get("llvq_layout_version"))
         if self.qc.get("code_order") != CODE_ORDER:
             raise ValueError(
                 f"code_order is {self.qc.get('code_order')!r}, which this reader does not unpack"

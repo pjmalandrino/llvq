@@ -10,7 +10,8 @@ use core::fmt;
 
 #[derive(Debug)]
 pub enum Error {
-    /// The file does not begin with [`crate::MAGIC`].
+    /// The file does not begin with one of the five magics `LVQ1`..`LVQ5`
+    /// ([`crate::MAGIC_V1`] to [`crate::MAGIC_V5`]).
     NotAnArtifact { got: [u8; 4] },
     /// Ran out of bytes mid-structure.
     Truncated { reading: &'static str },

@@ -697,12 +697,8 @@ pub fn n_bar_4e(layers: u32) -> u32 {
     2 + 6 * layers
 }
 
-/// Shared bytes of a 4E CTA: the header, the decoder tables, then one region
-/// that is the f32 vector of the row phases (`max(inter, 2 x hidden)` floats)
-/// or the attention phase's stage, unit states and q (`PERS_ATTN_SMEM` of
-/// llvq_pers.cuh), whichever is larger, rounded to 16 bytes.
-/// 4E's row forms (`PERS_4E_ROWS` in `llvq_pers.cuh`): 1, the stream (4E v3,
-/// what the served config runs); 2, v2's row loop on the same static rows
+/// 4E's row forms (`PERS_4E_ROWS` in `llvq_pers.cuh`): 1, the stream
+/// (4E v3); 2, v2's row loop on the same static rows
 /// (4E v4); 3, form 2 with each CTA's last rows split over every warp (4E v5);
 /// 4, form 2 with ln1, ln2 and the down's input in one round trip a thread
 /// (4E v6, `llvq_pers.cuh` section 7b); 5, form 4 with the launch's
@@ -711,14 +707,15 @@ pub fn n_bar_4e(layers: u32) -> u32 {
 /// input widened from vectors (4E v7, section 7c); 6, form 5 with the
 /// attention phase's steps staged by `cp.async` into a ring of
 /// [`p4e_attn_ring`] stages, several steps in flight (4E v8, K3a of
-/// `docs/plan-300.md`).
+/// `docs/plan-300.md`); 7, form 6 with the int4 rows read on tiled words
+/// (4E v9, K11), the form the served configs run.
 pub const P4E_ROWS_FORMS: [(u32, &str); 7] = [(1, "v3"), (2, "v4"), (3, "v5"), (4, "v6"), (5, "v7"), (6, "v8"), (7, "v9")];
 
 /// The forms `fusedrun LLVQ_PERS_4E` times, the first the reference of the
-/// others' round-by-round ratios: v4, the served form since 2026-11-05; v6,
-/// served on the operator's go of 2026-11-07; v7 (K2) and v8 (K2 and K3a),
-/// step 2 of `docs/plan-300.md`; v9 (v8 with the int4 rows on tiled words,
-/// K11), step 3. v3 and v5 were read by the shaker (job 6aec9a1d).
+/// others' round-by-round ratios: v4, the form served from 2026-11-05 until
+/// v9; v6; v7 (K2) and v8 (K2 and K3a), step 2 of `docs/plan-300.md`; v9 (v8
+/// with the int4 rows on tiled words, K11), step 3, the form the served
+/// configs run. v3 and v5 were read by the shaker (job 6aec9a1d).
 pub const P4E_BENCH_FORMS: [(u32, &str); 5] = [(2, "v4"), (4, "v6"), (5, "v7"), (6, "v8"), (7, "v9")];
 
 /// The line a module of row form `form` starts with; form 1 is the
@@ -1571,7 +1568,11 @@ pub fn p4e_smem_bytes(hidden: u32, inter: u32, groups: u32) -> u32 {
     p4e_smem_bytes_form(1, hidden, inter, groups)
 }
 
-/// Shared bytes of a 4E CTA of row form `form`, before the scratch.
+/// Shared bytes of a 4E CTA of row form `form`, before the scratch: the
+/// header, the decoder tables, then one region that is the f32 vector of the
+/// row phases (`max(inter, 2 x hidden)` floats) or the attention phase's
+/// stage, unit states and q (`PERS_ATTN_SMEM` of llvq_pers.cuh), whichever is
+/// larger, rounded to 16 bytes.
 pub fn p4e_smem_bytes_form(form: u32, hidden: u32, inter: u32, groups: u32) -> u32 {
     let vec = 4 * inter.max(2 * hidden);
     let attn = 16 * 1024 * p4e_attn_ring(form) + 4 * 4 * groups * 130 + 4 * groups * 128;
@@ -4783,7 +4784,7 @@ mod tests {
     /// Writes the tree modules at the card's tile define into
     /// `target/tree-modules/` for an offline compile (ops/tree-sass-probe.sh).
     #[test]
-    #[ignore]
+    #[ignore = "a dump tool, not a test: writes target/tree-modules/ for ops/tree-sass-probe.sh; run by hand with --ignored"]
     fn dump_tree_modules() {
         let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../target/tree-modules");
         std::fs::create_dir_all(&dir).unwrap();

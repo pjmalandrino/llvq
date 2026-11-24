@@ -57,26 +57,13 @@ impl Sampler {
         }
         let v = logits.to_vec1::<f32>()?;
         let max = v.iter().copied().fold(f32::NEG_INFINITY, f32::max);
-        let mut p: Vec<(u32, f32)> = v
+        let p: Vec<(u32, f32)> = v
             .iter()
             .enumerate()
             .map(|(i, &x)| (i as u32, ((x - max) / self.temp).exp()))
             .collect();
-        p.sort_unstable_by(|a, b| b.1.total_cmp(&a.1));
-
-        // Nucleus: the shortest prefix whose mass reaches `top_p`. At least one
-        // token always survives, so a degenerate `top_p` cannot empty the set.
-        let total: f32 = p.iter().map(|x| x.1).sum();
-        let mut acc = 0.0f32;
-        let mut keep = p.len();
-        for (i, (_, w)) in p.iter().enumerate() {
-            acc += w / total;
-            if acc >= self.top_p {
-                keep = i + 1;
-                break;
-            }
-        }
-        p.truncate(keep.max(1));
+        let top_p = self.top_p;
+        let p = nucleus_selected(&p, top_p).unwrap_or_else(|| nucleus_sorted(p, top_p));
 
         let mass: f32 = p.iter().map(|x| x.1).sum();
         let r = (self.next_u64() >> 11) as f32 / (1u64 << 53) as f32 * mass;
@@ -89,6 +76,91 @@ impl Sampler {
         }
         Ok(p.last().expect("the nucleus keeps at least one token").0)
     }
+}
+
+/// The nucleus by a full sort: every weight in descending order, then the
+/// shortest prefix whose mass reaches `top_p`. At least one token always
+/// survives, so a degenerate `top_p` cannot empty the set.
+fn nucleus_sorted(mut p: Vec<(u32, f32)>, top_p: f32) -> Vec<(u32, f32)> {
+    p.sort_unstable_by(|a, b| b.1.total_cmp(&a.1));
+    let total: f32 = p.iter().map(|x| x.1).sum();
+    let mut acc = 0.0f32;
+    let mut keep = p.len();
+    for (i, (_, w)) in p.iter().enumerate() {
+        acc += w / total;
+        if acc >= top_p {
+            keep = i + 1;
+            break;
+        }
+    }
+    p.truncate(keep.max(1));
+    p
+}
+
+/// The largest selection [`nucleus_selected`] tries: 64, 128, 256, 512 and
+/// 1,024 weights, five selections at most.
+const NUCLEUS_MAX_K: usize = 1024;
+
+/// [`nucleus_sorted`] without sorting the whole row, or `None` when the
+/// shortcut cannot be shown to return the same vector, bit for bit.
+///
+/// The `k + 1` heaviest weights are selected, then sorted: their values are
+/// the first `k + 1` values of the full sort. Three conditions make the
+/// result the full sort's nucleus.
+///
+/// * The total. The full sort sums in descending order. Once adding a weight
+///   leaves the running sum unchanged, every later weight, smaller and not
+///   negative, leaves it unchanged too, because rounding is monotone. That
+///   weight must lie in the sorted part.
+/// * The cut. The running share reaches `top_p` inside the sorted part, with
+///   one weight to spare.
+/// * The order. The kept weights and the first weight cut are strictly
+///   decreasing. The unstable sort orders equal weights in a way a selection
+///   does not reproduce, so a tie returns `None`.
+///
+/// A NaN, an infinite or a negative weight returns `None`, and so does a
+/// `top_p` of one or more, whose nucleus is usually the whole row.
+///
+/// `k` starts at 64 and doubles up to [`NUCLEUS_MAX_K`], so a row whose total
+/// has not settled within its 1,025 heaviest weights costs at most five
+/// selections before the full sort. The bound only decides when to give up:
+/// a `Some` is the full sort's vector at any bound.
+fn nucleus_selected(p: &[(u32, f32)], top_p: f32) -> Option<Vec<(u32, f32)>> {
+    if top_p.is_nan()
+        || top_p >= 1.0
+        || !p.iter().all(|x| x.1.is_finite() && x.1.is_sign_positive())
+    {
+        return None;
+    }
+    let desc = |a: &(u32, f32), b: &(u32, f32)| b.1.total_cmp(&a.1);
+    let mut work = p.to_vec();
+    let mut k = 64;
+    while k < p.len() / 4 && k <= NUCLEUS_MAX_K {
+        work.select_nth_unstable_by(k, desc);
+        let mut c = work[..=k].to_vec();
+        c.sort_unstable_by(desc);
+        let mut total = 0.0f32;
+        let settled = c.iter().any(|x| {
+            let sum = total + x.1;
+            let still = sum == total;
+            total = sum;
+            still
+        });
+        if settled {
+            let mut acc = 0.0f32;
+            let cut = c.iter().position(|x| {
+                acc += x.1 / total;
+                acc >= top_p
+            });
+            if let Some(i) = cut.filter(|&i| i < k) {
+                let strict = c[..=i + 1].windows(2).all(|w| w[0].1 > w[1].1);
+                c.truncate(i + 1);
+                return strict.then_some(c);
+            }
+        }
+        k *= 2;
+    }
+    None
 }
 
 /// Positions this turn would need: the prompt, plus the worst case of the
@@ -402,6 +474,158 @@ mod tests {
         // A saturating add would wrap to a small number and report room.
         assert!(!turn_fits(usize::MAX - 1, 4, 4, 100));
         assert!(!turn_fits(0, usize::MAX, 4, usize::MAX));
+    }
+
+    /// Uniform in `[0, 1)`, from the sampler's own generator.
+    fn uniform(state: &mut u64) -> f32 {
+        let mut s = Sampler { temp: 0.0, top_p: 0.0, state: *state };
+        let x = s.next_u64();
+        *state = s.state;
+        (x >> 40) as f32 / (1u64 << 24) as f32
+    }
+
+    /// A row the way a model hands it over: `heads` tokens at `level` and
+    /// above, over a bulk spread on `[-bulk, bulk]`.
+    fn row(seed: u64, n: usize, heads: usize, level: f32, bulk: f32) -> Vec<f32> {
+        let mut st = seed;
+        let mut v: Vec<f32> = (0..n).map(|_| bulk * (2.0 * uniform(&mut st) - 1.0)).collect();
+        for h in 0..heads {
+            let at = (uniform(&mut st) * n as f32) as usize % n;
+            v[at] = level + 8.0 * uniform(&mut st) + h as f32 * 0.25;
+        }
+        v
+    }
+
+    /// The weights `pick` builds.
+    fn weights(v: &[f32], temp: f32) -> Vec<(u32, f32)> {
+        let max = v.iter().copied().fold(f32::NEG_INFINITY, f32::max);
+        v.iter().enumerate().map(|(i, &x)| (i as u32, ((x - max) / temp).exp())).collect()
+    }
+
+    fn bits(p: &[(u32, f32)]) -> Vec<(u32, u32)> {
+        p.iter().map(|&(i, w)| (i, w.to_bits())).collect()
+    }
+
+    /// The shares the full sort accumulates, with its own total.
+    fn sorted_shares(p: &[(u32, f32)]) -> Vec<f32> {
+        let mut s = p.to_vec();
+        s.sort_unstable_by(|a, b| b.1.total_cmp(&a.1));
+        let total: f32 = s.iter().map(|x| x.1).sum();
+        let mut acc = 0.0f32;
+        s.iter()
+            .map(|x| {
+                acc += x.1 / total;
+                acc
+            })
+            .collect()
+    }
+
+    #[test]
+    fn the_selected_nucleus_is_the_sorted_one_bit_for_bit() {
+        // (heads, level, bulk): peaked rows, a wide head, a flat row.
+        let shapes: [(usize, f32, f32); 4] =
+            [(1, 24.0, 4.0), (6, 24.0, 4.0), (90, 12.0, 4.0), (0, 0.0, 1.0)];
+        let (mut peaked, mut taken) = (0, 0);
+        for seed in 0..16u64 {
+            for (heads, level, bulk) in shapes {
+                let v = row(seed, 4096, heads, level, bulk);
+                for temp in [0.05f32, 0.7, 1.0, 2.0] {
+                    let p = weights(&v, temp);
+                    for top_p in [0.0f32, 0.3, 0.9, 0.99] {
+                        let fast = nucleus_selected(&p, top_p);
+                        if let Some(fast) = &fast {
+                            assert_eq!(
+                                bits(fast),
+                                bits(&nucleus_sorted(p.clone(), top_p)),
+                                "seed {seed}, heads {heads}, temp {temp}, top_p {top_p}"
+                            );
+                        }
+                        if heads <= 6 && level > 0.0 && temp <= 1.0 {
+                            peaked += 1;
+                            taken += usize::from(fast.is_some());
+                        }
+                    }
+                }
+            }
+        }
+        // A peaked row at a usual temperature is what the shortcut is for: if
+        // it falls back there, it is dead code that the identity check above
+        // would never see.
+        assert!(taken * 10 >= peaked * 9, "the shortcut ran on {taken} of {peaked} peaked rows");
+    }
+
+    #[test]
+    fn a_top_p_on_the_edge_of_a_share_cuts_where_the_sort_cuts() {
+        // `top_p` equal to a share the full sort computes, and one step either
+        // side of it. A total summed in another order moves a share by an
+        // ulp, and the cut with it.
+        for seed in 0..16u64 {
+            let v = row(seed, 4096, 6, 24.0, 4.0);
+            for temp in [0.7f32, 1.0] {
+                let p = weights(&v, temp);
+                let shares = sorted_shares(&p);
+                for &s in &shares[..6] {
+                    let s_bits = s.to_bits();
+                    for edge in [f32::from_bits(s_bits - 1), s, f32::from_bits(s_bits + 1)] {
+                        if let Some(fast) = nucleus_selected(&p, edge) {
+                            assert_eq!(
+                                bits(&fast),
+                                bits(&nucleus_sorted(p.clone(), edge)),
+                                "seed {seed}, temp {temp}, top_p {edge}"
+                            );
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn a_tie_in_the_nucleus_falls_back_to_the_sort() {
+        let mut v = row(5, 4096, 1, 24.0, 4.0);
+        // Two equal maxima: the unstable sort decides which comes first.
+        v[10] = 40.0;
+        v[20] = 40.0;
+        let p = weights(&v, 0.7);
+        assert!(nucleus_selected(&p, 0.9).is_none());
+        // Without the tie, the same row takes the shortcut.
+        v[20] = 39.0;
+        assert!(nucleus_selected(&weights(&v, 0.7), 0.9).is_some());
+        // A NaN anywhere, an infinite logit, a `top_p` of one and a short row
+        // fall back too.
+        let mut nan = row(5, 4096, 1, 24.0, 4.0);
+        nan[7] = f32::NAN;
+        assert!(nucleus_selected(&weights(&nan, 0.7), 0.9).is_none());
+        let mut inf = row(5, 4096, 1, 24.0, 4.0);
+        inf[7] = f32::INFINITY;
+        assert!(nucleus_selected(&weights(&inf, 0.7), 0.9).is_none());
+        assert!(nucleus_selected(&p, 1.0).is_none());
+        assert!(nucleus_selected(&weights(&row(5, 200, 1, 24.0, 4.0), 0.7), 0.9).is_none());
+    }
+
+    /// `heavy` distinct weights near one over a row of zeros: the total
+    /// settles at the first zero, so the selection that holds `heavy + 1`
+    /// weights is the first that can answer.
+    fn plateau(n: usize, heavy: usize) -> Vec<(u32, f32)> {
+        (0..n)
+            .map(|i| {
+                let w = if i < heavy { 1.0 - i as f32 * (1.0 / (1 << 20) as f32) } else { 0.0 };
+                (i as u32, w)
+            })
+            .collect()
+    }
+
+    #[test]
+    fn the_selection_gives_up_past_its_cap() {
+        // 500 heavy weights settle in the selection of 513, under the cap:
+        // taken, and equal to the sort.
+        let p = plateau(16_384, 500);
+        let fast = nucleus_selected(&p, 0.5).expect("a total that settles under the cap is taken");
+        assert_eq!(bits(&fast), bits(&nucleus_sorted(p.clone(), 0.5)));
+        // 1,500 settle only in the selection of 2,049, past the cap: the
+        // shortcut gives up, though 2,048 is still under a quarter of the row.
+        let p = plateau(16_384, 1_500);
+        assert!(nucleus_selected(&p, 0.5).is_none(), "a selection past {NUCLEUS_MAX_K} weights ran");
     }
 
     #[test]

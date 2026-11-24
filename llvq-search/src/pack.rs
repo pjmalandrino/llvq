@@ -44,7 +44,8 @@ impl BitWriter {
     ///
     /// Panics if `width > 64`, or if `value` does not fit in `width` bits —
     /// a silently truncated index would be indistinguishable from a valid one
-    /// belonging to a different lattice point.
+    /// belonging to a different lattice point. `width == 0` writes nothing and
+    /// returns before that check, so a non-zero `value` is dropped there.
     pub fn push(&mut self, value: u64, width: u32) {
         assert!(width <= 64, "width {width} exceeds 64");
         if width == 0 {

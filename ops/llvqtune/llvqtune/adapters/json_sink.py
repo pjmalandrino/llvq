@@ -7,6 +7,7 @@ write-back tool reads, so no format knowledge is duplicated in Python.
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 
 from ..domain.bits import BitCost
@@ -16,7 +17,13 @@ class JsonSink:
     def __init__(self, path: str | Path) -> None:
         self._path = Path(path)
 
-    def write(self, payload: dict, cost: BitCost) -> str:
+    def write(self, payload: dict, cost: BitCost, steps: tuple[int, int] | None = None) -> str:
+        """Write the document, through a temporary file so a reader never sees half of one.
+
+        `steps`, the steps run and planned, sits beside `result`: a checkpoint
+        and a run cut short say so in the file. `rowscale` reads `result` and
+        ignores the other keys.
+        """
         self._path.parent.mkdir(parents=True, exist_ok=True)
         document = {
             "cost": {
@@ -27,5 +34,9 @@ class JsonSink:
             },
             "result": payload,
         }
-        self._path.write_text(json.dumps(document, sort_keys=True), encoding="utf-8")
+        if steps is not None:
+            document["steps"] = {"run": steps[0], "planned": steps[1]}
+        partial = self._path.with_name(self._path.name + ".partial")
+        partial.write_text(json.dumps(document, sort_keys=True), encoding="utf-8")
+        os.replace(partial, self._path)
         return str(self._path)

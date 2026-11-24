@@ -21,10 +21,12 @@ from typing import Iterator
 
 import torch
 
+REVISION = "dbad8ad71224482740cd9c9d353591adbf62fe04"
 SHARD = (
     Path.home()
     / ".cache/huggingface/hub/datasets--HuggingFaceTB--dclm-edu/snapshots"
-    / "dbad8ad71224482740cd9c9d353591adbf62fe04/data/000_00000.parquet"
+    / REVISION
+    / "data/000_00000.parquet"
 )
 REPO = "HuggingFaceTB/dclm-edu"
 SHARD_IN_REPO = "data/000_00000.parquet"
@@ -36,13 +38,18 @@ def fetch_shard() -> Path:
 
     The Rust harness pulls it through `LLVQ_CALIB=dclm-edu`. A training job
     runs in a torch image that holds no Rust binary, so it has to be able to
-    pull the same file by itself. Same repo, same path, so both sides read
-    one object.
+    pull the same file by itself. Same repo, same path and same revision as
+    the encoder's, so both sides read one object.
     """
     from huggingface_hub import hf_hub_download
 
     return Path(
-        hf_hub_download(repo_id=REPO, filename=SHARD_IN_REPO, repo_type="dataset")
+        hf_hub_download(
+            repo_id=REPO,
+            filename=SHARD_IN_REPO,
+            repo_type="dataset",
+            revision=REVISION,
+        )
     )
 
 

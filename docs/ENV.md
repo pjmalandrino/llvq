@@ -23,7 +23,7 @@ modes set together (`ALONE` in that file).
 | `LLVQ_KERNEL_DIR` | `fused.rs`, `fused_cuda.rs`, `llvq-cuda`, `planesbench` | directory of kernel sources read instead of the built-in text | served, refused beside a config |
 | `LLVQ_TILE_BLOCKS` | `llvq-cuda/src/tile.rs` | unset or `auto` = the card's row; power of two in 32..=512 | served, refused beside a config |
 | `LLVQ_PREFILL` | `llvq-cuda/src/tile.rs` | `rows:tile` of the prefill kernel, e.g. `8:64`; unset = served pair | mode, refused beside a config |
-| `LLVQ_METAL_KERNEL` | `fused_metal.rs` | `lut` (served, default), `c3`, `ar`, `u2`, `ilp`, `plain`; anything else refused | mode, refused beside a config |
+| `LLVQ_METAL_KERNEL` | `fused_metal.rs` | `lut` (served, default), `c3`, `ar`, `u2`, `plain`; anything else refused | mode, refused beside a config |
 | `LLVQ_NVRTC_ARCH` | `llvq-cuda/src/gpu.rs` | `compute_NN`, default `compute_89` | served (names the card, never refused) |
 | `LLVQ_HOME` | `llvq-runtime` store | directory, default `~/.llvq` | served |
 | `LLVQ_HOST` | `llvq-runtime` client and server | `host:port`, default `127.0.0.1:11435` | served |
@@ -44,7 +44,7 @@ modes set together (`ALONE` in that file).
 | `LLVQ_DAMPING` | `smoke` | GPTQ damping; unset = published | tool |
 | `LLVQ_H_SHRINK` | `smoke`, `hcapture` | Hessian shrink ρ; unset = published | tool |
 | `LLVQ_GAIN_SCALE` | `smoke` | gain multiplier; unset = published | tool |
-| `LLVQ_SEQ_BLOCK` | `smoke` | unset or `1`; any other value refused | tool |
+| `LLVQ_SEQ_BLOCK` | `smoke` | unset, empty or `0` (default), `1`; any other value refused | tool |
 | `LLVQ_THREADS` | `smoke`, `errmap`, `f1recdump`, `tetra_cpu::pool` | thread count; about ncpu-4 on a shared machine; the CPU backend uses every core when unset | tool |
 | `LLVQ_ARTIFACT` | `smoke` | path of the artifact to write; unset = none | tool |
 | `LLVQ_RESUME` | `smoke` | shard to resume from; requires `LLVQ_ARTIFACT` | tool |
@@ -66,7 +66,6 @@ modes set together (`ALONE` in that file).
 | `LLVQ_KL_ARTIFACT`, `LLVQ_KL_VAL`, `LLVQ_KL_SKIP` | `kltemp` | artifact, validation set, skipped blocks | tool |
 | `LLVQ_ROT`, `LLVQ_H_DENSE` | `hcapture` | rotation on, dense Hessian | tool |
 | `LLVQ_ALT_K` | `tetraalt` | alternative count | tool |
-| `LLVQ_Q4B` | `radixstudy` | int4 bit study switch | tool |
 | `LLVQ_STEPPED`, `LLVQ_RUN_DUMP`, `LLVQ_VERIFY_CACHE` | `run` (dense demo) | stepped decode, dump path, cache check (set means on) | tool |
 
 ## Measurement modes
@@ -94,7 +93,8 @@ modes set together (`ALONE` in that file).
 
 | variable | read by | what it does |
 |---|---|---|
-| `LLVQ_SEALED_ARTIFACT` | `llvq-artifact` tests | where to find the sealed file |
+| `LLVQ_SEALED_ARTIFACT` | `llvq-artifact` tests, `llvq-cuda/tests/golay70_decoder_matches_rust.rs` | where to find the sealed file |
+| `LLVQ_Q4B` | `radixstudy`'s unit tests (`llvq-bench/src/bin/radixstudy.rs`) | path of the sealed 4B, default `~/llvq-q4b.llvq`; it moves the search, and a missing file still fails. These tests do not read `LLVQ_SEALED_ARTIFACT` |
 | `LLVQ_HF_FIXTURE`, `LLVQ_HF_MINI_FIXTURE` | `llvq-llm/tests/hfpack.rs` | rewrite the packed fixtures |
 | `LLVQ_Q4_WIDE_FIXTURE_WRITE` | `llvq-llm/tests/proj_q4_wide.rs` | rewrite the wide int4 fixture |
 | `LLVQ_ROT_FIXTURE_WRITE` | `llvq-cuda/tests/rotation_matches_rust.rs` | rewrite the rotation fixture |
@@ -105,7 +105,7 @@ modes set together (`ALONE` in that file).
 
 ## Python
 
-`llvq-tetra` reads `LLVQ_HF_FUSED` (`0` or `1`), `LLVQ_HF_DEVICE` and `LLVQ_HF_TILE` (default 64, no range check).
+`llvq-tetra` reads `LLVQ_HF_FUSED` (`0` or `1`), `LLVQ_HF_DEVICE` and `LLVQ_HF_TILE` (default 64; refused above 64, the tile the fused modules allocate for).
 `ops/mlx_tetra` reads `LLVQ_MLX_ABLATE`, and its door refuses every other `LLVQ_*` name. `ops/awq_speed.py` reads
 `LLVQ_IMAGE_TAG` and `LLVQ_IMAGE_DIGEST`. The registry test does not read Python.
 

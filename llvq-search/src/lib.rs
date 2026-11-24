@@ -17,11 +17,11 @@
 //! therefore ranks 759–4096 closed-form class maxima instead of enumerating
 //! up to 16.7 M lattice points — and it is *exact*, not approximate.
 //!
-//! ## Half-word tables
+//! ## Chunk tables
 //!
-//! Per query we build subset-sum DP tables over the two 12-coordinate
-//! halves (4096 entries each): `Σxᵢ`, `Σ|xᵢ|`, negative-coordinate count,
-//! and min/max trackers. Every per-codeword quantity then costs two table
+//! Per query we build subset-sum DP tables over three 8-coordinate chunks
+//! (256 entries each): `Σxᵢ`, `Σ|xᵢ|`, negative-coordinate count, and
+//! min/max trackers. Every per-codeword quantity then costs three table
 //! lookups instead of a 24-iteration branchy loop, and an upper bound
 //! (`base + 4·k·max|x|`) prunes codewords that cannot beat the running
 //! best. This is what makes the search fast enough to be an encoder.
@@ -31,9 +31,9 @@
 //! Euclidean minimizes `‖x‖² + ‖v‖² − 2⟨x,v⟩`, angular maximizes
 //! `⟨x,v⟩ / ‖v‖`. Both are supported.
 //!
-//! Shells currently covered: m = 2 and m = 3 (hand-derived class
+//! This module covers m = 2 and m = 3 (hand-derived class
 //! decompositions, cross-checked by the G1/G2 suites). The generic
-//! leader-table engine for m ≤ 13 (2 bits/dim regime) is Phase 2b.
+//! engine for m ≤ 13 (2 bits/dim regime) is in `generic`.
 
 #![forbid(unsafe_code)]
 

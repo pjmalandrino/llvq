@@ -24,6 +24,7 @@ conversation.
 from __future__ import annotations
 
 import argparse
+import os
 import sys
 import time
 
@@ -61,6 +62,9 @@ def main(argv: list[str]) -> int:
                     help="let Qwen3 reason out loud first; it eats the token budget")
     a = ap.parse_args(argv[1:])
     device = a.device or pick_device()
+    # Under `LLVQ_HF_FUSED=1` the layers are compressed inside `from_pretrained`, on the device
+    # this names, and a fused layer does not move afterwards.
+    os.environ.setdefault("LLVQ_HF_DEVICE", device)
 
     print(f"loading {a.model}\n  {a.dtype} on {device}", flush=True)
     t0 = time.time()

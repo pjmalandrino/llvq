@@ -45,12 +45,14 @@ def apply_mutant(name: str) -> str:
         def patched(tile):
             src = base(tile)
             kernel = mps.kernel_text(src, "tv_tetra48_metal")
-            assert kernel.count(old) == 1, f"{name}: the served text matches {kernel.count(old)} times"
+            if kernel.count(old) != 1:
+                raise ValueError(f"{name}: the served text matches {kernel.count(old)} times")
             return src.replace(kernel, kernel.replace(old, new))
 
         metal.tiled_source = patched
     elif where == "rows":
-        assert mps.TETRA_ROWS_KERNEL.count(old) == 1
+        if mps.TETRA_ROWS_KERNEL.count(old) != 1:
+            raise ValueError(f"{name}: the served text matches {mps.TETRA_ROWS_KERNEL.count(old)} times")
         mps.TETRA_ROWS_KERNEL = mps.TETRA_ROWS_KERNEL.replace(old, new)
     elif where in ("vocab", "head", "rot"):
         file = {"vocab": "emb_q4.metal", "head": "emb_q4.metal", "rot": "llvq_rot.metal"}[where]
@@ -67,7 +69,8 @@ def apply_mutant(name: str) -> str:
             # lines in its threadgroup variants.
             scope = (mps.helper_text(src, "inline void rot_load(const device ushort* xin,")
                      if where == "rot" else mps.kernel_text(src, "emb_q4_gather_metal"))
-            assert scope.count(old) == 1, f"{name}: the served text matches {scope.count(old)} times"
+            if scope.count(old) != 1:
+                raise ValueError(f"{name}: the served text matches {scope.count(old)} times")
             return src.replace(scope, scope.replace(old, new))
 
         metal.shader_source = patched
