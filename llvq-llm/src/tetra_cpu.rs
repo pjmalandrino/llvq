@@ -513,29 +513,47 @@ mod neon {
         }
     }
 
-    /// `Σ q·x` over one int4 group, `x` deinterleaved: `xe` the even
-    /// elements (low nibbles), `xo` the odd ones (high nibbles).
-    pub fn q4_group(bytes: &[u8], xe: &[f32], xo: &[f32]) -> f32 {
-        assert!(bytes.len().is_multiple_of(16) && xe.len() >= bytes.len() && xo.len() >= bytes.len());
-        // SAFETY: NEON baseline; 16 bytes and 16 floats of each half per step,
-        // inside the lengths asserted above.
-        unsafe {
-            let m = vdupq_n_u8(0x0f);
-            let mut acc = vdupq_n_f32(0.0);
-            for c in (0..bytes.len()).step_by(16) {
-                let v = vld1q_u8(bytes.as_ptr().add(c));
-                let l = vandq_u8(v, m);
-                let h = vshrq_n_u8(v, 4);
-                for (half, xp) in [(l, xe.as_ptr().add(c)), (h, xo.as_ptr().add(c))] {
-                    let w0 = vmovl_u8(vget_low_u8(half));
-                    let w1 = vmovl_high_u8(half);
-                    acc = vfmaq_f32(acc, vcvtq_f32_u32(vmovl_u16(vget_low_u16(w0))), vld1q_f32(xp));
-                    acc = vfmaq_f32(acc, vcvtq_f32_u32(vmovl_high_u16(w0)), vld1q_f32(xp.add(4)));
-                    acc = vfmaq_f32(acc, vcvtq_f32_u32(vmovl_u16(vget_low_u16(w1))), vld1q_f32(xp.add(8)));
-                    acc = vfmaq_f32(acc, vcvtq_f32_u32(vmovl_high_u16(w1)), vld1q_f32(xp.add(12)));
-                }
+    /// `Σ q·x` over one int4 group of `half_g` bytes, `x` deinterleaved:
+    /// `xe` the even elements (low nibbles), `xo` the odd ones (high
+    /// nibbles). Four lanes still to be summed, from four accumulators.
+    #[inline(always)]
+    unsafe fn q4_group(bytes: *const u8, xe: *const f32, xo: *const f32, half_g: usize) -> float32x4_t {
+        let m = vdupq_n_u8(0x0f);
+        let mut s = [vdupq_n_f32(0.0); 4];
+        for c in (0..half_g).step_by(16) {
+            let v = vld1q_u8(bytes.add(c));
+            let l = vandq_u8(v, m);
+            let h = vshrq_n_u8(v, 4);
+            for (half, xp) in [(l, xe.add(c)), (h, xo.add(c))] {
+                let w0 = vmovl_u8(vget_low_u8(half));
+                let w1 = vmovl_high_u8(half);
+                s[0] = vfmaq_f32(s[0], vcvtq_f32_u32(vmovl_u16(vget_low_u16(w0))), vld1q_f32(xp));
+                s[1] = vfmaq_f32(s[1], vcvtq_f32_u32(vmovl_high_u16(w0)), vld1q_f32(xp.add(4)));
+                s[2] = vfmaq_f32(s[2], vcvtq_f32_u32(vmovl_u16(vget_low_u16(w1))), vld1q_f32(xp.add(8)));
+                s[3] = vfmaq_f32(s[3], vcvtq_f32_u32(vmovl_high_u16(w1)), vld1q_f32(xp.add(12)));
             }
-            vaddvq_f32(acc)
+        }
+        vaddq_f32(vaddq_f32(s[0], s[1]), vaddq_f32(s[2], s[3]))
+    }
+
+    /// One int4 row: `Σ_g scale_g · Σ q·x + bias_g · Σ x`, the scaled group
+    /// sums kept in lanes and summed once per row.
+    pub fn q4_row(bytes: &[u8], scales: &[u16], biases: &[u16], half_g: usize, a: &super::Q4Act) -> f32 {
+        let gpr = scales.len();
+        assert!(half_g.is_multiple_of(16) && bytes.len() == gpr * half_g && biases.len() == gpr);
+        assert!(a.xe.len() >= bytes.len() && a.xo.len() >= bytes.len() && a.gsum.len() >= gpr);
+        // SAFETY: NEON baseline; group `g` reads `half_g` bytes and floats of
+        // each half at `g · half_g`, inside the lengths asserted above.
+        unsafe {
+            let mut acc = vdupq_n_f32(0.0);
+            let mut bias = 0f32;
+            for g in 0..gpr {
+                let at = g * half_g;
+                let d = q4_group(bytes.as_ptr().add(at), a.xe.as_ptr().add(at), a.xo.as_ptr().add(at), half_g);
+                acc = vfmaq_n_f32(acc, d, half::f16::from_bits(scales[g]).to_f32());
+                bias = half::f16::from_bits(biases[g]).to_f32().mul_add(a.gsum[g], bias);
+            }
+            vaddvq_f32(acc) + bias
         }
     }
 }
@@ -617,25 +635,44 @@ mod avx2 {
         }
     }
 
+    /// `Σ q·x` over one int4 group of `half_g` bytes, as in `neon`: eight
+    /// lanes still to be summed, from four accumulators.
+    #[inline(always)]
+    unsafe fn q4_group(bytes: *const u8, xe: *const f32, xo: *const f32, half_g: usize) -> __m256 {
+        let m = _mm_set1_epi8(0x0f);
+        let mut s = [_mm256_setzero_ps(); 4];
+        for c in (0..half_g).step_by(16) {
+            let v = _mm_loadu_si128(bytes.add(c) as *const __m128i);
+            let l = _mm_and_si128(v, m);
+            let h = _mm_and_si128(_mm_srli_epi16(v, 4), m);
+            for (k, (half, xp)) in [(l, xe.add(c)), (h, xo.add(c))].into_iter().enumerate() {
+                let f0 = _mm256_cvtepi32_ps(_mm256_cvtepu8_epi32(half));
+                let f1 = _mm256_cvtepi32_ps(_mm256_cvtepu8_epi32(_mm_srli_si128(half, 8)));
+                s[2 * k] = _mm256_fmadd_ps(f0, _mm256_loadu_ps(xp), s[2 * k]);
+                s[2 * k + 1] = _mm256_fmadd_ps(f1, _mm256_loadu_ps(xp.add(8)), s[2 * k + 1]);
+            }
+        }
+        _mm256_add_ps(_mm256_add_ps(s[0], s[1]), _mm256_add_ps(s[2], s[3]))
+    }
+
+    /// One int4 row, as `neon::q4_row`.
+    ///
     /// # Safety
     /// The CPU must have AVX2 and FMA ([`super::Isa::detect`]).
     #[target_feature(enable = "avx2,fma")]
-    pub unsafe fn q4_group(bytes: &[u8], xe: &[f32], xo: &[f32]) -> f32 {
-        assert!(bytes.len().is_multiple_of(16) && xe.len() >= bytes.len() && xo.len() >= bytes.len());
-        let m = _mm_set1_epi8(0x0f);
+    pub unsafe fn q4_row(bytes: &[u8], scales: &[u16], biases: &[u16], half_g: usize, a: &super::Q4Act) -> f32 {
+        let gpr = scales.len();
+        assert!(half_g.is_multiple_of(16) && bytes.len() == gpr * half_g && biases.len() == gpr);
+        assert!(a.xe.len() >= bytes.len() && a.xo.len() >= bytes.len() && a.gsum.len() >= gpr);
         let mut acc = _mm256_setzero_ps();
-        for c in (0..bytes.len()).step_by(16) {
-            let v = _mm_loadu_si128(bytes.as_ptr().add(c) as *const __m128i);
-            let l = _mm_and_si128(v, m);
-            let h = _mm_and_si128(_mm_srli_epi16(v, 4), m);
-            for (half, xp) in [(l, xe.as_ptr().add(c)), (h, xo.as_ptr().add(c))] {
-                let f0 = _mm256_cvtepi32_ps(_mm256_cvtepu8_epi32(half));
-                let f1 = _mm256_cvtepi32_ps(_mm256_cvtepu8_epi32(_mm_srli_si128(half, 8)));
-                acc = _mm256_fmadd_ps(f0, _mm256_loadu_ps(xp), acc);
-                acc = _mm256_fmadd_ps(f1, _mm256_loadu_ps(xp.add(8)), acc);
-            }
+        let mut bias = 0f32;
+        for g in 0..gpr {
+            let at = g * half_g;
+            let d = q4_group(bytes.as_ptr().add(at), a.xe.as_ptr().add(at), a.xo.as_ptr().add(at), half_g);
+            acc = _mm256_fmadd_ps(d, _mm256_set1_ps(half::f16::from_bits(scales[g]).to_f32()), acc);
+            bias = half::f16::from_bits(biases[g]).to_f32().mul_add(a.gsum[g], bias);
         }
-        hsum(acc)
+        hsum(acc) + bias
     }
 }
 
@@ -669,20 +706,6 @@ fn tetra_rows(
         // SAFETY: as in `tetra_row`.
         #[cfg(target_arch = "x86_64")]
         Isa::Avx2 => unsafe { avx2::rows(t, row, nblocks, sc, xs, stride, out) },
-    }
-}
-
-fn q4_group(isa: Isa, bytes: &[u8], xe: &[f32], xo: &[f32]) -> f32 {
-    if !bytes.len().is_multiple_of(16) {
-        return q4_group_scalar(bytes, xe, xo);
-    }
-    match isa {
-        Isa::Scalar => q4_group_scalar(bytes, xe, xo),
-        #[cfg(target_arch = "aarch64")]
-        Isa::Neon => neon::q4_group(bytes, xe, xo),
-        // SAFETY: as in `tetra_row`.
-        #[cfg(target_arch = "x86_64")]
-        Isa::Avx2 => unsafe { avx2::q4_group(bytes, xe, xo) },
     }
 }
 
@@ -848,18 +871,36 @@ impl Q4Act {
     }
 }
 
-fn q4_row(isa: Isa, m: &Q4Matrix, r: usize, a: &Q4Act) -> f32 {
-    let (half_row, half_g, gpr) = (m.d_in / 2, m.group / 2, m.d_in / m.group);
-    let bytes = &m.packed[r * half_row..(r + 1) * half_row];
+/// One int4 row, the reference order: per group, the bias term then the
+/// scaled sum, into one scalar.
+fn q4_row_scalar(bytes: &[u8], scales: &[u16], biases: &[u16], half_g: usize, a: &Q4Act) -> f32 {
     let mut acc = 0f32;
-    for g in 0..gpr {
+    for (g, (&s, &b)) in scales.iter().zip(biases).enumerate() {
         let at = g * half_g;
-        let d = q4_group(isa, &bytes[at..at + half_g], &a.xe[at..at + half_g], &a.xo[at..at + half_g]);
-        let s = half::f16::from_bits(m.scales[r * gpr + g]).to_f32();
-        let b = half::f16::from_bits(m.biases[r * gpr + g]).to_f32();
+        let d = q4_group_scalar(&bytes[at..at + half_g], &a.xe[at..at + half_g], &a.xo[at..at + half_g]);
+        let (s, b) = (half::f16::from_bits(s).to_f32(), half::f16::from_bits(b).to_f32());
         acc = s.mul_add(d, b.mul_add(a.gsum[g], acc));
     }
     acc
+}
+
+fn q4_row(isa: Isa, m: &Q4Matrix, r: usize, a: &Q4Act) -> f32 {
+    let (half_row, half_g, gpr) = (m.d_in / 2, m.group / 2, m.d_in / m.group);
+    let bytes = &m.packed[r * half_row..(r + 1) * half_row];
+    let (scales, biases) = (&m.scales[r * gpr..(r + 1) * gpr], &m.biases[r * gpr..(r + 1) * gpr]);
+    // The SIMD rows step 16 bytes at a time; a group of another width takes
+    // the scalar row.
+    if !half_g.is_multiple_of(16) {
+        return q4_row_scalar(bytes, scales, biases, half_g, a);
+    }
+    match isa {
+        Isa::Scalar => q4_row_scalar(bytes, scales, biases, half_g, a),
+        #[cfg(target_arch = "aarch64")]
+        Isa::Neon => neon::q4_row(bytes, scales, biases, half_g, a),
+        // SAFETY: as in `tetra_row`.
+        #[cfg(target_arch = "x86_64")]
+        Isa::Avx2 => unsafe { avx2::q4_row(bytes, scales, biases, half_g, a) },
+    }
 }
 
 /// `y = W x` for one int4 matrix and one activation in the natural basis.
