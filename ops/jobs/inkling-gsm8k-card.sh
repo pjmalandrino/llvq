@@ -60,7 +60,8 @@ TOKENS_SHA=${TOKENS_SHA:-}
 # staged under tables/ and pinned below, so the run reads the sealed object's own values. `checkpoint`: the
 # checkpoint's BF16 tables, another arm (the experts alone in lattice codes).
 TABLES=${TABLES:-sealed}
-# STACK=fused: `inkgsm --stack fused`, the stack `inkrun` times (2026-11-24). Default candle: the run of 2026-11-22.
+# STACK=fused: `inkgsm --stack fused`, the stack `inkrun` times (2026-11-24); fused-f32head: the same with the head
+# decoded to f32. Default candle: the run of 2026-11-22.
 STACK=${STACK:-candle}
 EMBED_TABLE_SHA=${EMBED_TABLE_SHA:-}
 UNEMBED_TABLE_SHA=${UNEMBED_TABLE_SHA:-}

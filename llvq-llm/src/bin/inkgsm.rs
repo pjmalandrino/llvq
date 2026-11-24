@@ -74,7 +74,7 @@ fn usage() -> ! {
         "usage:\n  inkgsm run --config <config.json> --checkpoint <model.safetensors> --layers <D/layers> \
          --tokenizer <tokenizer.json> --device metal|cuda|cpu --dump <out.jsonl> [--problems {DEFAULT_PROBLEMS}] \
          [--limit {DEFAULT_LIMIT}] [--max-new {DEFAULT_MAX_NEW}] [--effort {DEFAULT_EFFORT}] \
-         [--resident verified|none] [--require-layers N] [--deadline-seconds S] [--parquet <test.parquet>] [--tables <dir>] [--stack candle|fused]\n  \
+         [--resident verified|none] [--require-layers N] [--deadline-seconds S] [--parquet <test.parquet>] [--tables <dir>] [--stack candle|fused|fused-f32head]\n  \
          inkgsm prompts --tokenizer <tokenizer.json> --out <ids.json> [--problems ..] [--limit 3] [--effort none]\n  \
          inkgsm score <a.jsonl> [<b.jsonl> ...]"
     );
@@ -507,10 +507,13 @@ fn cmd_run(args: &[String], t_start: Instant) -> Result<i32> {
     // `fused`: the stack `inkrun` measures (experts in four launches with the one-launch activation, fused glue,
     // fused attention products and scores, the int4 head read as the file stores it). Absent or `candle`: the path
     // of every dump written before 2026-11-24, whose header this leaves unchanged.
+    // `fused-f32head`: the fused stack with the head decoded to f32 at load, as the candle arm reads it.
+    let stack_name = a.get("stack").cloned();
+    let f32head = stack_name.as_deref() == Some("fused-f32head");
     let fused = match a.remove("stack").as_deref() {
         None | Some("candle") => false,
-        Some("fused") => true,
-        Some(o) => bail!("--stack {o}: candle or fused"),
+        Some("fused") | Some("fused-f32head") => true,
+        Some(o) => bail!("--stack {o}: candle, fused or fused-f32head"),
     };
     ensure!(!fused || (resident && tables_dir.is_some()), "--stack fused needs the resident experts and --tables");
     no_more(&a)?;
@@ -540,7 +543,7 @@ fn cmd_run(args: &[String], t_start: Instant) -> Result<i32> {
         Some(d) => json!({
             "embed_sha256": sha(&d.join(llvq_llm::inkling::tables::EMBED_FILE))?,
             "unembed_sha256": sha(&d.join(llvq_llm::inkling::tables::UNEMBED_FILE))?,
-            "encoding": (if fused { "int4 g64: embedding decoded to f32, head read as stored" }
+            "encoding": (if fused && !f32head { "int4 g64: embedding decoded to f32, head read as stored" }
                          else { "int4 g64, decoded to f32" }),
         }),
         None => json!("checkpoint, BF16"),
@@ -579,7 +582,11 @@ fn cmd_run(args: &[String], t_start: Instant) -> Result<i32> {
     let base_header = |resident_layers: &Value| -> Result<Value> {
         let mut h = base_header_candle(resident_layers)?;
         if fused {
-            h["stack"] = json!("fused: moe four + act, glue fused, attn fused+scores, head int4");
+            h["stack"] = json!(if f32head {
+                "fused: moe four + act, glue fused, attn fused+scores, head decoded to f32"
+            } else {
+                "fused: moe four + act, glue fused, attn fused+scores, head int4"
+            });
         }
         Ok(h)
     };
@@ -604,7 +611,7 @@ fn cmd_run(args: &[String], t_start: Instant) -> Result<i32> {
     let t = Instant::now();
     let mut model = if fused {
         let head = tables_dir.as_ref().expect("checked with --stack").join(llvq_llm::inkling::tables::UNEMBED_FILE);
-        let opts = llvq_llm::inkling::LoadOptions { int4_head: Some(head) };
+        let opts = llvq_llm::inkling::LoadOptions { int4_head: (!f32head).then_some(head) };
         Inkling::load_with_attn(&config, &checkpoint, &dev, &opts, "fused+scores".parse()?)?
     } else {
         Inkling::load(&config, &checkpoint, &dev)?
@@ -627,7 +634,7 @@ fn cmd_run(args: &[String], t_start: Instant) -> Result<i32> {
             &t.unembed_sha256[..16]
         );
         model.embed_table = Some(t.embed);
-        if !fused {
+        if !fused || f32head {
             model.out_proj = Some(Box::new(t.head));
         }
     }
