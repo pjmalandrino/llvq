@@ -132,6 +132,10 @@ pub struct ResidentExperts {
     /// Whether the four-launch path runs its activation in one launch
     /// (default) or through candle's operations, its reference.
     fused_act: std::sync::atomic::AtomicBool,
+    /// Whether a prompt's rows take one launch a step for the whole layer
+    /// ([`Self::forward_rows_batched`]) instead of one expert and one chunk
+    /// at a time. Off by default: the reference of its gate.
+    batch_rows: std::sync::atomic::AtomicBool,
 }
 
 impl ResidentExperts {
@@ -178,7 +182,8 @@ impl ResidentExperts {
         };
         let fused = std::sync::atomic::AtomicBool::new(true);
         let fused_act = std::sync::atomic::AtomicBool::new(true);
-        Ok(Self { layer, rt, dev: dev.clone(), experts, stats, launches: AtomicUsize::new(0), moe, fused, fused_act })
+        let batch_rows = std::sync::atomic::AtomicBool::new(false);
+        Ok(Self { layer, rt, dev: dev.clone(), experts, stats, launches: AtomicUsize::new(0), moe, fused, fused_act, batch_rows })
     }
 
     pub fn count(&self) -> usize {
@@ -306,9 +311,102 @@ impl ResidentExperts {
         y.to_device(x.device())
     }
 
+    /// Several rows in one launch a step for the whole layer: every (token,
+    /// expert) pair is a row, the pairs sorted by expert then token as the
+    /// one-expert loop of [`Self::forward`] visits them. The rotation of the
+    /// pairs, gate and up, candle's activation, the down rotation, down, then
+    /// each token's weighted rows added in ascending expert order from zero.
+    /// The same kernels' bodies on the same rows and the same order of sums as
+    /// [`Self::forward`]: the values are meant to be its own, bit for bit.
+    /// `None` when the path does not apply: the caller runs the other one.
+    fn forward_rows_batched(&self, x: &Tensor, routing: &Routing, cfg: &InklingConfig) -> Result<Option<Tensor>> {
+        let Some(layer) = self.moe.as_ref() else {
+            return Ok(None);
+        };
+        let t_rows = routing.indices.len();
+        let k_sel = routing.indices.first().map_or(0, Vec::len);
+        if !self.batch_rows.load(Ordering::Relaxed)
+            || t_rows < 2
+            || k_sel == 0
+            || x.dims() != [t_rows, cfg.hidden_size]
+            || routing.indices.iter().zip(&routing.weights).any(|(i, w)| i.len() != k_sel || w.len() != k_sel)
+        {
+            return Ok(None);
+        }
+        let k = self.rt.moe_kernels()?;
+        if !self.rt.moe_has_rows(k) {
+            return Ok(None);
+        }
+        // (expert, token, weight, rank of the expert among the token's own, ascending)
+        let mut pairs: Vec<(u32, u32, f32, u32)> = Vec::with_capacity(t_rows * k_sel);
+        for (t, (idx, w)) in routing.indices.iter().zip(&routing.weights).enumerate() {
+            let mut own: Vec<(u32, f32)> = idx.iter().copied().zip(w.iter().copied()).collect();
+            own.sort_by_key(|p| p.0);
+            if own.windows(2).any(|p| p[0].0 == p[1].0) {
+                return Ok(None);
+            }
+            for (rank, (e, wt)) in own.into_iter().enumerate() {
+                if e as usize >= self.experts.len() {
+                    candle_core::bail!("token {t}: expert {e} of a layer of {}", self.experts.len());
+                }
+                pairs.push((e, t as u32, wt, rank as u32));
+            }
+        }
+        pairs.sort_by_key(|p| (p.0, p.1));
+        let n = pairs.len();
+        let rows = self.rt.prefill_rows().max(1);
+        let mut chunks: Vec<u32> = vec![];
+        let mut start = 0;
+        while start < n {
+            let e = pairs[start].0;
+            let mut end = start;
+            while end < n && end - start < rows && pairs[end].0 == e {
+                end += 1;
+            }
+            chunks.extend([e, start as u32, (end - start) as u32]);
+            start = end;
+        }
+        let n_chunks = chunks.len() / 3;
+        // by_rank[rank][token]: the pair holding that token's rank-th expert.
+        let mut by_rank = vec![vec![0u32; t_rows]; k_sel];
+        for (p, &(_, t, _, rank)) in pairs.iter().enumerate() {
+            by_rank[rank as usize][t as usize] = p as u32;
+        }
+        let dev = &self.dev;
+        let pair_expert = Tensor::from_vec(pairs.iter().map(|p| p.0).collect::<Vec<_>>(), n, dev)?;
+        let pair_token = Tensor::from_vec(pairs.iter().map(|p| p.1).collect::<Vec<_>>(), n, dev)?;
+        let wts = Tensor::from_vec(pairs.iter().map(|p| p.2).collect::<Vec<_>>(), (n, 1), dev)?;
+        let chunks = Tensor::from_vec(chunks, 3 * n_chunks, dev)?;
+
+        let xd = x.to_device(dev)?.to_dtype(DType::F32)?.contiguous()?;
+        let xs = xd.index_select(&pair_token, 0)?.to_dtype(DType::F16)?.contiguous()?;
+        let xr = self.rt.moe_rotate_pairs(k, layer, false, &xs, &pair_expert)?;
+        let gu = self.rt.moe_matrix_pairs(k, layer, false, &xr, &chunks)?.to_dtype(DType::F32)?;
+        let (g, u) = (gu.get(0)?, gu.get(1)?);
+        // line 771: softcap(gate) * sigmoid(gate) * softcap(up)
+        let act = softcap(&g, cfg.mlp_gate_softcap)?
+            .mul(&candle_nn::ops::sigmoid(&g)?)?
+            .mul(&softcap(&u, cfg.mlp_up_softcap)?)?
+            .to_dtype(DType::F16)?
+            .contiguous()?;
+        let ar = self.rt.moe_rotate_pairs(k, layer, true, &act, &pair_expert)?;
+        let y = self.rt.moe_matrix_pairs(k, layer, true, &ar, &chunks)?.get(0)?.to_dtype(DType::F32)?.broadcast_mul(&wts)?;
+        // zeros + the first expert's row, then the others, as `index_add` an expert at a time did.
+        let mut out = xd.zeros_like()?;
+        for sel in by_rank {
+            let sel = Tensor::from_vec(sel, t_rows, dev)?;
+            out = (out + y.index_select(&sel, 0)?)?;
+        }
+        self.bump(4);
+        out.to_device(x.device()).map(Some)
+    }
+
     /// The MoE of this layer, see the module documentation.
     pub fn forward(&self, x: &Tensor, routing: &Routing, cfg: &InklingConfig) -> Result<Tensor> {
         if let Some(y) = self.forward_one_row_fused(x, routing, cfg)? {
+            return Ok(y);
+        }
+        if let Some(y) = self.forward_rows_batched(x, routing, cfg)? {
             return Ok(y);
         }
         let inter = cfg.intermediate_size;
@@ -375,6 +473,10 @@ impl MoeSource for ResidentExperts {
 
     fn set_fused_act(&mut self, on: bool) {
         self.fused_act.store(on, Ordering::Relaxed);
+    }
+
+    fn set_batch_rows(&mut self, on: bool) {
+        self.batch_rows.store(on, Ordering::Relaxed);
     }
 
     fn moe_routed_on_device(&self, x: &Tensor, sel: &Tensor, experts: usize, cfg: &InklingConfig) -> Result<Option<Tensor>> {

@@ -428,6 +428,11 @@ pub trait MoeSource {
     /// four launches (`true`) or one expert at a time, the reference of the
     /// four launches' gate. Meant to be the same bits; nothing to do elsewhere.
     fn set_four_launches(&mut self, _on: bool) {}
+
+    /// For a source that has both: take a prompt's rows in one launch a step
+    /// for the whole layer (`true`) or one expert and one chunk at a time, the
+    /// reference of that path's gate. Meant to be the same bits.
+    fn set_batch_rows(&mut self, _on: bool) {}
 }
 
 impl<S: ExpertSource> MoeSource for S {

@@ -4405,6 +4405,9 @@ pub struct MoeKernels {
     f_gu: CudaFunction,
     f_down: CudaFunction,
     f_act: CudaFunction,
+    /// `moe_tetra_rows`, the prompt's launch; `None` on a unit whose prefill
+    /// pair does not fit the default shared-memory allowance.
+    f_rows: Option<CudaFunction>,
 }
 
 /// One expert of a layer, as its resident records: gate, up, down, and the two rotations.
@@ -4481,7 +4484,11 @@ impl FusedRuntime {
         let f_gu = cuda.func("moe_tetra_gu").map_err(candle_core::Error::msg)?;
         let f_down = cuda.func("moe_tetra_down").map_err(candle_core::Error::msg)?;
         let f_act = cuda.func("moe_act").map_err(candle_core::Error::msg)?;
-        Ok(MoeKernels { cuda, f_rot, f_gu, f_down, f_act })
+        let f_rows = (self.prefill.shared_bytes() <= llvq_cuda::tile::SHARED_DEFAULT)
+            .then(|| cuda.func("moe_tetra_rows"))
+            .transpose()
+            .map_err(candle_core::Error::msg)?;
+        Ok(MoeKernels { cuda, f_rot, f_gu, f_down, f_act, f_rows })
     }
 
     /// The address table of a layer's experts. Refused unless every expert has
@@ -4729,6 +4736,124 @@ impl candle_core::CustomOp2 for MoeOp<'_> {
                 Ok((CudaStorage::wrap_cuda_slice(out, self.rt.device.clone()), Shape::from((1, l.hidden))))
             }
         }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// A prompt's rows through the routed experts, one launch a step for every
+// (token, expert) pair of a layer (`moe_tetra_rows` and `moe_rot`). The values
+// are those of the path that takes one expert and one chunk at a time.
+// ---------------------------------------------------------------------------
+
+impl FusedRuntime {
+    /// Whether the prompt's launches exist on this runtime.
+    pub fn moe_has_rows(&self, k: &MoeKernels) -> bool {
+        k.f_rows.is_some()
+    }
+
+    /// `x` f16 `[npairs, n]`, a row a pair, into the basis of each pair's
+    /// expert (`pair_expert` u32 `[npairs]`): f32 `[npairs, n]`, one launch.
+    /// `down` picks the rotation of `down` and its width.
+    pub fn moe_rotate_pairs(&self, k: &MoeKernels, layer: &MoeLayer, down: bool, x: &Tensor, pair_expert: &Tensor) -> candle_core::Result<Tensor> {
+        x.apply_op2_no_bwd(pair_expert, &MoeRowsOp { rt: self, k, layer, down, rotate: true })
+    }
+
+    /// Gate and up (`down` false, f16 `[2, npairs, inter]`) or down (`down`
+    /// true, f16 `[1, npairs, hidden]`) of every pair on its rotated row `xr`
+    /// f32 `[npairs, d_in]`, one launch. `chunks`: u32 `[3 * nchunks]`, the
+    /// expert, the first pair and the count of each chunk; the chunks cover
+    /// the pairs in order and none holds more than [`Self::prefill_rows`].
+    pub fn moe_matrix_pairs(&self, k: &MoeKernels, layer: &MoeLayer, down: bool, xr: &Tensor, chunks: &Tensor) -> candle_core::Result<Tensor> {
+        xr.apply_op2_no_bwd(chunks, &MoeRowsOp { rt: self, k, layer, down, rotate: false })
+    }
+}
+
+struct MoeRowsOp<'a> {
+    rt: &'a FusedRuntime,
+    k: &'a MoeKernels,
+    layer: &'a MoeLayer,
+    down: bool,
+    rotate: bool,
+}
+
+impl candle_core::CustomOp2 for MoeRowsOp<'_> {
+    fn name(&self) -> &'static str {
+        "llvq-moe-tetra-rows"
+    }
+
+    fn cpu_fwd(
+        &self,
+        _: &candle_core::CpuStorage,
+        _: &Layout,
+        _: &candle_core::CpuStorage,
+        _: &Layout,
+    ) -> candle_core::Result<(candle_core::CpuStorage, Shape)> {
+        candle_core::bail!("the routed-experts prompt launches have no CPU path")
+    }
+
+    fn cuda_fwd(
+        &self,
+        xs: &CudaStorage,
+        xl: &Layout,
+        ss: &CudaStorage,
+        sl: &Layout,
+    ) -> candle_core::Result<(CudaStorage, Shape)> {
+        let l = self.layer;
+        let side = ss.as_cuda_slice::<u32>()?;
+        let (s0, s1) = sl.contiguous_offsets().ok_or_else(|| candle_core::Error::msg("moe rows: non-contiguous table"))?;
+        let (x0, x1) = xl.contiguous_offsets().ok_or_else(|| candle_core::Error::msg("moe rows: non-contiguous input"))?;
+        if s0 != 0 || x0 != 0 || s1 == 0 {
+            candle_core::bail!("moe rows: input at offset {x0}, table of {} words at offset {s0}", s1 - s0);
+        }
+        let len = x1;
+        let stream = self.rt.device.cuda_stream();
+        if self.rotate {
+            let (n, m, k, inv, threads) = if self.down { l.rot_down } else { l.rot_in };
+            let npairs = s1;
+            if len != npairs * n as usize || npairs > u32::MAX as usize {
+                candle_core::bail!("moe rows rotation: {len} values for {npairs} rows of {n}");
+            }
+            let x = xs.as_cuda_slice::<f16>()?;
+            let mut out = unsafe { stream.alloc::<f32>(len) }
+                .map_err(|e| candle_core::Error::msg(format!("moe rows: alloc of {len} floats: {e}")))?;
+            let cfg = LaunchConfig { grid_dim: (npairs as u32, 1, 1), block_dim: (threads, 1, 1), shared_mem_bytes: n * 4 };
+            let (x_off, which) = (0u32, self.down as u32);
+            let mut b = self.k.cuda.stream().launch_builder(&self.k.f_rot);
+            b.arg(x).arg(&l.ptr).arg(side).arg(&mut out).arg(&n).arg(&m).arg(&k).arg(&inv).arg(&x_off).arg(&n).arg(&which);
+            crate::inkling::count_launch();
+            unsafe { b.launch(cfg) }.map_err(|e| candle_core::Error::msg(format!("moe_rot (rows): {e}")))?;
+            return Ok((CudaStorage::wrap_cuda_slice(out, self.rt.device.clone()), Shape::from((npairs, n as usize))));
+        }
+        let f = self.k.f_rows.as_ref().ok_or_else(|| candle_core::Error::msg("moe rows: this unit carries no moe_tetra_rows"))?;
+        let tabs = self
+            .rt
+            .tetra_tabs
+            .as_ref()
+            .ok_or_else(|| candle_core::Error::msg("moe rows: a runtime without the tetra tables"))?;
+        let ((stride, nblocks, tail_w), d_in, d_out, mat0, nmat) =
+            if self.down { (l.down, l.inter, l.hidden, 2u32, 1usize) } else { (l.gu, l.hidden, l.inter, 0u32, 2usize) };
+        let nchunks = s1 / 3;
+        let npairs = len / d_in;
+        let warps = nmat as u64 * nchunks as u64 * d_out as u64;
+        if !s1.is_multiple_of(3) || nchunks == 0 || npairs * d_in != len || warps * 32 > u32::MAX as u64 {
+            candle_core::bail!("moe rows: {len} values of width {d_in}, {} table words, {warps} warps", s1);
+        }
+        let x = xs.as_cuda_slice::<f32>()?;
+        let mut out = unsafe { stream.alloc::<f16>(nmat * npairs * d_out) }
+            .map_err(|e| candle_core::Error::msg(format!("moe rows: alloc of {} halves: {e}", nmat * npairs * d_out)))?;
+        let per_block = THREADS / 32;
+        let cfg = LaunchConfig {
+            grid_dim: ((warps as u32) / per_block, 1, 1),
+            block_dim: (THREADS, 1, 1),
+            shared_mem_bytes: self.rt.prefill_shared,
+        };
+        let (d_out32, nchunks32, npairs32) = (d_out as u32, nchunks as u32, npairs as u32);
+        let mut b = self.k.cuda.stream().launch_builder(f);
+        b.arg(&l.ptr).arg(side).arg(&stride).arg(&tabs.rows).arg(&tabs.prefixes).arg(&tabs.branches).arg(&tabs.suffixes)
+            .arg(&tabs.invnorm).arg(x).arg(&mut out).arg(&nblocks).arg(&tail_w).arg(&d_out32).arg(&nchunks32).arg(&npairs32).arg(&mat0);
+        crate::inkling::count_launch();
+        unsafe { b.launch(cfg) }.map_err(|e| candle_core::Error::msg(format!("moe_tetra_rows: {e}")))?;
+        Ok((CudaStorage::wrap_cuda_slice(out, self.rt.device.clone()), Shape::from((nmat, npairs, d_out))))
     }
 }
 

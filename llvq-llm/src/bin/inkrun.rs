@@ -72,6 +72,11 @@
 //! host first as before. Same logits, bit for bit; `host` is the reference.
 //! A run that dumps its routing reads it back in either case.
 //!
+//! `--moe-rows chunk|batch`: a prompt's rows through the resident experts one
+//! expert and one chunk at a time (`chunk`, the default and the reference), or
+//! one launch a step for every (token, expert) pair of a layer (`batch`).
+//! CUDA only; meant to be the same bits.
+//!
 //! `--moe-act fused|candle`: the activation between the launches of a
 //! resident layer's one-row experts in one launch (default), or through
 //! candle's operations as before. Same bits; `candle` is the reference.
@@ -152,6 +157,7 @@ struct Args {
     attn: llvq_llm::inkling::AttnKind,
     routing_on_device: bool,
     moe_act: bool,
+    moe_rows_batch: bool,
     moe_four: bool,
     routing_steps_out: Option<PathBuf>,
     events_off: bool,
@@ -168,7 +174,7 @@ fn usage() -> ! {
          [--resident verified|none] [--require-layers N] [--logits-out <file>] [--prompt-key <key>] \
          [--prompt-len N] [--phases K] [--attn-chunk N] [--peak-probe on] \
          [--rollback-gate on] [--prefill-rows 1|2|4|8] [--head bf16|int4 --head-table <file>] \
-         [--glue candle|fused] [--attn candle|fused|fused+scores] [--routing device|host] [--moe-act fused|candle] [--moe four|one] [--events on|off] [--kernel-times on|off] [--routing-steps-out <file>] [--score-from N | --score-prompt on] \
+         [--glue candle|fused] [--attn candle|fused|fused+scores] [--routing device|host] [--moe-act fused|candle] [--moe four|one] [--moe-rows chunk|batch] [--events on|off] [--kernel-times on|off] [--routing-steps-out <file>] [--score-from N | --score-prompt on] \
          [--nll-out <file>]"
     );
     std::process::exit(2)
@@ -242,6 +248,11 @@ fn parse() -> Result<Args> {
             None | Some("fused") => true,
             Some("candle") => false,
             Some(o) => bail!("--moe-act {o}: fused or candle"),
+        },
+        moe_rows_batch: match take("moe-rows").as_deref() {
+            None | Some("chunk") => false,
+            Some("batch") => true,
+            Some(o) => bail!("--moe-rows {o}: chunk or batch"),
         },
         moe_four: match take("moe").as_deref() {
             None | Some("four") => true,
@@ -479,7 +490,8 @@ fn main() -> Result<()> {
     model.set_routing_on_device(args.routing_on_device);
     model.set_moe_act(args.moe_act);
     model.set_moe_four_launches(args.moe_four);
-    let provenance = json!({"prefill_rows": args.prefill_rows, "glue": model.glue().name(),
+    model.set_moe_batch_rows(args.moe_rows_batch);
+    let provenance = json!({"prefill_rows": args.prefill_rows, "moe_rows": if args.moe_rows_batch { "batch" } else { "chunk" }, "glue": model.glue().name(),
         "head": if args.head_table.is_some() { "int4" } else { "bf16" }, "head_table": args.head_table,
         "bf16_head_on_device": model.has_bf16_head(), "attn": model.attn().name(),
         "routing_on_device": model.routing_on_device(), "moe": if args.moe_four { "four" } else { "one" }, "events": if args.events_off { "off" } else { "on" }, "moe_act": if args.moe_act { "fused" } else { "candle" },

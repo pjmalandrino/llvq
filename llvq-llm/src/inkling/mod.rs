@@ -684,6 +684,17 @@ impl Inkling {
         }
     }
 
+    /// Tell every layer's expert source to take a prompt's rows in one launch
+    /// a step for the whole layer (`true`) or one expert and one chunk at a
+    /// time (`false`, the default and the reference of the gate).
+    pub fn set_moe_batch_rows(&mut self, on: bool) {
+        for e in self.experts.iter_mut() {
+            if let LayerExperts::Source(s) = e {
+                s.set_batch_rows(on);
+            }
+        }
+    }
+
     /// Whether [`Self::set_routing_on_device`] is on.
     pub fn routing_on_device(&self) -> bool {
         self.routing_on_device
