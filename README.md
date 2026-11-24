@@ -27,6 +27,9 @@ curl -fsSL https://github.com/pjmalandrino/llvq-tetra/releases/latest/download/i
 llvq run inkling2:mini
 ```
 
+The site, with one page a model and short guides on quantization and card memory:
+[pjmalandrino.github.io/llvq-tetra](https://pjmalandrino.github.io/llvq-tetra/).
+
 How it works, from the Golay code to the one-launch CUDA token: [`docs/how-it-works.md`](docs/how-it-works.md).
 
 ## Inkling 2 Mini, a mixture of experts

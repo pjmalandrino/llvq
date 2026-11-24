@@ -1,0 +1,109 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>LLM quantization explained: 4-bit, 2-bit and bits per weight</title>
+<meta name="description" content="What LLM quantization is, what 2-bit and 4-bit mean, how file size follows bits per weight, and measured accuracy of 2-bit vector quantization against 4-bit AWQ and GGUF IQ2_S.">
+<link rel="canonical" href="https://pjmalandrino.github.io/llvq-tetra/quantization/">
+<link rel="icon" href="../favicon.svg" type="image/svg+xml">
+<link rel="alternate icon" href="../favicon.ico">
+<link rel="apple-touch-icon" href="../apple-touch-icon.png">
+<meta property="og:type" content="website">
+<meta property="og:title" content="LLM quantization explained: 4-bit, 2-bit and bits per weight">
+<meta property="og:description" content="What LLM quantization is, what 2-bit and 4-bit mean, how file size follows bits per weight, and measured accuracy of 2-bit vector quantization against 4-bit AWQ and GGUF IQ2_S.">
+<meta property="og:url" content="https://pjmalandrino.github.io/llvq-tetra/quantization/">
+<meta property="og:image" content="https://pjmalandrino.github.io/llvq-tetra/social-card.png">
+<meta name="twitter:card" content="summary_large_image">
+<link rel="stylesheet" href="../style.css">
+<script type="application/ld+json">{"@context":"https://schema.org","@type":"FAQPage","mainEntity":[{"@type":"Question","name":"What is LLM quantization?","acceptedAnswer":{"@type":"Answer","text":"Quantization stores each weight of a model in fewer bits than the 16 it was trained with. The file gets smaller, the model needs less GPU memory, and some accuracy is lost."}},{"@type":"Question","name":"What does 2-bit or 4-bit mean?","acceptedAnswer":{"@type":"Answer","text":"It is the average number of bits spent per weight. A 4-bit file is about a quarter of the 16-bit model, a 2-bit file about an eighth. Real files land a little above the nominal figure because some tables stay at a higher precision."}},{"@type":"Question","name":"Is 2-bit quantization usable?","acceptedAnswer":{"@type":"Answer","text":"It depends on the method and on the model size. Measured on Qwen3 with Tetra at about 2.7 bits per parameter: MMLU 63.37 for the 4B, 69.58 for the 8B and 75.66 for the 14B. The loss against 4-bit AWQ shrinks as the model grows, from 4.76 points on the 4B to 2.46 on the 14B."}},{"@type":"Question","name":"Is a bigger model at 2 bits better than a smaller one at 4 bits?","acceptedAnswer":{"@type":"Answer","text":"On Qwen3 and MMLU, yes at about the same file size: the Tetra 8B scores above the 4-bit AWQ 4B, and the Tetra 14B above the 4-bit AWQ 8B."}},{"@type":"Question","name":"What is vector quantization?","acceptedAnswer":{"@type":"Answer","text":"Scalar quantization rounds each weight on its own. Vector quantization rounds a group of weights together to the nearest point of a codebook, which wastes fewer bits. Tetra rounds blocks of 24 weights to points of the Leech lattice, the densest known packing in 24 dimensions."}},{"@type":"Question","name":"Does quantization need training?","acceptedAnswer":{"@type":"Answer","text":"Not always. Post-training methods such as GPTQ, AWQ and Tetra only need a few calibration texts. Quantization-aware training retrains the model and costs far more compute."}}]}</script>
+</head>
+<body>
+<header>
+<a class="brand" href="../" aria-label="Tetra, home"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 80.57 24" aria-hidden="true"><path d="M12 3 L22.392 21 L21.238 21 L12 5 L2.762 21 L1.608 21 Z" fill="#B4502D"></path><path d="M12 6.677 L20.27 21 L19.115 21 L12 8.677 L4.885 21 L3.73 21 Z" fill="currentColor"></path><path d="M12 10.85 L17.86 21 L16.706 21 L12 12.85 L7.294 21 L6.14 21 Z" fill="currentColor"></path><path d="M12 15.8 L15.002 21 L13.848 21 L12 17.8 L10.152 21 L8.998 21 Z" fill="currentColor"></path><path d="M34.467 21Q31.82 21 31.82 18.474V13.111H28.792V11.831H31.82V9.686H33.273V11.831H36.923V13.111H33.273V18.474Q33.273 19.72 34.467 19.72H36.923V21ZM43.601 21.208Q42.304 21.208 41.361 20.619Q40.418 20.031 39.908 18.95Q39.397 17.869 39.397 16.416Q39.397 14.962 39.908 13.89Q40.418 12.817 41.343 12.22Q42.269 11.623 43.532 11.623Q44.726 11.623 45.643 12.186Q46.559 12.748 47.078 13.82Q47.597 14.893 47.597 16.433V16.865H40.92Q41.006 18.336 41.707 19.08Q42.407 19.824 43.601 19.824Q44.501 19.824 45.08 19.4Q45.66 18.976 45.885 18.284L47.442 18.405Q47.078 19.633 46.066 20.42Q45.054 21.208 43.601 21.208ZM40.92 15.585H46.006Q45.902 14.253 45.227 13.63Q44.553 13.007 43.532 13.007Q42.477 13.007 41.793 13.656Q41.11 14.305 40.92 15.585ZM55.227 21Q52.58 21 52.58 18.474V13.111H49.552V11.831H52.58V9.686H54.033V11.831H57.683V13.111H54.033V18.474Q54.033 19.72 55.227 19.72H57.683V21ZM60.624 21V19.72H63.012V13.111H60.624V11.831H64.223L64.327 13.613Q64.759 11.831 66.524 11.831H68.409V13.146H66.541Q65.538 13.146 65.001 13.743Q64.465 14.34 64.465 15.464V19.72H67.371V21ZM73.426 21.208Q72.561 21.208 71.869 20.896Q71.177 20.585 70.779 20.023Q70.382 19.46 70.382 18.716Q70.382 17.54 71.082 16.891Q71.783 16.242 73.288 15.948L76.367 15.326Q76.367 14.149 75.84 13.578Q75.312 13.007 74.326 13.007Q73.374 13.007 72.838 13.431Q72.302 13.855 72.094 14.651L70.555 14.53Q70.814 13.232 71.791 12.428Q72.769 11.623 74.326 11.623Q75.987 11.623 76.904 12.618Q77.821 13.613 77.821 15.36V19.166Q77.821 19.478 77.959 19.599Q78.097 19.72 78.374 19.72H78.962V21Q78.686 21.035 78.201 21.035Q77.475 21.035 77.033 20.741Q76.592 20.446 76.437 19.789L76.419 19.703Q76.056 20.377 75.234 20.792Q74.412 21.208 73.426 21.208ZM73.565 19.927Q74.966 19.927 75.667 19.218Q76.367 18.509 76.367 17.367V16.571L73.565 17.125Q72.631 17.298 72.267 17.652Q71.904 18.007 71.904 18.578Q71.904 19.218 72.345 19.573Q72.786 19.927 73.565 19.927Z" fill="currentColor"></path></svg>
+</a>
+<nav>
+<a href="../#models">Models</a>
+<a href="https://github.com/pjmalandrino/llvq-tetra#readme">Docs</a>
+<a href="https://github.com/pjmalandrino/llvq-tetra">GitHub</a>
+<a href="https://huggingface.co/Pier-Jean">Hugging Face</a>
+</nav>
+</header>
+<main>
+<section class="hero small">
+<h1>LLM quantization, from 16 bits to 2</h1>
+<p class="lead">What quantization does to a model, what 4-bit and 2-bit mean, and what we measured when we went
+down to about 2.5 bits per parameter.</p>
+</section>
+
+<section>
+<h2>The size of a model is its bits per weight</h2>
+<p>A model file weighs about <em>parameters × bits per weight ÷ 8</em> bytes. Card memory follows the same rule,
+plus the cache that grows with the prompt.</p>
+<div class="scroll"><table>
+<tr><th>format</th><th>bits per weight</th><th>Inkling 2 Mini, 26.4B</th></tr>
+<tr><td>native file, text and vision</td><td>5.92</td><td>19.5 GB</td></tr>
+<tr><td>Tetra</td><td>2.47</td><td>8.15 GB</td></tr>
+</table></div>
+<p class="note">Computed from the files, tables included.</p>
+</section>
+
+<section>
+<h2>What it costs</h2>
+<p>Fewer bits means more rounding error, and the error shows up as lost accuracy. Three Qwen3 models, each
+measured on all 14,042 MMLU test questions and the 1,319 GSM8K problems:</p>
+<div class="scroll"><table>
+<tr><th>model</th><th>Tetra, 2.7 bits</th><th>against 4-bit AWQ</th><th>against llama.cpp IQ2_S</th></tr>
+<tr><td>Qwen3 4B</td><td>63.37</td><td>-4.76</td><td>+9.08</td></tr>
+<tr><td>Qwen3 8B</td><td>69.58</td><td>-4.21</td><td>+4.13</td></tr>
+<tr><td>Qwen3 14B</td><td>75.66</td><td>-2.46</td><td>+2.89</td></tr>
+</table></div>
+<p class="note">MMLU, 5-shot, paired on the same questions. 4-bit AWQ needs about twice the bits; IQ2_S needs
+about the same. Intervals and GSM8K are in the <a href="https://github.com/pjmalandrino/llvq-tetra#results-on-qwen3">README</a>.</p>
+</section>
+
+<section>
+<h2>Questions</h2>
+<h3>What is LLM quantization?</h3>
+<p>Quantization stores each weight of a model in fewer bits than the 16 it was trained with. The file gets smaller, the model needs less GPU memory, and some accuracy is lost.</p>
+<h3>What does 2-bit or 4-bit mean?</h3>
+<p>It is the average number of bits spent per weight. A 4-bit file is about a quarter of the 16-bit model, a 2-bit file about an eighth. Real files land a little above the nominal figure because some tables stay at a higher precision.</p>
+<h3>Is 2-bit quantization usable?</h3>
+<p>It depends on the method and on the model size. Measured on Qwen3 with Tetra at about 2.7 bits per parameter: MMLU 63.37 for the 4B, 69.58 for the 8B and 75.66 for the 14B. The loss against 4-bit AWQ shrinks as the model grows, from 4.76 points on the 4B to 2.46 on the 14B.</p>
+<h3>Is a bigger model at 2 bits better than a smaller one at 4 bits?</h3>
+<p>On Qwen3 and MMLU, yes at about the same file size: the Tetra 8B scores above the 4-bit AWQ 4B, and the Tetra 14B above the 4-bit AWQ 8B.</p>
+<h3>What is vector quantization?</h3>
+<p>Scalar quantization rounds each weight on its own. Vector quantization rounds a group of weights together to the nearest point of a codebook, which wastes fewer bits. Tetra rounds blocks of 24 weights to points of the Leech lattice, the densest known packing in 24 dimensions.</p>
+<h3>Does quantization need training?</h3>
+<p>Not always. Post-training methods such as GPTQ, AWQ and Tetra only need a few calibration texts. Quantization-aware training retrains the model and costs far more compute.</p>
+</section>
+
+<section>
+<h2>Try it</h2>
+<div class="cmd"><code>curl -fsSL https://github.com/pjmalandrino/llvq-tetra/releases/latest/download/install.sh | sh</code><button type="button" data-copy="curl -fsSL https://github.com/pjmalandrino/llvq-tetra/releases/latest/download/install.sh | sh">Copy</button></div>
+<div class="cmd"><code>llvq run qwen3:4b</code><button type="button" data-copy="llvq run qwen3:4b">Copy</button></div>
+</section>
+
+</main>
+<footer>
+<a href="../quantization/">Quantization</a>
+<a href="../vram/">VRAM</a>
+<a href="../gguf/">GGUF</a>
+<a href="https://github.com/pjmalandrino/llvq-tetra">GitHub</a>
+<a href="https://huggingface.co/Pier-Jean">Hugging Face</a>
+<a href="https://arxiv.org/abs/2609.35465">Paper</a>
+<a href="https://github.com/pjmalandrino/llvq-tetra/releases/latest">Releases</a>
+<span>MIT or Apache 2.0</span>
+</footer>
+<script>
+document.querySelectorAll("[data-copy]").forEach(function (b) {
+  b.addEventListener("click", function () {
+    navigator.clipboard.writeText(b.dataset.copy).then(function () {
+      b.textContent = "Copied";
+      setTimeout(function () { b.textContent = "Copy"; }, 1500);
+    });
+  });
+});
+</script>
+</body>
+</html>

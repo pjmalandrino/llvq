@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+  <url><loc>https://pjmalandrino.github.io/llvq-tetra/</loc></url>
+  <url><loc>https://pjmalandrino.github.io/llvq-tetra/models/inkling-2-mini/</loc></url>
+  <url><loc>https://pjmalandrino.github.io/llvq-tetra/models/qwen3/</loc></url>
+  <url><loc>https://pjmalandrino.github.io/llvq-tetra/quantization/</loc></url>
+  <url><loc>https://pjmalandrino.github.io/llvq-tetra/vram/</loc></url>
+  <url><loc>https://pjmalandrino.github.io/llvq-tetra/gguf/</loc></url>
+</urlset>

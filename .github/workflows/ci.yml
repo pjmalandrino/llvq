@@ -62,10 +62,10 @@ name: CI
 on:
   push:
     branches: [main]
-    paths: ['**', '!**.md', '!docs/**', '!paper/**', '!paper2/**', '!proofs/**',
+    paths: ['**', '!**.md', '!docs/**', '!paper/**', '!paper2/**', '!proofs/**', '!site/**',
             'docs/ENV.md', 'configs/README.md']
   pull_request:
-    paths: ['**', '!**.md', '!docs/**', '!paper/**', '!paper2/**', '!proofs/**',
+    paths: ['**', '!**.md', '!docs/**', '!paper/**', '!paper2/**', '!proofs/**', '!site/**',
             'docs/ENV.md', 'configs/README.md']
 
 # Read-only, explicitly. No secret, no write scope, nothing that could push,
