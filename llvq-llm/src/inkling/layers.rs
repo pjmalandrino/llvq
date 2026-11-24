@@ -231,7 +231,15 @@ fn conv_context(x: &Tensor, k: usize, state: &mut ConvState) -> Result<Tensor> {
             Tensor::cat(&parts, 0)?
         }
     };
-    *state = ConvState::Block(ctx.narrow(0, t, k - 1)?.contiguous()?);
+    // The last rows in a buffer of their own. A narrow of `ctx` is a view, and candle's `contiguous` and `copy`
+    // both keep the whole buffer behind a view that is already contiguous: the state of a prompt of T rows would
+    // hold `[T + k - 1, C]` for as long as the cache lives, four times a slot.
+    *state = ConvState::Block(if t > 1 {
+        let rows = Tensor::arange(t as u32, (t + k - 1) as u32, ctx.device())?;
+        ctx.index_select(&rows, 0)?
+    } else {
+        ctx.narrow(0, t, k - 1)?.contiguous()?
+    });
     Ok(ctx)
 }
 
@@ -1540,6 +1548,23 @@ pub fn max_abs_err(ours: &Tensor, reference: &Tensor) -> Result<(f32, f32)> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The state kept after a prompt of several rows owns its `k - 1` rows and nothing else: a view into the
+    /// context would keep `[T + k - 1, C]` alive behind it (2.56 GB at 2,000 tokens on the real model).
+    #[test]
+    fn conv_state_after_a_prompt_owns_its_rows() -> Result<()> {
+        let dev = Device::Cpu;
+        let (t, k, c) = (10usize, 4usize, 6usize);
+        let x = Tensor::arange(0f32, (t * c) as f32, &dev)?.reshape((t, c))?;
+        let mut state = ConvState::Empty;
+        let ctx = conv_context(&x, k, &mut state)?;
+        assert_eq!(ctx.dims(), [t + k - 1, c]);
+        let ConvState::Block(s) = &state else { panic!("a block state after several rows") };
+        assert_eq!(s.dims(), [k - 1, c]);
+        assert_eq!(s.layout().start_offset(), 0, "the state is a view into the context");
+        assert_eq!(s.to_vec2::<f32>()?, ctx.narrow(0, t, k - 1)?.to_vec2::<f32>()?);
+        Ok(())
+    }
 
     fn tiny_cfg() -> InklingConfig {
         let v = serde_json::json!({

@@ -90,7 +90,20 @@ test "$(sha256sum "$L/unembed.q4g64.llvqraw" | cut -d' ' -f1)" = "$UNEMBED_TABLE
 RC=0
 cp "$IN/windows/w0.json" "$L/"
 test "$(sha256sum "$L/w0.json" | cut -d' ' -f1)" = "$W0_SHA"
+# The long prompt: windows 0, 1, 2, 0, 1 of the staged WikiText-2 test windows, 10,240 ids. A repeat: it is a
+# prompt for time and memory, not for quality.
+for w in 1 2; do cp "$IN/windows/w$w.json" "$L/"; done
+python3 - "$L" <<'PY'
+import json, sys
+l = sys.argv[1]
+ids = []
+for w in ("w0", "w1", "w2", "w0", "w1"):
+    ids += json.load(open(f"{l}/{w}.json"))["ids"]
+open(f"{l}/long.json", "w").write(json.dumps({"ids": ids}, separators=(",", ":")))
+PY
+test "$(sha256sum "$L/long.json" | cut -d' ' -f1)" = 776675c5d277b49dc38c7fbab2a44d8286d5c5b2020a4de04ff666c2c6f36830
 for ARM in $ARMS; do
+  N=2000
   case $ARM in
     chunk) F="--moe-rows chunk"; P=;;
     batch) F="--moe-rows batch"; P=;;
@@ -101,9 +114,15 @@ for ARM in $ARMS; do
     phbatch8) F="--moe-rows batch --prefill-phases on"; P=8:64;;
     batch4x64) F="--moe-rows batch"; P=4:64;;
     batch8x32) F="--moe-rows batch"; P=8:32;;
+    pk2000c) F="--moe-rows chunk --peak-probe on"; P=;;
+    pk2000) F="--moe-rows batch --peak-probe on"; P=8:64;;
+    t9000) F="--moe-rows batch"; P=8:64; N=9000;;
+    pk9000) F="--moe-rows batch --peak-probe on"; P=8:64; N=9000;;
     *) echo "unknown arm $ARM" >&2; exit 1;;
   esac
-  F="$F --tokens $L/w0.json --prompt-key ids --prompt-len 2000 --attn fused+scores --events $EVENTS"
+  TOK=$L/w0.json
+  [ "$N" = 2000 ] || TOK=$L/long.json
+  F="$F --tokens $TOK --prompt-key ids --prompt-len $N --attn fused+scores --events $EVENTS"
   echo "== inkrun $ARM ($F, LLVQ_PREFILL=${P:-unset}) =="
   set +e
   ${P:+env LLVQ_PREFILL=$P} timeout 6m inkrun --config "$L/config.json" --checkpoint "$L/model.safetensors" --layers "$L/layers" \
@@ -130,13 +149,18 @@ for arm in os.environ["ARMS"].split():
     r = json.load(open(p))
     lp = os.path.join(o, f"logits-{arm}.f32")
     lg = open(lp, "rb").read() if os.path.exists(lp) else None
-    if ref is None:
-        ref = (r["tokens"], lg)
+    if ref is None or ref[2] != r["prompt_tokens"]:
+        ref = (r["tokens"], lg, r["prompt_tokens"])
     same = (r["tokens"] == ref[0], lg is not None and lg == ref[1])
     print(f"{arm}: prefill of {r['prompt_tokens']} tokens {r['seconds_prefill']:.2f} s, "
           f"{r['prompt_tokens'] / r['seconds_prefill']:.0f} tok/s; lattice launches in the prefill {r.get('lattice_launches_prefill')}; "
           f"median step {r['step_seconds_median']:.4f} s; GB at the end {r['memory']['end'].get('used', 0) / 1e9:.3f}; "
-          f"moe_rows {r['provenance'].get('moe_rows')}; tokens equal to the first arm, logits bytes equal to the first arm: {same}")
+          f"moe_rows {r['provenance'].get('moe_rows')}; tokens and logits bytes equal to the first arm of this prompt length: {same}")
+    m = r["memory"]
+    gb = lambda k: (m.get(k) or {}).get("used", 0) / 1e9
+    pk = r.get("peak_probe") or {}
+    print(f"    GB after load {gb('after_resident'):.3f}, after the prompt {gb('after_prefill'):.3f}, at the end {gb('end'):.3f}; "
+          f"peak probe: prompt {pk.get('prefill', 0) / 1e9:.3f}, whole run {pk.get('whole_run', 0) / 1e9:.3f}")
     pp = r.get("prefill_parts")
     if pp:
         tot = sum(pp.values())

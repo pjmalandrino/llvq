@@ -336,10 +336,17 @@ fn memory(dev: &Device) -> Value {
     }
 }
 
-/// Bytes the device has allocated, where the backend says (Metal).
+/// Bytes the device has allocated, where the backend says: Metal's own count, and on CUDA the driver's total
+/// minus free, which counts what the stream's pool still holds as well as the live buffers.
 #[allow(unused_variables)]
 fn allocated(dev: &Device) -> Option<u64> {
     match dev {
+        #[cfg(all(target_os = "linux", feature = "cuda"))]
+        Device::Cuda(d) => {
+            d.cuda_stream().context().bind_to_thread().ok()?;
+            let (free, total) = candle_core::cuda_backend::cudarc::driver::result::mem_get_info().ok()?;
+            Some((total - free) as u64)
+        }
         #[cfg(all(target_os = "macos", feature = "metal"))]
         Device::Metal(m) => Some(m.device().current_allocated_size() as u64),
         _ => None,
@@ -510,9 +517,14 @@ fn main() -> Result<()> {
     if args.peak_probe {
         let (d, p) = (dev.clone(), peak.clone());
         model.set_visit_probe(Some(Box::new(move || {
-            let _ = d.synchronize();
-            if let Some(b) = allocated(&d) {
-                p.fetch_max(b, std::sync::atomic::Ordering::Relaxed);
+            // Read before the drain too: on CUDA the pool may hand memory back at a drain.
+            for drained in [false, true] {
+                if drained {
+                    let _ = d.synchronize();
+                }
+                if let Some(b) = allocated(&d) {
+                    p.fetch_max(b, std::sync::atomic::Ordering::Relaxed);
+                }
             }
         })));
     }
@@ -568,6 +580,7 @@ fn main() -> Result<()> {
     let seconds_prefill = t.elapsed().as_secs_f64();
     let launches_prefill = model.take_launches();
     let peak_prefill = peak.load(std::sync::atomic::Ordering::Relaxed);
+    let mem_prefill = memory(&dev);
     eprintln!("inkrun: prefill of {} tokens in {seconds_prefill:.2} s", prompt.len());
 
     let mut tokens = vec![];
@@ -676,7 +689,7 @@ fn main() -> Result<()> {
         "resident_layers": resident_layers,
         "native_layers": native_layers,
         "upload": upload,
-        "memory": {"before_load": mem_before, "after_dense": mem_dense, "after_resident": mem_resident, "end": mem_end},
+        "memory": {"before_load": mem_before, "after_dense": mem_dense, "after_resident": mem_resident, "after_prefill": mem_prefill, "end": mem_end},
         "seconds_dense_load": seconds_dense,
         "seconds_resident_load": seconds_resident,
         "seconds_prefill": seconds_prefill,
@@ -700,7 +713,7 @@ fn main() -> Result<()> {
         "attn_chunk": model.attn_chunk(),
         "rollback_gate": rollback_gate,
         "peak_probe": if args.peak_probe {
-            json!({"kind": "largest allocated size read after a layer visit, device drained",
+            json!({"kind": "largest allocated size read after a layer visit, before and after a drain",
                    "prefill": peak_prefill, "whole_run": peak.load(std::sync::atomic::Ordering::Relaxed)})
         } else {
             Value::Null
