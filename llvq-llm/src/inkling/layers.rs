@@ -476,18 +476,30 @@ pub fn route_host_bias(x: &Tensor, w_gate: &Tensor, bias: &[f32], top_k: usize, 
     if scores.first().is_some_and(|s| s.len() != bias.len()) {
         candle_core::bail!("route: {} scores and {} bias values", scores[0].len(), bias.len());
     }
-    let mut r = Routing { indices: vec![], weights: vec![], margin: vec![], scores: vec![] };
-    for s in &scores {
+    // One row at a time, each on its own: the rows of a prompt are sorted in parallel and gathered in order.
+    let one = |s: &Vec<f32>| {
         let sel: Vec<f32> = s.iter().zip(bias).map(|(a, b)| a + b).collect();
         let mut order: Vec<usize> = (0..sel.len()).collect();
         order.sort_by(|&a, &b| sel[b].total_cmp(&sel[a]).then(a.cmp(&b)));
-        r.margin.push(sel[order[top_k - 1]] - sel[order[top_k]]);
+        let margin = sel[order[top_k - 1]] - sel[order[top_k]];
         let mut idx: Vec<usize> = order[..top_k].to_vec();
         idx.sort_unstable();
         let picked: Vec<f32> = idx.iter().map(|&i| s[i]).collect();
         let sum: f32 = picked.iter().sum::<f32>() + 1e-20;
-        r.weights.push(picked.iter().map(|w| w / sum * scale as f32).collect());
-        r.indices.push(idx.iter().map(|&i| i as u32).collect());
+        let weights: Vec<f32> = picked.iter().map(|w| w / sum * scale as f32).collect();
+        (idx.iter().map(|&i| i as u32).collect::<Vec<u32>>(), weights, margin, sel)
+    };
+    let rows: Vec<_> = if scores.len() >= 64 {
+        use rayon::prelude::*;
+        scores.par_iter().map(one).collect()
+    } else {
+        scores.iter().map(one).collect()
+    };
+    let mut r = Routing { indices: vec![], weights: vec![], margin: vec![], scores: vec![] };
+    for (idx, weights, margin, sel) in rows {
+        r.indices.push(idx);
+        r.weights.push(weights);
+        r.margin.push(margin);
         r.scores.push(sel);
     }
     Ok(r)
@@ -560,6 +572,10 @@ pub fn experts_forward(
 /// 1249-1268) plus the causal mask, and for a sliding layer the window (keys
 /// at distance `>= window` masked).
 fn score_bias(rel_logits: &Tensor, offset: usize, s: usize, extent: usize, window: Option<usize>) -> Result<Tensor> {
+    #[cfg(all(target_os = "linux", feature = "cuda"))]
+    if let Some(b) = super::attn_bias::bias(rel_logits, offset, s, extent, window)? {
+        return Ok(b);
+    }
     let (heads, t, _) = rel_logits.dims3()?;
     let dev = rel_logits.device();
     let mut idx = Vec::with_capacity(t * s);

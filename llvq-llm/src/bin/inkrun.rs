@@ -159,6 +159,7 @@ struct Args {
     moe_act: bool,
     moe_rows_batch: bool,
     prefill_phases: bool,
+    attn_bias_device: bool,
     moe_four: bool,
     routing_steps_out: Option<PathBuf>,
     events_off: bool,
@@ -175,7 +176,7 @@ fn usage() -> ! {
          [--resident verified|none] [--require-layers N] [--logits-out <file>] [--prompt-key <key>] \
          [--prompt-len N] [--phases K] [--attn-chunk N] [--peak-probe on] \
          [--rollback-gate on] [--prefill-rows 1|2|4|8] [--head bf16|int4 --head-table <file>] \
-         [--glue candle|fused] [--attn candle|fused|fused+scores] [--routing device|host] [--moe-act fused|candle] [--moe four|one] [--moe-rows chunk|batch] [--prefill-phases on] [--events on|off] [--kernel-times on|off] [--routing-steps-out <file>] [--score-from N | --score-prompt on] \
+         [--glue candle|fused] [--attn candle|fused|fused+scores] [--routing device|host] [--moe-act fused|candle] [--moe four|one] [--moe-rows chunk|batch] [--attn-bias host|device] [--prefill-phases on] [--events on|off] [--kernel-times on|off] [--routing-steps-out <file>] [--score-from N | --score-prompt on] \
          [--nll-out <file>]"
     );
     std::process::exit(2)
@@ -249,6 +250,11 @@ fn parse() -> Result<Args> {
             None | Some("fused") => true,
             Some("candle") => false,
             Some(o) => bail!("--moe-act {o}: fused or candle"),
+        },
+        attn_bias_device: match take("attn-bias").as_deref() {
+            None | Some("host") => false,
+            Some("device") => true,
+            Some(o) => bail!("--attn-bias {o}: host or device"),
         },
         prefill_phases: match take("prefill-phases").as_deref() {
             None | Some("off") => false,
@@ -504,7 +510,13 @@ fn main() -> Result<()> {
     model.set_moe_act(args.moe_act);
     model.set_moe_four_launches(args.moe_four);
     model.set_moe_batch_rows(args.moe_rows_batch);
-    let provenance = json!({"prefill_rows": args.prefill_rows, "moe_rows": if args.moe_rows_batch { "batch" } else { "chunk" }, "glue": model.glue().name(),
+    #[cfg(all(target_os = "linux", feature = "cuda"))]
+    llvq_llm::inkling::attn_bias::set_on_device(args.attn_bias_device.then_some(&dev))?;
+    #[cfg(not(all(target_os = "linux", feature = "cuda")))]
+    if args.attn_bias_device {
+        bail!("--attn-bias device: CUDA only");
+    }
+    let provenance = json!({"prefill_rows": args.prefill_rows, "moe_rows": if args.moe_rows_batch { "batch" } else { "chunk" }, "attn_bias": if args.attn_bias_device { "device" } else { "host" }, "glue": model.glue().name(),
         "head": if args.head_table.is_some() { "int4" } else { "bf16" }, "head_table": args.head_table,
         "bf16_head_on_device": model.has_bf16_head(), "attn": model.attn().name(),
         "routing_on_device": model.routing_on_device(), "moe": if args.moe_four { "four" } else { "one" }, "events": if args.events_off { "off" } else { "on" }, "moe_act": if args.moe_act { "fused" } else { "candle" },

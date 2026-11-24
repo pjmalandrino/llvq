@@ -118,6 +118,10 @@ for ARM in $ARMS; do
     pk2000) F="--moe-rows batch --peak-probe on"; P=8:64;;
     t9000) F="--moe-rows batch"; P=8:64; N=9000;;
     pk9000) F="--moe-rows batch --peak-probe on"; P=8:64; N=9000;;
+    d2000) F="--moe-rows batch --attn-bias device"; P=8:64;;
+    phd2000) F="--moe-rows batch --attn-bias device --prefill-phases on"; P=8:64;;
+    d9000) F="--moe-rows batch --attn-bias device"; P=8:64; N=9000;;
+    phd9000) F="--moe-rows batch --attn-bias device --prefill-phases on"; P=8:64; N=9000;;
     *) echo "unknown arm $ARM" >&2; exit 1;;
   esac
   TOK=$L/w0.json
