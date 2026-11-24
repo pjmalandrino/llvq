@@ -160,9 +160,15 @@ impl InklingCache {
     }
 
     /// Make room for `positions` tokens in every slot before the next growth
-    /// of its key and value buffers. Nothing held changes.
+    /// of its key and value buffers. Nothing held changes. A bounded sliding
+    /// slot ([`Inkling::set_kv_window`]) ignores it.
     pub fn reserve(&mut self, positions: usize) -> Result<()> {
         self.slots.iter_mut().try_for_each(|s| s.reserve(positions))
+    }
+
+    /// Positions the key and value buffers of every slot are allocated for, summed.
+    pub fn allocated_positions(&self) -> usize {
+        self.slots.iter().map(SlotCache::capacity).sum()
     }
 
     /// The state needed to come back here.
@@ -182,6 +188,10 @@ impl InklingCache {
         }
         if let Some(s) = self.slots.iter().find(|s| s.len() < n) {
             candle_core::bail!("rollback: a slot holds {} positions, the mark {n}", s.len());
+        }
+        // Every slot accepts before any moves: a bounded sliding slot refuses a rollback deeper than its slack.
+        for (i, (s, sm)) in self.slots.iter().zip(&m.slots).enumerate() {
+            s.check_rollback(sm).map_err(|e| candle_core::Error::msg(format!("rollback: slot {i}: {e}")))?;
         }
         for (s, sm) in self.slots.iter_mut().zip(&m.slots) {
             s.rollback(sm)?;
@@ -242,6 +252,8 @@ pub struct Inkling {
     attn_chunk: usize,
     /// Tokens of a prompt one call of [`Self::forward`] reads ([`Self::set_prefill_piece`]; `0`: the whole prompt).
     prefill_piece: usize,
+    /// The slack of the sliding slots of a new cache, when they are bounded ([`Self::set_kv_window`]).
+    kv_slack: Option<usize>,
     /// Called after every layer visit when set: a measurement reads the device memory there.
     visit_probe: std::sync::Mutex<Option<VisitProbe>>,
     /// The fused glue kernels, when [`Self::set_glue`] chose them: a one-row
@@ -571,6 +583,7 @@ impl Inkling {
             embed_table: None,
             attn_chunk: layers::DEFAULT_ATTN_CHUNK,
             prefill_piece: 0,
+            kv_slack: None,
             visit_probe: std::sync::Mutex::new(None),
             #[cfg(ink_glue)]
             glue: None,
@@ -774,8 +787,38 @@ impl Inkling {
         self.cfg.num_hidden_layers + (lc.num_passes - 1) * (lc.core_end - lc.core_start)
     }
 
+    /// An empty cache, its sliding slots bounded when [`Self::set_kv_window`] asked.
     pub fn new_cache(&self) -> InklingCache {
-        InklingCache { slots: vec![SlotCache::default(); self.n_slots()], len: 0, tokens: vec![] }
+        let mut slots = vec![SlotCache::default(); self.n_slots()];
+        if let Some(slack) = self.kv_slack {
+            for (layer, pass) in self.schedule() {
+                if self.cfg.is_sliding(layer) {
+                    slots[self.slot(layer, pass)]
+                        .bound(self.cfg.sliding_window_size, slack)
+                        .expect("a new slot is empty and the window is not 0");
+                }
+            }
+        }
+        InklingCache { slots, len: 0, tokens: vec![] }
+    }
+
+    /// Bound the sliding slots of every cache made from now on
+    /// (`Some(slack)`; [`layers::DEFAULT_KV_SLACK`] is the default slack), or
+    /// keep every position in every slot (`None`, the default). A bounded
+    /// slot keeps the last `window + slack` positions it has seen, in buffers
+    /// of `window + 2 * slack`, and drops its oldest when they are full; the
+    /// full slots keep every position. Its scores read the same visible keys
+    /// at the same distances. A rollback deeper than `slack` positions is
+    /// refused by name. Values: the same products over the visible keys; the
+    /// candle path's softmax and value product then run over a shorter row,
+    /// so they are not meant to be bit for bit those of a full slot; the
+    /// one-row score kernel reads the same keys and is.
+    pub fn set_kv_window(&mut self, slack: Option<usize>) {
+        self.kv_slack = slack;
+    }
+
+    pub fn kv_window(&self) -> Option<usize> {
+        self.kv_slack
     }
 
     /// The native experts of `layer`, decoded one expert at a time.
@@ -1300,4 +1343,103 @@ mod tests {
         }
     }
 
+    /// Bounded sliding slots (window 4, slack 2: 6 positions kept in buffers
+    /// of 8) against full slots: a 70-token prompt, in one call and in pieces
+    /// of 16, then 12 steps, give every row within 1e-5; the sliding slots
+    /// have dropped their oldest positions and the full ones kept them all.
+    #[test]
+    fn bounded_sliding_slots_match_full_slots() {
+        let mut m = tiny_model();
+        let ids = prompt(70);
+        let steps = 12;
+        let w = m.cfg.sliding_window_size;
+        for piece in [0, 16] {
+            m.set_kv_window(None);
+            let mut full = m.new_cache();
+            let want = prompt_then_steps(&mut m, &mut full, &ids, piece, steps);
+            m.set_kv_window(Some(2));
+            let mut bounded = m.new_cache();
+            let got = prompt_then_steps(&mut m, &mut bounded, &ids, piece, steps);
+            let (d, s) = gap(&got, &want);
+            let same = got.iter().flatten().zip(want.iter().flatten()).all(|(a, b)| a.to_bits() == b.to_bits());
+            println!("pieces of {piece}: bounded against full, largest gap {d:e} over {s:e}, bit for bit {same}");
+            assert!(d <= 1e-5 * s, "pieces of {piece}: bounded slots drift from full ones: {d:e} of {s:e}");
+            let mut n_bounded = 0;
+            for (layer, pass) in m.schedule() {
+                let slot = &bounded.slots()[m.slot(layer, pass)];
+                assert_eq!(slot.len(), ids.len() + steps);
+                if m.cfg.is_sliding(layer) {
+                    n_bounded += 1;
+                    assert!(slot.is_bounded(), "visit ({layer}, {pass}) is not bounded");
+                    assert!(slot.capacity() <= w + 4, "visit ({layer}, {pass}): {} positions", slot.capacity());
+                    assert!(slot.base() > 0, "visit ({layer}, {pass}) dropped nothing");
+                } else {
+                    assert!(!slot.is_bounded() && slot.base() == 0 && slot.capacity() >= slot.len());
+                }
+            }
+            assert!(n_bounded > 0 && n_bounded < m.n_slots());
+
+            // Right after the prompt, before any step: a sliding slot has already given back what the prompt took.
+            let mut c = m.new_cache();
+            m.forward_pieces(&ids, &mut c, false).unwrap();
+            for (layer, pass) in m.schedule() {
+                let slot = &c.slots()[m.slot(layer, pass)];
+                if m.cfg.is_sliding(layer) {
+                    assert!(slot.capacity() <= w + 4, "after the prompt, visit ({layer}, {pass}): {}", slot.capacity());
+                }
+            }
+        }
+    }
+
+    /// A bounded cache accepts a rollback within its slack, and the steps
+    /// after it give the rows of a full cache that ran the same; it refuses
+    /// a deeper one by name, unchanged; a rollback to the empty cache is
+    /// always accepted.
+    #[test]
+    fn bounded_slot_refuses_a_rollback_deeper_than_its_slack() {
+        let mut m = tiny_model();
+        let ids = prompt(40);
+        let within = |m: &Inkling| -> Vec<Vec<f32>> {
+            let mut c = m.new_cache();
+            m.forward_pieces(&ids, &mut c, false).unwrap();
+            CausalLm::step(m, 9, 40, &mut c).unwrap();
+            let mk = c.mark();
+            CausalLm::step(m, 7, 41, &mut c).unwrap();
+            CausalLm::step(m, 8, 42, &mut c).unwrap();
+            c.rollback(&mk).unwrap();
+            assert_eq!(c.len(), 41);
+            let mut rows = vec![row(&CausalLm::step(m, 3, 41, &mut c).unwrap())];
+            for p in 42..46 {
+                rows.push(row(&CausalLm::step(m, argmax(rows.last().unwrap()), p, &mut c).unwrap()));
+            }
+            rows
+        };
+        m.set_kv_window(None);
+        let want = within(&m);
+        m.set_kv_window(Some(2));
+        let got = within(&m);
+        let (d, s) = gap(&got, &want);
+        assert!(d <= 1e-5 * s, "the steps after a rollback within the slack drift: {d:e} of {s:e}");
+
+        // A mark at 40, then 10 steps: the sliding slots have dropped keys a row at 40 sees.
+        let mut c = m.new_cache();
+        let empty = c.mark();
+        m.forward_pieces(&ids, &mut c, false).unwrap();
+        let mk = c.mark();
+        for p in 40..50 {
+            CausalLm::step(&m, (p % 60) as u32, p, &mut c).unwrap();
+        }
+        let before = c.clone();
+        let err = c.rollback(&mk).expect_err("a rollback deeper than the slack was accepted").to_string();
+        assert!(err.contains("too deep for a bounded sliding slot"), "{err}");
+        assert_eq!(c.len(), 50);
+        assert_eq!(c.tokens(), before.tokens());
+        let mut b = before;
+        let a = row(&CausalLm::step(&m, 5, 50, &mut c).unwrap());
+        let r = row(&CausalLm::step(&m, 5, 50, &mut b).unwrap());
+        assert!(a.iter().zip(&r).all(|(x, y)| x.to_bits() == y.to_bits()), "a refused rollback moved the cache");
+        c.rollback(&empty).unwrap();
+        assert_eq!(c.len(), 0);
+        assert!(c.slots().iter().all(|s| s.base() == 0));
+    }
 }

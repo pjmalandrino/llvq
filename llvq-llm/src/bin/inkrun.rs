@@ -38,6 +38,14 @@
 //! `0`: one call, the behaviour before. It bounds every transient of a prompt
 //! call by `N` rows. Not meant to be bit for bit one call: compare the
 //! `--logits-out` bytes of the two arms. Refused with `--routing-out`.
+//! `--kv-window bounded` (or `bounded=S`) bounds the sliding slots of every
+//! cache of the run: each keeps the last `window + S` positions it has seen
+//! (`S` = 256 by default) in buffers of `window + 2 S`, the full slots every
+//! position (`Inkling::set_kv_window`). Default `full`, the behaviour before.
+//! Not meant to be bit for bit on the candle scores (a shorter softmax row);
+//! the one-row score kernel reads the same keys. A rollback deeper than `S`
+//! is refused by name, so `--rollback-gate on` fails on a prompt whose half
+//! is longer than `S`. The report gives the buffer positions allocated.
 //! `--peak-probe` drains the device after every layer visit and keeps the
 //! largest allocated size it reads there (Metal only), the peak the report
 //! gives beside the four fixed points.
@@ -132,6 +140,9 @@
 //! reference. It exits non-zero only on an error; a token difference is a
 //! reading, written in the report.
 
+// The report is one json! literal; its fields outgrew the default macro recursion depth.
+#![recursion_limit = "256"]
+
 use std::path::PathBuf;
 use std::time::Instant;
 
@@ -159,6 +170,7 @@ struct Args {
     phases: usize,
     attn_chunk: Option<usize>,
     prefill_chunk: usize,
+    kv_slack: Option<usize>,
     peak_probe: bool,
     rollback_gate: bool,
     routing_out: Option<PathBuf>,
@@ -185,7 +197,7 @@ fn usage() -> ! {
         "usage: inkrun --config <config.json> --checkpoint <model.safetensors> --layers <D/layers> \
          --tokens <tokens.json> --device cpu|metal|cuda --out <report.json> [--n 32] \
          [--resident verified|none] [--require-layers N] [--logits-out <file>] [--prompt-key <key>] \
-         [--prompt-len N] [--phases K] [--attn-chunk N] [--prefill-chunk N] [--peak-probe on] \
+         [--prompt-len N] [--phases K] [--attn-chunk N] [--prefill-chunk N] [--kv-window full|bounded[=S]] [--peak-probe on] \
          [--rollback-gate on] [--prefill-rows 1|2|4|8] [--head bf16|int4 --head-table <file>] \
          [--glue candle|fused] [--attn candle|fused|fused+scores] [--routing device|host] [--moe-act fused|candle] [--moe four|one] [--moe-rows chunk|batch] [--attn-bias host|device] [--prefill-phases on] [--events on|off] [--kernel-times on|off] [--routing-steps-out <file>] [--score-from N | --score-prompt on] \
          [--nll-out <file>]"
@@ -225,6 +237,14 @@ fn parse() -> Result<Args> {
         phases: take("phases").map(|v| v.parse()).transpose().context("--phases")?.unwrap_or(0),
         attn_chunk: take("attn-chunk").map(|v| v.parse()).transpose().context("--attn-chunk")?,
         prefill_chunk: take("prefill-chunk").map(|v| v.parse()).transpose().context("--prefill-chunk")?.unwrap_or(0),
+        kv_slack: match take("kv-window").as_deref() {
+            None | Some("full") => None,
+            Some("bounded") => Some(llvq_llm::inkling::layers::DEFAULT_KV_SLACK),
+            Some(o) => match o.strip_prefix("bounded=").map(str::parse::<usize>) {
+                Some(Ok(n)) => Some(n),
+                _ => bail!("--kv-window {o}: full, bounded or bounded=<slack>"),
+            },
+        },
         peak_probe: match take("peak-probe").as_deref() {
             None | Some("off") => false,
             Some("on") => true,
@@ -525,6 +545,7 @@ fn main() -> Result<()> {
         model.set_attn_chunk(n);
     }
     model.set_prefill_piece(args.prefill_chunk);
+    model.set_kv_window(args.kv_slack);
     model.set_glue(args.glue)?;
     model.set_routing_on_device(args.routing_on_device);
     model.set_moe_act(args.moe_act);
@@ -616,6 +637,7 @@ fn main() -> Result<()> {
     let launches_prefill = model.take_launches();
     let peak_prefill = peak.load(std::sync::atomic::Ordering::Relaxed);
     let mem_prefill = memory(&dev);
+    let kv_positions_prefill = cache.allocated_positions();
     eprintln!("inkrun: prefill of {} tokens in {seconds_prefill:.2} s", prompt.len());
 
     let mut tokens = vec![];
@@ -715,6 +737,12 @@ fn main() -> Result<()> {
     let mut sorted = step_seconds.clone();
     sorted.sort_by(f64::total_cmp);
     let median = sorted.get(sorted.len() / 2).copied();
+    let kv_window = match model.kv_window() {
+        None => json!("full"),
+        Some(s) => json!({"bounded_slack": s}),
+    };
+    let kv_positions = json!({"kind": "key and value buffer positions, summed over the slots of the run's cache",
+                              "after_prefill": kv_positions_prefill, "end": cache.allocated_positions()});
     let report = json!({
         "bin": "inkrun",
         "device": args.device,
@@ -747,6 +775,8 @@ fn main() -> Result<()> {
         "phases": phases_report,
         "attn_chunk": model.attn_chunk(),
         "prefill_chunk": model.prefill_piece(),
+        "kv_window": kv_window,
+        "kv_positions_allocated": kv_positions,
         "rollback_gate": rollback_gate,
         "peak_probe": if args.peak_probe {
             json!({"kind": "largest allocated size read after a layer visit, before and after a drain",
@@ -840,6 +870,7 @@ fn score(model: &Inkling, args: &Args, dev: &Device, text: &[u32], provenance: V
         "scored": nlls.len(), "mean_nll": mean, "ppl": mean.exp(), "seconds": seconds,
         "seconds_prefill": seconds_prefill, "steps": steps, "attn_chunk": model.attn_chunk(),
         "prefill_chunk": model.prefill_piece(),
+        "kv_window": match model.kv_window() { None => json!("full"), Some(s) => json!({"bounded_slack": s}) },
         "nll_file": args.nll_out, "provenance": provenance,
         "memory": {"load": memory_load, "end": memory(dev)},
     });
