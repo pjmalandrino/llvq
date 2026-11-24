@@ -327,6 +327,11 @@ fn load_model(l: &LocalModel, dev: &Device) -> anyhow::Result<(llvq_llm::inkling
 pub fn load_local(name: &ModelName, path: &Path) -> anyhow::Result<InkEngine> {
     let local = LocalModel::read(path)?;
     let backend = Backend::of_build();
+    // Refused before anything is read: the experts are served only resident in lattice codes on CUDA or Metal.
+    anyhow::ensure!(
+        backend != Backend::Cpu,
+        "{name}: Inkling 2 has no CPU path; this llvq is a CPU build. It runs on CUDA (Linux) or Metal (macOS)"
+    );
     eprintln!("llvq: loading {name} (inkling2, {}) on {}", path.display(), backend.label());
     let dev = match backend {
         Backend::Cuda => Device::new_cuda(0)?,
