@@ -141,6 +141,10 @@ pub struct ResidentExperts {
     /// ([`Self::forward_rows_batched`]) instead of one expert and one chunk
     /// at a time. Off by default: the reference of its gate.
     batch_rows: std::sync::atomic::AtomicBool,
+    /// Whether [`Self::forward_rows_batched`] sums each token's weighted rows
+    /// in one launch (`moe_wsum`, default) or through candle's multiply,
+    /// gathers and adds, its reference.
+    wsum_kernel: std::sync::atomic::AtomicBool,
 }
 
 impl ResidentExperts {
@@ -188,7 +192,20 @@ impl ResidentExperts {
         let fused = std::sync::atomic::AtomicBool::new(true);
         let fused_act = std::sync::atomic::AtomicBool::new(true);
         let batch_rows = std::sync::atomic::AtomicBool::new(false);
-        Ok(Self { layer, rt, dev: dev.clone(), experts, stats, launches: AtomicUsize::new(0), moe, fused, fused_act, batch_rows })
+        let wsum_kernel = std::sync::atomic::AtomicBool::new(true);
+        Ok(Self {
+            layer,
+            rt,
+            dev: dev.clone(),
+            experts,
+            stats,
+            launches: AtomicUsize::new(0),
+            moe,
+            fused,
+            fused_act,
+            batch_rows,
+            wsum_kernel,
+        })
     }
 
     pub fn count(&self) -> usize {
@@ -256,6 +273,13 @@ impl ResidentExperts {
             .into_iter()
             .map(|mut v| if v.len() == 1 { Ok(v.pop().expect("one part")) } else { Tensor::cat(&v, 0) })
             .collect()
+    }
+
+    /// Whether the prompt path sums each token's weighted rows in one launch
+    /// (`true`, default) or through candle's operations, the reference of
+    /// that launch's gate. Meant to be the same bits.
+    pub fn set_wsum_kernel(&self, on: bool) {
+        self.wsum_kernel.store(on, Ordering::Relaxed);
     }
 
     /// Whether a one-row call takes the four-launch path (default) or the
@@ -414,16 +438,10 @@ impl ResidentExperts {
             start = end;
         }
         let n_chunks = chunks.len() / 3;
-        // by_rank[rank][token]: the pair holding that token's rank-th expert.
-        let mut by_rank = vec![vec![0u32; t_rows]; k_sel];
-        for (p, &(_, t, _, rank)) in pairs.iter().enumerate() {
-            by_rank[rank as usize][t as usize] = p as u32;
-        }
         let dev = &self.dev;
         let pair_expert = Tensor::from_vec(pairs.iter().map(|p| p.0).collect::<Vec<_>>(), n, dev)?;
         // Global token ids: the rows of `xd` this block reads.
         let pair_token = Tensor::from_vec(pairs.iter().map(|p| t0 as u32 + p.1).collect::<Vec<_>>(), n, dev)?;
-        let wts = Tensor::from_vec(pairs.iter().map(|p| p.2).collect::<Vec<_>>(), (n, 1), dev)?;
         let chunks = Tensor::from_vec(chunks, 3 * n_chunks, dev)?;
 
         let xs = xd.index_select(&pair_token, 0)?.to_dtype(DType::F16)?.contiguous()?;
@@ -446,6 +464,24 @@ impl ResidentExperts {
         drop((act, pair_expert));
         let yh = self.rt.moe_matrix_pairs(k, layer, true, &ar, &chunks)?;
         drop((ar, chunks));
+        if self.wsum_kernel.load(Ordering::Relaxed) {
+            // For token t and rank r at t * k_sel + r: its pair, then that pair's weight bits.
+            let mut side = vec![0u32; 2 * t_rows * k_sel];
+            for (p, &(_, t, wt, rank)) in pairs.iter().enumerate() {
+                let at = t as usize * k_sel + rank as usize;
+                side[at] = p as u32;
+                side[t_rows * k_sel + at] = wt.to_bits();
+            }
+            let side = Tensor::from_vec(side, 2 * t_rows * k_sel, dev)?;
+            return self.rt.moe_weighted_sum(k, &yh, &side, k_sel);
+        }
+        // The reference of `moe_wsum`: candle's multiply, gathers and adds.
+        // by_rank[rank][token]: the pair holding that token's rank-th expert.
+        let mut by_rank = vec![vec![0u32; t_rows]; k_sel];
+        for (p, &(_, t, _, rank)) in pairs.iter().enumerate() {
+            by_rank[rank as usize][t as usize] = p as u32;
+        }
+        let wts = Tensor::from_vec(pairs.iter().map(|p| p.2).collect::<Vec<_>>(), (n, 1), dev)?;
         let y = yh.get(0)?.to_dtype(DType::F32)?.broadcast_mul(&wts)?;
         drop((yh, wts));
         // zeros + the first expert's row, then the others, as `index_add` an expert at a time did.

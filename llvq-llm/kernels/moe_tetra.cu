@@ -315,3 +315,42 @@ extern "C" __global__ void moe_tetra_rows(const MoePtr* __restrict__ ptr,
         }
     }
 }
+
+// Each token's weighted rows of a prompt's down output, summed in one launch
+// (2026-11-24). Before it the host ran a multiply, then K row gathers and K
+// adds through candle.
+//
+// `y`: the binary16 output of `moe_tetra_rows` for down, [npairs, d]. `side`:
+// 2 * ntok * k words. The first ntok * k give, for token t and rank r, the
+// pair holding the token's r-th expert in ascending expert order, at
+// side[t * k + r]. The next ntok * k give that pair's routing weight as f32
+// bits, at the same place. One thread a (token, column); the output is
+// [ntok, d] f32.
+//
+// Exactness. The host path widened `y` to f32 (exact), multiplied each row
+// by its weight (one rounded f32 product), and added the products rank by
+// rank into a row of +0. Here: the same widening (`rot_h2f`), the same
+// product (`__fmul_rn`), the same sums in the same order from +0
+// (`__fadd_rn`). NVRTC never contracts the two into an FMA. No barrier, so
+// the early return is safe. The host owes it ntok * d + blockDim.x below 2^32.
+extern "C" __global__ void moe_wsum(const unsigned short* __restrict__ y,
+                                    const u32* __restrict__ side,
+                                    float* __restrict__ out,
+                                    u32 ntok,
+                                    u32 d,
+                                    u32 k)
+{
+    const u32 i = blockIdx.x * blockDim.x + threadIdx.x;
+    if (i >= ntok * d) { return; }
+    const u32 t = i / d;
+    const u32 col = i - t * d;
+    const u32* __restrict__ pairs = side + t * k;
+    const u32* __restrict__ wbits = side + ntok * k + t * k;
+    float acc = 0.0f;
+    for (u32 r = 0; r < k; ++r) {
+        const u32 p = pairs[r];
+        const float v = rot_h2f(y[(unsigned long long)p * d + col]);
+        acc = __fadd_rn(acc, __fmul_rn(v, __uint_as_float(wbits[r])));
+    }
+    out[(unsigned long long)t * d + col] = acc;
+}

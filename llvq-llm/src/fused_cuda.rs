@@ -4405,6 +4405,8 @@ pub struct MoeKernels {
     f_gu: CudaFunction,
     f_down: CudaFunction,
     f_act: CudaFunction,
+    /// `moe_wsum`, each token's weighted rows of a prompt's down output.
+    f_wsum: CudaFunction,
     /// `moe_tetra_rows`, the prompt's launch; `None` on a unit whose prefill
     /// pair does not fit the default shared-memory allowance.
     f_rows: Option<CudaFunction>,
@@ -4484,11 +4486,12 @@ impl FusedRuntime {
         let f_gu = cuda.func("moe_tetra_gu").map_err(candle_core::Error::msg)?;
         let f_down = cuda.func("moe_tetra_down").map_err(candle_core::Error::msg)?;
         let f_act = cuda.func("moe_act").map_err(candle_core::Error::msg)?;
+        let f_wsum = cuda.func("moe_wsum").map_err(candle_core::Error::msg)?;
         let f_rows = (self.prefill.shared_bytes() <= llvq_cuda::tile::SHARED_DEFAULT)
             .then(|| cuda.func("moe_tetra_rows"))
             .transpose()
             .map_err(candle_core::Error::msg)?;
-        Ok(MoeKernels { cuda, f_rot, f_gu, f_down, f_act, f_rows })
+        Ok(MoeKernels { cuda, f_rot, f_gu, f_down, f_act, f_wsum, f_rows })
     }
 
     /// The address table of a layer's experts. Refused unless every expert has
@@ -4765,6 +4768,75 @@ impl FusedRuntime {
     /// the pairs in order and none holds more than [`Self::prefill_rows`].
     pub fn moe_matrix_pairs(&self, k: &MoeKernels, layer: &MoeLayer, down: bool, xr: &Tensor, chunks: &Tensor) -> candle_core::Result<Tensor> {
         xr.apply_op2_no_bwd(chunks, &MoeRowsOp { rt: self, k, layer, down, rotate: false })
+    }
+
+    /// Each token's `k_sel` weighted rows of `y` summed, one launch. `y`: the
+    /// down output of [`Self::moe_matrix_pairs`], f16 `[1, npairs, d]` (any
+    /// contiguous shape whose last dim is `d`, at offset 0). `side`: u32
+    /// `[2 * ntok * k_sel]`, for token t and rank r the pair of its r-th
+    /// expert in ascending expert order at `t * k_sel + r`, then that pair's
+    /// weight as f32 bits at `ntok * k_sel + t * k_sel + r`. Returns f32
+    /// `[ntok, d]`: per token and column, `+0` then `+= f32(y) * w` rank by
+    /// rank, each operation rounded once, as the host's multiply and adds did.
+    pub fn moe_weighted_sum(&self, k: &MoeKernels, y: &Tensor, side: &Tensor, k_sel: usize) -> candle_core::Result<Tensor> {
+        y.apply_op2_no_bwd(side, &MoeWsumOp { rt: self, k, k_sel })
+    }
+}
+
+struct MoeWsumOp<'a> {
+    rt: &'a FusedRuntime,
+    k: &'a MoeKernels,
+    k_sel: usize,
+}
+
+impl candle_core::CustomOp2 for MoeWsumOp<'_> {
+    fn name(&self) -> &'static str {
+        "llvq-moe-wsum"
+    }
+
+    fn cpu_fwd(
+        &self,
+        _: &candle_core::CpuStorage,
+        _: &Layout,
+        _: &candle_core::CpuStorage,
+        _: &Layout,
+    ) -> candle_core::Result<(candle_core::CpuStorage, Shape)> {
+        candle_core::bail!("the routed-experts weighted sum has no CPU path")
+    }
+
+    fn cuda_fwd(
+        &self,
+        ys: &CudaStorage,
+        yl: &Layout,
+        ss: &CudaStorage,
+        sl: &Layout,
+    ) -> candle_core::Result<(CudaStorage, Shape)> {
+        let y = ys.as_cuda_slice::<f16>()?;
+        let side = ss.as_cuda_slice::<u32>()?;
+        let (y0, y1) = yl.contiguous_offsets().ok_or_else(|| candle_core::Error::msg("moe wsum: non-contiguous rows"))?;
+        let (s0, s1) = sl.contiguous_offsets().ok_or_else(|| candle_core::Error::msg("moe wsum: non-contiguous table"))?;
+        let d = yl.dims().last().copied().unwrap_or(0);
+        let k_sel = self.k_sel;
+        if y0 != 0 || s0 != 0 || d == 0 || k_sel == 0 || y1 % d != 0 || s1 == 0 || s1 % (2 * k_sel) != 0 {
+            candle_core::bail!("moe wsum: rows of {y1} at {y0} and width {d}, table of {s1} at {s0}, k {k_sel}");
+        }
+        let ntok = s1 / (2 * k_sel);
+        let total = ntok as u64 * d as u64;
+        if total + THREADS as u64 > u32::MAX as u64 {
+            candle_core::bail!("moe wsum: {ntok} tokens of {d} overflow the u32 index");
+        }
+        let stream = self.rt.device.cuda_stream();
+        let mut out = unsafe { stream.alloc::<f32>(total as usize) }
+            .map_err(|e| candle_core::Error::msg(format!("moe wsum: alloc of {total} floats: {e}")))?;
+        let cfg = LaunchConfig { grid_dim: ((total as u32).div_ceil(THREADS), 1, 1), block_dim: (THREADS, 1, 1), shared_mem_bytes: 0 };
+        let (ntok32, d32, k32) = (ntok as u32, d as u32, k_sel as u32);
+        let mut b = self.k.cuda.stream().launch_builder(&self.k.f_wsum);
+        b.arg(y).arg(side).arg(&mut out).arg(&ntok32).arg(&d32).arg(&k32);
+        let probe = crate::inkling::probe_begin(|| self.k.cuda.stream().synchronize().is_ok());
+        crate::inkling::count_launch();
+        unsafe { b.launch(cfg) }.map_err(|e| candle_core::Error::msg(format!("moe_wsum: {e}")))?;
+        crate::inkling::probe_end(probe, "moe_wsum", || self.k.cuda.stream().synchronize().is_ok());
+        Ok((CudaStorage::wrap_cuda_slice(out, self.rt.device.clone()), Shape::from((ntok, d))))
     }
 }
 
