@@ -66,19 +66,19 @@ the reading of the reuse.
 
 | quantity | predicted |
 |---|---|
-| every correctness check PASS | TO SIGN |
-| load, seconds | TO SIGN |
-| (b) seconds to the whole answer | TO SIGN |
-| (c) seconds to the first token | TO SIGN |
-| (d1) a call to `get_weather` with `city` Paris | TO SIGN |
-| (d2) seconds to the first token of the follow-up | TO SIGN |
-| (n2) cached count above n1's prompt (the answer reused) | TO SIGN |
-| (e1) prompt tokens | TO SIGN |
-| (e1) seconds to the first token | TO SIGN |
-| (e2) over (e1), time to the first token | TO SIGN |
-| (e3) tokens read, prompt minus cached | TO SIGN |
-| GB on the card after the load | TO SIGN |
-| GB on the card after the long prompt | TO SIGN |
+| every correctness check PASS | probability 0.3 (a first run of the server on the real model) |
+| load, seconds | 30 to 60 |
+| (b) seconds to the whole answer | 0.5 to 3 |
+| (c) seconds to the first token | 0.3 to 1.5 |
+| (d1) a call to `get_weather` with `city` Paris | probability 0.6 |
+| (d2) seconds to the first token of the follow-up | 0.2 to 2 |
+| (n2) cached count above n1's prompt (the answer reused) | probability 0.5 |
+| (e1) prompt tokens | 8,800 to 9,600 |
+| (e1) seconds to the first token | 55 to 80 (64.12 s for 9,000 tokens by `inkrun`, *measured* today) |
+| (e2) over (e1), time to the first token | 0.9 to 1.1 (a repeat is read again, by design) |
+| (e3) tokens read, prompt minus cached | under 300, probability 0.5 |
+| GB on the card after the load | 8.3 to 9.5 |
+| GB on the card after the long prompt | 15 to 22 |
 
 For scale, *measured* on the same card and stack outside the server (`inkling-cuda-ttft`, 2026-11-24): 2,000
 tokens read in 7.36 s with the experts by rows, 15.5 GB at the end of that run, 0.015 s a step.
