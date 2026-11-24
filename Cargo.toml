@@ -21,6 +21,17 @@ repository = "https://github.com/pjmalandrino/llvq"
 lto = "thin"
 codegen-units = 1
 
+# The shipped `llvq` archives (`cargo build --profile dist -p llvq-runtime`).
+# The release optimisation level, plus whole-program LTO and no symbol table:
+# a smaller binary. Floating-point results do not depend on LTO (see `ci`
+# below). `panic` stays `unwind`: the engine thread of `llvq serve` catches a
+# panic of the model and answers it as an error, and the server lives on.
+# Every published measurement stays on `release`.
+[profile.dist]
+inherits = "release"
+lto = "fat"
+strip = "symbols"
+
 # CI only (`cargo test --profile ci`). The release optimisation level, so the
 # tests gated `cfg_attr(debug_assertions, ignore)` run, without the link-time
 # work that made each of ~40 test binaries take minutes: no LTO, 16 codegen
