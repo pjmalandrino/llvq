@@ -313,7 +313,28 @@ pub fn load_local(name: &ModelName, path: &Path) -> anyhow::Result<InkEngine> {
     let tok = tokenizers::Tokenizer::from_file(&local.tokenizer)
         .map_err(|e| anyhow::anyhow!("{}: {e}", local.tokenizer.display()))?;
     let chat = InkChat::new(tok)?;
-    let (model, lines) = load_model(&local, &dev)?;
+    // `inkchat` was written against one template: a checkpoint that carries
+    // another is refused rather than prompted in a format it does not read.
+    let template = local.tokenizer.with_file_name("chat_template.jinja");
+    let mut first = vec![match template.exists() {
+        true => {
+            let sha = crate::store::sha256_file(&template, |_| {})?;
+            anyhow::ensure!(
+                sha == llvq_llm::inkchat::TEMPLATE_SHA256,
+                "{}: sha256 {sha}, the template llvq_llm::inkchat renders is {}",
+                template.display(),
+                llvq_llm::inkchat::TEMPLATE_SHA256
+            );
+            "template: chat_template.jinja beside the tokenizer is the one inkchat renders".to_string()
+        }
+        false => format!(
+            "template: no chat_template.jinja beside the tokenizer; inkchat renders sha256 {}",
+            &llvq_llm::inkchat::TEMPLATE_SHA256[..16]
+        ),
+    }];
+    let (model, mut lines) = load_model(&local, &dev)?;
+    first.append(&mut lines);
+    let lines = first;
     for l in &lines {
         eprintln!("llvq: {name}: {l}");
     }
