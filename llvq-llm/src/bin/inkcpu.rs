@@ -20,7 +20,8 @@
 //! time split between the parts of the CPU backend (`fused_cpu::phases`) and
 //! the model around them, in ms a token, in the format of `cpurun phases`.
 //! `moe` is the whole expert call; its matvecs count in `tetra kernel` and
-//! its rotations in `rotate kernel`. The layer around the MoE is split into
+//! its rotations in `rotate kernel`, as thread time summed over the experts
+//! that run side by side: those two can exceed `moe`. The layer around the MoE is split into
 //! `attn proj` (the attention's matrix products), `attn cache` (the cache
 //! append and the head copies), `attn scores`, `router`, `convs` and `glue`
 //! (block residuals, message gates, norms, residual adds). `rest` is what no

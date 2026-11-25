@@ -350,6 +350,74 @@ fn packed_and_nibbles_give_the_same_bits() {
 }
 
 #[test]
+fn the_experts_side_by_side_give_the_serial_bits() {
+    let (n, k, t) = (16, 4, 23);
+    for nibbles in [false, true] {
+        let s = set(5, n, 48, 72, 0xe1);
+        let cfg = config(s.h, s.i, n, k);
+        let par = cpu_experts(&s, nibbles);
+        let mut ser = cpu_experts(&s, nibbles);
+        ser.set_parallel(false);
+        for rows in [1, t] {
+            let x = input(0xe2 ^ rows as u64, rows, s.h);
+            let r = routing(0xe3 ^ rows as u64, rows, n, k);
+            let a = par.moe(&x, &r, &cfg).unwrap().flatten_all().unwrap().to_vec1::<f32>().unwrap();
+            let b = ser.moe(&x, &r, &cfg).unwrap().flatten_all().unwrap().to_vec1::<f32>().unwrap();
+            let diff = a.iter().zip(&b).position(|(p, q)| p.to_bits() != q.to_bits());
+            assert_eq!(diff, None, "{rows} rows, nibbles {nibbles}: the parallel experts differ from the serial ones");
+        }
+    }
+}
+
+/// One visit's worth of expert work at the model's shape, no model: 8 routed
+/// experts of H = 2,304 and I = 1,152 (gate, up, down), one row, through
+/// `CpuExperts::moe` as a decode step calls it, rotations included. The
+/// experts one after the other (the path before), then side by side.
+///
+///   LLVQ_THREADS=8 cargo test --profile ci -p llvq-llm --test inkling_cpu -- --ignored --nocapture bench_
+#[test]
+#[ignore = "a microbenchmark: run by hand with --ignored --nocapture"]
+fn bench_one_visit_of_experts_at_the_model_shape() {
+    use std::time::Instant;
+    let (n, k, h, i) = (8usize, 8usize, 2304usize, 1152usize);
+    let s = set(7, n, h, i, 0xbe);
+    let cfg = config(h, i, n, k);
+    let x = input(0xbf, 1, h);
+    let r = routing(0xc0, 1, n, k);
+    let weights = (3 * k * h * i) as f64;
+    println!("bench threads {}", llvq_llm::tetra_cpu::pool().current_num_threads());
+    for nibbles in [false, true] {
+        let mut m = cpu_experts(&s, nibbles);
+        for parallel in [false, true, false, true] {
+            m.set_parallel(parallel);
+            for _ in 0..5 {
+                m.moe(&x, &r, &cfg).unwrap();
+            }
+            let mut v: Vec<f64> = (0..9)
+                .map(|_| {
+                    let t = Instant::now();
+                    for _ in 0..20 {
+                        m.moe(&x, &r, &cfg).unwrap();
+                    }
+                    t.elapsed().as_secs_f64() * 1e6 / 20.0
+                })
+                .collect();
+            v.sort_by(f64::total_cmp);
+            let med = v[v.len() / 2];
+            println!(
+                "bench visit {} {:<14} {med:>9.0} us  [{:.0} ; {:.0}]  {:>6.2} Gweight/s  {:>6.1} ms for 48 visits (computed)",
+                if nibbles { "nibbles" } else { "packed " },
+                if parallel { "side by side" } else { "one at a time" },
+                v[0],
+                v[v.len() - 1],
+                weights / med / 1e3,
+                med * 48.0 / 1e3
+            );
+        }
+    }
+}
+
+#[test]
 fn a_bad_routing_or_input_is_refused_by_name() {
     let (n, k) = (8, 2);
     let s = set(4, n, 48, 72, 0xd1);

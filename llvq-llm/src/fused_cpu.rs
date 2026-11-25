@@ -41,7 +41,10 @@ pub mod phases {
     /// is the whole expert call of an Inkling layer on the CPU
     /// (`inkling::experts_cpu`); its matvecs count in `tetra kernel` and its
     /// rotations in `rotate kernel`. A name ending in `kernel` is always
-    /// inside another entry.
+    /// inside another entry. An entry adds the time of every thread that
+    /// ran it: the routed experts of a visit run side by side, so `tetra
+    /// kernel` and `rotate kernel` there are thread time and can exceed the
+    /// wall time of `moe`.
     ///
     /// The last six split the Inkling layer around its MoE
     /// (`inkling::layers`), whatever the device. `attn proj` is the seven

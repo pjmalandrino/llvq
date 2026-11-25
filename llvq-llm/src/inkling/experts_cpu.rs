@@ -15,7 +15,10 @@
 //! weight, added to a sum that starts from zeros. A prompt groups the rows
 //! routed to each expert and takes them in one batched matvec, then adds
 //! each row's output to its token in the same ascending order, so one row
-//! and the same row inside a prompt agree to rounding.
+//! and the same row inside a prompt agree to rounding. The routed experts of
+//! a call run side by side on the CPU pool, their matvecs nested in them;
+//! the outputs are added after, in that same order, the same bits as one
+//! expert at a time.
 //!
 //! Memory, *computed* for the real config (H = 2,304, I = 1,152, 128 experts,
 //! 24 layers): the words are what the codes files hold, 2 bits a weight and
@@ -78,6 +81,10 @@ pub struct CpuExperts {
     hidden: usize,
     inter: usize,
     experts: Vec<CpuExpert>,
+    /// The routed experts of a call run side by side on the CPU pool (the
+    /// default), or one after the other: the reference of the parallel
+    /// path's gate. The same bits either way ([`Self::set_parallel`]).
+    parallel: bool,
     pub stats: LoadStats,
 }
 
@@ -142,7 +149,7 @@ impl CpuExperts {
                 stats.matrix_bytes += p.bytes();
             }
         }
-        Ok(Self { layer, hidden, inter, experts, stats })
+        Ok(Self { layer, hidden, inter, experts, parallel: true, stats })
     }
 
     /// Read, check and hold every expert of `layer` from `dir`
@@ -187,6 +194,25 @@ impl CpuExperts {
         self.layer
     }
 
+    /// Run the routed experts of a call side by side (`true`, the default)
+    /// or one after the other. Each matvec computes every row as the serial
+    /// path does, and the outputs are added in the same ascending order, so
+    /// both give the same bits.
+    pub fn set_parallel(&mut self, on: bool) {
+        self.parallel = on;
+    }
+
+    /// `f` over `items`, in their order: on the CPU pool, one task an item,
+    /// when [`Self::parallel`] is set, one after the other otherwise.
+    fn each<T: Sync, R: Send>(&self, items: &[T], f: impl Fn(&T) -> R + Sync + Send) -> Vec<R> {
+        use rayon::prelude::*;
+        if self.parallel {
+            crate::tetra_cpu::pool().install(|| items.par_iter().map(f).collect())
+        } else {
+            items.iter().map(f).collect()
+        }
+    }
+
     /// The pairs `(expert, weight)` of each token, ascending in expert, the
     /// routing checked against this layer.
     fn checked(&self, routing: &Routing, t: usize) -> Result<Vec<Vec<(usize, f32)>>> {
@@ -221,9 +247,11 @@ impl CpuExperts {
     /// The MoE output of `rows` rows of `xs` (`[rows, H]`, all routed to
     /// expert `e`), unweighted: `[rows, H]`.
     ///
-    /// One expert at a time, each matvec on the CPU pool. The loop over
-    /// experts is serial in this version: a parallel one would share the pool
-    /// with the matvecs inside it.
+    /// Each matvec splits its rows on the CPU pool. Called from a task of
+    /// that pool ([`Self::each`]), the split nests: the rows go on the
+    /// task's own queue, and a thread whose expert is done steals them. A
+    /// visit then costs one fork and join, not one per matvec, and its two
+    /// rotations a expert run in parallel too.
     fn expert_rows(&self, e: usize, xs: &[f32], rows: usize, cfg: &InklingConfig) -> Vec<f32> {
         let x = &self.experts[e];
         let xp = phases::timed(phases::ROTATE_KERNEL, || x.gate.prepare_vec(xs, rows));
@@ -276,10 +304,10 @@ impl MoeSource for CpuExperts {
             let xs = x.to_dtype(DType::F32)?.flatten_all()?.to_vec1::<f32>()?;
             let mut out = vec![0f32; t * h];
             if t == 1 {
-                // One row: each routed expert on `x` itself, in ascending order.
-                for &(e, w) in &routes[0] {
-                    let y = self.expert_rows(e, &xs, 1, cfg);
-                    for (o, v) in out.iter_mut().zip(&y) {
+                // One row: each routed expert on `x` itself, added in ascending order.
+                let ys = self.each(&routes[0], |&(e, _)| self.expert_rows(e, &xs, 1, cfg));
+                for (&(_, w), y) in routes[0].iter().zip(&ys) {
+                    for (o, v) in out.iter_mut().zip(y) {
                         *o += v * w;
                     }
                 }
@@ -292,16 +320,16 @@ impl MoeSource for CpuExperts {
                         per_expert[e].push((tok, w));
                     }
                 }
-                let mut buf = Vec::new();
-                for (e, toks) in per_expert.iter().enumerate() {
-                    if toks.is_empty() {
-                        continue;
-                    }
-                    buf.clear();
+                let work: Vec<(usize, &[(usize, f32)])> =
+                    per_expert.iter().enumerate().filter(|(_, toks)| !toks.is_empty()).map(|(e, toks)| (e, &toks[..])).collect();
+                let ys = self.each(&work, |&(e, toks)| {
+                    let mut buf = Vec::with_capacity(toks.len() * h);
                     for &(tok, _) in toks {
                         buf.extend_from_slice(&xs[tok * h..(tok + 1) * h]);
                     }
-                    let y = self.expert_rows(e, &buf, toks.len(), cfg);
+                    self.expert_rows(e, &buf, toks.len(), cfg)
+                });
+                for (&(_, toks), y) in work.iter().zip(&ys) {
                     for (&(tok, w), yr) in toks.iter().zip(y.chunks(h)) {
                         for (o, v) in out[tok * h..(tok + 1) * h].iter_mut().zip(yr) {
                             *o += v * w;
