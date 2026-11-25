@@ -1,0 +1,13 @@
+   /\
+  //\\
+ ///\\\    tetra
+////\\\\
+llvq 0.1.2 (f9fda6e0a431) serving on http://127.0.0.1:11435, backend cpu, store /tmp/llvq-home
+chat in the browser: http://127.0.0.1:11435/
+llvq: loading inkling2:mini (inkling2, /tmp/llvq-home/models/sha256-1e9314dba89332cb1af444619dc5d31a2a1ed6a50a1112e0ca2b8fc55bb6bfd3/inkling.json) on cpu
+llvq: inkling2:mini: template: no chat_template.jinja beside the tokenizer; inkchat renders sha256 53a9035f32559457
+llvq: inkling2:mini: tables: embed b7e9979f589a8a84, unembed cb26ce0c6145d35d
+llvq: inkling2:mini: cpu: avx2+fma SIMD on 8 threads | weights packed | experts 6.17 GB + rotations 0.089 GB on 24 layers, read in 4.3 s
+llvq: inkling2:mini: cpu: attention f32 2.58 GB, int4 embedding 0.26 GB, int4 head 0.26 GB
+llvq: inkling2:mini: prompt: pieces of 512 tokens, scores in chunks of 128 rows, sliding slots bounded with a slack of 1024
+llvq: inkling2:mini: stack cpu, 24 layers on the CPU experts, glue candle, attention candle

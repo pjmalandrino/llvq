@@ -1,0 +1,23 @@
+	Command being timed: "/src/target/ci/inkcpu /tmp/llvq-home/models/sha256-1e9314dba89332cb1af444619dc5d31a2a1ed6a50a1112e0ca2b8fc55bb6bfd3 32"
+	User time (seconds): 125.90
+	System time (seconds): 35.24
+	Percent of CPU this job got: 330%
+	Elapsed (wall clock) time (h:mm:ss or m:ss): 0:48.75
+	Average shared text size (kbytes): 0
+	Average unshared data size (kbytes): 0
+	Average stack size (kbytes): 0
+	Average total size (kbytes): 0
+	Maximum resident set size (kbytes): 12312820
+	Average resident set size (kbytes): 0
+	Major (requiring I/O) page faults: 29
+	Minor (reclaiming a frame) page faults: 7223007
+	Voluntary context switches: 486960
+	Involuntary context switches: 89166
+	Swaps: 0
+	File system inputs: 5928
+	File system outputs: 3
+	Socket messages sent: 0
+	Socket messages received: 0
+	Signals delivered: 0
+	Page size (bytes): 4096
+	Exit status: 0

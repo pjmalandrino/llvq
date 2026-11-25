@@ -1,0 +1,48 @@
+INKLING 2 MINI ON A CPU, FIRST RUN ON THE REAL FILE SET: IT ANSWERS, AT 1.06 TOK/S IN 12.3 GB ON 8 vCPU; THE ATTENTION IS 64 % OF THE TOKEN (2026-11-25)
+=======================================================================================================================================================
+Why:    Inkling 2 Mini was refused on a CPU build. The CPU path (inkling/experts_cpu.rs, head::Q4CpuHead, the
+        runtime's CPU branch) was written on 2026-11-25 and had run on synthetic codes only.
+Cost:   $0.01, *estimated*: 12 minutes of the Hugging Face flavor cpu-upgrade at $0.03 an hour.
+Machine: 8 vCPU of an AMD EPYC 7R13 (4 physical cores, 2 threads each), 32 GB, shared. AVX2 and FMA.
+Object: branch cpu/inkling-2026-11-25 at f9fda6e, profile ci. The file set of 8,145,313,108 bytes pulled by name
+        (13 s). Job 6b06bb72d0582cfbbefe451a.
+Prereg: proofs/preregistration-inkling-cpu-x86-2026-11-25.md. Raw: docs/mesures/inkling-cpu-2026-11-25-brut/.
+Nature: every time, rate and memory *measured*, one run each; `inkcpu <file set> 32`, 31 greedy decode steps after a
+        32-token prompt.
+
+VERDICT AGAINST THE CRITERION: PASS. The three steps end without an error. The 32 ids `inkcpu` generates are the
+same with the codes packed and in nibbles. Through `llvq serve`, `llvq run inkling2:mini` answers the question
+asked in readable English (Rayleigh scattering, about 100 words, after its reasoning block).
+The nine synthetic tests of inkling_cpu pass on this CPU's AVX2 path.
+
+                               packed      nibbles
+  load                          9.1 s       18.3 s       (codes read in 4.1 s and 13.3 s)
+  prompt, 32 tokens             8.12 s      11.93 s
+  decode                    1.06 tok/s   0.69 tok/s
+  token                       943.7 ms    1,453.7 ms
+    experts (moe)             326.5 ms      467.4 ms     48 calls a token
+      tetra kernel            274.4 ms      399.8 ms     1,152 calls a token
+      rotate kernel            31.9 ms       42.2 ms     768 calls a token
+    head                       10.8 ms       14.0 ms
+    rest (attention, glue)    606.4 ms      972.3 ms
+  peak resident memory       12.31 GB      18.13 GB
+  in memory, loader's: experts 6.17 GB (13.31 in nibbles), rotations 0.089, attention f32 2.58, embedding 0.26,
+  head 0.26.
+
+  runtime: `llvq run inkling2:mini`, prompt of 25 tokens in 6.92 s, 220 tokens at 1.0 tok/s, the client's rate.
+
+READING
+  1. The attention and the glue, candle's on the CPU in f32, are 64 % of the token packed. The experts are 35 %.
+     The next change is the attention's projections: about 1.29 G weights a token, read as 5.2 GB of f32.
+  2. The Tetra kernel reads 3.06 G weights in 274 ms, 11 Gweight/s, where the 4B's large matrices read 17 to 20 on
+     this CPU. The expert matrices are small (1,152 x 2,304) and there are 1,152 calls a token: the pool's cost a
+     call shows.
+  3. Nibbles are slower here, every part of the token with them, the candle part included (972 against 606 ms),
+     which the nibbles do not touch. The process holds 18 GB of 32 on a shared machine. Whether the cause is the
+     memory or the instance is not known from one run; the nibble mode is not a gain for this model as measured.
+
+Predictions: PASS at 0.5, held. Decode packed 1.0 to 3.0 tok/s: held, at the bottom (1.06). Nibbles 1.2 to 4.0:
+WRONG, 0.69. `rest` the largest part in nibbles (0.6): yes, and packed too. Peak memory packed 10 to 14 GB: held
+(12.3); nibbles 17 to 22: held (18.1). Load 30 to 120 s packed: WRONG, 9.1 s.
+
+Not measured: any other CPU; a long prompt; the 4-core laptop the operator named as the target.
