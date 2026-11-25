@@ -27,6 +27,43 @@ use std::sync::Arc;
 /// Prompt rows one batched call decodes the weights once for.
 pub const PREFILL_ROWS: usize = tetra_cpu::MAX_BATCH;
 
+/// Wall time this backend has spent in each of its parts since the process
+/// started, and the calls counted. Always on: two clock reads a call, on calls
+/// of a tenth of a millisecond at least. What `cpurun` reads around a decode
+/// to say where a token's time goes; what is left of the token's wall time is
+/// the model around the projections (attention, norms, the cache).
+pub mod phases {
+    use std::sync::atomic::{AtomicU64, Ordering::Relaxed};
+
+    /// `tetra` and `int4` are the whole trait calls, tensor copies included;
+    /// `tetra kernel` and `int4 kernel` the slice kernels inside them.
+    pub const NAMES: [&str; 7] = ["prepare", "tetra", "tetra kernel", "int4", "int4 kernel", "head", "gather"];
+    pub(super) const PREPARE: usize = 0;
+    pub(super) const TETRA: usize = 1;
+    pub(super) const TETRA_KERNEL: usize = 2;
+    pub(super) const INT4: usize = 3;
+    pub(super) const INT4_KERNEL: usize = 4;
+    pub(super) const HEAD: usize = 5;
+    pub(super) const GATHER: usize = 6;
+
+    static NS: [AtomicU64; 7] = [const { AtomicU64::new(0) }; 7];
+    static CALLS: [AtomicU64; 7] = [const { AtomicU64::new(0) }; 7];
+
+    #[inline]
+    pub(super) fn timed<T>(i: usize, f: impl FnOnce() -> T) -> T {
+        let t = std::time::Instant::now();
+        let out = f();
+        NS[i].fetch_add(t.elapsed().as_nanos() as u64, Relaxed);
+        CALLS[i].fetch_add(1, Relaxed);
+        out
+    }
+
+    /// `(nanoseconds, calls)` per entry of [`NAMES`], since the process started.
+    pub fn snapshot() -> [(u64, u64); 7] {
+        std::array::from_fn(|i| (NS[i].load(Relaxed), CALLS[i].load(Relaxed)))
+    }
+}
+
 /// `x` as one f32 vector, whatever its dtype and layout.
 fn host_f32(x: &Tensor) -> Result<Vec<f32>> {
     x.to_dtype(DType::F32)?.flatten_all()?.to_vec1::<f32>()
@@ -100,10 +137,10 @@ impl CpuLattice {
     /// `y = W x` for `rows` prepared activations, `[rows, d_out]`.
     pub fn matvec_vec(&self, xp: &[f32], rows: usize) -> Vec<f32> {
         let mut y = vec![0f32; rows * self.m.d_out];
-        match rows {
+        phases::timed(phases::TETRA_KERNEL, || match rows {
             1 => tetra_cpu::tetra_matvec(self.isa, &self.tables, &self.m, xp, &mut y),
             _ => tetra_cpu::tetra_matvec_rows(self.isa, &self.tables, &self.m, xp, rows, &mut y),
-        }
+        });
         y
     }
 }
@@ -122,31 +159,39 @@ impl crate::device::LatticeProj for CpuLattice {
         self.key
     }
     fn prepare(&self, x: &Tensor) -> Result<Tensor> {
-        let v = host_f32(x)?;
-        Tensor::from_vec(self.prepare_vec(&v, 1), (1, self.m.d_in), &Device::Cpu)
+        phases::timed(phases::PREPARE, || {
+            let v = host_f32(x)?;
+            Tensor::from_vec(self.prepare_vec(&v, 1), (1, self.m.d_in), &Device::Cpu)
+        })
     }
     fn prepare_rows(&self, xs: &Tensor, rows: usize) -> Result<Tensor> {
-        let v = host_f32(xs)?;
-        Tensor::from_vec(self.prepare_vec(&v, rows), (rows, self.m.d_in), &Device::Cpu)
+        phases::timed(phases::PREPARE, || {
+            let v = host_f32(xs)?;
+            Tensor::from_vec(self.prepare_vec(&v, rows), (rows, self.m.d_in), &Device::Cpu)
+        })
     }
     fn matvec(&self, xr: &Tensor, out_dims: &[usize]) -> Result<Tensor> {
-        let v = host_f32(xr)?;
-        if v.len() != self.m.d_in {
-            candle_core::bail!("{}: one row of {} for d_in {}", self.name, v.len(), self.m.d_in);
-        }
-        let mut dims = out_dims.to_vec();
-        *dims.last_mut().expect("rank >= 1") = self.m.d_out;
-        Tensor::from_vec(self.matvec_vec(&v, 1), dims, &Device::Cpu)?.to_dtype(self.dtype)
+        phases::timed(phases::TETRA, || {
+            let v = host_f32(xr)?;
+            if v.len() != self.m.d_in {
+                candle_core::bail!("{}: one row of {} for d_in {}", self.name, v.len(), self.m.d_in);
+            }
+            let mut dims = out_dims.to_vec();
+            *dims.last_mut().expect("rank >= 1") = self.m.d_out;
+            Tensor::from_vec(self.matvec_vec(&v, 1), dims, &Device::Cpu)?.to_dtype(self.dtype)
+        })
     }
     fn rows_per_launch(&self) -> usize {
         PREFILL_ROWS
     }
     fn matvec_rows(&self, xr: &Tensor, n_rows: usize) -> Result<Tensor> {
-        let v = host_f32(xr)?;
-        if v.len() != n_rows * self.m.d_in {
-            candle_core::bail!("{}: {} values for {n_rows} rows of {}", self.name, v.len(), self.m.d_in);
-        }
-        Tensor::from_vec(self.matvec_vec(&v, n_rows), (n_rows, self.m.d_out), &Device::Cpu)?.to_dtype(self.dtype)
+        phases::timed(phases::TETRA, || {
+            let v = host_f32(xr)?;
+            if v.len() != n_rows * self.m.d_in {
+                candle_core::bail!("{}: {} values for {n_rows} rows of {}", self.name, v.len(), self.m.d_in);
+            }
+            Tensor::from_vec(self.matvec_vec(&v, n_rows), (n_rows, self.m.d_out), &Device::Cpu)?.to_dtype(self.dtype)
+        })
     }
 }
 
@@ -175,10 +220,10 @@ impl CpuInt4 {
 
     pub fn matvec_vec(&self, x: &[f32], rows: usize) -> Vec<f32> {
         let mut y = vec![0f32; rows * self.m.d_out];
-        match rows {
+        phases::timed(phases::INT4_KERNEL, || match rows {
             1 => tetra_cpu::q4_matvec(self.isa, &self.m, x, &mut y),
             _ => tetra_cpu::q4_matvec_rows(self.isa, &self.m, x, rows, &mut y),
-        }
+        });
         y
     }
 }
@@ -194,23 +239,27 @@ impl crate::device::Int4Proj for CpuInt4 {
         self.m.d_in
     }
     fn matvec(&self, x: &Tensor, out_dims: &[usize]) -> Result<Tensor> {
-        let v = host_f32(x)?;
-        if v.len() != self.m.d_in {
-            candle_core::bail!("{}: one row of {} for d_in {}", self.name, v.len(), self.m.d_in);
-        }
-        let mut dims = out_dims.to_vec();
-        *dims.last_mut().expect("rank >= 1") = self.m.d_out;
-        Tensor::from_vec(self.matvec_vec(&v, 1), dims, &Device::Cpu)?.to_dtype(self.dtype)
+        phases::timed(phases::INT4, || {
+            let v = host_f32(x)?;
+            if v.len() != self.m.d_in {
+                candle_core::bail!("{}: one row of {} for d_in {}", self.name, v.len(), self.m.d_in);
+            }
+            let mut dims = out_dims.to_vec();
+            *dims.last_mut().expect("rank >= 1") = self.m.d_out;
+            Tensor::from_vec(self.matvec_vec(&v, 1), dims, &Device::Cpu)?.to_dtype(self.dtype)
+        })
     }
     fn rows_per_launch(&self) -> usize {
         PREFILL_ROWS
     }
     fn matvec_rows(&self, x: &Tensor, n_rows: usize) -> Result<Tensor> {
-        let v = host_f32(x)?;
-        if v.len() != n_rows * self.m.d_in {
-            candle_core::bail!("{}: {} values for {n_rows} rows of {}", self.name, v.len(), self.m.d_in);
-        }
-        Tensor::from_vec(self.matvec_vec(&v, n_rows), (n_rows, self.m.d_out), &Device::Cpu)?.to_dtype(self.dtype)
+        phases::timed(phases::INT4, || {
+            let v = host_f32(x)?;
+            if v.len() != n_rows * self.m.d_in {
+                candle_core::bail!("{}: {} values for {n_rows} rows of {}", self.name, v.len(), self.m.d_in);
+            }
+            Tensor::from_vec(self.matvec_vec(&v, n_rows), (n_rows, self.m.d_out), &Device::Cpu)?.to_dtype(self.dtype)
+        })
     }
 }
 
@@ -241,36 +290,40 @@ impl CpuEmbed {
 
 impl crate::device::QuantEmbedTable for CpuEmbed {
     fn gather(&self, ids: &Tensor) -> Result<Tensor> {
-        let d = self.m.d_in;
-        let flat = ids.to_dtype(DType::U32)?.flatten_all()?.to_vec1::<u32>()?;
-        let mut out = vec![0f32; flat.len() * d];
-        for (&id, o) in flat.iter().zip(out.chunks_mut(d)) {
-            if id as usize >= self.m.d_out {
-                candle_core::bail!("{}: token {id} past a vocabulary of {}", self.name, self.m.d_out);
+        phases::timed(phases::GATHER, || {
+            let d = self.m.d_in;
+            let flat = ids.to_dtype(DType::U32)?.flatten_all()?.to_vec1::<u32>()?;
+            let mut out = vec![0f32; flat.len() * d];
+            for (&id, o) in flat.iter().zip(out.chunks_mut(d)) {
+                if id as usize >= self.m.d_out {
+                    candle_core::bail!("{}: token {id} past a vocabulary of {}", self.name, self.m.d_out);
+                }
+                self.m.decode_row(id as usize, o);
             }
-            self.m.decode_row(id as usize, o);
-        }
-        let mut dims = ids.dims().to_vec();
-        dims.push(d);
-        Tensor::from_vec(out, dims, &Device::Cpu)?.to_dtype(self.dtype)
+            let mut dims = ids.dims().to_vec();
+            dims.push(d);
+            Tensor::from_vec(out, dims, &Device::Cpu)?.to_dtype(self.dtype)
+        })
     }
 
     fn project(&self, h: &Tensor) -> Result<Tensor> {
-        let dims = h.dims().to_vec();
-        let d = *dims.last().expect("rank >= 1");
-        if d != self.m.d_in {
-            candle_core::bail!("{}: hidden of {d} for d={}", self.name, self.m.d_in);
-        }
-        let v = host_f32(h)?;
-        let rows = v.len() / d;
-        let mut y = vec![0f32; rows * self.m.d_out];
-        match rows {
-            1 => tetra_cpu::q4_matvec(self.isa, &self.m, &v, &mut y),
-            _ => tetra_cpu::q4_matvec_rows(self.isa, &self.m, &v, rows, &mut y),
-        }
-        let mut out = dims;
-        *out.last_mut().expect("rank >= 1") = self.m.d_out;
-        Tensor::from_vec(y, out, &Device::Cpu)?.to_dtype(self.dtype)
+        phases::timed(phases::HEAD, || {
+            let dims = h.dims().to_vec();
+            let d = *dims.last().expect("rank >= 1");
+            if d != self.m.d_in {
+                candle_core::bail!("{}: hidden of {d} for d={}", self.name, self.m.d_in);
+            }
+            let v = host_f32(h)?;
+            let rows = v.len() / d;
+            let mut y = vec![0f32; rows * self.m.d_out];
+            match rows {
+                1 => tetra_cpu::q4_matvec(self.isa, &self.m, &v, &mut y),
+                _ => tetra_cpu::q4_matvec_rows(self.isa, &self.m, &v, rows, &mut y),
+            }
+            let mut out = dims;
+            *out.last_mut().expect("rank >= 1") = self.m.d_out;
+            Tensor::from_vec(y, out, &Device::Cpu)?.to_dtype(self.dtype)
+        })
     }
 }
 

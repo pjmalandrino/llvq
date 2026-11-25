@@ -6,6 +6,7 @@
 //! cpurun <sealed> dense [n_new]
 //! LLVQ_CONFIG=configs/qwen3-4b-tetra-e4.json cpurun <sealed> gate [windows] [len]
 //! LLVQ_CONFIG=configs/qwen3-4b-tetra-e4.json cpurun <sealed> ppl [windows] [len] [first]
+//! LLVQ_CONFIG=configs/qwen3-4b-tetra-e4.json cpurun <sealed> phases [n_new]
 //! ```
 //!
 //! `tetra` loads through `served::load_resolved` on `Device::Cpu`, which is
@@ -23,6 +24,10 @@
 //! `ppl` scores the Tetra backend alone on WikiText-2 windows and prints each
 //! window's mean NLL in `bin/ppl`'s format, so it pairs with a journal of the
 //! dense reconstruction scored on the same windows elsewhere.
+//!
+//! `phases` decodes like `tetra` and splits the decode's wall time between
+//! the parts of the CPU backend (`fused_cpu::phases`) and the model around
+//! them, in ms a token.
 //!
 //! The CPU pool takes `LLVQ_THREADS` threads; candle's own takes
 //! `RAYON_NUM_THREADS`. Peak memory is the caller's to read
@@ -87,6 +92,38 @@ fn generate(model: &Qwen3, tok: &tokenizers::Tokenizer, n_new: usize) -> anyhow:
     }
     println!("decode over the {} prompts: {decoded} steps in {decode_s:.2} s, {:.2} tok/s", PROMPTS.len(), decoded as f64 / decode_s);
     Ok(out)
+}
+
+/// The decode of [`PROMPTS`] with its wall time split by `fused_cpu::phases`.
+/// The prompt pass is run and left out of the split.
+fn phases(model: &Qwen3, tok: &tokenizers::Tokenizer, n_new: usize) -> anyhow::Result<()> {
+    use llvq_llm::fused_cpu::phases::{snapshot, NAMES};
+    let (mut steps, mut wall) = (0usize, 0f64);
+    let mut spent = [(0u64, 0u64); NAMES.len()];
+    for p in PROMPTS {
+        let ids = tok.encode(*p, false).map_err(|e| anyhow::anyhow!("{e}"))?.get_ids().to_vec();
+        let mut caches = model.fresh_caches();
+        let first = llvq_llm::model::argmax_last(&model.prefill_chunked(&ids, ids.len(), &mut caches)?)?;
+        let before = snapshot();
+        let t = std::time::Instant::now();
+        let out = model.decode_greedy(first, ids.len(), n_new, &mut caches)?;
+        wall += t.elapsed().as_secs_f64();
+        steps += out.len().saturating_sub(1);
+        for ((s, a), b) in spent.iter_mut().zip(snapshot()).zip(before) {
+            *s = (s.0 + a.0 - b.0, s.1 + a.1 - b.1);
+        }
+    }
+    anyhow::ensure!(steps > 0, "no decode step to split: ask for two tokens at least");
+    let per = |ns: u64| ns as f64 / 1e6 / steps as f64;
+    let token_ms = wall * 1e3 / steps as f64;
+    println!("phases: {steps} decode steps, {token_ms:.2} ms a token, {:.2} tok/s", 1e3 / token_ms);
+    for (name, (ns, calls)) in NAMES.iter().zip(spent) {
+        println!("phases: {name:<13} {:>8.2} ms a token  {:>7.1} calls a token", per(ns), calls as f64 / steps as f64);
+    }
+    // The two kernels are inside `tetra` and `int4`: not counted twice.
+    let backend: u64 = NAMES.iter().zip(spent).filter(|(n, _)| !n.ends_with("kernel")).map(|(_, (ns, _))| ns).sum();
+    println!("phases: {:<13} {:>8.2} ms a token  (the model around the projections)", "rest", token_ms - per(backend));
+    Ok(())
 }
 
 fn gate(path: &str, dtype: DType, windows: usize, len: usize) -> anyhow::Result<()> {
@@ -167,7 +204,7 @@ fn ppl(path: &str, dtype: DType, windows: usize, len: usize, first: usize) -> an
 
 fn main() -> anyhow::Result<()> {
     let a: Vec<String> = std::env::args().skip(1).collect();
-    let usage = "usage: cpurun <sealed> <tetra|dense|gate|ppl> [n_new | windows len]";
+    let usage = "usage: cpurun <sealed> <tetra|dense|phases|gate|ppl> [n_new | windows len]";
     let path = a.first().ok_or_else(|| anyhow::anyhow!(usage))?;
     let arm = a.get(1).map(String::as_str).ok_or_else(|| anyhow::anyhow!(usage))?;
     let dtype = llvq_llm::eval::dtype(match arm {
@@ -189,11 +226,14 @@ fn main() -> anyhow::Result<()> {
     let n_new: usize = a.get(2).and_then(|s| s.parse().ok()).unwrap_or(32);
     let t = std::time::Instant::now();
     let (model, tok) = match arm {
-        "tetra" => load_tetra(path, dtype)?,
+        "tetra" | "phases" => load_tetra(path, dtype)?,
         "dense" => load_dense(path, dtype)?,
         other => anyhow::bail!("{other:?}: {usage}"),
     };
     println!("loaded in {:.1} s at {}", t.elapsed().as_secs_f64(), llvq_llm::eval::dtype_name(dtype));
+    if arm == "phases" {
+        return phases(&model, &tok, n_new);
+    }
     let dumped = generate(&model, &tok, n_new)?;
     if let Ok(p) = std::env::var("LLVQ_RUN_DUMP") {
         let out = serde_json::json!({ "model": path, "arm": arm, "dtype": llvq_llm::eval::dtype_name(dtype), "n_new": n_new, "prompts": dumped });

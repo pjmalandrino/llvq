@@ -274,9 +274,24 @@ fn the_int4_embedding_gathers_and_projects_its_rows() {
 /// A random Tetra matrix as the loader holds it: random 47-bit labels and
 /// gain bits through the served transcode, random row scales, a binary16 tail.
 fn random_tetra(d_out: usize, d_in: usize, seed: u64) -> TetraMatrix {
+    tetra_of_labels(d_out, d_in, seed, None)
+}
+
+/// [`random_tetra`], every label drawn from `distinct` of them when given: a
+/// matrix whose decode reads the same few table lines, so that the tables
+/// stay in the first-level cache. Against the random matrix of the same
+/// shape it reads what the table misses cost.
+fn tetra_of_labels(d_out: usize, d_in: usize, seed: u64, distinct: Option<usize>) -> TetraMatrix {
     let mut rng = SplitMix64::new(seed);
     let (nblocks, tail_w) = (d_in / DIM, d_in % DIM);
-    let labels: Vec<u64> = (0..d_out * nblocks).map(|_| rng.next() & ((1u64 << 47) - 1)).collect();
+    let label = |rng: &mut SplitMix64| rng.next() & ((1u64 << 47) - 1);
+    let labels: Vec<u64> = match distinct {
+        None => (0..d_out * nblocks).map(|_| label(&mut rng)).collect(),
+        Some(n) => {
+            let few: Vec<u64> = (0..n).map(|_| label(&mut rng)).collect();
+            (0..d_out * nblocks).map(|_| few[(rng.next() % n as u64) as usize]).collect()
+        }
+    };
     let gains: Vec<u32> = (0..d_out * nblocks).map(|_| (rng.next() & 1) as u32).collect();
     let s = llvq_artifact::tetra48::transcode_tetra48(&labels, &gains, d_out, nblocks).unwrap();
     TetraMatrix {
@@ -379,6 +394,15 @@ fn bench_cpu_matvecs_at_the_4b_shapes() {
         ms_token += report(name, m.bytes(), d_out * d_in, r) * per_token as f64 / 1e6;
     }
     println!("bench projections and head of one 4B token (computed from the rows above): {ms_token:.2} ms");
+
+    // The largest Tetra site again with 16 distinct labels: the same loop, the
+    // decode tables in the first-level cache. Not in the token's sum.
+    let m = tetra_of_labels(9728, 2560, 31, Some(16));
+    let x: Vec<f32> = activations(2560, 1, 3).iter().map(|&v| v as f32).collect();
+    let mut xp = vec![0f32; 2560];
+    tetra_cpu::permute_blocks(&t, &x, &mut xp);
+    let mut y = vec![0f32; 9728];
+    report("tetra gate/up, 16 labels", m.bytes(), 9728 * 2560, time_ns(|| tetra_cpu::tetra_matvec(isa, &t, &m, &xp, &mut y)));
 
     // The candle adapter around the largest site: f32 tensor in, rotation,
     // trio order, matvec, f32 tensor out.
