@@ -1,0 +1,23 @@
+    Finished `ci` profile [optimized] target(s) in 0.33s
+     Running tests/cpu_tetra.rs (target/ci/deps/cpu_tetra-705b4a7712cb51ce)
+
+running 1 test
+bench isa avx2+fma threads 4
+bench tetra q_proj 4096x2560                 9136812 ns  [7163097 ; 13427816]    0.30 GB/s    1.15 Gweight/s
+bench tetra k_proj 1024x2560                 1762578 ns  [1330343 ; 3178530]    0.39 GB/s    1.49 Gweight/s
+bench tetra gate/up 9728x2560               16920691 ns  [12685300 ; 25414118]    0.39 GB/s    1.47 Gweight/s
+bench tetra down 2560x9728                  14580526 ns  [12942270 ; 20040294]    0.43 GB/s    1.71 Gweight/s
+bench int4 g128 v_proj 1024x2560              427915 ns  [392449 ; 497112]    3.25 GB/s    6.13 Gweight/s
+bench int4 g128 o_proj 2560x4096             1501384 ns  [1290144 ; 1835649]    3.71 GB/s    6.98 Gweight/s
+bench int4 g128 down 2560x9728               3063793 ns  [3007608 ; 3568318]    4.32 GB/s    8.13 Gweight/s
+bench int4 g64 head 151936x2560             56669772 ns  [50259776 ; 61187335]    3.86 GB/s    6.86 Gweight/s
+bench projections and head of one 4B token (computed from the rows above): 2123.49 ms
+bench adapter prepare 2560                     56633 ns  [54318 ; 61892]    0.00 GB/s    0.00 Gweight/s
+bench slices matvec gate 9728x2560          18774601 ns  [15801101 ; 25519902]    0.35 GB/s    1.33 Gweight/s
+bench adapter matvec gate 9728x2560         15832810 ns  [13990019 ; 17084742]    0.42 GB/s    1.57 Gweight/s
+bench slices matvec gate 9728x2560          15876628 ns  [14071530 ; 21095796]    0.41 GB/s    1.57 Gweight/s
+bench adapter matvec gate 9728x2560         18349538 ns  [14921680 ; 21453564]    0.36 GB/s    1.36 Gweight/s
+test bench_cpu_matvecs_at_the_4b_shapes ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 6 filtered out; finished in 17.36s
+

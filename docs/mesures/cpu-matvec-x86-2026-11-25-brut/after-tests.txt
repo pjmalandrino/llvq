@@ -1,0 +1,15 @@
+   Compiling llvq-bench v0.1.0 (/src/llvq-bench)
+    Finished `ci` profile [optimized] target(s) in 8m 49s
+     Running tests/cpu_tetra.rs (target/ci/deps/cpu_tetra-705b4a7712cb51ce)
+
+running 7 tests
+test bench_cpu_matvecs_at_the_4b_shapes ... ignored, a microbenchmark: run by hand with --ignored --nocapture
+test the_candle_adapter_binds_the_same_product ... ok
+test skipping_the_rotation_is_detected ... ok
+test the_int4_embedding_gathers_and_projects_its_rows ... ok
+test the_int4_matvec_computes_what_the_record_decodes ... ok
+test the_tetra_matvec_computes_what_the_reference_decodes ... ok
+test a_batch_computes_what_one_row_at_a_time_computes ... ok
+
+test result: ok. 6 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.38s
+

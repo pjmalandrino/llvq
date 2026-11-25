@@ -1,0 +1,56 @@
+THE CPU ARCHIVE ON A PLAIN x86_64 MACHINE: IT INSTALLS AND ANSWERS, AT 0.5 TO 0.6 TOK/S ON THE 4B; THE AVX2 TETRA MATVEC IS THE CAUSE (2026-11-25)
+====================================================================================================================================================
+Why:    no CPU archive of `llvq` had ever been built, and the AVX2 path of llvq-llm/src/tetra_cpu.rs had passed tests
+        in CI without ever being timed or generating a token.
+Cost:   $0.03, *estimated* from the wall times at $0.03 an hour: three jobs on the Hugging Face flavor cpu-upgrade.
+Machine: 8 vCPU of an AMD EPYC 7R13 (Zen 3, 2 threads a core, KVM), 32 GB, shared. AVX2 and FMA, no AVX-512.
+Object: llvq-0.1.2-linux-x86_64-cpu.tar.gz, 5,232,018 bytes, built by the workflow `llvq archives` (run
+        45503744535) from the branch of pull request 51 at a0a4153d42e2, profile dist. qwen3:4b and qwen3:8b pulled
+        by name at the library's pins.
+Preregs: proofs/preregistration-llvq-cpu-install-2026-11-25.md, proofs/preregistration-cpu-matvec-x86-2026-11-25.md.
+Raw:    docs/mesures/llvq-cpu-install-2026-11-25-brut/, docs/mesures/cpu-matvec-x86-2026-11-25-brut/.
+Nature: every time and rate *measured*, one run each, no interval; the per-token sums *computed* by the bench.
+
+JOB 1, llvq-cpu-install (6b0615aad0582cfbbefd2fae), image ubuntu:22.04, no compiler, no GPU
+-----------------------------------------------------------------------------------------
+  install.sh picked linux-x86_64-cpu by itself; `llvq -v` = 0.1.2 (a0a4153d42e2).             PASS
+  `llvq run inkling2:mini`: "Inkling 2 has no CPU path; this llvq is a CPU build."              PASS
+  qwen3:4b, three prompts: right answers in readable English.                                  PASS
+  Verdict against the prereg's criterion: PASS.
+
+  pull of inkling2:mini, 8,145,313,108 bytes, no server    LLVQ_PULL_JOBS=4   60.8 s      =1   165.1 s
+  qwen3:4b   prompt 24-31 tokens in 12.5-13.3 s    answers of 2, 136, 160 tokens at 0.5, 0.5, 0.6 tok/s
+             server peak resident memory 1.87 GB (VmHWM 1,870,516 kB)
+  qwen3:8b   prompt 27 tokens in 21.9 s            152 tokens at 0.3 tok/s    peak resident memory 4.82 GB
+  server:    "cpu: avx2+fma SIMD on 8 threads"
+
+  Predictions: PASS at 0.7, held. The 4B at 3 to 7 tok/s: WRONG by a factor of six. Peak memory 1.8 to 2.4 GB:
+  held. The pull at four files 1.0 to 1.5 times faster: WRONG, it was 2.7 times faster; one reading, the four-file
+  arm first. The 8B answers at 0.45 to 0.6 of the 4B's rate: held (0.5 to 0.6).
+  The 8B's peak includes the 4B the server had held before it; it is an upper bound, not the 8B's own figure.
+
+JOB 2, cpu-matvec-x86 (6b062331d0582cfbbefd4039): stopped at "cargo: command not found" before any measurement.
+JOB 3, cpu-matvec-x86 retry 2 (6b06256d1460ffe1d5e9592d), image rust:1.95.0-bookworm
+---------------------------------------------------------------------------------
+  The six correctness tests of cpu_tetra pass on this CPU's AVX2 path.
+  ns per call, median of 7 rounds. before = main 4071f5d + the bench commit; after = the branch at f8f27a0.
+
+  site                         1 thread before      after    4 threads after    8 threads before      after
+  tetra q_proj 4096x2560          11,163,115    8,564,692       9,136,812          9,688,877    6,036,634
+  tetra gate/up 9728x2560         23,139,536   27,710,837      16,920,691         17,668,308   19,800,342
+  int4 g128 down 2560x9728         7,176,681    5,192,312       3,063,793          5,556,071    3,360,594
+  int4 g64 head 151936x2560      167,621,724   81,831,372      56,669,772        119,905,135   65,177,041
+  one 4B token (computed)           3,119 ms     3,082 ms        2,123 ms           2,453 ms     2,231 ms
+
+  Reading, by the prereg's rule: the 8-thread sum is above 1.2 s, so the matvecs explain the 1.75 s a token of job 1.
+  Three facts in it:
+  1. The kernel change of 2026-11-25 does nothing for Tetra on AVX2 (3,119 to 3,082 ms at one thread). It helps
+     int4: the head is 2.0 times faster, g128 down 1.4 times.
+  2. Against the same code on one NEON core of an M3 Max (docs/mesures/cpu-tetra-speed-2026-11-25.txt), int4 is
+     3.1 times slower here and Tetra 6.4 to 8.6 times slower. The AVX2 Tetra decode carries a factor of 2 to 3 of
+     its own on top of the machine.
+  3. Threads barely help on this machine: 8 threads give 1.4 times one thread on the token sum, where the Mac
+     gives 5.6. The rounds spread by a factor of two. Whether that is the shared virtual machine or our row
+     splitting is not known from this run.
+
+Not known: the rate on a desktop x86 CPU with its own cores. The 14B has never run on any CPU.
