@@ -54,3 +54,31 @@ JOB 3, cpu-matvec-x86 retry 2 (6b06256d1460ffe1d5e9592d), image rust:1.95.0-book
      splitting is not known from this run.
 
 Not known: the rate on a desktop x86 CPU with its own cores. The 14B has never run on any CPU.
+
+JOB 4, cpu-matvec-x86-arms (6b063689d0582cfbbefd5aa4): three arms of the AVX2 kernel in one job
+----------------------------------------------------------------------------------------------
+Prereg: proofs/preregistration-cpu-matvec-x86-arms-2026-11-25.md. Raw: docs/mesures/cpu-matvec-x86-arms-2026-11-25-brut/.
+Same flavor and the same CPU model as job 3, another instance. Steal time read in /proc/stat: 0.0 % on every arm.
+The six tests of cpu_tetra pass on the three arms.
+
+  one 4B token, ms (computed by the bench)      1 thread    4 threads    8 threads
+  f8f27a0   the kernel of job 3                    2,009         576          315      again at the end, 1 thread: 1,763
+  d47526c   byte-shuffle select, integer norm      1,146         393          227
+  b4a6684   + eight addresses at once                984         327          182
+
+  ns per call at 8 threads        f8f27a0      d47526c      b4a6684
+  tetra q_proj 4096x2560        1,136,189      762,593      605,385
+  tetra gate/up 9728x2560       2,434,292    1,738,847    1,336,828
+  int4 g128 down 2560x9728        638,444      604,215      527,571
+  int4 g64 head 151936x2560     9,777,237    7,604,115    8,037,676
+
+  By the prereg's rule: the first arm drifted by 12 % between its two one-thread runs. d47526c beats it by 1.75
+  times at one thread and b4a6684 by 2.04; b4a6684 beats d47526c by 14 %, 17 % and 20 % at 1, 4 and 8 threads, above
+  the drift each time. The branch keeps b4a6684. At 8 threads the token sum goes from 315 to 182 ms, 1.73 times.
+  Predictions: the tests pass, held. d47526c 1.2 to 1.6 times faster at one thread: it is 1.75, above the range.
+  b4a6684 faster than d47526c (0.5): yes. The best arm stays above 1.0 s at 8 threads (0.7): WRONG, it is 0.18 s.
+
+  THE MACHINE OF JOBS 1 AND 3 WAS THE OUTLIER. The same commit f8f27a0 on the same flavor read 2,231 ms a token at
+  8 threads in job 3 and 315 ms here, seven times less, and threads now give 6.4 times at eight where they gave 1.4.
+  The 0.5 to 0.6 tok/s of job 1 is what that instance did that hour, not what the kernel does on this CPU. Job 1's
+  rate is to be read again on an archive built from b4a6684.

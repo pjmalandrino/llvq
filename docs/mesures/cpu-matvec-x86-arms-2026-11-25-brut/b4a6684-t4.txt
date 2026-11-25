@@ -1,0 +1,15 @@
+bench isa avx2+fma threads 4
+bench tetra q_proj 4096x2560                  883159 ns  [770175 ; 1069260]    3.14 GB/s   11.87 Gweight/s
+bench tetra k_proj 1024x2560                  277487 ns  [262494 ; 312659]    2.49 GB/s    9.45 Gweight/s
+bench tetra gate/up 9728x2560                2554552 ns  [2372129 ; 2841935]    2.57 GB/s    9.75 Gweight/s
+bench tetra down 2560x9728                   2565126 ns  [1888981 ; 2657066]    2.45 GB/s    9.71 Gweight/s
+bench int4 g128 v_proj 1024x2560              106990 ns  [92657 ; 122287]   13.02 GB/s   24.50 Gweight/s
+bench int4 g128 o_proj 2560x4096              361148 ns  [310707 ; 455500]   15.42 GB/s   29.03 Gweight/s
+bench int4 g128 down 2560x9728                825562 ns  [779076 ; 932206]   16.03 GB/s   30.17 Gweight/s
+bench int4 g64 head 151936x2560             13437492 ns  [11331181 ; 16215515]   16.28 GB/s   28.95 Gweight/s
+bench projections and head of one 4B token (computed from the rows above): 327.47 ms
+bench adapter prepare 2560                     32678 ns  [30462 ; 36908]    0.00 GB/s    0.00 Gweight/s
+bench slices matvec gate 9728x2560           2516404 ns  [2195815 ; 2718033]    2.61 GB/s    9.90 Gweight/s
+bench adapter matvec gate 9728x2560          2746494 ns  [2390998 ; 3027757]    2.39 GB/s    9.07 Gweight/s
+bench slices matvec gate 9728x2560           2469598 ns  [2168977 ; 2717888]    2.66 GB/s   10.08 Gweight/s
+bench adapter matvec gate 9728x2560          2478414 ns  [2134317 ; 2798978]    2.65 GB/s   10.05 Gweight/s
