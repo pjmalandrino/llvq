@@ -60,6 +60,18 @@ const _: () = assert!((1 << 11) - 1 + CLASS_ROWS - N0_MIXED < ROWS);
 #[repr(C, align(64))]
 struct Lut([[[u64; 2]; ROWS]; 2]);
 
+impl Lut {
+    /// Both parities as one table, entry `p · ROWS + row`: what `avx2`
+    /// addresses with one byte offset.
+    #[cfg(target_arch = "x86_64")]
+    #[inline(always)]
+    fn flat(&self) -> &[[u64; 2]; 2 * ROWS] {
+        // SAFETY: `[[T; ROWS]; 2]` and `[T; 2 · ROWS]` have the same size,
+        // alignment and element order.
+        unsafe { &*self.0.as_ptr().cast::<[[u64; 2]; 2 * ROWS]>() }
+    }
+}
+
 impl std::ops::Index<usize> for Lut {
     type Output = [[u64; 2]; ROWS];
     #[inline(always)]
@@ -615,32 +627,123 @@ mod neon {
 
 #[cfg(target_arch = "x86_64")]
 mod avx2 {
-    use super::{for_each_word, word_at, Tables, DIM, MAX_BATCH};
+    use super::{word_at, Tables, CLASS_ROWS, DIM, MAX_BATCH, N0_MIXED, PATHS, ROWS};
     use std::arch::x86_64::*;
 
-    /// [`Tables::sections`] with the candidate select done by a byte
-    /// shuffle: each table row loads as one 16-byte vector (both
-    /// candidates), and `sel[code]` takes byte `j` or `j + 8` of it into lane
-    /// `j`. The eight lanes land in the low half, the high half is zero. No
-    /// scalar merge and no general-to-vector move.
+    // The Tetra rows. Per block the scalar path spends most of its
+    // instructions forming addresses (`Tables::locate`): about 45 integer
+    // operations a block, on a core with four integer ALUs, ahead of a long
+    // dependency chain. Here the addresses of eight blocks are formed at once
+    // in vector registers and stored, a chunk ahead of the decode that reads
+    // them back as plain loads. The decode then selects candidates with a
+    // byte shuffle and takes the norm in integers. Every sum is formed as
+    // before, in the same block order.
+
+    /// Blocks whose addresses one pass forms before it decodes them. A
+    /// multiple of eight; large enough that a block's fields were stored
+    /// some hundred instructions before they are loaded, so the loads read
+    /// the cache and do not wait on store forwarding.
+    const CHUNK: usize = 64;
+
+    /// Where each block of a chunk reads, one array of `CHUNK` per field so
+    /// that eight blocks store as one vector: fields 0 to 2 the byte offsets
+    /// of its three entries in [`super::Lut::flat`] (parity included),
+    /// [`PATH`] its path index, [`GS`] `g << 5`, the gain's half of the
+    /// scale table. Left uninitialised and handled through raw pointers:
+    /// every entry the decode reads was written first, and zeroing 1.25 KiB
+    /// a row would be a cost for nothing.
+    #[repr(C, align(32))]
+    struct Where([[u32; CHUNK]; 5]);
+    const PATH: usize = 3;
+    const GS: usize = 4;
+
+    /// [`Where`] for blocks `b .. b + 8` of a chunk, from the twelve u32 at
+    /// `u` that hold their words: the fields of [`Tables::locate`], formed on
+    /// eight words at once in 32-bit lanes.
+    ///
+    /// # Safety
+    /// AVX2; `u` points at twelve readable u32; `wh` at a [`Where`];
+    /// `b + 8 ≤ CHUNK`.
     #[inline(always)]
-    unsafe fn sections(t: &Tables, w: u64) -> ([__m128i; 3], usize) {
-        let (p, rows, codes, g) = t.locate(w);
-        let lut = &t.lut[p];
-        let pick = |k: usize| {
-            // Both tables are 64-byte aligned with 16-byte entries.
-            let e = _mm_load_si128(lut[rows[k]].as_ptr().cast());
-            _mm_shuffle_epi8(e, _mm_load_si128(t.sel.0[codes[k]].as_ptr().cast()))
-        };
-        ([pick(0), pick(1), pick(2)], g)
+    unsafe fn prep8(u: *const u32, wh: *mut u32, b: usize) {
+        // Lane 0 of each vector holds pairs 0 and 1 (u32 0..6), lane 1 pairs
+        // 2 and 3 (u32 6..12): x = u32 0..4 | 6..10, y = u32 2..6 | 8..12.
+        let x = _mm256_inserti128_si256(_mm256_castsi128_si256(_mm_loadu_si128(u.cast())), _mm_loadu_si128(u.add(6).cast()), 1);
+        let y = _mm256_inserti128_si256(_mm256_castsi128_si256(_mm_loadu_si128(u.add(2).cast())), _mm_loadu_si128(u.add(8).cast()), 1);
+        let (xf, yf) = (_mm256_castsi256_ps(x), _mm256_castsi256_ps(y));
+        // Word `i` of a lane starts in u32 `a_i` and ends in `c_i`: pair
+        // (a, b, c) holds words a | b << 32 and b >> 16 | c << 16.
+        let a = _mm256_castps_si256(_mm256_shuffle_ps(xf, yf, 0b10_01_01_00));
+        let c = _mm256_castps_si256(_mm256_shuffle_ps(xf, yf, 0b11_10_10_01));
+        let odd = _mm256_setr_epi32(0, 16, 0, 16, 0, 16, 0, 16);
+        // Bits 0..32 of each word, and bits 32..48.
+        let lo = _mm256_or_si256(
+            _mm256_srlv_epi32(a, odd),
+            _mm256_sllv_epi32(c, _mm256_setr_epi32(32, 16, 32, 16, 32, 16, 32, 16)),
+        );
+        let hi = _mm256_and_si256(_mm256_srlv_epi32(c, odd), _mm256_set1_epi32(0xffff));
+
+        let k = |v: u32| _mm256_set1_epi32(v as i32);
+        let (and, or) = (|a, b| _mm256_and_si256(a, b), |a, b| _mm256_or_si256(a, b));
+        let p = and(lo, k(1));
+        let r = and(lo, k(2));
+        // p · ROWS entries of 16 bytes.
+        let pb = _mm256_slli_epi32(p, 16);
+        // i1 = bits 9..20, i2 = bits 24..35, i3 = bits 36..47, all << 4.
+        let i1 = and(_mm256_srli_epi32(lo, 5), k(0x7ff << 4));
+        let i2 = and(or(_mm256_srli_epi32(lo, 24), _mm256_slli_epi32(hi, 8)), k(0x7ff));
+        let i3 = and(hi, k(0x7ff << 4));
+        let delta = _mm256_cmpgt_epi32(i2, k(N0_MIXED as u32 - 1));
+        // Row CLASS_ROWS · r + i1.
+        let o1 = or(or(pb, _mm256_slli_epi32(r, 14)), i1);
+        // Row i2 + δ · (CLASS_ROWS − N0_MIXED).
+        let o2 = _mm256_add_epi32(
+            _mm256_add_epi32(pb, _mm256_slli_epi32(i2, 4)),
+            and(delta, k(((CLASS_ROWS - N0_MIXED) << 4) as u32)),
+        );
+        // Row CLASS_ROWS · (p ^ r ^ δ) + i3.
+        let class3 = _mm256_xor_si256(
+            _mm256_xor_si256(_mm256_slli_epi32(p, 15), _mm256_slli_epi32(r, 14)),
+            and(delta, k(1 << 15)),
+        );
+        let o3 = or(or(pb, class3), i3);
+        // (s8, b1, b2, b3) = bits 2..8, 8, 20..24, 35, as `locate` packs them.
+        let path = or(
+            or(and(_mm256_slli_epi32(lo, 4), k(0xfc0)), and(_mm256_srli_epi32(lo, 3), k(0x20))),
+            or(and(_mm256_srli_epi32(lo, 19), k(0x1e)), and(_mm256_srli_epi32(hi, 3), k(1))),
+        );
+        // The gain bit, bit 47, at bit 5.
+        let gs = and(_mm256_srli_epi32(hi, 10), k(32));
+        let at = |f: usize| wh.add(f * CHUNK + b).cast::<__m256i>();
+        _mm256_storeu_si256(at(0), o1);
+        _mm256_storeu_si256(at(1), o2);
+        _mm256_storeu_si256(at(2), o3);
+        _mm256_storeu_si256(at(PATH), path);
+        _mm256_storeu_si256(at(GS), gs);
+    }
+
+    /// [`Where`] for block `b` of a chunk from its word alone, through
+    /// [`Tables::locate`]: the route of a row's last `nblocks mod 8` blocks.
+    ///
+    /// # Safety
+    /// `wh` points at a [`Where`]; `b < CHUNK`.
+    #[inline(always)]
+    unsafe fn prep1(t: &Tables, w: u64, wh: *mut u32, b: usize) {
+        let (p, rows, _, g) = t.locate(w);
+        for (f, row) in rows.into_iter().enumerate() {
+            wh.add(f * CHUNK + b).write(((p * ROWS + row) << 4) as u32);
+        }
+        let path = ((w >> 2) & 63) << 6 | ((w >> 8) & 1) << 5 | ((w >> 20) & 15) << 1 | ((w >> 35) & 1);
+        wh.add(PATH * CHUNK + b).write(path as u32);
+        wh.add(GS * CHUNK + b).write((g << 5) as u32);
     }
 
     /// `‖y‖²` of a block from its selected bytes, in integers. Every lane has
     /// `|y| ≤ 11` ([`Tables::new`] asserts it), so a square is a byte looked
     /// up by `|y|`, two squares add in a byte without carry (at most 242),
     /// and `psadbw` sums each half. Exact, as the f32 sum it replaces was, so
-    /// the scale it indexes is the same; it starts from the bytes, so it no
-    /// longer waits for the float conversion, and it needs no saturating
+    /// the scale it indexes is the same; it starts from the bytes, so it does
+    /// not wait for the float conversion, and it needs no saturating
     /// float-to-int.
     #[inline(always)]
     unsafe fn norm2(s: &[__m128i; 3]) -> u32 {
@@ -659,18 +762,83 @@ mod avx2 {
         _mm256_cvtepi32_ps(_mm256_cvtepi8_epi32(s))
     }
 
+    /// Block `b` of a chunk: its three lane vectors, and its scale
+    /// `gscale[g] / ‖y‖` in every lane.
+    ///
+    /// Each table entry loads as one 16-byte vector (both candidates), and
+    /// `sel[code]` takes byte `j` or `j + 8` of it into lane `j`, the high
+    /// half zero: [`Tables::sections`] without the scalar merge and the
+    /// general-to-vector move.
+    ///
+    /// # Safety
+    /// AVX2; entry `b` of the [`Where`] at `wh` written by [`prep8`] or
+    /// [`prep1`]. Those store
+    /// every offset as a masked field: a 16-byte multiple below
+    /// `2 · ROWS · 16` (at most `65536 + 32768 + 32752`), a path index below
+    /// `PATHS`, and `g << 5` in `{0, 32}`; so every unchecked read below is
+    /// inside its table. Masks here would cost a constant and an AND per
+    /// read, on the loop that is the token.
+    #[inline(always)]
+    unsafe fn decode(t: &Tables, wh: *const u32, b: usize, sc: &[f32; 64]) -> ([__m256; 3], __m256) {
+        let lut = t.lut.flat().as_ptr().cast::<u8>();
+        let (pi, gs) = (wh.add(PATH * CHUNK + b).read(), wh.add(GS * CHUNK + b).read());
+        debug_assert!((pi as usize) < PATHS && gs <= 32);
+        let path = *t.paths.get_unchecked(pi as usize);
+        let pick = |k: usize, code: u32| {
+            let o = wh.add(k * CHUNK + b).read() as usize;
+            debug_assert!(o < 2 * ROWS * 16 && o.is_multiple_of(16));
+            // Both tables are 64-byte aligned with 16-byte entries.
+            let e = _mm_load_si128(lut.add(o).cast());
+            _mm_shuffle_epi8(e, _mm_load_si128(t.sel.0[(code & 0xff) as usize].as_ptr().cast()))
+        };
+        let s = [pick(0, path), pick(1, path >> 8), pick(2, path >> 16)];
+        let n2 = norm2(&s);
+        let scale = *sc.get_unchecked((gs | ((n2 >> 4) & 31)) as usize);
+        ([lanes(s[0]), lanes(s[1]), lanes(s[2])], _mm256_set1_ps(scale))
+    }
+
+    /// `f(j, lanes, scale)` for every block `j` of a row, in order: one call
+    /// site, so that `f` inlines.
+    ///
+    /// # Safety
+    /// AVX2.
+    #[inline(always)]
+    unsafe fn each_block(
+        t: &Tables,
+        row: &[u32],
+        nblocks: usize,
+        sc: &[f32; 64],
+        mut f: impl FnMut(usize, &[__m256; 3], __m256),
+    ) {
+        // Blocks `8q .. 8q + 8` fill u32 `12q .. 12q + 12`.
+        let grouped = nblocks / 8 * 8;
+        assert!(3 * grouped / 2 <= row.len(), "a row of {} u32 for {nblocks} blocks", row.len());
+        let mut wh = std::mem::MaybeUninit::<Where>::uninit();
+        let wh = wh.as_mut_ptr().cast::<u32>();
+        let mut start = 0;
+        while start < nblocks {
+            let len = (nblocks - start).min(CHUNK);
+            // `start` and `grouped` are multiples of 8, so is `vec`.
+            let vec = grouped.min(start + len) - start;
+            for b in (0..vec).step_by(8) {
+                prep8(row.as_ptr().add(3 * (start + b) / 2), wh, b);
+            }
+            for b in vec..len {
+                prep1(t, word_at(row, start + b), wh, b);
+            }
+            for b in 0..len {
+                let (lanes, scale) = decode(t, wh, b, sc);
+                f(start + b, &lanes, scale);
+            }
+            start += len;
+        }
+    }
+
     #[inline(always)]
     unsafe fn hsum(v: __m256) -> f32 {
         let s = _mm_add_ps(_mm256_castps256_ps128(v), _mm256_extractf128_ps(v, 1));
         let s = _mm_add_ps(s, _mm_movehl_ps(s, s));
         _mm_cvtss_f32(_mm_add_ss(s, _mm_shuffle_ps(s, s, 1)))
-    }
-
-    /// The three lane vectors of a block, its gain bit and `‖y‖²`.
-    #[inline(always)]
-    unsafe fn block(t: &Tables, w: u64) -> ([__m256; 3], usize, u32) {
-        let (s, g) = sections(t, w);
-        ([lanes(s[0]), lanes(s[1]), lanes(s[2])], g, norm2(&s))
     }
 
     #[inline(always)]
@@ -686,10 +854,12 @@ mod avx2 {
     pub unsafe fn row(t: &Tables, row: &[u32], nblocks: usize, sc: &[f32; 64], x: &[f32]) -> f32 {
         assert!(x.len() >= nblocks * DIM);
         let mut acc = _mm256_setzero_ps();
-        for_each_word(row, nblocks, |j, w| {
-            let (f, g, n2) = block(t, w);
-            let d = dot(&f, x.as_ptr().add(j * DIM));
-            acc = _mm256_fmadd_ps(d, _mm256_set1_ps(Tables::scale(sc, g, n2)), acc);
+        // `j < nblocks`, so the offsets below stay inside the lengths
+        // asserted; `wrapping_mul` spares the overflow check a profile with
+        // overflow checks would put on every block.
+        each_block(t, row, nblocks, sc, |j, f, s| {
+            let d = dot(f, x.as_ptr().add(j.wrapping_mul(DIM)));
+            acc = _mm256_fmadd_ps(d, s, acc);
         });
         hsum(acc)
     }
@@ -710,19 +880,14 @@ mod avx2 {
         assert!(n <= MAX_BATCH && n > 0);
         assert!(stride >= nblocks * DIM && xs.len() >= (n - 1) * stride + nblocks * DIM);
         let mut acc = [_mm256_setzero_ps(); MAX_BATCH];
-        // One call site for the block body, so that it inlines here: through
-        // `for_each_word`'s three call sites it stayed an out-of-line closure
-        // call per block. `word_at` reads the same words in the same order;
-        // its bounds checks are paid once per block, against `n` products.
-        for j in 0..nblocks {
-            let (f, g, n2) = block(t, word_at(row, j));
-            let s = _mm256_set1_ps(Tables::scale(sc, g, n2));
-            let xb = xs.as_ptr().add(j * DIM);
+        // As in `row`: every offset is inside the lengths asserted above.
+        each_block(t, row, nblocks, sc, |j, f, s| {
+            let xb = xs.as_ptr().add(j.wrapping_mul(DIM));
             for (r, a) in acc.iter_mut().enumerate().take(n) {
-                let d = dot(&f, xb.add(r * stride));
+                let d = dot(f, xb.add(r.wrapping_mul(stride)));
                 *a = _mm256_fmadd_ps(d, s, *a);
             }
-        }
+        });
         for (o, a) in out.iter_mut().zip(acc.iter()) {
             *o = hsum(*a);
         }
