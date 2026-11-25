@@ -28,10 +28,11 @@ use std::sync::Arc;
 pub const PREFILL_ROWS: usize = tetra_cpu::MAX_BATCH;
 
 /// Wall time this backend has spent in each of its parts since the process
-/// started, and the calls counted. Always on: two clock reads a call, on calls
-/// of a tenth of a millisecond at least. What `cpurun` reads around a decode
-/// to say where a token's time goes; what is left of the token's wall time is
-/// the model around the projections (attention, norms, the cache).
+/// started, and the calls counted. Always on: two clock reads and two atomic
+/// adds a call, tens of nanoseconds, on calls of several microseconds at
+/// least. What `cpurun` and `inkcpu` read around a decode to say where a
+/// token's time goes; what is left of the token's wall time is the model
+/// around the parts counted.
 pub mod phases {
     use std::sync::atomic::{AtomicU64, Ordering::Relaxed};
 
@@ -41,8 +42,32 @@ pub mod phases {
     /// (`inkling::experts_cpu`); its matvecs count in `tetra kernel` and its
     /// rotations in `rotate kernel`. A name ending in `kernel` is always
     /// inside another entry.
-    pub const NAMES: [&str; 9] =
-        ["prepare", "tetra", "tetra kernel", "int4", "int4 kernel", "head", "gather", "moe", "rotate kernel"];
+    ///
+    /// The last six split the Inkling layer around its MoE
+    /// (`inkling::layers`), whatever the device. `attn proj` is the seven
+    /// attention products and the relative projection; `attn cache` the
+    /// cache append and the copies of the heads it hands to the scores;
+    /// `attn scores` the bias, scores, softmax and value product; `router`
+    /// the router product and the top-k; `convs` every short convolution of
+    /// a visit, the dynamic weights included; `glue` the block residuals,
+    /// message gates, input norms and residual adds. None is inside another.
+    pub const NAMES: [&str; 15] = [
+        "prepare",
+        "tetra",
+        "tetra kernel",
+        "int4",
+        "int4 kernel",
+        "head",
+        "gather",
+        "moe",
+        "rotate kernel",
+        "attn proj",
+        "attn cache",
+        "attn scores",
+        "router",
+        "convs",
+        "glue",
+    ];
     pub(crate) const PREPARE: usize = 0;
     pub(crate) const TETRA: usize = 1;
     pub(crate) const TETRA_KERNEL: usize = 2;
@@ -52,6 +77,12 @@ pub mod phases {
     pub(crate) const GATHER: usize = 6;
     pub(crate) const MOE: usize = 7;
     pub(crate) const ROTATE_KERNEL: usize = 8;
+    pub(crate) const ATTN_PROJ: usize = 9;
+    pub(crate) const ATTN_CACHE: usize = 10;
+    pub(crate) const ATTN_SCORES: usize = 11;
+    pub(crate) const ROUTER: usize = 12;
+    pub(crate) const CONVS: usize = 13;
+    pub(crate) const GLUE: usize = 14;
 
     static NS: [AtomicU64; NAMES.len()] = [const { AtomicU64::new(0) }; NAMES.len()];
     static CALLS: [AtomicU64; NAMES.len()] = [const { AtomicU64::new(0) }; NAMES.len()];

@@ -18,8 +18,12 @@
 //! time split between the parts of the CPU backend (`fused_cpu::phases`) and
 //! the model around them, in ms a token, in the format of `cpurun phases`.
 //! `moe` is the whole expert call; its matvecs count in `tetra kernel` and
-//! its rotations in `rotate kernel`. `rest` is attention, glue, routing,
-//! norms and the embedding.
+//! its rotations in `rotate kernel`. The layer around the MoE is split into
+//! `attn proj` (the attention's matrix products), `attn cache` (the cache
+//! append and the head copies), `attn scores`, `router`, `convs` and `glue`
+//! (block residuals, message gates, norms, residual adds). `rest` is what no
+//! entry counted: the embedding norm, the loop passes' bookkeeping, the
+//! final residual and norm, the argmax.
 //!
 //! The CPU pool takes `LLVQ_THREADS` threads, candle's own `RAYON_NUM_THREADS`;
 //! `LLVQ_CPU_WEIGHTS=nibbles` decodes the codes once at load. Peak memory is
@@ -114,6 +118,6 @@ fn main() -> Result<()> {
     }
     // A name ending in `kernel` is inside another entry: not counted twice.
     let backend: u64 = NAMES.iter().zip(&spent).filter(|(n, _)| !n.ends_with("kernel")).map(|(_, (ns, _))| ns).sum();
-    println!("phases: {:<13} {:>8.2} ms a token  (attention, glue, routing, norms, embedding)", "rest", token_ms - per(backend));
+    println!("phases: {:<13} {:>8.2} ms a token  (what no entry counted)", "rest", token_ms - per(backend));
     Ok(())
 }

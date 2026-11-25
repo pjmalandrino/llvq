@@ -648,6 +648,34 @@ fn a_tiny_served_file_set_loads_on_the_cpu_and_matches_its_dense_reconstruction(
     let _ = std::fs::remove_dir_all(&dir);
 }
 
+/// One decode step charges every part of the layer `inkcpu` splits: each
+/// counter of `fused_cpu::phases` named for the layer moves.
+#[test]
+fn a_step_on_the_cpu_charges_every_part_of_the_layer() {
+    use llvq_llm::fused_cpu::phases::{snapshot, NAMES};
+    let dir = temp_dir("phases");
+    let (cfg, _) = write_file_set(&dir);
+    let m = load(&dir);
+    let ids: Vec<u32> = (0..5u32).map(|i| (i * 3 + 1) % cfg.unpadded_vocab_size as u32).collect();
+    let mut c = m.new_cache();
+    let next = argmax(&rows_of(&m.prefill(&ids, &mut c).unwrap().reshape((1, cfg.unpadded_vocab_size)).unwrap())[0]) as u32;
+    let before = snapshot();
+    let pos = c.len();
+    m.step(next, pos, &mut c).unwrap();
+    let after = snapshot();
+    // The counters are global and other tests run beside this one: a lower bound only.
+    let visits = cfg.num_hidden_layers + (cfg.loop_config.num_passes - 1) * (cfg.loop_config.core_end - cfg.loop_config.core_start);
+    for (name, at_least) in
+        [("attn proj", 8 * visits), ("attn cache", 2 * visits), ("attn scores", visits), ("router", visits), ("convs", 4 * visits), ("glue", 3 * visits)]
+    {
+        let i = NAMES.iter().position(|n| *n == name).unwrap_or_else(|| panic!("no phase {name:?}"));
+        let calls = (after[i].1 - before[i].1) as usize;
+        println!("one step: {name} {calls} calls, {visits} visits");
+        assert!(calls >= at_least, "{name}: {calls} calls in a step of {visits} visits, {at_least} at least");
+    }
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
 #[test]
 fn a_prompt_in_pieces_gives_what_one_call_gives_on_the_cpu() {
     let dir = temp_dir("pieces");
