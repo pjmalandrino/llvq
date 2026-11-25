@@ -1,0 +1,21 @@
+bench isa avx2+fma threads 8
+bench tetra q_proj 4096x2560                  599259 ns  [562184 ; 613601]    4.62 GB/s   17.50 Gweight/s
+bench nibbles q_proj 4096x2560                261577 ns  [231555 ; 275436]   21.58 GB/s   40.09 Gweight/s
+bench tetra k_proj 1024x2560                  151991 ns  [146215 ; 164792]    4.55 GB/s   17.25 Gweight/s
+bench nibbles k_proj 1024x2560                 81521 ns  [78765 ; 84143]   17.31 GB/s   32.16 Gweight/s
+bench tetra gate/up 9728x2560                1222710 ns  [1043171 ; 1306896]    5.38 GB/s   20.37 Gweight/s
+bench nibbles gate/up 9728x2560               564244 ns  [530450 ; 600490]   23.76 GB/s   44.14 Gweight/s
+bench tetra down 2560x9728                   1106124 ns  [1014277 ; 1283344]    5.67 GB/s   22.51 Gweight/s
+bench nibbles down 2560x9728                  508892 ns  [488481 ; 562308]   26.49 GB/s   48.94 Gweight/s
+bench int4 g128 v_proj 1024x2560               69823 ns  [65219 ; 76152]   19.95 GB/s   37.54 Gweight/s
+bench int4 g128 o_proj 2560x4096              223776 ns  [213696 ; 235359]   24.89 GB/s   46.86 Gweight/s
+bench int4 g128 down 2560x9728                438803 ns  [417296 ; 456764]   30.15 GB/s   56.75 Gweight/s
+bench int4 g64 head 151936x2560              6906497 ns  [6448932 ; 7412862]   31.68 GB/s   56.32 Gweight/s
+bench projections and head of one 4B token (computed from the rows above): 164.37 ms
+bench the same token with the Tetra sites as nibbles (computed): 87.93 ms
+bench tetra gate/up, 16 labels                977800 ns  [942805 ; 1086316]    6.73 GB/s   25.47 Gweight/s
+bench adapter prepare 2560                     29084 ns  [29056 ; 30923]    0.00 GB/s    0.00 Gweight/s
+bench slices matvec gate 9728x2560           1180368 ns  [1095003 ; 1191405]    5.57 GB/s   21.10 Gweight/s
+bench adapter matvec gate 9728x2560          1216229 ns  [1137502 ; 1226253]    5.41 GB/s   20.48 Gweight/s
+bench slices matvec gate 9728x2560           1139187 ns  [1115796 ; 1269014]    5.77 GB/s   21.86 Gweight/s
+bench adapter matvec gate 9728x2560          1089543 ns  [1052825 ; 1268328]    6.04 GB/s   22.86 Gweight/s

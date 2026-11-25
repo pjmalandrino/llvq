@@ -1,0 +1,21 @@
+bench isa avx2+fma threads 1
+bench tetra q_proj 4096x2560                 2250959 ns  [2248407 ; 2293189]    1.23 GB/s    4.66 Gweight/s
+bench nibbles q_proj 4096x2560               1242030 ns  [1232369 ; 1244351]    4.54 GB/s    8.44 Gweight/s
+bench tetra k_proj 1024x2560                  611455 ns  [604681 ; 937960]    1.13 GB/s    4.29 Gweight/s
+bench nibbles k_proj 1024x2560                331017 ns  [326113 ; 334997]    4.26 GB/s    7.92 Gweight/s
+bench tetra gate/up 9728x2560                5825459 ns  [5750932 ; 5993558]    1.13 GB/s    4.27 Gweight/s
+bench nibbles gate/up 9728x2560              3031609 ns  [2993922 ; 3073554]    4.42 GB/s    8.21 Gweight/s
+bench tetra down 2560x9728                   5615751 ns  [5542864 ; 5723529]    1.12 GB/s    4.43 Gweight/s
+bench nibbles down 2560x9728                 2925512 ns  [2879583 ; 2966623]    4.61 GB/s    8.51 Gweight/s
+bench int4 g128 v_proj 1024x2560              229249 ns  [228681 ; 231319]    6.07 GB/s   11.43 Gweight/s
+bench int4 g128 o_proj 2560x4096              860542 ns  [858218 ; 870271]    6.47 GB/s   12.19 Gweight/s
+bench int4 g128 down 2560x9728               2189072 ns  [2116051 ; 2459736]    6.04 GB/s   11.38 Gweight/s
+bench int4 g64 head 151936x2560             46377810 ns  [35873209 ; 46819043]    4.72 GB/s    8.39 Gweight/s
+bench projections and head of one 4B token (computed from the rows above): 769.14 ms
+bench the same token with the Tetra sites as nibbles (computed): 457.00 ms
+bench tetra gate/up, 16 labels               5029553 ns  [4962526 ; 5165139]    1.31 GB/s    4.95 Gweight/s
+bench adapter prepare 2560                     29475 ns  [29237 ; 36637]    0.00 GB/s    0.00 Gweight/s
+bench slices matvec gate 9728x2560           5799947 ns  [5763983 ; 7299926]    1.13 GB/s    4.29 Gweight/s
+bench adapter matvec gate 9728x2560          5781494 ns  [5750213 ; 5824910]    1.14 GB/s    4.31 Gweight/s
+bench slices matvec gate 9728x2560           5806707 ns  [5766926 ; 5888487]    1.13 GB/s    4.29 Gweight/s
+bench adapter matvec gate 9728x2560          5825283 ns  [5743067 ; 6457607]    1.13 GB/s    4.28 Gweight/s

@@ -1,0 +1,13 @@
+embedding: q4 g64 (LLVQ_CONFIG), 1 table (model.embed_tokens.weight, lm_head tied on it), 218.8 MB on the card (int4 194.5 + scales/biases 24.3)
+cpu: avx2+fma SIMD on 8 threads | weights packed | tetra 168 + int4 84 matrices | 1.38 GB in memory (projections 1.16 + carried 0.22)
+tetra on the CPU: /src/configs/qwen3-4b-tetra-e4.json (avx2+fma)
+loaded in 4.3 s at f32
+phases: 188 decode steps, 172.35 ms a token, 5.80 tok/s
+phases: prepare           9.51 ms a token     96.0 calls a token
+phases: tetra           119.66 ms a token    168.0 calls a token
+phases: tetra kernel    118.66 ms a token    168.0 calls a token
+phases: int4             17.84 ms a token     84.0 calls a token
+phases: int4 kernel      17.41 ms a token     84.0 calls a token
+phases: head              5.88 ms a token      1.0 calls a token
+phases: gather            0.02 ms a token      1.0 calls a token
+phases: rest             19.44 ms a token  (the model around the projections)
