@@ -20,6 +20,14 @@ llvq run inkling2:mini
 |---|---|---|
 | Linux x86_64 | `llvq-<version>-linux-x86_64-cuda.tar.gz`, the binary and its CUDA 12.4 libraries (cuBLAS, cuBLASLt, cuRAND, NVRTC, cudart) | an NVIDIA driver 550 or newer; a card of compute capability 8.9 or newer (RTX 40xx and 50xx, L4, L40S, H100); glibc 2.35 and libssl3 (Ubuntu 22.04, Debian 12 or later) |
 | macOS arm64 | `llvq-<version>-macos-arm64-metal.tar.gz`, the binary alone | Apple Silicon |
+| Linux x86_64, no NVIDIA card | `llvq-<version>-linux-x86_64-cpu.tar.gz`, the binary alone | glibc 2.35 and libssl3; AVX2 and FMA for the SIMD path, a scalar path otherwise |
+| Linux arm64 | `llvq-<version>-linux-arm64-cpu.tar.gz`, the binary alone | glibc 2.35 and libssl3 |
+| macOS x86_64 | `llvq-<version>-macos-x86_64-cpu.tar.gz`, the binary alone | an Intel Mac |
+
+The CPU archives serve the Qwen3 models; Inkling 2 Mini has no CPU path and is refused by name there. On Linux
+x86_64 `install.sh` takes the CPU archive when no usable NVIDIA card answers; `LLVQ_FLAVOR` names one instead.
+`LLVQ_CPU_WEIGHTS=nibbles` on the server decodes the Tetra codes once at load: the same tokens, 1.29 to 1.45 times
+the rate on the 4B for 0.8 GB more (*measured*, 8 vCPU of an EPYC 7R13, `docs/mesures/llvq-cpu-x86-2026-11-25.txt`).
 
 The CUDA toolkit is not needed to run, and an installed one does not interfere: the binary finds its own libraries
 first (an rpath of `$ORIGIN/lib`). A toolkit 13.x beside it is fine, and so is a driver newer than 550. The install
