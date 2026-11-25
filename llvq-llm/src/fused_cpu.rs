@@ -36,21 +36,28 @@ pub mod phases {
     use std::sync::atomic::{AtomicU64, Ordering::Relaxed};
 
     /// `tetra` and `int4` are the whole trait calls, tensor copies included;
-    /// `tetra kernel` and `int4 kernel` the slice kernels inside them.
-    pub const NAMES: [&str; 7] = ["prepare", "tetra", "tetra kernel", "int4", "int4 kernel", "head", "gather"];
-    pub(super) const PREPARE: usize = 0;
-    pub(super) const TETRA: usize = 1;
-    pub(super) const TETRA_KERNEL: usize = 2;
-    pub(super) const INT4: usize = 3;
-    pub(super) const INT4_KERNEL: usize = 4;
-    pub(super) const HEAD: usize = 5;
-    pub(super) const GATHER: usize = 6;
+    /// `tetra kernel` and `int4 kernel` the slice kernels inside them. `moe`
+    /// is the whole expert call of an Inkling layer on the CPU
+    /// (`inkling::experts_cpu`); its matvecs count in `tetra kernel` and its
+    /// rotations in `rotate kernel`. A name ending in `kernel` is always
+    /// inside another entry.
+    pub const NAMES: [&str; 9] =
+        ["prepare", "tetra", "tetra kernel", "int4", "int4 kernel", "head", "gather", "moe", "rotate kernel"];
+    pub(crate) const PREPARE: usize = 0;
+    pub(crate) const TETRA: usize = 1;
+    pub(crate) const TETRA_KERNEL: usize = 2;
+    pub(crate) const INT4: usize = 3;
+    pub(crate) const INT4_KERNEL: usize = 4;
+    pub(crate) const HEAD: usize = 5;
+    pub(crate) const GATHER: usize = 6;
+    pub(crate) const MOE: usize = 7;
+    pub(crate) const ROTATE_KERNEL: usize = 8;
 
-    static NS: [AtomicU64; 7] = [const { AtomicU64::new(0) }; 7];
-    static CALLS: [AtomicU64; 7] = [const { AtomicU64::new(0) }; 7];
+    static NS: [AtomicU64; NAMES.len()] = [const { AtomicU64::new(0) }; NAMES.len()];
+    static CALLS: [AtomicU64; NAMES.len()] = [const { AtomicU64::new(0) }; NAMES.len()];
 
     #[inline]
-    pub(super) fn timed<T>(i: usize, f: impl FnOnce() -> T) -> T {
+    pub(crate) fn timed<T>(i: usize, f: impl FnOnce() -> T) -> T {
         let t = std::time::Instant::now();
         let out = f();
         NS[i].fetch_add(t.elapsed().as_nanos() as u64, Relaxed);
@@ -59,7 +66,7 @@ pub mod phases {
     }
 
     /// `(nanoseconds, calls)` per entry of [`NAMES`], since the process started.
-    pub fn snapshot() -> [(u64, u64); 7] {
+    pub fn snapshot() -> [(u64, u64); NAMES.len()] {
         std::array::from_fn(|i| (NS[i].load(Relaxed), CALLS[i].load(Relaxed)))
     }
 }
@@ -152,6 +159,16 @@ impl CpuLattice {
 
     pub fn bytes(&self) -> u64 {
         self.m.bytes() + self.nib.as_ref().map_or(0, TetraNib::bytes)
+    }
+
+    /// Whether `other` turns its input by the same rotation: both in the
+    /// natural basis, or the same table, or two tables of the same key.
+    pub fn shares_rotation_with(&self, other: &CpuLattice) -> bool {
+        match (&self.rot, &other.rot) {
+            (None, None) => true,
+            (Some(a), Some(b)) => Arc::ptr_eq(a, b) || (self.key.is_some() && self.key == other.key),
+            _ => false,
+        }
     }
 
     /// `rows` activations of `d_in`, rotated and put in trio order.

@@ -23,6 +23,7 @@ pub mod attn_dense;
 pub mod attn_scores;
 pub mod config;
 pub mod expert_codes;
+pub mod experts_cpu;
 pub mod glue;
 pub mod head;
 pub mod layers;
@@ -337,7 +338,8 @@ impl std::str::FromStr for AttnKind {
 pub struct LoadOptions {
     /// The int4 g64 output table (`bin/inktable`'s `unembed.q4g64.llvqraw`):
     /// the head runs through [`head::Q4MetalHead`] and the BF16 `unembed`
-    /// rows are never put on the device (plan item D4). Metal only. `None`:
+    /// rows are never put on the device (plan item D4). Metal, CUDA, or the
+    /// CPU ([`head::Q4CpuHead`]). `None`:
     /// the BF16 head, as [`Inkling::load`].
     pub int4_head: Option<std::path::PathBuf>,
 }
@@ -643,9 +645,12 @@ impl Inkling {
         (f32_bytes, bf16_bytes)
     }
 
-    /// The int4 head of `path` on the Metal device `dev`.
+    /// The int4 head of `path` on `dev`: Metal, CUDA or the CPU.
     #[allow(unused_variables)]
     fn int4_head(path: &Path, cfg: &InklingConfig, dev: &Device) -> anyhow::Result<Box<dyn head::OutputProjection>> {
+        if dev.is_cpu() {
+            return Ok(Box::new(head::Q4CpuHead::load(path, cfg.unpadded_vocab_size, cfg.hidden_size)?));
+        }
         #[cfg(all(target_os = "macos", feature = "metal"))]
         if dev.is_metal() {
             let rt = resident::served_runtime(dev)?;
@@ -658,7 +663,7 @@ impl Inkling {
             let h = head::Q4CudaHead::load(rt, path, cfg.unpadded_vocab_size, cfg.hidden_size)?;
             return Ok(Box::new(h));
         }
-        anyhow::bail!("the int4 head runs on Metal and on CUDA; {} asked on {dev:?}", path.display())
+        anyhow::bail!("the int4 head runs on Metal, CUDA and the CPU; {} asked on {dev:?}", path.display())
     }
 
     /// Whether the BF16 output rows are on the device.
