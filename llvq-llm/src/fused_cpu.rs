@@ -28,29 +28,74 @@ use std::sync::Arc;
 pub const PREFILL_ROWS: usize = tetra_cpu::MAX_BATCH;
 
 /// Wall time this backend has spent in each of its parts since the process
-/// started, and the calls counted. Always on: two clock reads a call, on calls
-/// of a tenth of a millisecond at least. What `cpurun` reads around a decode
-/// to say where a token's time goes; what is left of the token's wall time is
-/// the model around the projections (attention, norms, the cache).
+/// started, and the calls counted. Always on: two clock reads and two atomic
+/// adds a call, tens of nanoseconds, on calls of several microseconds at
+/// least. What `cpurun` and `inkcpu` read around a decode to say where a
+/// token's time goes; what is left of the token's wall time is the model
+/// around the parts counted.
 pub mod phases {
     use std::sync::atomic::{AtomicU64, Ordering::Relaxed};
 
     /// `tetra` and `int4` are the whole trait calls, tensor copies included;
-    /// `tetra kernel` and `int4 kernel` the slice kernels inside them.
-    pub const NAMES: [&str; 7] = ["prepare", "tetra", "tetra kernel", "int4", "int4 kernel", "head", "gather"];
-    pub(super) const PREPARE: usize = 0;
-    pub(super) const TETRA: usize = 1;
-    pub(super) const TETRA_KERNEL: usize = 2;
-    pub(super) const INT4: usize = 3;
-    pub(super) const INT4_KERNEL: usize = 4;
-    pub(super) const HEAD: usize = 5;
-    pub(super) const GATHER: usize = 6;
+    /// `tetra kernel` and `int4 kernel` the slice kernels inside them. `moe`
+    /// is the whole expert call of an Inkling layer on the CPU
+    /// (`inkling::experts_cpu`); its matvecs count in `tetra kernel` and its
+    /// rotations in `rotate kernel`. A name ending in `kernel` is always
+    /// inside another entry. An entry adds the time of every thread that
+    /// ran it: the routed experts of a visit run side by side, so `tetra
+    /// kernel` and `rotate kernel` there are thread time and can exceed the
+    /// wall time of `moe`.
+    ///
+    /// The last six split the Inkling layer around its MoE
+    /// (`inkling::layers`), whatever the device. `attn proj` is the seven
+    /// attention products and the relative projection; `attn cache` the
+    /// cache append and the copies of the heads it hands to the scores;
+    /// `attn scores` the bias, scores, softmax and value product; `router`
+    /// the router product and the top-k; `convs` every short convolution of
+    /// a visit, the dynamic weights included; `glue` the block residuals,
+    /// message gates, input norms and residual adds. None is inside another.
+    /// `bf16 kernel` is the slice kernel of the attention products on the
+    /// CPU path ([`super::CpuBf16`]), inside `attn proj`.
+    pub const NAMES: [&str; 16] = [
+        "prepare",
+        "tetra",
+        "tetra kernel",
+        "int4",
+        "int4 kernel",
+        "head",
+        "gather",
+        "moe",
+        "rotate kernel",
+        "attn proj",
+        "attn cache",
+        "attn scores",
+        "router",
+        "convs",
+        "glue",
+        "bf16 kernel",
+    ];
+    pub(crate) const PREPARE: usize = 0;
+    pub(crate) const TETRA: usize = 1;
+    pub(crate) const TETRA_KERNEL: usize = 2;
+    pub(crate) const INT4: usize = 3;
+    pub(crate) const INT4_KERNEL: usize = 4;
+    pub(crate) const HEAD: usize = 5;
+    pub(crate) const GATHER: usize = 6;
+    pub(crate) const MOE: usize = 7;
+    pub(crate) const ROTATE_KERNEL: usize = 8;
+    pub(crate) const ATTN_PROJ: usize = 9;
+    pub(crate) const ATTN_CACHE: usize = 10;
+    pub(crate) const ATTN_SCORES: usize = 11;
+    pub(crate) const ROUTER: usize = 12;
+    pub(crate) const CONVS: usize = 13;
+    pub(crate) const GLUE: usize = 14;
+    pub(crate) const BF16_KERNEL: usize = 15;
 
-    static NS: [AtomicU64; 7] = [const { AtomicU64::new(0) }; 7];
-    static CALLS: [AtomicU64; 7] = [const { AtomicU64::new(0) }; 7];
+    static NS: [AtomicU64; NAMES.len()] = [const { AtomicU64::new(0) }; NAMES.len()];
+    static CALLS: [AtomicU64; NAMES.len()] = [const { AtomicU64::new(0) }; NAMES.len()];
 
     #[inline]
-    pub(super) fn timed<T>(i: usize, f: impl FnOnce() -> T) -> T {
+    pub(crate) fn timed<T>(i: usize, f: impl FnOnce() -> T) -> T {
         let t = std::time::Instant::now();
         let out = f();
         NS[i].fetch_add(t.elapsed().as_nanos() as u64, Relaxed);
@@ -59,7 +104,7 @@ pub mod phases {
     }
 
     /// `(nanoseconds, calls)` per entry of [`NAMES`], since the process started.
-    pub fn snapshot() -> [(u64, u64); 7] {
+    pub fn snapshot() -> [(u64, u64); NAMES.len()] {
         std::array::from_fn(|i| (NS[i].load(Relaxed), CALLS[i].load(Relaxed)))
     }
 }
@@ -152,6 +197,16 @@ impl CpuLattice {
 
     pub fn bytes(&self) -> u64 {
         self.m.bytes() + self.nib.as_ref().map_or(0, TetraNib::bytes)
+    }
+
+    /// Whether `other` turns its input by the same rotation: both in the
+    /// natural basis, or the same table, or two tables of the same key.
+    pub fn shares_rotation_with(&self, other: &CpuLattice) -> bool {
+        match (&self.rot, &other.rot) {
+            (None, None) => true,
+            (Some(a), Some(b)) => Arc::ptr_eq(a, b) || (self.key.is_some() && self.key == other.key),
+            _ => false,
+        }
     }
 
     /// `rows` activations of `d_in`, rotated and put in trio order.
@@ -307,6 +362,93 @@ impl crate::device::Int4Proj for CpuInt4 {
             }
             Tensor::from_vec(self.matvec_vec(&v, n_rows), (n_rows, self.m.d_out), &Device::Cpu)?.to_dtype(self.dtype)
         })
+    }
+}
+
+/// One BF16 matrix on the CPU, held as the checkpoint stores it: half the
+/// bytes of its f32 widening. What the attention products of an Inkling
+/// layer read on the CPU path (`inkling::layers::CpuAttnProj`).
+///
+/// [`Self::forward`] takes one row, or up to [`PREFILL_ROWS`] rows, through
+/// [`tetra_cpu::bf16_matvec`]: the same products as candle's f32 matmul to
+/// rounding, not to the bit, since the sums run in another order. A longer
+/// prompt widens the matrix to f32 for the call (exact) and takes candle's
+/// matmul, which is faster there than a matvec per row: the same bits as a
+/// model that holds the matrix in f32.
+pub struct CpuBf16 {
+    name: String,
+    isa: Isa,
+    d_out: usize,
+    d_in: usize,
+    w: Vec<u16>,
+}
+
+impl CpuBf16 {
+    pub fn new(name: String, d_out: usize, d_in: usize, w: Vec<u16>) -> std::result::Result<Self, String> {
+        if w.len() != d_out * d_in || d_out == 0 || d_in == 0 {
+            return Err(format!("{name}: {} weights for {d_out} x {d_in}", w.len()));
+        }
+        Ok(Self { name, isa: Isa::detect(), d_out, d_in, w })
+    }
+
+    /// A 2-D BF16 tensor as this holds it, its bits copied out once.
+    pub fn from_tensor(name: String, t: &Tensor) -> Result<Self> {
+        if t.dtype() != DType::BF16 {
+            candle_core::bail!("{name}: {:?}, the CPU attention holds BF16", t.dtype());
+        }
+        let (d_out, d_in) = t.dims2()?;
+        let w: Vec<u16> = t.flatten_all()?.to_vec1::<half::bf16>()?.into_iter().map(half::bf16::to_bits).collect();
+        Self::new(name, d_out, d_in, w).map_err(candle_core::Error::msg)
+    }
+
+    /// The same matrix on another SIMD path: what the tests sweep.
+    pub fn with_isa(mut self, isa: Isa) -> Self {
+        self.isa = isa;
+        self
+    }
+
+    pub fn d_out(&self) -> usize {
+        self.d_out
+    }
+
+    pub fn d_in(&self) -> usize {
+        self.d_in
+    }
+
+    pub fn bytes(&self) -> u64 {
+        2 * self.w.len() as u64
+    }
+
+    /// The matrix widened to f32 on the host, `[d_out, d_in]`, exactly.
+    pub fn widen(&self) -> Result<Tensor> {
+        let mut out = vec![0f32; self.w.len()];
+        tetra_cpu::pool().install(|| {
+            use rayon::prelude::*;
+            out.par_chunks_mut(1 << 16).zip(self.w.par_chunks(1 << 16)).for_each(|(o, w)| {
+                for (o, &b) in o.iter_mut().zip(w) {
+                    *o = tetra_cpu::bf16_to_f32(b);
+                }
+            })
+        });
+        Tensor::from_vec(out, (self.d_out, self.d_in), &Device::Cpu)
+    }
+
+    /// `x @ W.T` for `x` `[T, d_in]` on the host: `[T, d_out]` in the dtype of `x`.
+    pub fn forward(&self, x: &Tensor) -> Result<Tensor> {
+        let (t, d) = x.dims2()?;
+        if d != self.d_in || !x.device().is_cpu() {
+            candle_core::bail!("{}: rows of {d} on {:?} for d_in {} on the host", self.name, x.device(), self.d_in);
+        }
+        if t > PREFILL_ROWS {
+            return x.matmul(&self.widen()?.to_dtype(x.dtype())?.t()?);
+        }
+        let v = host_f32(x)?;
+        let mut y = vec![0f32; t * self.d_out];
+        phases::timed(phases::BF16_KERNEL, || match t {
+            1 => tetra_cpu::bf16_matvec(self.isa, &self.w, self.d_out, self.d_in, &v, &mut y),
+            _ => tetra_cpu::bf16_matvec_rows(self.isa, &self.w, self.d_out, self.d_in, &v, t, &mut y),
+        });
+        Tensor::from_vec(y, (t, self.d_out), &Device::Cpu)?.to_dtype(x.dtype())
     }
 }
 

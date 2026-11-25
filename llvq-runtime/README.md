@@ -24,7 +24,8 @@ llvq run inkling2:mini
 | Linux arm64 | `llvq-<version>-linux-arm64-cpu.tar.gz`, the binary alone | glibc 2.35 and libssl3 |
 | macOS x86_64 | `llvq-<version>-macos-x86_64-cpu.tar.gz`, the binary alone | an Intel Mac |
 
-The CPU archives serve the Qwen3 models; Inkling 2 Mini has no CPU path and is refused by name there. On Linux
+The CPU archives serve the Qwen3 models and Inkling 2 Mini. Inkling's experts stay in their lattice codes and its
+two tables in int4; its attention runs in f32. Its CPU rate has not been measured yet. On Linux
 x86_64 `install.sh` takes the CPU archive when no usable NVIDIA card answers; `LLVQ_FLAVOR` names one instead.
 `LLVQ_CPU_WEIGHTS=nibbles` on the server decodes the Tetra codes once at load: the same tokens, 1.29 to 1.45 times
 the rate on the 4B for 0.8 GB more (*measured*, 8 vCPU of an EPYC 7R13, `docs/mesures/llvq-cpu-x86-2026-11-25.txt`).

@@ -10,6 +10,10 @@
 //! Metal, one SIMD-group a vocabulary row, f32 in and f32 out
 //! (`tv_emb_q4_metal_xf`, `fused_metal::MetalRuntime::head_q4_f32`).
 //!
+//! [`Q4CpuHead`] reads the same table on the CPU through
+//! `tetra_cpu::q4_matvec`, the table sliced to the unpadded vocabulary: the
+//! slice kernel has no padding to cover.
+//!
 //! This is not class A against the BF16 head: the table's values are the
 //! int4 values the operator chose to ship, not the BF16 ones. Its gate is the
 //! plain f32 product with the same table decoded.
@@ -29,6 +33,77 @@ pub trait OutputProjection {
 
     /// Bytes this projection holds on the device.
     fn device_bytes(&self) -> u64;
+}
+
+/// The int4 g64 head on the CPU: the table held as the file stores it, its
+/// unpadded rows only, and read at every call by the slice kernels of
+/// `tetra_cpu`, f32 in and f32 out.
+pub struct Q4CpuHead {
+    name: String,
+    isa: crate::tetra_cpu::Isa,
+    m: crate::tetra_cpu::Q4Matrix,
+}
+
+impl Q4CpuHead {
+    /// Read `path` (`bin/inktable`'s `unembed.q4g64.llvqraw`) and keep its
+    /// first `vocab` rows.
+    pub fn load(path: &std::path::Path, vocab: usize, hidden: usize) -> Result<Self> {
+        let t = crate::inkseal::read_raw_file(path)
+            .map_err(|e| candle_core::Error::msg(format!("{}: {e:#}", path.display())))?;
+        Self::from_raw(&t, vocab, hidden).map_err(|e| candle_core::Error::msg(format!("{}: {e}", path.display())))
+    }
+
+    /// The first `vocab` rows of an int4 g64 table. Refuses a table that is
+    /// not int4 in groups of 64, whose row is not `hidden` wide, or that has
+    /// fewer than `vocab` rows.
+    pub fn from_raw(t: &llvq_artifact::RawTensor, vocab: usize, hidden: usize) -> Result<Self> {
+        let m = super::tables::q4_rows(t, &t.name, vocab, hidden)
+            .map_err(|e| candle_core::Error::msg(format!("{}: {e:#}", t.name)))?;
+        Ok(Self { name: t.name.clone(), isa: crate::tetra_cpu::Isa::detect(), m })
+    }
+
+    /// The same head on another SIMD path: what the tests sweep.
+    pub fn with_isa(mut self, isa: crate::tetra_cpu::Isa) -> Self {
+        self.isa = isa;
+        self
+    }
+}
+
+impl OutputProjection for Q4CpuHead {
+    fn name(&self) -> &str {
+        &self.name
+    }
+
+    fn vocab(&self) -> usize {
+        self.m.d_out
+    }
+
+    fn project(&self, h: &Tensor) -> Result<Tensor> {
+        crate::fused_cpu::phases::timed(crate::fused_cpu::phases::HEAD, || {
+            if !h.device().is_cpu() {
+                candle_core::bail!("{}: the CPU head reads a host tensor, given one on {:?}", self.name, h.device());
+            }
+            let dims = h.dims().to_vec();
+            let d = dims.last().copied().unwrap_or(0);
+            if d != self.m.d_in {
+                candle_core::bail!("{}: hidden of {d} for a table of {}", self.name, self.m.d_in);
+            }
+            let v = h.to_dtype(candle_core::DType::F32)?.flatten_all()?.to_vec1::<f32>()?;
+            let rows = v.len() / d;
+            let mut y = vec![0f32; rows * self.m.d_out];
+            match rows {
+                1 => crate::tetra_cpu::q4_matvec(self.isa, &self.m, &v, &mut y),
+                _ => crate::tetra_cpu::q4_matvec_rows(self.isa, &self.m, &v, rows, &mut y),
+            }
+            let mut out = dims;
+            *out.last_mut().expect("rank >= 1") = self.m.d_out;
+            Tensor::from_vec(y, out, &candle_core::Device::Cpu)
+        })
+    }
+
+    fn device_bytes(&self) -> u64 {
+        self.m.bytes()
+    }
 }
 
 /// Rows the kernel computes for `vocab`: it carries no row guard and a

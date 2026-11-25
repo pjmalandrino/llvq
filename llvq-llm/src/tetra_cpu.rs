@@ -1,6 +1,9 @@
 //! The served matvecs on the CPU: Tetra, int4 g128 and the int4 g64 embedding,
 //! each decoding its codes on the fly.
 //!
+//! Beside them, [`bf16_matvec`] reads a BF16 matrix as a checkpoint stores
+//! it: the attention products of Inkling 2 Mini on the CPU path.
+//!
 //! No candle here, only slices, so the arithmetic is testable on its own and
 //! [`crate::fused_cpu`] is the thin adapter around it.
 //!
@@ -689,6 +692,34 @@ mod neon {
             vaddvq_f32(acc) + bias
         }
     }
+
+    /// `Σ w·x` over one BF16 row. A weight is widened to f32 by a zip with
+    /// zeros, which puts its 16 bits in the high half of the lane; four
+    /// accumulators of four lanes take 16 weights a step, so four FMA chains
+    /// run side by side. The weights past the last multiple of 16 are added
+    /// after, in order, as [`super::bf16_row_tail`] does.
+    pub fn bf16_row(w: &[u16], x: &[f32]) -> f32 {
+        let n = w.len();
+        assert_eq!(x.len(), n, "a BF16 row of {n} against {} values", x.len());
+        let main = n - n % 16;
+        // SAFETY: NEON baseline; the step at `c` reads 16 u16 of `w` and 16
+        // f32 of `x` from `c`, and `c + 16 <= main <= n`.
+        let s = unsafe {
+            let z = vdupq_n_u16(0);
+            let mut a = [vdupq_n_f32(0.0); 4];
+            let (wp, xp) = (w.as_ptr(), x.as_ptr());
+            for c in (0..main).step_by(16) {
+                let v0 = vld1q_u16(wp.add(c));
+                let v1 = vld1q_u16(wp.add(c + 8));
+                let f = [vzip1q_u16(z, v0), vzip2q_u16(z, v0), vzip1q_u16(z, v1), vzip2q_u16(z, v1)];
+                for (k, fk) in f.into_iter().enumerate() {
+                    a[k] = vfmaq_f32(a[k], vreinterpretq_f32_u16(fk), vld1q_f32(xp.add(c + 4 * k)));
+                }
+            }
+            vaddvq_f32(vaddq_f32(vaddq_f32(a[0], a[1]), vaddq_f32(a[2], a[3])))
+        };
+        super::bf16_row_tail(&w[main..], &x[main..], s)
+    }
 }
 
 #[cfg(target_arch = "x86_64")]
@@ -1078,6 +1109,32 @@ mod avx2 {
             s = h2f(h).mul_add(v, s);
         }
         s
+    }
+
+    /// One BF16 row, as `neon::bf16_row`: a weight zero-extended to 32 bits
+    /// and shifted left by 16 is its f32; four accumulators of eight lanes
+    /// take 32 weights a step. The weights past the last multiple of 32 are
+    /// added after, in order.
+    ///
+    /// # Safety
+    /// The CPU must have AVX2 and FMA ([`super::Isa::detect`]).
+    #[target_feature(enable = "avx2,fma")]
+    pub unsafe fn bf16_row(w: &[u16], x: &[f32]) -> f32 {
+        let n = w.len();
+        assert_eq!(x.len(), n, "a BF16 row of {n} against {} values", x.len());
+        let main = n - n % 32;
+        let mut a = [_mm256_setzero_ps(); 4];
+        let (wp, xp) = (w.as_ptr(), x.as_ptr());
+        // The step at `c` reads 32 u16 of `w` and 32 f32 of `x` from `c`, and `c + 32 <= main <= n`.
+        for c in (0..main).step_by(32) {
+            for (k, ak) in a.iter_mut().enumerate() {
+                let v = _mm256_cvtepu16_epi32(_mm_loadu_si128(wp.add(c + 8 * k).cast()));
+                let f = _mm256_castsi256_ps(_mm256_slli_epi32::<16>(v));
+                *ak = _mm256_fmadd_ps(f, _mm256_loadu_ps(xp.add(c + 8 * k)), *ak);
+            }
+        }
+        let s = hsum(_mm256_add_ps(_mm256_add_ps(a[0], a[1]), _mm256_add_ps(a[2], a[3])));
+        super::bf16_row_tail(&w[main..], &x[main..], s)
     }
 }
 
@@ -1550,6 +1607,96 @@ pub fn q4_matvec_rows(isa: Isa, m: &Q4Matrix, xs: &[f32], n: usize, y: &mut [f32
             for i in 0..k {
                 y[(i0 + i) * m.d_out + r] = yt[r * k + i];
             }
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// BF16 matrices, as a checkpoint stores them.
+// ---------------------------------------------------------------------------
+
+/// A BF16 value as f32, exactly: its 16 bits are the high half of the f32.
+#[inline(always)]
+pub fn bf16_to_f32(b: u16) -> f32 {
+    f32::from_bits(u32::from(b) << 16)
+}
+
+/// `s + Σ w·x` over the weights a SIMD row leaves, one fused multiply-add
+/// each, in order.
+#[inline(always)]
+fn bf16_row_tail(w: &[u16], x: &[f32], mut s: f32) -> f32 {
+    for (&b, &v) in w.iter().zip(x) {
+        s = bf16_to_f32(b).mul_add(v, s);
+    }
+    s
+}
+
+/// One BF16 row, the scalar path: eight accumulators, each weight `k` on
+/// accumulator `k mod 8`, summed in order, then the tail.
+fn bf16_row_scalar(w: &[u16], x: &[f32]) -> f32 {
+    assert_eq!(x.len(), w.len(), "a BF16 row of {} against {} values", w.len(), x.len());
+    let main = w.len() - w.len() % 8;
+    let mut acc = [0f32; 8];
+    for (wc, xc) in w[..main].chunks_exact(8).zip(x[..main].chunks_exact(8)) {
+        for ((a, &b), &v) in acc.iter_mut().zip(wc).zip(xc) {
+            *a = bf16_to_f32(b).mul_add(v, *a);
+        }
+    }
+    bf16_row_tail(&w[main..], &x[main..], acc.iter().sum())
+}
+
+fn bf16_row(isa: Isa, w: &[u16], x: &[f32]) -> f32 {
+    match isa {
+        Isa::Scalar => bf16_row_scalar(w, x),
+        #[cfg(target_arch = "aarch64")]
+        Isa::Neon => neon::bf16_row(w, x),
+        // SAFETY: as in `tetra_row`.
+        #[cfg(target_arch = "x86_64")]
+        Isa::Avx2 => unsafe { avx2::bf16_row(w, x) },
+    }
+}
+
+/// `y = W x` for one BF16 matrix `[d_out, d_in]`, row-major, and one f32
+/// activation. The rows are split across the pool as the other matvecs do.
+pub fn bf16_matvec(isa: Isa, w: &[u16], d_out: usize, d_in: usize, x: &[f32], y: &mut [f32]) {
+    assert_eq!(w.len(), d_out * d_in, "{} weights for {d_out} x {d_in}", w.len());
+    assert_eq!(x.len(), d_in);
+    assert_eq!(y.len(), d_out);
+    let c = chunk_rows(d_out);
+    pool().install(|| {
+        y.par_chunks_mut(c).enumerate().for_each(|(ci, ys)| {
+            for (k, yo) in ys.iter_mut().enumerate() {
+                let r = ci * c + k;
+                *yo = bf16_row(isa, &w[r * d_in..(r + 1) * d_in], x);
+            }
+        })
+    });
+}
+
+/// `Y = W X` for `n` activations `[n, d_in]` into `[n, d_out]`. Each weight
+/// row is read once from memory and stays in the first-level cache while the
+/// `n` activations pass over it; each output is the row of [`bf16_matvec`],
+/// so a row inside a batch equals the same row alone, bit for bit.
+pub fn bf16_matvec_rows(isa: Isa, w: &[u16], d_out: usize, d_in: usize, xs: &[f32], n: usize, y: &mut [f32]) {
+    assert_eq!(w.len(), d_out * d_in, "{} weights for {d_out} x {d_in}", w.len());
+    assert_eq!(xs.len(), n * d_in);
+    assert_eq!(y.len(), n * d_out);
+    let c = chunk_rows(d_out);
+    let mut yt = vec![0f32; n * d_out];
+    pool().install(|| {
+        yt.par_chunks_mut(c * n).enumerate().for_each(|(ci, ys)| {
+            for (k, out) in ys.chunks_mut(n).enumerate() {
+                let r = ci * c + k;
+                let row = &w[r * d_in..(r + 1) * d_in];
+                for (o, x) in out.iter_mut().zip(xs.chunks(d_in)) {
+                    *o = bf16_row(isa, row, x);
+                }
+            }
+        })
+    });
+    for r in 0..d_out {
+        for i in 0..n {
+            y[i * d_out + r] = yt[r * n + i];
         }
     }
 }

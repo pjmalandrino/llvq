@@ -23,6 +23,7 @@ pub mod attn_dense;
 pub mod attn_scores;
 pub mod config;
 pub mod expert_codes;
+pub mod experts_cpu;
 pub mod glue;
 pub mod head;
 pub mod layers;
@@ -296,9 +297,10 @@ impl std::str::FromStr for GlueKind {
 }
 
 /// The attention products of a one-row visit: candle's operations on f32
-/// matrices (the default), or the kernels of [`attn_dense`] on the BF16
-/// matrices as the file stores them (Metal only, class B). Chosen at load
-/// ([`Inkling::load_with_attn`]):
+/// matrices (the default), the kernels of [`attn_dense`] on the BF16
+/// matrices as the file stores them (Metal and CUDA, class B), or the CPU
+/// kernels of `tetra_cpu` on those BF16 matrices held on the host
+/// ([`AttnKind::Cpu`]). Chosen at load ([`Inkling::load_with_attn`]):
 /// it decides which copy of the matrices the device holds.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum AttnKind {
@@ -308,6 +310,11 @@ pub enum AttnKind {
     /// [`AttnKind::Fused`], and the scores of the row over the cache through
     /// the one launch of [`attn_scores`] (class B too).
     FusedScores,
+    /// The seven attention matrices in BF16 on the host, their products
+    /// through `tetra_cpu::bf16_matvec` for one row and a few, widened for
+    /// candle's matmul on a longer prompt ([`layers::CpuAttnProj`]). The CPU
+    /// only; the same products as [`AttnKind::Candle`] to rounding.
+    Cpu,
 }
 
 impl AttnKind {
@@ -316,6 +323,7 @@ impl AttnKind {
             AttnKind::Candle => "candle",
             AttnKind::Fused => "fused",
             AttnKind::FusedScores => "fused+scores",
+            AttnKind::Cpu => "cpu",
         }
     }
 }
@@ -327,7 +335,8 @@ impl std::str::FromStr for AttnKind {
             "candle" => Ok(AttnKind::Candle),
             "fused" => Ok(AttnKind::Fused),
             "fused+scores" => Ok(AttnKind::FusedScores),
-            o => anyhow::bail!("attn {o}: candle, fused or fused+scores"),
+            "cpu" => Ok(AttnKind::Cpu),
+            o => anyhow::bail!("attn {o}: candle, fused, fused+scores or cpu"),
         }
     }
 }
@@ -337,7 +346,8 @@ impl std::str::FromStr for AttnKind {
 pub struct LoadOptions {
     /// The int4 g64 output table (`bin/inktable`'s `unembed.q4g64.llvqraw`):
     /// the head runs through [`head::Q4MetalHead`] and the BF16 `unembed`
-    /// rows are never put on the device (plan item D4). Metal only. `None`:
+    /// rows are never put on the device (plan item D4). Metal, CUDA, or the
+    /// CPU ([`head::Q4CpuHead`]). `None`:
     /// the BF16 head, as [`Inkling::load`].
     pub int4_head: Option<std::path::PathBuf>,
 }
@@ -597,6 +607,10 @@ impl Inkling {
         let n = cfg.num_hidden_layers;
         match attn {
             AttnKind::Candle => Ok((0..n).map(|l| LayerWeights::load(ck, cfg, l, dev)).collect::<Result<Vec<_>>>()?),
+            AttnKind::Cpu => {
+                anyhow::ensure!(dev.is_cpu(), "the CPU attention runs on the CPU, the model is on {dev:?}");
+                Ok((0..n).map(|l| LayerWeights::load_cpu(ck, cfg, l)).collect::<Result<Vec<_>>>()?)
+            }
             #[cfg(ink_glue)]
             AttnKind::Fused | AttnKind::FusedScores => {
                 anyhow::ensure!(
@@ -623,7 +637,8 @@ impl Inkling {
     }
 
     /// Bytes of the seven attention matrices of every layer on the device:
-    /// (as f32 tensors, as the kernels' BF16 buffers).
+    /// (as f32 tensors, as BF16: the GPU kernels' buffers or the CPU path's
+    /// host matrices).
     pub fn attention_matrix_bytes(&self) -> (usize, usize) {
         let mut f32_bytes = 0;
         #[allow(unused_mut)]
@@ -639,13 +654,19 @@ impl Inkling {
             if let Some(d) = &a.dense {
                 bf16_bytes += d.w.matrix_bytes();
             }
+            if let Some(c) = &a.cpu {
+                bf16_bytes += c.bytes() as usize;
+            }
         }
         (f32_bytes, bf16_bytes)
     }
 
-    /// The int4 head of `path` on the Metal device `dev`.
+    /// The int4 head of `path` on `dev`: Metal, CUDA or the CPU.
     #[allow(unused_variables)]
     fn int4_head(path: &Path, cfg: &InklingConfig, dev: &Device) -> anyhow::Result<Box<dyn head::OutputProjection>> {
+        if dev.is_cpu() {
+            return Ok(Box::new(head::Q4CpuHead::load(path, cfg.unpadded_vocab_size, cfg.hidden_size)?));
+        }
         #[cfg(all(target_os = "macos", feature = "metal"))]
         if dev.is_metal() {
             let rt = resident::served_runtime(dev)?;
@@ -658,7 +679,7 @@ impl Inkling {
             let h = head::Q4CudaHead::load(rt, path, cfg.unpadded_vocab_size, cfg.hidden_size)?;
             return Ok(Box::new(h));
         }
-        anyhow::bail!("the int4 head runs on Metal and on CUDA; {} asked on {dev:?}", path.display())
+        anyhow::bail!("the int4 head runs on Metal, CUDA and the CPU; {} asked on {dev:?}", path.display())
     }
 
     /// Whether the BF16 output rows are on the device.

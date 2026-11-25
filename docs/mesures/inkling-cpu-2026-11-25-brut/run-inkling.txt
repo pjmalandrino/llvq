@@ -1,0 +1,9 @@
+[2mThinking...
+The user wants an explanation in about 100 words. Need answer concise. Explain Rayleigh scattering: sunlight contains visible spectrum; air molecules scatter shorter wavelengths (blue) more strongly than longer wavelengths; blue light reaches observer from all directions, making sky appear blue. Mention clouds/sunset maybe briefly. Ensure ~100 words. No need for citations.
+...done thinking.[0m
+
+The sky looks blue because sunlight is scattered by air molecules. Sunlight contains many colors, but blue light has shorter wavelengths and is scattered much more strongly than red or orange light. As sunlight enters the atmosphere, these blue waves are redirected in many directions, so blue light reaches our eyes from all around us. This is called Rayleigh scattering. Longer-wavelength colors travel more directly, so they are less visible in the sky. Near the horizon or at sunset, sunlight passes through more air, scattering blue light away and letting redder light dominate. Clouds and dust can also scatter light differently, making the sky look white or gray.
+
+prompt: 25 tokens (0 cached) in 6.92 s
+answer: 220 tokens in 213.68 s, 1.0 tok/s (this client's rate, not a measurement)
+end: stop

@@ -76,11 +76,12 @@ pub struct LocalModel {
     /// `tokenizer.json` of the checkpoint.
     pub tokenizer: PathBuf,
     /// The directory of the sealed file's two int4 tables. Required by the
-    /// fused stack.
+    /// fused stack and on a CPU build.
     #[serde(default)]
     pub tables: Option<PathBuf>,
     /// `fused` (default): the stack `inkrun` and `inkgsm --stack fused`
-    /// measure. `candle`: the reference path, slower.
+    /// measure. `candle`: the reference path, slower. A CPU build serves
+    /// its own stack whatever this says (`experts_cpu::load_served`).
     #[serde(default)]
     pub stack: Option<String>,
     /// Positions served; default [`DEFAULT_CONTEXT`].
@@ -264,8 +265,33 @@ const SCORE_ROWS: usize = 128;
 /// rollback it accepts.
 const KV_SLACK: usize = 1024;
 
+/// The model on the CPU: `experts_cpu::load_served`, the load `inkcpu`
+/// measures. One stack whatever the local file's `stack` says: the attention
+/// matrices in BF16 through the CPU kernels, the glue on candle in f32, the
+/// int4 head and embedding of `tables`, the experts from their codes.
+fn load_model_cpu(l: &LocalModel) -> anyhow::Result<(llvq_llm::inkling::Inkling, Vec<String>)> {
+    let Some(tables) = &l.tables else {
+        anyhow::bail!("the CPU stack reads the int4 tables: name their directory in \"tables\"");
+    };
+    let (model, mut lines) = llvq_llm::inkling::experts_cpu::load_served(&l.config, &l.checkpoint, &l.layers, tables)?;
+    let resident = model.substituted_layers();
+    let need = l.require_layers.unwrap_or(model.cfg.num_hidden_layers);
+    anyhow::ensure!(resident.len() >= need, "{} layers on the CPU experts, {need} required", resident.len());
+    lines.push(format!(
+        "stack cpu, {} layers on the CPU experts, glue {}, attention {}",
+        resident.len(),
+        model.glue().name(),
+        model.attn().name()
+    ));
+    model.take_launches();
+    Ok((model, lines))
+}
+
 fn load_model(l: &LocalModel, dev: &Device) -> anyhow::Result<(llvq_llm::inkling::Inkling, Vec<String>)> {
     use llvq_llm::inkling::{tables, Inkling, LoadOptions};
+    if dev.is_cpu() {
+        return load_model_cpu(l);
+    }
     let fused = l.fused().map_err(anyhow::Error::msg)?;
     let mut lines = Vec::new();
     let mut model = match (&l.tables, fused) {
@@ -283,10 +309,15 @@ fn load_model(l: &LocalModel, dev: &Device) -> anyhow::Result<(llvq_llm::inkling
         model.set_moe_four_launches(true);
     }
     if let Some(d) = &l.tables {
-        let t = tables::load(d, &model.cfg, dev)?;
-        lines.push(format!("tables: embed {}, unembed {}", &t.embed_sha256[..16], &t.unembed_sha256[..16]));
-        model.embed_table = Some(t.embed);
-        if !fused {
+        if fused {
+            // The int4 head reads its own table: no dense head is built to be dropped.
+            let t = tables::load_embed(d, &model.cfg, false)?;
+            lines.push(format!("tables: embed {}, unembed {}", &t.embed_sha256[..16], &t.unembed_sha256[..16]));
+            model.embed_table = Some(t.embed);
+        } else {
+            let t = tables::load(d, &model.cfg, dev)?;
+            lines.push(format!("tables: embed {}, unembed {}", &t.embed_sha256[..16], &t.unembed_sha256[..16]));
+            model.embed_table = Some(t.embed);
             model.out_proj = Some(Box::new(t.head));
         }
     }
@@ -327,11 +358,6 @@ fn load_model(l: &LocalModel, dev: &Device) -> anyhow::Result<(llvq_llm::inkling
 pub fn load_local(name: &ModelName, path: &Path) -> anyhow::Result<InkEngine> {
     let local = LocalModel::read(path)?;
     let backend = Backend::of_build();
-    // Refused before anything is read: the experts are served only resident in lattice codes on CUDA or Metal.
-    anyhow::ensure!(
-        backend != Backend::Cpu,
-        "{name}: Inkling 2 has no CPU path; this llvq is a CPU build. It runs on CUDA (Linux) or Metal (macOS)"
-    );
     eprintln!("llvq: loading {name} (inkling2, {}) on {}", path.display(), backend.label());
     let dev = match backend {
         Backend::Cuda => Device::new_cuda(0)?,

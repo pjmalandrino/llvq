@@ -1,0 +1,26 @@
+tables: embed b7e9979f589a8a84, unembed cb26ce0c6145d35d
+cpu: avx2+fma SIMD on 8 threads | weights packed | experts 6.17 GB + rotations 0.089 GB on 24 layers, read in 2.9 s
+cpu: attention f32 2.58 GB, int4 embedding 0.26 GB, int4 head 0.26 GB
+prompt: pieces of 512 tokens, scores in chunks of 128 rows, sliding slots bounded with a slack of 1024
+load: 7.2 s
+prompt: 32 tokens in 5.61 s, 5.7 tok/s
+generated: [200001, 200008, 371, 150409, 171960, 149887, 149878, 151256, 167608, 181130, 151661, 158808, 149884, 152778, 150450, 150580, 149880, 150682, 149922, 151483, 830, 13, 170289, 150893, 149911, 4123, 13, 170289, 151791, 153606, 25, 150580]
+text: "<|message_model|><|content_thinking|>The user asks for a few sentences explaining why sky is blue during day and red at sunset. Need answer concise. Need ensure accuracy: day"
+decode: 31 steps in 20.40 s, 1.52 tok/s
+phases: 31 decode steps, 657.92 ms a token, 1.52 tok/s
+phases: prepare           0.00 ms a token      0.0 calls a token
+phases: tetra             0.00 ms a token      0.0 calls a token
+phases: tetra kernel    199.32 ms a token   1152.0 calls a token
+phases: int4              0.00 ms a token      0.0 calls a token
+phases: int4 kernel       0.00 ms a token      0.0 calls a token
+phases: head              6.82 ms a token      1.0 calls a token
+phases: gather            0.00 ms a token      0.0 calls a token
+phases: moe             241.44 ms a token     48.0 calls a token
+phases: rotate kernel    25.47 ms a token    768.0 calls a token
+phases: attn proj       339.06 ms a token    384.0 calls a token
+phases: attn cache        9.58 ms a token     96.0 calls a token
+phases: attn scores       8.25 ms a token     48.0 calls a token
+phases: router            4.33 ms a token     48.0 calls a token
+phases: convs            12.25 ms a token    192.0 calls a token
+phases: glue             28.23 ms a token    144.0 calls a token
+phases: rest              7.94 ms a token  (what no entry counted)

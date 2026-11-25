@@ -1,0 +1,8 @@
+total 1359900
+-rw-r--r--.  1 root root       1408 Nov 25 10:45 config.json
+-rw-r--r--.  1 root root        214 Nov 25 10:45 inkling.json
+drwxr-xr-x. 26 root root      16384 Nov 25 10:45 layers
+-rw-r--r--.  1 root root 1366330064 Nov 25 10:45 model.safetensors
+drwxr-xr-x.  2 root root         62 Nov 25 10:45 tables
+-rw-r--r--.  1 root root   26178678 Nov 25 10:45 tokenizer.json
+7.6G	/tmp/llvq-home
