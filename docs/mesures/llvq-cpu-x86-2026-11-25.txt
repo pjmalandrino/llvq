@@ -106,3 +106,51 @@ Verdict against the criterion: PASS (flavor picked, Inkling refused by name, thr
   2.1 to 3.0: between 150 and 290 ms a token are spent outside the matvecs, or the instance was slower. Not
   attributed. That is the next thing to read on the CPU path.
   The rates are the client's, streaming included, one run each on a shared virtual machine: readings, not medians.
+
+JOB 6, cpu-phases-x86 (6b069ca11460ffe1d5ea37cc): a 4B token split by part, on the real file, one instance
+-------------------------------------------------------------------------------------------------------
+Prereg: proofs/preregistration-cpu-phases-x86-2026-11-25.md. Raw: docs/mesures/cpu-phases-x86-2026-11-25-brut/.
+Commit 1960e6d, profile ci, AMD EPYC 7R13, 8 vCPU, 12 minutes, $0.01 *estimated*. Ended on DONE; the six tests pass.
+`cpurun <sealed> phases 48`: four prompts, 188 greedy decode steps, the counters of fused_cpu::phases. *Measured*,
+one run an arm; the default arm ran twice, at the start and at the end.
+
+  ms a token            default    again at the end    RAYON_NUM_THREADS=1    LLVQ_THREADS=4
+  token                  274.8          256.5                 281.7                483.9
+  tetra kernel           182.7          173.5                 196.5                361.1
+  int4 kernel             31.2           27.3                  34.1                 46.5
+  head                     8.9            8.3                  10.5                 19.3
+  prepare (rotation)      10.7           10.8                  11.2                 12.0
+  tensor copies            2.6            2.3                   2.5                  2.7
+  rest (model around)     38.7           34.3                  27.0                 42.3
+  rate, tok/s             3.64           3.90                  3.55                 2.07
+
+  bench, same instance: token sum 203.6 ms at 8 threads (201.6 at the end), 1,100.8 ms at one.
+  runtime, same build:  `llvq run qwen3:4b` 3.4 tok/s twice (139 and 147 tokens), the client's rate.
+
+  Reading, by the prereg's rule:
+  1. The two kernels and the head are 81 % of the token (222.8 of 274.8 ms; 81.5 % in the second run). Under the
+     85 % of the rule, and no other part reaches 15 %: the rest is 14 %, the rotation 4 %, the tensor copies 1 %.
+     There is no hidden cost. The 150 to 290 ms of job 5 were mostly its instance: here the token is 71 ms above
+     the bench's sum, 19 ms of it the kernels on real weights (1.09 times the bench).
+  2. RAYON_NUM_THREADS=1 reads 281.7 ms between two default runs of 274.8 and 256.5: inside the drift (7 %). The
+     two pools do not contend.
+  3. Four threads read 483.9 ms: the eight virtual cores (four physical, two threads each) are 1.76 times faster
+     than four threads. The second hardware thread of a core helps this kernel.
+  4. The runtime is at 3.4 tok/s against cpurun's 3.64 to 3.90: 7 to 13 % for the server, the sampler and the
+     stream.
+  5. The gate/up shape with 16 distinct labels (tables in the first-level cache) is 1.20 times faster than random
+     labels at one thread (7.23 against 8.66 ms) and 1.18 times at eight. Between the rule's two bounds (1.15 and
+     1.3): the table misses cost the Tetra kernel 17 % at most on this CPU. On an M3 Max the same pair reads 0.530
+     against 0.534 ms at 8 threads, no difference. The kernel is bound by its instructions, not by its tables.
+  6. Per weight and per call at 8 threads, int4 g128 down reads 44.8 Gweight/s and Tetra gate/up 16.7: Tetra is 2.7
+     times slower per weight. The "six times" of the GB/s column is the same fact in bytes, Tetra holding about
+     half the bytes a weight.
+
+  Predictions: DONE (0.75), held. Kernels within 1.3 times the bench: held (1.09). Rest above 30 %: WRONG, 14 %.
+  RAYON_NUM_THREADS=1 moves the token by more than 10 %: held as a no (0.3 said yes). 16 labels more than 1.3
+  times faster: held as a no (0.4 said yes); 1.20. Runtime within 15 % of cpurun: held.
+
+  What follows: no part outside the kernels is worth more than 14 % of the token, and the Tetra decode cannot gain
+  more than 17 % from its tables. A factor on this path needs the decode out of the token: the points decoded once
+  at load into int8 (about 8.3 bits a weight in RAM instead of 2.15), read by a dot product of the int4 kind.
+  That trades RAM for rate and is an operator decision; not written.

@@ -1,0 +1,9 @@
+   /\
+  //\\
+ ///\\\    tetra
+////\\\\
+llvq 0.1.2 (1960e6d21bb7) serving on http://127.0.0.1:11435, backend cpu, store /tmp/llvq-home
+chat in the browser: http://127.0.0.1:11435/
+llvq: loading qwen3:4b on cpu with config qwen3-4b-tetra-e4.json
+embedding: q4 g64 (the llvq library), 1 table (model.embed_tokens.weight, lm_head tied on it), 218.8 MB on the card (int4 194.5 + scales/biases 24.3)
+cpu: avx2+fma SIMD on 8 threads | tetra 168 + int4 84 matrices | 1.38 GB in memory (projections 1.16 + carried 0.22)
