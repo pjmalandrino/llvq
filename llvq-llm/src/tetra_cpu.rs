@@ -31,7 +31,7 @@
 //!
 //! ## SIMD and threads
 //!
-//! NEON on aarch64 (always present there), AVX2 + FMA on x86_64 when the CPU
+//! NEON on aarch64 (always present there), AVX2 + FMA + F16C on x86_64 when the CPU
 //! has them, a scalar loop otherwise. Rows are split across a rayon pool of
 //! `LLVQ_THREADS` threads (all cores when unset).
 
@@ -303,13 +303,21 @@ impl TetraMatrix {
 
     /// The tail's contribution to row `r` and the row scale applied.
     #[inline(always)]
-    fn finish(&self, r: usize, acc: f32, x: &[f32]) -> f32 {
-        let mut s = acc * self.rscale[r];
+    fn finish(&self, isa: Isa, r: usize, acc: f32, x: &[f32]) -> f32 {
         let tail = &self.tail[r * self.tail_w..(r + 1) * self.tail_w];
-        for (&h, &v) in tail.iter().zip(&x[self.nblocks * DIM..]) {
-            s = half::f16::from_bits(h).to_f32().mul_add(v, s);
+        let xt = &x[self.nblocks * DIM..];
+        match isa {
+            // SAFETY: as in `tetra_row`.
+            #[cfg(target_arch = "x86_64")]
+            Isa::Avx2 => unsafe { avx2::finish(self.rscale[r], tail, acc, xt) },
+            _ => {
+                let mut s = acc * self.rscale[r];
+                for (&h, &v) in tail.iter().zip(xt) {
+                    s = half::f16::from_bits(h).to_f32().mul_add(v, s);
+                }
+                s
+            }
         }
-        s
     }
 }
 
@@ -369,7 +377,12 @@ impl Isa {
             }
             #[cfg(target_arch = "x86_64")]
             {
-                if std::arch::is_x86_feature_detected!("avx2") && std::arch::is_x86_feature_detected!("fma") {
+                // F16C converts the binary16 scales and tails; every CPU with
+                // AVX2 has it, the check costs nothing.
+                if std::arch::is_x86_feature_detected!("avx2")
+                    && std::arch::is_x86_feature_detected!("fma")
+                    && std::arch::is_x86_feature_detected!("f16c")
+                {
                     return Isa::Avx2;
                 }
                 Isa::Scalar
@@ -735,11 +748,19 @@ mod avx2 {
         _mm256_add_ps(_mm256_add_ps(s[0], s[1]), _mm256_add_ps(s[2], s[3]))
     }
 
+    /// A binary16 value as f32, exactly, by `vcvtph2ps`. `half`'s own
+    /// conversion is a runtime F16C check and an out-of-line call on x86_64,
+    /// twice per int4 group; this is one instruction.
+    #[inline(always)]
+    unsafe fn h2f(bits: u16) -> f32 {
+        _mm_cvtss_f32(_mm_cvtph_ps(_mm_cvtsi32_si128(i32::from(bits))))
+    }
+
     /// One int4 row, as `neon::q4_row`.
     ///
     /// # Safety
-    /// The CPU must have AVX2 and FMA ([`super::Isa::detect`]).
-    #[target_feature(enable = "avx2,fma")]
+    /// The CPU must have AVX2, FMA and F16C ([`super::Isa::detect`]).
+    #[target_feature(enable = "avx2,fma,f16c")]
     pub unsafe fn q4_row(bytes: &[u8], scales: &[u16], biases: &[u16], half_g: usize, a: &super::Q4Act) -> f32 {
         let gpr = scales.len();
         assert!(half_g.is_multiple_of(16) && bytes.len() == gpr * half_g && biases.len() == gpr);
@@ -749,10 +770,27 @@ mod avx2 {
         for g in 0..gpr {
             let at = g * half_g;
             let d = q4_group(bytes.as_ptr().add(at), a.xe.as_ptr().add(at), a.xo.as_ptr().add(at), half_g);
-            acc = _mm256_fmadd_ps(d, _mm256_set1_ps(half::f16::from_bits(scales[g]).to_f32()), acc);
-            bias = half::f16::from_bits(biases[g]).to_f32().mul_add(a.gsum[g], bias);
+            acc = _mm256_fmadd_ps(d, _mm256_set1_ps(h2f(scales[g])), acc);
+            bias = h2f(biases[g]).mul_add(a.gsum[g], bias);
         }
         hsum(acc) + bias
+    }
+
+    /// [`super::TetraMatrix::finish`] for one row: `acc · rscale`, then the
+    /// binary16 tail, one fused multiply-add per weight in order, as the
+    /// generic loop does. There, on x86_64 without the `fma` feature,
+    /// `mul_add` is a call to `fmaf` and each conversion a call too; here
+    /// both are one instruction, with the same roundings.
+    ///
+    /// # Safety
+    /// The CPU must have AVX2, FMA and F16C ([`super::Isa::detect`]).
+    #[target_feature(enable = "avx2,fma,f16c")]
+    pub unsafe fn finish(rscale: f32, tail: &[u16], acc: f32, xt: &[f32]) -> f32 {
+        let mut s = acc * rscale;
+        for (&h, &v) in tail.iter().zip(xt) {
+            s = h2f(h).mul_add(v, s);
+        }
+        s
     }
 }
 
@@ -846,7 +884,7 @@ pub fn tetra_matvec(isa: Isa, t: &Tables, m: &TetraMatrix, xp: &[f32], y: &mut [
             for (k, yo) in ys.iter_mut().enumerate() {
                 let r = ci * c + k;
                 let acc = tetra_row(isa, t, m.row(r), m.nblocks, &sc, xp);
-                *yo = m.finish(r, acc, xp);
+                *yo = m.finish(isa, r, acc, xp);
             }
         })
     });
@@ -871,7 +909,7 @@ pub fn tetra_matvec_rows(isa: Isa, t: &Tables, m: &TetraMatrix, xs: &[f32], n: u
                     tetra_rows(isa, t, m.row(r), m.nblocks, &sc, &xs[start * m.d_in..], m.d_in, o);
                     for (i, v) in o.iter_mut().enumerate() {
                         let x = &xs[(start + i) * m.d_in..(start + i + 1) * m.d_in];
-                        *v = m.finish(r, *v, x);
+                        *v = m.finish(isa, r, *v, x);
                     }
                     start += len;
                 }
