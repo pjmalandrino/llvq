@@ -28,6 +28,8 @@ modes set together (`ALONE` in that file).
 | `LLVQ_HOME` | `llvq-runtime` store | directory, default `~/.llvq` | served |
 | `LLVQ_HOST` | `llvq-runtime` client and server | `host:port`, default `127.0.0.1:11435` | served |
 | `LLVQ_KEEP_ALIVE` | `llvq-runtime` engine | duration, default `5m`; `0`; negative = never | served |
+| `LLVQ_PULL_JOBS` | `llvq-runtime` store | files of a set fetched at once, default `4`; `1` = one after another; `0` or a non-number refused | served |
+| `LLVQ_CPU_WEIGHTS` | `fused_cpu::load_resolved` | how the CPU backend holds the Tetra codes: `packed` (default), the served words decoded at every matvec, 2 bits a weight; `nibbles`, the points decoded once at load into 4.33 bits a weight, the same outputs bit for bit; any other value refused | served |
 | `LLVQ_MAX_LOADED` | `llvq-runtime` engine | count, default `1` | served |
 | `LLVQ_BATCH` | `llvq-runtime` engine | unset or `0` (default); `<n>` or `<n>:<positions>`, n in 1..=128; CUDA only | served |
 | `LLVQ_PROFILE` | `llvq-runtime` library | unset (each model's default config: the 4B on CUDA prefills by the chain since 2026-11-15) or `eager` (the eager prefill: the 4B's `cuda_eager` config, the v9 one); any other value refused by name, `chain` among them | served |

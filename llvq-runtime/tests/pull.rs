@@ -96,7 +96,7 @@ fn a_matching_file_is_registered_and_a_mutated_digest_leaves_nothing() {
     let mut seen = Vec::new();
     let m = s.pull(&name, &entry(good.clone()), &endpoint, &mut |e| seen.push(e)).unwrap();
     assert_eq!(m.sha256, good);
-    assert_eq!(sha256_file(&s.blob_path(&good), |_| {}).unwrap(), good);
+    assert_eq!(sha256_file(&s.blob_path(&good)).unwrap(), good);
     assert_eq!(s.get(&name).unwrap(), Some(m));
     assert!(seen.contains(&PullEvent::Status("success".into())));
     assert!(seen.iter().any(|e| matches!(e, PullEvent::Progress { completed, total, .. } if completed == total)));
@@ -132,7 +132,7 @@ fn an_interrupted_pull_resumes_and_a_present_blob_is_checked_again() {
     .unwrap();
     assert_eq!(first, Some(1_234_567), "the pull must start where the partial file ends");
     assert!(!partial.exists());
-    assert_eq!(sha256_file(&s.blob_path(&good), |_| {}).unwrap(), good);
+    assert_eq!(sha256_file(&s.blob_path(&good)).unwrap(), good);
 
     // A blob already there is hashed again, not trusted: a corrupted one is
     // removed and the pull refused.
@@ -281,7 +281,7 @@ fn two_pulls_of_one_file_at_once_register_the_file_whole() {
     assert_eq!(ok, 2, "both pulls must succeed, one after the other");
     let blob = s.blob_path(&good);
     assert_eq!(std::fs::metadata(&blob).unwrap().len(), content().len() as u64, "the registered blob is not the file");
-    assert_eq!(sha256_file(&blob, |_| {}).unwrap(), good);
+    assert_eq!(sha256_file(&blob).unwrap(), good);
     let _ = std::fs::remove_dir_all(s.root());
 }
 
@@ -300,7 +300,7 @@ fn an_imported_blob_does_not_change_with_its_source() {
     f.seek(std::io::SeekFrom::Start(17)).unwrap();
     f.write_all(&[!content()[17]]).unwrap();
     drop(f);
-    assert_eq!(sha256_file(&s.blob_path(&good), |_| {}).unwrap(), good, "the registered blob changed with its source");
+    assert_eq!(sha256_file(&s.blob_path(&good)).unwrap(), good, "the registered blob changed with its source");
     let _ = std::fs::remove_dir_all(s.root());
 }
 

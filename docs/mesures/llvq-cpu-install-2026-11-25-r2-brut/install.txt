@@ -1,0 +1,13 @@
+llvq install: no nvidia-smi: the NVIDIA driver is not installed. Install driver 550 or newer from your distribution (Ubuntu: sudo ubuntu-drivers install), reboot, then run this again. The CUDA toolkit is NOT needed.
+llvq install: installing the CPU flavor instead. For the CUDA one, fix the above and run this again; LLVQ_FLAVOR=linux-x86_64-cuda refuses with the reason instead of falling back.
+llvq install: system: Linux x86_64, archive flavor linux-x86_64-cpu
+llvq install: downloading file:///out/llvq-archives-2026-11-25-b/llvq-0.1.2-linux-x86_64-cpu.tar.gz
+#                                                                          2.0%######################################################################## 100.0%
+llvq install: sha256 16cae7288c62f7e5848b9e9b232e3153d8b9f3338e84df91791f216a49ec61e1
+llvq install: installed /usr/local/lib/llvq, linked /usr/local/bin/llvq
+llvq version 0.1.2 (774ee34cb665)
+   /\
+  //\\
+ ///\\\    tetra
+////\\\\
+llvq install: done. Next: llvq run qwen3:4b (1.4 GB to download). Inkling 2 needs CUDA or Metal and is refused on the CPU

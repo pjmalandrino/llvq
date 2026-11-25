@@ -31,7 +31,7 @@
 //!
 //! ## SIMD and threads
 //!
-//! NEON on aarch64 (always present there), AVX2 + FMA on x86_64 when the CPU
+//! NEON on aarch64 (always present there), AVX2 + FMA + F16C on x86_64 when the CPU
 //! has them, a scalar loop otherwise. Rows are split across a rayon pool of
 //! `LLVQ_THREADS` threads (all cores when unset).
 
@@ -46,17 +46,67 @@ const SECTION: usize = 8;
 /// Activations one batched call carries at most.
 pub const MAX_BATCH: usize = 16;
 
+/// Entries of the path table: `(s8, b1, b2, b3)` packed in 12 bits.
+const PATHS: usize = 1 << 12;
+
+// The row index is masked to `ROWS - 1` in `sections`, which is a no-op only
+// while every index it builds stays below `ROWS`: `CLASS_ROWS · r + i` with
+// `i < 2^11`, and the mixed split's `i2 + (CLASS_ROWS − N0_MIXED)`.
+const _: () = assert!(ROWS.is_power_of_two() && ROWS == 2 * CLASS_ROWS && CLASS_ROWS == 1 << 11);
+const _: () = assert!((1 << 11) - 1 + CLASS_ROWS - N0_MIXED < ROWS);
+
+/// The candidate table, aligned to a cache line so that the 16-byte entry a
+/// SIMD path loads whole never straddles two lines.
+#[repr(C, align(64))]
+struct Lut([[[u64; 2]; ROWS]; 2]);
+
+impl Lut {
+    /// Both parities as one table, entry `p · ROWS + row`: what `avx2`
+    /// addresses with one byte offset.
+    #[cfg(target_arch = "x86_64")]
+    #[inline(always)]
+    fn flat(&self) -> &[[u64; 2]; 2 * ROWS] {
+        // SAFETY: `[[T; ROWS]; 2]` and `[T; 2 · ROWS]` have the same size,
+        // alignment and element order.
+        unsafe { &*self.0.as_ptr().cast::<[[u64; 2]; 2 * ROWS]>() }
+    }
+}
+
+impl std::ops::Index<usize> for Lut {
+    type Output = [[u64; 2]; ROWS];
+    #[inline(always)]
+    fn index(&self, p: usize) -> &Self::Output {
+        &self.0[p]
+    }
+}
+
+/// [`Tables::sel`], aligned like [`Lut`].
+#[cfg(target_arch = "x86_64")]
+#[repr(C, align(64))]
+struct Sel([[u8; 16]; 256]);
+
 /// The decode tables of every Tetra matrix, built once.
+///
+/// Fixed-size arrays, so the indices the decode builds (12 bits for a path,
+/// masked to `ROWS - 1` for a row) need no bounds check in the inner loop.
 pub struct Tables {
-    /// `lut[p · ROWS + row] = [candidates with code bit 0, with code bit 1]`,
-    /// eight `i8` lanes each, lane `j` the coordinate `j` of the section.
-    lut: Vec<[u64; 2]>,
+    /// `lut[p][row] = [candidates with code bit 0, with code bit 1]`, eight
+    /// `i8` lanes each, lane `j` the coordinate `j` of the section.
+    lut: Box<Lut>,
     /// `(s8, b1, b2, b3)` → `c1 | c2 << 8 | c3 << 16`, the three code bytes.
-    paths: Vec<u32>,
+    paths: Box<[u32; PATHS]>,
     /// Byte `j` set to `0xff` where bit `j` of the index is set.
     mask: [u64; 256],
+    /// The same choice as a byte shuffle of a `lut` entry (16 bytes, the
+    /// bit-0 candidates then the bit-1 ones): byte `j < 8` is `j + 8·bit_j`,
+    /// bytes 8 to 15 are `0x80`, which zeroes them. What `avx2` selects with.
+    #[cfg(target_arch = "x86_64")]
+    sel: Sel,
     /// `1/√(16 m)` with entry 0 zero: the origin reconstructs to zero.
     invnorm: [f32; 32],
+    /// `nibval[p][n] = val(p + 2·(n >> 3), n & 7)` as an `i8`: the coordinate
+    /// a nibble of [`TetraNib`] stands for in a block of parity `p`.
+    nibval: [[u8; 16]; 2],
     /// `order[t]`: the natural coordinate at trio position `t`.
     order: [usize; DIM],
 }
@@ -70,7 +120,8 @@ impl Default for Tables {
 impl Tables {
     pub fn new(t: &Tetra) -> Self {
         let rows = t.rows();
-        let mut lut = vec![[0u64; 2]; 2 * ROWS];
+        assert_eq!(rows.len(), ROWS, "a Tetra table of {ROWS} rows");
+        let mut lut = Box::new(Lut([[[0u64; 2]; ROWS]; 2]));
         for p in 0..2u32 {
             for (ri, &row) in rows.iter().enumerate() {
                 let mut e = [0u64; 2];
@@ -78,13 +129,15 @@ impl Tables {
                     for j in 0..SECTION {
                         let v = llvq_search::tetra::val(p + 2 * b as u32, (row >> (4 * j)) & 15);
                         let v = i8::try_from(v).expect("a Tetra coordinate fits an i8");
+                        // What `avx2::norm2` takes squares in bytes on.
+                        assert!(v.unsigned_abs() <= 11, "a Tetra coordinate of {v} past the byte squares");
                         *out |= u64::from(v as u8) << (8 * j);
                     }
                 }
-                lut[p as usize * ROWS + ri] = e;
+                lut.0[p as usize][ri] = e;
             }
         }
-        let mut paths = vec![0u32; 1 << 12];
+        let mut paths: Box<[u32; PATHS]> = vec![0u32; PATHS].into_boxed_slice().try_into().expect("4096 paths");
         for s8 in 0..64usize {
             for b1 in 0..2usize {
                 for b2 in 0..16usize {
@@ -105,24 +158,51 @@ impl Tables {
                 }
             }
         }
+        #[cfg(target_arch = "x86_64")]
+        let sel = {
+            let mut sel = [[0x80u8; 16]; 256];
+            for (c, s) in sel.iter_mut().enumerate() {
+                for (j, b) in s.iter_mut().take(SECTION).enumerate() {
+                    *b = (j + SECTION * ((c >> j) & 1)) as u8;
+                }
+            }
+            Sel(sel)
+        };
         let mut invnorm = [0f32; 32];
         for (m, e) in invnorm.iter_mut().enumerate().skip(1) {
             *e = (1.0f64 / ((16 * m) as f64).sqrt()) as f32;
+        }
+        let mut nibval = [[0u8; 16]; 2];
+        for (p, tab) in nibval.iter_mut().enumerate() {
+            for (n, v) in tab.iter_mut().enumerate() {
+                let y = llvq_search::tetra::val(p as u32 + 2 * (n as u32 >> 3), n as u32 & 7);
+                *v = i8::try_from(y).expect("a Tetra coordinate fits an i8") as u8;
+            }
         }
         let mut order = [0usize; DIM];
         for (o, &n) in order.iter_mut().zip(t.order()) {
             *o = n as usize;
         }
-        Self { lut, paths, mask, invnorm, order }
+        Self {
+            lut,
+            paths,
+            mask,
+            #[cfg(target_arch = "x86_64")]
+            sel,
+            invnorm,
+            nibval,
+            order,
+        }
     }
 
-    /// The three sections of a word, eight `i8` lanes each, and its gain bit.
+    /// Where a word's sections are: its parity, the three table rows, the
+    /// three code bytes, and its gain bit.
     #[inline(always)]
-    pub fn sections(&self, w: u64) -> ([u64; 3], usize) {
+    fn locate(&self, w: u64) -> (usize, [usize; 3], [usize; 3], usize) {
         let p = (w & 1) as usize;
         let r = ((w >> 1) & 1) as usize;
         let path_at = ((w >> 2) & 63) << 6 | ((w >> 8) & 1) << 5 | ((w >> 20) & 15) << 1 | ((w >> 35) & 1);
-        let path = self.paths[path_at as usize];
+        let path = self.paths[path_at as usize] as usize;
         let i1 = ((w >> 9) & 0x7ff) as usize;
         let i2 = ((w >> 24) & 0x7ff) as usize;
         let i3 = ((w >> 36) & 0x7ff) as usize;
@@ -130,13 +210,33 @@ impl Tables {
         let r1 = CLASS_ROWS * r + i1;
         let r2 = i2 + delta * (CLASS_ROWS - N0_MIXED);
         let r3 = CLASS_ROWS * (p ^ r ^ delta) + i3;
-        let lut = &self.lut[p * ROWS..(p + 1) * ROWS];
-        let pick = |ri: usize, c: u32| {
-            let e = lut[ri];
-            let k = self.mask[(c & 0xff) as usize];
-            (e[0] & !k) | (e[1] & k)
+        // The mask is a no-op on these indices (the asserts by `PATHS`); it
+        // lets the compiler drop the bounds check.
+        let rows = [r1 & (ROWS - 1), r2 & (ROWS - 1), r3 & (ROWS - 1)];
+        (p, rows, [path & 0xff, (path >> 8) & 0xff, (path >> 16) & 0xff], ((w >> 47) & 1) as usize)
+    }
+
+    /// The three sections of a word, eight `i8` lanes each, and its gain bit.
+    #[inline(always)]
+    pub fn sections(&self, w: u64) -> ([u64; 3], usize) {
+        let (p, rows, codes, g) = self.locate(w);
+        let lut = &self.lut[p];
+        let pick = |k: usize| {
+            let e = lut[rows[k]];
+            let m = self.mask[codes[k]];
+            (e[0] & !m) | (e[1] & m)
         };
-        ([pick(r1, path), pick(r2, path >> 8), pick(r3, path >> 16)], ((w >> 47) & 1) as usize)
+        ([pick(0), pick(1), pick(2)], g)
+    }
+
+    /// `gscale[g] / ‖y‖` for every gain bit and shell, at `g << 5 | m`: the
+    /// product [`Self::scale`] takes, formed once per matrix call.
+    pub fn scale_table(&self, gscale: &[f32; 2]) -> [f32; 64] {
+        let mut s = [0f32; 64];
+        for (i, v) in s.iter_mut().enumerate() {
+            *v = gscale[i >> 5] * self.invnorm[i & 31];
+        }
+        s
     }
 
     /// The point of a word in trio order, and its gain bit.
@@ -151,10 +251,11 @@ impl Tables {
         (y, g)
     }
 
-    /// `gscale[g] / ‖y‖` from `n2 = ‖y‖²`, through the kernels' table.
+    /// `gscale[g] / ‖y‖` from `n2 = ‖y‖²`, through the kernels' norm table
+    /// folded into [`Self::scale_table`]'s.
     #[inline(always)]
-    fn scale(&self, gscale: &[f32; 2], g: usize, n2: u32) -> f32 {
-        gscale[g] * self.invnorm[((n2 >> 4) & 31) as usize]
+    fn scale(sc: &[f32; 64], g: usize, n2: u32) -> f32 {
+        sc[((g & 1) << 5) | ((n2 >> 4) & 31) as usize]
     }
 
     pub fn order(&self) -> &[usize; DIM] {
@@ -225,13 +326,21 @@ impl TetraMatrix {
 
     /// The tail's contribution to row `r` and the row scale applied.
     #[inline(always)]
-    fn finish(&self, r: usize, acc: f32, x: &[f32]) -> f32 {
-        let mut s = acc * self.rscale[r];
+    pub(crate) fn finish(&self, isa: Isa, r: usize, acc: f32, x: &[f32]) -> f32 {
         let tail = &self.tail[r * self.tail_w..(r + 1) * self.tail_w];
-        for (&h, &v) in tail.iter().zip(&x[self.nblocks * DIM..]) {
-            s = half::f16::from_bits(h).to_f32().mul_add(v, s);
+        let xt = &x[self.nblocks * DIM..];
+        match isa {
+            // SAFETY: as in `tetra_row`.
+            #[cfg(target_arch = "x86_64")]
+            Isa::Avx2 => unsafe { avx2::finish(self.rscale[r], tail, acc, xt) },
+            _ => {
+                let mut s = acc * self.rscale[r];
+                for (&h, &v) in tail.iter().zip(xt) {
+                    s = half::f16::from_bits(h).to_f32().mul_add(v, s);
+                }
+                s
+            }
         }
-        s
     }
 }
 
@@ -241,6 +350,33 @@ fn word_at(row: &[u32], j: usize) -> u64 {
     let w = (3 * j) >> 1;
     let pair = u64::from(row[w]) | u64::from(row[w + 1]) << 32;
     (pair >> (16 * (j & 1))) & 0xffff_ffff_ffff
+}
+
+/// The words of blocks `2i` and `2i + 1`, from the three u32 the two fill:
+/// what [`word_at`] reads, with one load fewer and no bounds check.
+#[inline(always)]
+fn pair_words(w: &[u32; 3]) -> (u64, u64) {
+    let (a, b, c) = (u64::from(w[0]), u64::from(w[1]), u64::from(w[2]));
+    (a | (b & 0xffff) << 32, b >> 16 | c << 16)
+}
+
+/// `f(j, word)` for every block `j` of a row, in order, two at a time. A row
+/// of `n` blocks holds at least `3⌊n/2⌋` u32 ([`TetraMatrix::check`]), and the
+/// odd last block is read by [`word_at`].
+///
+/// The order of the blocks is the order of the sums: one accumulator per row,
+/// as before, so one row and a batch round the same way.
+#[inline(always)]
+fn for_each_word(row: &[u32], nblocks: usize, mut f: impl FnMut(usize, u64)) {
+    let pairs = nblocks / 2;
+    for (i, w) in row[..3 * pairs].as_chunks::<3>().0.iter().enumerate() {
+        let (w0, w1) = pair_words(w);
+        f(2 * i, w0);
+        f(2 * i + 1, w1);
+    }
+    if nblocks % 2 == 1 {
+        f(nblocks - 1, word_at(row, nblocks - 1));
+    }
 }
 
 /// Which SIMD path this CPU takes.
@@ -264,7 +400,12 @@ impl Isa {
             }
             #[cfg(target_arch = "x86_64")]
             {
-                if std::arch::is_x86_feature_detected!("avx2") && std::arch::is_x86_feature_detected!("fma") {
+                // F16C converts the binary16 scales and tails; every CPU with
+                // AVX2 has it, the check costs nothing.
+                if std::arch::is_x86_feature_detected!("avx2")
+                    && std::arch::is_x86_feature_detected!("fma")
+                    && std::arch::is_x86_feature_detected!("f16c")
+                {
                     return Isa::Avx2;
                 }
                 Isa::Scalar
@@ -301,10 +442,10 @@ pub fn available_isas() -> Vec<Isa> {
 // One row against one activation.
 // ---------------------------------------------------------------------------
 
-fn tetra_row_scalar(t: &Tables, row: &[u32], nblocks: usize, gscale: &[f32; 2], x: &[f32]) -> f32 {
+fn tetra_row_scalar(t: &Tables, row: &[u32], nblocks: usize, sc: &[f32; 64], x: &[f32]) -> f32 {
     let mut acc = 0f32;
-    for j in 0..nblocks {
-        let (s, g) = t.sections(word_at(row, j));
+    for_each_word(row, nblocks, |j, w| {
+        let (s, g) = t.sections(w);
         let xb = &x[j * DIM..(j + 1) * DIM];
         let (mut d, mut n2) = (0f32, 0u32);
         for (k, sec) in s.iter().enumerate() {
@@ -314,8 +455,8 @@ fn tetra_row_scalar(t: &Tables, row: &[u32], nblocks: usize, gscale: &[f32; 2], 
                 d = (v as f32).mul_add(xb[SECTION * k + l], d);
             }
         }
-        acc = d.mul_add(t.scale(gscale, g, n2), acc);
-    }
+        acc = d.mul_add(Tables::scale(sc, g, n2), acc);
+    });
     acc
 }
 
@@ -323,43 +464,58 @@ fn tetra_rows_scalar(
     t: &Tables,
     row: &[u32],
     nblocks: usize,
-    gscale: &[f32; 2],
+    sc: &[f32; 64],
     xs: &[f32],
     stride: usize,
     out: &mut [f32],
 ) {
     let n = out.len();
     let mut acc = [0f32; MAX_BATCH];
-    for j in 0..nblocks {
-        let (y, g) = t.decode_trio(word_at(row, j));
+    for_each_word(row, nblocks, |j, w| {
+        let (y, g) = t.decode_trio(w);
         let n2: i32 = y.iter().map(|v| v * v).sum();
-        let sc = t.scale(gscale, g, n2 as u32);
+        let s = Tables::scale(sc, g, n2 as u32);
         for (r, a) in acc.iter_mut().enumerate().take(n) {
             let xb = &xs[r * stride + j * DIM..r * stride + (j + 1) * DIM];
             let mut d = 0f32;
             for (v, &xv) in y.iter().zip(xb) {
                 d = (*v as f32).mul_add(xv, d);
             }
-            *a = d.mul_add(sc, *a);
+            *a = d.mul_add(s, *a);
         }
-    }
+    });
     out.copy_from_slice(&acc[..n]);
 }
 
 #[cfg(target_arch = "aarch64")]
 mod neon {
-    use super::{word_at, Tables, DIM, MAX_BATCH};
+    use super::{for_each_word, Tables, DIM, MAX_BATCH};
     use std::arch::aarch64::*;
+
+    /// [`Tables::sections`] with the candidate select done in vector
+    /// registers: each table row loads as one `uint64x2` (both candidates),
+    /// its mask as one `uint64x1`, and a bit select merges them. Same lanes,
+    /// fewer scalar instructions and no general-to-vector move.
+    #[inline(always)]
+    unsafe fn sections(t: &Tables, w: u64) -> ([int8x8_t; 3], usize) {
+        let (p, rows, codes, g) = t.locate(w);
+        let lut = &t.lut[p];
+        let pick = |k: usize| {
+            let e = vld1q_u64(lut[rows[k]].as_ptr());
+            let m = vld1_u64(&t.mask[codes[k]]);
+            vreinterpret_s8_u64(vbsl_u64(m, vget_high_u64(e), vget_low_u64(e)))
+        };
+        ([pick(0), pick(1), pick(2)], g)
+    }
 
     /// The 24 lanes of a block as three `int16x8`, and `‖y‖²`.
     #[inline(always)]
-    unsafe fn widen(s: [u64; 3]) -> (int16x8_t, int16x8_t, int16x8_t, u32) {
-        let lo = vcombine_s8(vcreate_s8(s[0]), vcreate_s8(s[1]));
-        let a0 = vmovl_s8(vget_low_s8(lo));
-        let a1 = vmovl_high_s8(lo);
-        let a2 = vmovl_s8(vcreate_s8(s[2]));
-        // Each lane holds three squares of at most 11², and the whole sum is
-        // at most 416: both fit an i16.
+    unsafe fn widen(s: [int8x8_t; 3]) -> (int16x8_t, int16x8_t, int16x8_t, u32) {
+        let a0 = vmovl_s8(s[0]);
+        let a1 = vmovl_s8(s[1]);
+        let a2 = vmovl_s8(s[2]);
+        // Each lane holds three squares of at most 16², and the whole sum is
+        // at most 8 · 768 = 6,144: both fit an i16.
         let sq = vmlaq_s16(vmlaq_s16(vmulq_s16(a0, a0), a1, a1), a2, a2);
         (a0, a1, a2, vaddvq_s16(sq) as u16 as u32)
     }
@@ -385,20 +541,20 @@ mod neon {
         vfmaq_f32(d, f[5], vld1q_f32(x.add(20)))
     }
 
-    pub fn row(t: &Tables, row: &[u32], nblocks: usize, gscale: &[f32; 2], x: &[f32]) -> f32 {
+    pub fn row(t: &Tables, row: &[u32], nblocks: usize, sc: &[f32; 64], x: &[f32]) -> f32 {
         assert!(x.len() >= nblocks * DIM);
         // SAFETY: NEON is part of the aarch64 baseline, so the intrinsics are
         // always available; every load reads 24 floats of `x` at block `j`,
         // inside the length asserted above.
         unsafe {
             let mut acc = vdupq_n_f32(0.0);
-            for j in 0..nblocks {
-                let (s, g) = t.sections(word_at(row, j));
+            for_each_word(row, nblocks, |j, w| {
+                let (s, g) = sections(t, w);
                 let (a0, a1, a2, n2) = widen(s);
                 let f = [lo(a0), hi(a0), lo(a1), hi(a1), lo(a2), hi(a2)];
                 let d = dot(&f, x.as_ptr().add(j * DIM));
-                acc = vfmaq_n_f32(acc, d, t.scale(gscale, g, n2));
-            }
+                acc = vfmaq_n_f32(acc, d, Tables::scale(sc, g, n2));
+            });
             vaddvq_f32(acc)
         }
     }
@@ -407,7 +563,7 @@ mod neon {
         t: &Tables,
         row: &[u32],
         nblocks: usize,
-        gscale: &[f32; 2],
+        sc: &[f32; 64],
         xs: &[f32],
         stride: usize,
         out: &mut [f32],
@@ -419,14 +575,69 @@ mod neon {
         // inside the length asserted above.
         unsafe {
             let mut acc = [vdupq_n_f32(0.0); MAX_BATCH];
-            for j in 0..nblocks {
-                let (s, g) = t.sections(word_at(row, j));
+            for_each_word(row, nblocks, |j, w| {
+                let (s, g) = sections(t, w);
                 let (a0, a1, a2, n2) = widen(s);
                 let f = [lo(a0), hi(a0), lo(a1), hi(a1), lo(a2), hi(a2)];
-                let sc = t.scale(gscale, g, n2);
+                let s = Tables::scale(sc, g, n2);
                 for (r, a) in acc.iter_mut().enumerate().take(n) {
                     let d = dot(&f, xs.as_ptr().add(r * stride + j * DIM));
-                    *a = vfmaq_n_f32(*a, d, sc);
+                    *a = vfmaq_n_f32(*a, d, s);
+                }
+            });
+            for (o, a) in out.iter_mut().zip(acc.iter()) {
+                *o = vaddvq_f32(*a);
+            }
+        }
+    }
+
+    /// The 24 lanes of a block of [`super::TetraNib`]: twelve bytes split
+    /// into nibbles, interleaved back into coordinate order, and looked up
+    /// in the parity's sixteen values. The same floats as [`sections`],
+    /// [`widen`], [`lo`] and [`hi`] give for the block's word.
+    ///
+    /// # Safety
+    /// `nib` points at 16 readable bytes, the block's twelve first.
+    #[inline(always)]
+    unsafe fn nib_lanes(t: &Tables, nib: *const u8, h: u8) -> [float32x4_t; 6] {
+        let v = vld1q_u8(nib);
+        let (l, u) = (vandq_u8(v, vdupq_n_u8(0x0f)), vshrq_n_u8(v, 4));
+        let tab = vreinterpretq_s8_u8(vld1q_u8(t.nibval[usize::from(h >> 6) & 1].as_ptr()));
+        // Coordinates 0..16, then 16..24 in the low half.
+        let (y0, y1) = (vqtbl1q_s8(tab, vzip1q_u8(l, u)), vqtbl1q_s8(tab, vzip2q_u8(l, u)));
+        let (a0, a1, a2) = (vmovl_s8(vget_low_s8(y0)), vmovl_high_s8(y0), vmovl_s8(vget_low_s8(y1)));
+        [lo(a0), hi(a0), lo(a1), hi(a1), lo(a2), hi(a2)]
+    }
+
+    pub fn nib_row(t: &Tables, nib: &[u8], hdr: &[u8], sc: &[f32; 64], x: &[f32]) -> f32 {
+        let n = hdr.len();
+        assert!(x.len() >= n * DIM && nib.len() >= n * super::NIB_BYTES + super::NIB_PAD);
+        // SAFETY: NEON baseline; block `j` reads 16 bytes at `12 j`, inside
+        // the pad asserted above, and 24 floats of `x` at `24 j`.
+        unsafe {
+            let mut acc = vdupq_n_f32(0.0);
+            for (j, &h) in hdr.iter().enumerate() {
+                let f = nib_lanes(t, nib.as_ptr().add(j * super::NIB_BYTES), h);
+                let d = dot(&f, x.as_ptr().add(j * DIM));
+                acc = vfmaq_n_f32(acc, d, sc[usize::from(h & 63)]);
+            }
+            vaddvq_f32(acc)
+        }
+    }
+
+    pub fn nib_rows(t: &Tables, nib: &[u8], hdr: &[u8], sc: &[f32; 64], xs: &[f32], stride: usize, out: &mut [f32]) {
+        let (n, nb) = (out.len(), hdr.len());
+        assert!(n <= MAX_BATCH && n > 0 && nib.len() >= nb * super::NIB_BYTES + super::NIB_PAD);
+        assert!(stride >= nb * DIM && xs.len() >= (n - 1) * stride + nb * DIM);
+        // SAFETY: as in `nib_row`; activation `r` is read at `r * stride + 24 j`.
+        unsafe {
+            let mut acc = [vdupq_n_f32(0.0); MAX_BATCH];
+            for (j, &h) in hdr.iter().enumerate() {
+                let f = nib_lanes(t, nib.as_ptr().add(j * super::NIB_BYTES), h);
+                let s = sc[usize::from(h & 63)];
+                for (r, a) in acc.iter_mut().enumerate().take(n) {
+                    let d = dot(&f, xs.as_ptr().add(r * stride + j * DIM));
+                    *a = vfmaq_n_f32(*a, d, s);
                 }
             }
             for (o, a) in out.iter_mut().zip(acc.iter()) {
@@ -435,41 +646,258 @@ mod neon {
         }
     }
 
-    /// `Σ q·x` over one int4 group, `x` deinterleaved: `xe` the even
-    /// elements (low nibbles), `xo` the odd ones (high nibbles).
-    pub fn q4_group(bytes: &[u8], xe: &[f32], xo: &[f32]) -> f32 {
-        assert!(bytes.len().is_multiple_of(16) && xe.len() >= bytes.len() && xo.len() >= bytes.len());
-        // SAFETY: NEON baseline; 16 bytes and 16 floats of each half per step,
-        // inside the lengths asserted above.
-        unsafe {
-            let m = vdupq_n_u8(0x0f);
-            let mut acc = vdupq_n_f32(0.0);
-            for c in (0..bytes.len()).step_by(16) {
-                let v = vld1q_u8(bytes.as_ptr().add(c));
-                let l = vandq_u8(v, m);
-                let h = vshrq_n_u8(v, 4);
-                for (half, xp) in [(l, xe.as_ptr().add(c)), (h, xo.as_ptr().add(c))] {
-                    let w0 = vmovl_u8(vget_low_u8(half));
-                    let w1 = vmovl_high_u8(half);
-                    acc = vfmaq_f32(acc, vcvtq_f32_u32(vmovl_u16(vget_low_u16(w0))), vld1q_f32(xp));
-                    acc = vfmaq_f32(acc, vcvtq_f32_u32(vmovl_high_u16(w0)), vld1q_f32(xp.add(4)));
-                    acc = vfmaq_f32(acc, vcvtq_f32_u32(vmovl_u16(vget_low_u16(w1))), vld1q_f32(xp.add(8)));
-                    acc = vfmaq_f32(acc, vcvtq_f32_u32(vmovl_high_u16(w1)), vld1q_f32(xp.add(12)));
-                }
+    /// `Σ q·x` over one int4 group of `half_g` bytes, `x` deinterleaved:
+    /// `xe` the even elements (low nibbles), `xo` the odd ones (high
+    /// nibbles). Four lanes still to be summed, from four accumulators.
+    #[inline(always)]
+    unsafe fn q4_group(bytes: *const u8, xe: *const f32, xo: *const f32, half_g: usize) -> float32x4_t {
+        let m = vdupq_n_u8(0x0f);
+        let mut s = [vdupq_n_f32(0.0); 4];
+        for c in (0..half_g).step_by(16) {
+            let v = vld1q_u8(bytes.add(c));
+            let l = vandq_u8(v, m);
+            let h = vshrq_n_u8(v, 4);
+            for (half, xp) in [(l, xe.add(c)), (h, xo.add(c))] {
+                let w0 = vmovl_u8(vget_low_u8(half));
+                let w1 = vmovl_high_u8(half);
+                s[0] = vfmaq_f32(s[0], vcvtq_f32_u32(vmovl_u16(vget_low_u16(w0))), vld1q_f32(xp));
+                s[1] = vfmaq_f32(s[1], vcvtq_f32_u32(vmovl_high_u16(w0)), vld1q_f32(xp.add(4)));
+                s[2] = vfmaq_f32(s[2], vcvtq_f32_u32(vmovl_u16(vget_low_u16(w1))), vld1q_f32(xp.add(8)));
+                s[3] = vfmaq_f32(s[3], vcvtq_f32_u32(vmovl_high_u16(w1)), vld1q_f32(xp.add(12)));
             }
-            vaddvq_f32(acc)
+        }
+        vaddq_f32(vaddq_f32(s[0], s[1]), vaddq_f32(s[2], s[3]))
+    }
+
+    /// One int4 row: `Σ_g scale_g · Σ q·x + bias_g · Σ x`, the scaled group
+    /// sums kept in lanes and summed once per row.
+    pub fn q4_row(bytes: &[u8], scales: &[u16], biases: &[u16], half_g: usize, a: &super::Q4Act) -> f32 {
+        let gpr = scales.len();
+        assert!(half_g.is_multiple_of(16) && bytes.len() == gpr * half_g && biases.len() == gpr);
+        assert!(a.xe.len() >= bytes.len() && a.xo.len() >= bytes.len() && a.gsum.len() >= gpr);
+        // SAFETY: NEON baseline; group `g` reads `half_g` bytes and floats of
+        // each half at `g · half_g`, inside the lengths asserted above.
+        unsafe {
+            let mut acc = vdupq_n_f32(0.0);
+            let mut bias = 0f32;
+            for g in 0..gpr {
+                let at = g * half_g;
+                let d = q4_group(bytes.as_ptr().add(at), a.xe.as_ptr().add(at), a.xo.as_ptr().add(at), half_g);
+                acc = vfmaq_n_f32(acc, d, half::f16::from_bits(scales[g]).to_f32());
+                bias = half::f16::from_bits(biases[g]).to_f32().mul_add(a.gsum[g], bias);
+            }
+            vaddvq_f32(acc) + bias
         }
     }
 }
 
 #[cfg(target_arch = "x86_64")]
 mod avx2 {
-    use super::{word_at, Tables, DIM, MAX_BATCH};
+    use super::{word_at, Tables, CLASS_ROWS, DIM, MAX_BATCH, N0_MIXED, PATHS, ROWS};
     use std::arch::x86_64::*;
 
+    // The Tetra rows. Per block the scalar path spends most of its
+    // instructions forming addresses (`Tables::locate`): about 45 integer
+    // operations a block, on a core with four integer ALUs, ahead of a long
+    // dependency chain. Here the addresses of eight blocks are formed at once
+    // in vector registers and stored, a chunk ahead of the decode that reads
+    // them back as plain loads. The decode then selects candidates with a
+    // byte shuffle and takes the norm in integers. Every sum is formed as
+    // before, in the same block order.
+
+    /// Blocks whose addresses one pass forms before it decodes them. A
+    /// multiple of eight; large enough that a block's fields were stored
+    /// some hundred instructions before they are loaded, so the loads read
+    /// the cache and do not wait on store forwarding.
+    const CHUNK: usize = 64;
+
+    /// Where each block of a chunk reads, one array of `CHUNK` per field so
+    /// that eight blocks store as one vector: fields 0 to 2 the byte offsets
+    /// of its three entries in [`super::Lut::flat`] (parity included),
+    /// [`PATH`] its path index, [`GS`] `g << 5`, the gain's half of the
+    /// scale table. Left uninitialised and handled through raw pointers:
+    /// every entry the decode reads was written first, and zeroing 1.25 KiB
+    /// a row would be a cost for nothing.
+    #[repr(C, align(32))]
+    struct Where([[u32; CHUNK]; 5]);
+    const PATH: usize = 3;
+    const GS: usize = 4;
+
+    /// [`Where`] for blocks `b .. b + 8` of a chunk, from the twelve u32 at
+    /// `u` that hold their words: the fields of [`Tables::locate`], formed on
+    /// eight words at once in 32-bit lanes.
+    ///
+    /// # Safety
+    /// AVX2; `u` points at twelve readable u32; `wh` at a [`Where`];
+    /// `b + 8 ≤ CHUNK`.
     #[inline(always)]
-    unsafe fn lanes(s: u64) -> __m256 {
-        _mm256_cvtepi32_ps(_mm256_cvtepi8_epi32(_mm_cvtsi64_si128(s as i64)))
+    unsafe fn prep8(u: *const u32, wh: *mut u32, b: usize) {
+        // Lane 0 of each vector holds pairs 0 and 1 (u32 0..6), lane 1 pairs
+        // 2 and 3 (u32 6..12): x = u32 0..4 | 6..10, y = u32 2..6 | 8..12.
+        let x = _mm256_inserti128_si256(_mm256_castsi128_si256(_mm_loadu_si128(u.cast())), _mm_loadu_si128(u.add(6).cast()), 1);
+        let y = _mm256_inserti128_si256(_mm256_castsi128_si256(_mm_loadu_si128(u.add(2).cast())), _mm_loadu_si128(u.add(8).cast()), 1);
+        let (xf, yf) = (_mm256_castsi256_ps(x), _mm256_castsi256_ps(y));
+        // Word `i` of a lane starts in u32 `a_i` and ends in `c_i`: pair
+        // (a, b, c) holds words a | b << 32 and b >> 16 | c << 16.
+        let a = _mm256_castps_si256(_mm256_shuffle_ps(xf, yf, 0b10_01_01_00));
+        let c = _mm256_castps_si256(_mm256_shuffle_ps(xf, yf, 0b11_10_10_01));
+        let odd = _mm256_setr_epi32(0, 16, 0, 16, 0, 16, 0, 16);
+        // Bits 0..32 of each word, and bits 32..48.
+        let lo = _mm256_or_si256(
+            _mm256_srlv_epi32(a, odd),
+            _mm256_sllv_epi32(c, _mm256_setr_epi32(32, 16, 32, 16, 32, 16, 32, 16)),
+        );
+        let hi = _mm256_and_si256(_mm256_srlv_epi32(c, odd), _mm256_set1_epi32(0xffff));
+
+        let k = |v: u32| _mm256_set1_epi32(v as i32);
+        let (and, or) = (|a, b| _mm256_and_si256(a, b), |a, b| _mm256_or_si256(a, b));
+        let p = and(lo, k(1));
+        let r = and(lo, k(2));
+        // p · ROWS entries of 16 bytes.
+        let pb = _mm256_slli_epi32(p, 16);
+        // i1 = bits 9..20, i2 = bits 24..35, i3 = bits 36..47, all << 4.
+        let i1 = and(_mm256_srli_epi32(lo, 5), k(0x7ff << 4));
+        let i2 = and(or(_mm256_srli_epi32(lo, 24), _mm256_slli_epi32(hi, 8)), k(0x7ff));
+        let i3 = and(hi, k(0x7ff << 4));
+        let delta = _mm256_cmpgt_epi32(i2, k(N0_MIXED as u32 - 1));
+        // Row CLASS_ROWS · r + i1.
+        let o1 = or(or(pb, _mm256_slli_epi32(r, 14)), i1);
+        // Row i2 + δ · (CLASS_ROWS − N0_MIXED).
+        let o2 = _mm256_add_epi32(
+            _mm256_add_epi32(pb, _mm256_slli_epi32(i2, 4)),
+            and(delta, k(((CLASS_ROWS - N0_MIXED) << 4) as u32)),
+        );
+        // Row CLASS_ROWS · (p ^ r ^ δ) + i3.
+        let class3 = _mm256_xor_si256(
+            _mm256_xor_si256(_mm256_slli_epi32(p, 15), _mm256_slli_epi32(r, 14)),
+            and(delta, k(1 << 15)),
+        );
+        let o3 = or(or(pb, class3), i3);
+        // (s8, b1, b2, b3) = bits 2..8, 8, 20..24, 35, as `locate` packs them.
+        let path = or(
+            or(and(_mm256_slli_epi32(lo, 4), k(0xfc0)), and(_mm256_srli_epi32(lo, 3), k(0x20))),
+            or(and(_mm256_srli_epi32(lo, 19), k(0x1e)), and(_mm256_srli_epi32(hi, 3), k(1))),
+        );
+        // The gain bit, bit 47, at bit 5.
+        let gs = and(_mm256_srli_epi32(hi, 10), k(32));
+        let at = |f: usize| wh.add(f * CHUNK + b).cast::<__m256i>();
+        _mm256_storeu_si256(at(0), o1);
+        _mm256_storeu_si256(at(1), o2);
+        _mm256_storeu_si256(at(2), o3);
+        _mm256_storeu_si256(at(PATH), path);
+        _mm256_storeu_si256(at(GS), gs);
+    }
+
+    /// [`Where`] for block `b` of a chunk from its word alone, through
+    /// [`Tables::locate`]: the route of a row's last `nblocks mod 8` blocks.
+    ///
+    /// # Safety
+    /// `wh` points at a [`Where`]; `b < CHUNK`.
+    #[inline(always)]
+    unsafe fn prep1(t: &Tables, w: u64, wh: *mut u32, b: usize) {
+        let (p, rows, _, g) = t.locate(w);
+        for (f, row) in rows.into_iter().enumerate() {
+            wh.add(f * CHUNK + b).write(((p * ROWS + row) << 4) as u32);
+        }
+        let path = ((w >> 2) & 63) << 6 | ((w >> 8) & 1) << 5 | ((w >> 20) & 15) << 1 | ((w >> 35) & 1);
+        wh.add(PATH * CHUNK + b).write(path as u32);
+        wh.add(GS * CHUNK + b).write((g << 5) as u32);
+    }
+
+    /// `‖y‖²` of a block from its selected bytes, in integers. Every lane has
+    /// `|y| ≤ 11` ([`Tables::new`] asserts it), so a square is a byte looked
+    /// up by `|y|`, two squares add in a byte without carry (at most 242),
+    /// and `psadbw` sums each half. Exact, as the f32 sum it replaces was, so
+    /// the scale it indexes is the same; it starts from the bytes, so it does
+    /// not wait for the float conversion, and it needs no saturating
+    /// float-to-int.
+    #[inline(always)]
+    unsafe fn norm2(s: &[__m128i; 3]) -> u32 {
+        let sq = _mm_setr_epi8(0, 1, 4, 9, 16, 25, 36, 49, 64, 81, 100, 121, 0, 0, 0, 0);
+        // Sections 0 and 1 side by side; section 2's high half is zero.
+        let a = _mm_shuffle_epi8(sq, _mm_abs_epi8(_mm_unpacklo_epi64(s[0], s[1])));
+        let b = _mm_shuffle_epi8(sq, _mm_abs_epi8(s[2]));
+        let d = _mm_sad_epu8(_mm_add_epi8(a, b), _mm_setzero_si128());
+        let d = _mm_add_epi32(d, _mm_unpackhi_epi64(d, d));
+        _mm_cvtsi128_si32(d) as u32
+    }
+
+    /// The eight `i8` lanes of a section as f32, exactly.
+    #[inline(always)]
+    unsafe fn lanes(s: __m128i) -> __m256 {
+        _mm256_cvtepi32_ps(_mm256_cvtepi8_epi32(s))
+    }
+
+    /// Block `b` of a chunk: its three lane vectors, and its scale
+    /// `gscale[g] / ‖y‖` in every lane.
+    ///
+    /// Each table entry loads as one 16-byte vector (both candidates), and
+    /// `sel[code]` takes byte `j` or `j + 8` of it into lane `j`, the high
+    /// half zero: [`Tables::sections`] without the scalar merge and the
+    /// general-to-vector move.
+    ///
+    /// # Safety
+    /// AVX2; entry `b` of the [`Where`] at `wh` written by [`prep8`] or
+    /// [`prep1`]. Those store
+    /// every offset as a masked field: a 16-byte multiple below
+    /// `2 · ROWS · 16` (at most `65536 + 32768 + 32752`), a path index below
+    /// `PATHS`, and `g << 5` in `{0, 32}`; so every unchecked read below is
+    /// inside its table. Masks here would cost a constant and an AND per
+    /// read, on the loop that is the token.
+    #[inline(always)]
+    unsafe fn decode(t: &Tables, wh: *const u32, b: usize, sc: &[f32; 64]) -> ([__m256; 3], __m256) {
+        let lut = t.lut.flat().as_ptr().cast::<u8>();
+        let (pi, gs) = (wh.add(PATH * CHUNK + b).read(), wh.add(GS * CHUNK + b).read());
+        debug_assert!((pi as usize) < PATHS && gs <= 32);
+        let path = *t.paths.get_unchecked(pi as usize);
+        let pick = |k: usize, code: u32| {
+            let o = wh.add(k * CHUNK + b).read() as usize;
+            debug_assert!(o < 2 * ROWS * 16 && o.is_multiple_of(16));
+            // Both tables are 64-byte aligned with 16-byte entries.
+            let e = _mm_load_si128(lut.add(o).cast());
+            _mm_shuffle_epi8(e, _mm_load_si128(t.sel.0[(code & 0xff) as usize].as_ptr().cast()))
+        };
+        let s = [pick(0, path), pick(1, path >> 8), pick(2, path >> 16)];
+        let n2 = norm2(&s);
+        let scale = *sc.get_unchecked((gs | ((n2 >> 4) & 31)) as usize);
+        ([lanes(s[0]), lanes(s[1]), lanes(s[2])], _mm256_set1_ps(scale))
+    }
+
+    /// `f(j, lanes, scale)` for every block `j` of a row, in order: one call
+    /// site, so that `f` inlines.
+    ///
+    /// # Safety
+    /// AVX2.
+    #[inline(always)]
+    unsafe fn each_block(
+        t: &Tables,
+        row: &[u32],
+        nblocks: usize,
+        sc: &[f32; 64],
+        mut f: impl FnMut(usize, &[__m256; 3], __m256),
+    ) {
+        // Blocks `8q .. 8q + 8` fill u32 `12q .. 12q + 12`.
+        let grouped = nblocks / 8 * 8;
+        assert!(3 * grouped / 2 <= row.len(), "a row of {} u32 for {nblocks} blocks", row.len());
+        let mut wh = std::mem::MaybeUninit::<Where>::uninit();
+        let wh = wh.as_mut_ptr().cast::<u32>();
+        let mut start = 0;
+        while start < nblocks {
+            let len = (nblocks - start).min(CHUNK);
+            // `start` and `grouped` are multiples of 8, so is `vec`.
+            let vec = grouped.min(start + len) - start;
+            for b in (0..vec).step_by(8) {
+                prep8(row.as_ptr().add(3 * (start + b) / 2), wh, b);
+            }
+            for b in vec..len {
+                prep1(t, word_at(row, start + b), wh, b);
+            }
+            for b in 0..len {
+                let (lanes, scale) = decode(t, wh, b, sc);
+                f(start + b, &lanes, scale);
+            }
+            start += len;
+        }
     }
 
     #[inline(always)]
@@ -477,14 +905,6 @@ mod avx2 {
         let s = _mm_add_ps(_mm256_castps256_ps128(v), _mm256_extractf128_ps(v, 1));
         let s = _mm_add_ps(s, _mm_movehl_ps(s, s));
         _mm_cvtss_f32(_mm_add_ss(s, _mm_shuffle_ps(s, s, 1)))
-    }
-
-    /// The three lane vectors of a block and `‖y‖²`, exact in f32.
-    #[inline(always)]
-    unsafe fn block(s: [u64; 3]) -> ([__m256; 3], u32) {
-        let f = [lanes(s[0]), lanes(s[1]), lanes(s[2])];
-        let sq = _mm256_fmadd_ps(f[2], f[2], _mm256_fmadd_ps(f[1], f[1], _mm256_mul_ps(f[0], f[0])));
-        (f, hsum(sq) as u32)
     }
 
     #[inline(always)]
@@ -497,15 +917,16 @@ mod avx2 {
     /// # Safety
     /// The CPU must have AVX2 and FMA ([`super::Isa::detect`]).
     #[target_feature(enable = "avx2,fma")]
-    pub unsafe fn row(t: &Tables, row: &[u32], nblocks: usize, gscale: &[f32; 2], x: &[f32]) -> f32 {
+    pub unsafe fn row(t: &Tables, row: &[u32], nblocks: usize, sc: &[f32; 64], x: &[f32]) -> f32 {
         assert!(x.len() >= nblocks * DIM);
         let mut acc = _mm256_setzero_ps();
-        for j in 0..nblocks {
-            let (s, g) = t.sections(word_at(row, j));
-            let (f, n2) = block(s);
-            let d = dot(&f, x.as_ptr().add(j * DIM));
-            acc = _mm256_fmadd_ps(d, _mm256_set1_ps(t.scale(gscale, g, n2)), acc);
-        }
+        // `j < nblocks`, so the offsets below stay inside the lengths
+        // asserted; `wrapping_mul` spares the overflow check a profile with
+        // overflow checks would put on every block.
+        each_block(t, row, nblocks, sc, |j, f, s| {
+            let d = dot(f, x.as_ptr().add(j.wrapping_mul(DIM)));
+            acc = _mm256_fmadd_ps(d, s, acc);
+        });
         hsum(acc)
     }
 
@@ -516,7 +937,7 @@ mod avx2 {
         t: &Tables,
         row: &[u32],
         nblocks: usize,
-        gscale: &[f32; 2],
+        sc: &[f32; 64],
         xs: &[f32],
         stride: usize,
         out: &mut [f32],
@@ -525,13 +946,68 @@ mod avx2 {
         assert!(n <= MAX_BATCH && n > 0);
         assert!(stride >= nblocks * DIM && xs.len() >= (n - 1) * stride + nblocks * DIM);
         let mut acc = [_mm256_setzero_ps(); MAX_BATCH];
-        for j in 0..nblocks {
-            let (s, g) = t.sections(word_at(row, j));
-            let (f, n2) = block(s);
-            let sc = _mm256_set1_ps(t.scale(gscale, g, n2));
+        // As in `row`: every offset is inside the lengths asserted above.
+        each_block(t, row, nblocks, sc, |j, f, s| {
+            let xb = xs.as_ptr().add(j.wrapping_mul(DIM));
             for (r, a) in acc.iter_mut().enumerate().take(n) {
-                let d = dot(&f, xs.as_ptr().add(r * stride + j * DIM));
-                *a = _mm256_fmadd_ps(d, sc, *a);
+                let d = dot(f, xb.add(r.wrapping_mul(stride)));
+                *a = _mm256_fmadd_ps(d, s, *a);
+            }
+        });
+        for (o, a) in out.iter_mut().zip(acc.iter()) {
+            *o = hsum(*a);
+        }
+    }
+
+    /// The 24 lanes of a block of [`super::TetraNib`], as `neon::nib_lanes`:
+    /// the same floats [`decode`] gives for the block's word.
+    ///
+    /// # Safety
+    /// AVX2; `nib` points at 16 readable bytes, the block's twelve first.
+    #[inline(always)]
+    unsafe fn nib_lanes(t: &Tables, nib: *const u8, h: u8) -> [__m256; 3] {
+        let m = _mm_set1_epi8(0x0f);
+        let v = _mm_loadu_si128(nib.cast());
+        let (l, u) = (_mm_and_si128(v, m), _mm_and_si128(_mm_srli_epi16(v, 4), m));
+        let tab = _mm_loadu_si128(t.nibval[usize::from(h >> 6) & 1].as_ptr().cast());
+        // Coordinates 0..16, then 16..24 in the low half.
+        let y0 = _mm_shuffle_epi8(tab, _mm_unpacklo_epi8(l, u));
+        let y1 = _mm_shuffle_epi8(tab, _mm_unpackhi_epi8(l, u));
+        [lanes(y0), lanes(_mm_srli_si128(y0, 8)), lanes(y1)]
+    }
+
+    /// # Safety
+    /// The CPU must have AVX2 and FMA ([`super::Isa::detect`]).
+    #[target_feature(enable = "avx2,fma")]
+    pub unsafe fn nib_row(t: &Tables, nib: &[u8], hdr: &[u8], sc: &[f32; 64], x: &[f32]) -> f32 {
+        let n = hdr.len();
+        assert!(x.len() >= n * DIM && nib.len() >= n * super::NIB_BYTES + super::NIB_PAD);
+        let mut acc = _mm256_setzero_ps();
+        // Block `j` reads 16 bytes at `12 j`, inside the pad asserted above,
+        // and 24 floats of `x` at `24 j`.
+        for (j, &h) in hdr.iter().enumerate() {
+            let f = nib_lanes(t, nib.as_ptr().add(j.wrapping_mul(super::NIB_BYTES)), h);
+            let d = dot(&f, x.as_ptr().add(j.wrapping_mul(DIM)));
+            acc = _mm256_fmadd_ps(d, _mm256_set1_ps(sc[usize::from(h & 63)]), acc);
+        }
+        hsum(acc)
+    }
+
+    /// # Safety
+    /// The CPU must have AVX2 and FMA ([`super::Isa::detect`]).
+    #[target_feature(enable = "avx2,fma")]
+    pub unsafe fn nib_rows(t: &Tables, nib: &[u8], hdr: &[u8], sc: &[f32; 64], xs: &[f32], stride: usize, out: &mut [f32]) {
+        let (n, nb) = (out.len(), hdr.len());
+        assert!(n <= MAX_BATCH && n > 0 && nib.len() >= nb * super::NIB_BYTES + super::NIB_PAD);
+        assert!(stride >= nb * DIM && xs.len() >= (n - 1) * stride + nb * DIM);
+        let mut acc = [_mm256_setzero_ps(); MAX_BATCH];
+        for (j, &h) in hdr.iter().enumerate() {
+            let f = nib_lanes(t, nib.as_ptr().add(j.wrapping_mul(super::NIB_BYTES)), h);
+            let s = _mm256_set1_ps(sc[usize::from(h & 63)]);
+            let xb = xs.as_ptr().add(j.wrapping_mul(DIM));
+            for (r, a) in acc.iter_mut().enumerate().take(n) {
+                let d = dot(&f, xb.add(r.wrapping_mul(stride)));
+                *a = _mm256_fmadd_ps(d, s, *a);
             }
         }
         for (o, a) in out.iter_mut().zip(acc.iter()) {
@@ -539,37 +1015,81 @@ mod avx2 {
         }
     }
 
-    /// # Safety
-    /// The CPU must have AVX2 and FMA ([`super::Isa::detect`]).
-    #[target_feature(enable = "avx2,fma")]
-    pub unsafe fn q4_group(bytes: &[u8], xe: &[f32], xo: &[f32]) -> f32 {
-        assert!(bytes.len().is_multiple_of(16) && xe.len() >= bytes.len() && xo.len() >= bytes.len());
+    /// `Σ q·x` over one int4 group of `half_g` bytes, as in `neon`: eight
+    /// lanes still to be summed, from four accumulators.
+    #[inline(always)]
+    unsafe fn q4_group(bytes: *const u8, xe: *const f32, xo: *const f32, half_g: usize) -> __m256 {
         let m = _mm_set1_epi8(0x0f);
-        let mut acc = _mm256_setzero_ps();
-        for c in (0..bytes.len()).step_by(16) {
-            let v = _mm_loadu_si128(bytes.as_ptr().add(c) as *const __m128i);
+        let mut s = [_mm256_setzero_ps(); 4];
+        for c in (0..half_g).step_by(16) {
+            let v = _mm_loadu_si128(bytes.add(c) as *const __m128i);
             let l = _mm_and_si128(v, m);
             let h = _mm_and_si128(_mm_srli_epi16(v, 4), m);
-            for (half, xp) in [(l, xe.as_ptr().add(c)), (h, xo.as_ptr().add(c))] {
+            for (k, (half, xp)) in [(l, xe.add(c)), (h, xo.add(c))].into_iter().enumerate() {
                 let f0 = _mm256_cvtepi32_ps(_mm256_cvtepu8_epi32(half));
                 let f1 = _mm256_cvtepi32_ps(_mm256_cvtepu8_epi32(_mm_srli_si128(half, 8)));
-                acc = _mm256_fmadd_ps(f0, _mm256_loadu_ps(xp), acc);
-                acc = _mm256_fmadd_ps(f1, _mm256_loadu_ps(xp.add(8)), acc);
+                s[2 * k] = _mm256_fmadd_ps(f0, _mm256_loadu_ps(xp), s[2 * k]);
+                s[2 * k + 1] = _mm256_fmadd_ps(f1, _mm256_loadu_ps(xp.add(8)), s[2 * k + 1]);
             }
         }
-        hsum(acc)
+        _mm256_add_ps(_mm256_add_ps(s[0], s[1]), _mm256_add_ps(s[2], s[3]))
+    }
+
+    /// A binary16 value as f32, exactly, by `vcvtph2ps`. `half`'s own
+    /// conversion is a runtime F16C check and an out-of-line call on x86_64,
+    /// twice per int4 group; this is one instruction.
+    #[inline(always)]
+    unsafe fn h2f(bits: u16) -> f32 {
+        _mm_cvtss_f32(_mm_cvtph_ps(_mm_cvtsi32_si128(i32::from(bits))))
+    }
+
+    /// One int4 row, as `neon::q4_row`.
+    ///
+    /// # Safety
+    /// The CPU must have AVX2, FMA and F16C ([`super::Isa::detect`]).
+    #[target_feature(enable = "avx2,fma,f16c")]
+    pub unsafe fn q4_row(bytes: &[u8], scales: &[u16], biases: &[u16], half_g: usize, a: &super::Q4Act) -> f32 {
+        let gpr = scales.len();
+        assert!(half_g.is_multiple_of(16) && bytes.len() == gpr * half_g && biases.len() == gpr);
+        assert!(a.xe.len() >= bytes.len() && a.xo.len() >= bytes.len() && a.gsum.len() >= gpr);
+        let mut acc = _mm256_setzero_ps();
+        let mut bias = 0f32;
+        for g in 0..gpr {
+            let at = g * half_g;
+            let d = q4_group(bytes.as_ptr().add(at), a.xe.as_ptr().add(at), a.xo.as_ptr().add(at), half_g);
+            acc = _mm256_fmadd_ps(d, _mm256_set1_ps(h2f(scales[g])), acc);
+            bias = h2f(biases[g]).mul_add(a.gsum[g], bias);
+        }
+        hsum(acc) + bias
+    }
+
+    /// [`super::TetraMatrix::finish`] for one row: `acc · rscale`, then the
+    /// binary16 tail, one fused multiply-add per weight in order, as the
+    /// generic loop does. There, on x86_64 without the `fma` feature,
+    /// `mul_add` is a call to `fmaf` and each conversion a call too; here
+    /// both are one instruction, with the same roundings.
+    ///
+    /// # Safety
+    /// The CPU must have AVX2, FMA and F16C ([`super::Isa::detect`]).
+    #[target_feature(enable = "avx2,fma,f16c")]
+    pub unsafe fn finish(rscale: f32, tail: &[u16], acc: f32, xt: &[f32]) -> f32 {
+        let mut s = acc * rscale;
+        for (&h, &v) in tail.iter().zip(xt) {
+            s = h2f(h).mul_add(v, s);
+        }
+        s
     }
 }
 
-fn tetra_row(isa: Isa, t: &Tables, row: &[u32], nblocks: usize, gscale: &[f32; 2], x: &[f32]) -> f32 {
+fn tetra_row(isa: Isa, t: &Tables, row: &[u32], nblocks: usize, sc: &[f32; 64], x: &[f32]) -> f32 {
     match isa {
-        Isa::Scalar => tetra_row_scalar(t, row, nblocks, gscale, x),
+        Isa::Scalar => tetra_row_scalar(t, row, nblocks, sc, x),
         #[cfg(target_arch = "aarch64")]
-        Isa::Neon => neon::row(t, row, nblocks, gscale, x),
+        Isa::Neon => neon::row(t, row, nblocks, sc, x),
         // SAFETY: `Isa::Avx2` is only produced where the CPU reports both
         // features (`Isa::detect`).
         #[cfg(target_arch = "x86_64")]
-        Isa::Avx2 => unsafe { avx2::row(t, row, nblocks, gscale, x) },
+        Isa::Avx2 => unsafe { avx2::row(t, row, nblocks, sc, x) },
     }
 }
 
@@ -579,32 +1099,18 @@ fn tetra_rows(
     t: &Tables,
     row: &[u32],
     nblocks: usize,
-    gscale: &[f32; 2],
+    sc: &[f32; 64],
     xs: &[f32],
     stride: usize,
     out: &mut [f32],
 ) {
     match isa {
-        Isa::Scalar => tetra_rows_scalar(t, row, nblocks, gscale, xs, stride, out),
+        Isa::Scalar => tetra_rows_scalar(t, row, nblocks, sc, xs, stride, out),
         #[cfg(target_arch = "aarch64")]
-        Isa::Neon => neon::rows(t, row, nblocks, gscale, xs, stride, out),
+        Isa::Neon => neon::rows(t, row, nblocks, sc, xs, stride, out),
         // SAFETY: as in `tetra_row`.
         #[cfg(target_arch = "x86_64")]
-        Isa::Avx2 => unsafe { avx2::rows(t, row, nblocks, gscale, xs, stride, out) },
-    }
-}
-
-fn q4_group(isa: Isa, bytes: &[u8], xe: &[f32], xo: &[f32]) -> f32 {
-    if !bytes.len().is_multiple_of(16) {
-        return q4_group_scalar(bytes, xe, xo);
-    }
-    match isa {
-        Isa::Scalar => q4_group_scalar(bytes, xe, xo),
-        #[cfg(target_arch = "aarch64")]
-        Isa::Neon => neon::q4_group(bytes, xe, xo),
-        // SAFETY: as in `tetra_row`.
-        #[cfg(target_arch = "x86_64")]
-        Isa::Avx2 => unsafe { avx2::q4_group(bytes, xe, xo) },
+        Isa::Avx2 => unsafe { avx2::rows(t, row, nblocks, sc, xs, stride, out) },
     }
 }
 
@@ -658,13 +1164,14 @@ fn chunk_rows(d_out: usize) -> usize {
 pub fn tetra_matvec(isa: Isa, t: &Tables, m: &TetraMatrix, xp: &[f32], y: &mut [f32]) {
     assert_eq!(xp.len(), m.d_in);
     assert_eq!(y.len(), m.d_out);
+    let sc = t.scale_table(&m.gscale);
     let c = chunk_rows(m.d_out);
     pool().install(|| {
         y.par_chunks_mut(c).enumerate().for_each(|(ci, ys)| {
             for (k, yo) in ys.iter_mut().enumerate() {
                 let r = ci * c + k;
-                let acc = tetra_row(isa, t, m.row(r), m.nblocks, &m.gscale, xp);
-                *yo = m.finish(r, acc, xp);
+                let acc = tetra_row(isa, t, m.row(r), m.nblocks, &sc, xp);
+                *yo = m.finish(isa, r, acc, xp);
             }
         })
     });
@@ -675,6 +1182,7 @@ pub fn tetra_matvec(isa: Isa, t: &Tables, m: &TetraMatrix, xp: &[f32], y: &mut [
 pub fn tetra_matvec_rows(isa: Isa, t: &Tables, m: &TetraMatrix, xs: &[f32], n: usize, y: &mut [f32]) {
     assert_eq!(xs.len(), n * m.d_in);
     assert_eq!(y.len(), n * m.d_out);
+    let sc = t.scale_table(&m.gscale);
     let c = chunk_rows(m.d_out);
     let mut yt = vec![0f32; n * m.d_out];
     pool().install(|| {
@@ -685,10 +1193,10 @@ pub fn tetra_matvec_rows(isa: Isa, t: &Tables, m: &TetraMatrix, xs: &[f32], n: u
                 while start < n {
                     let len = (n - start).min(MAX_BATCH);
                     let o = &mut out[start..start + len];
-                    tetra_rows(isa, t, m.row(r), m.nblocks, &m.gscale, &xs[start * m.d_in..], m.d_in, o);
+                    tetra_rows(isa, t, m.row(r), m.nblocks, &sc, &xs[start * m.d_in..], m.d_in, o);
                     for (i, v) in o.iter_mut().enumerate() {
                         let x = &xs[(start + i) * m.d_in..(start + i + 1) * m.d_in];
-                        *v = m.finish(r, *v, x);
+                        *v = m.finish(isa, r, *v, x);
                     }
                     start += len;
                 }
@@ -696,6 +1204,206 @@ pub fn tetra_matvec_rows(isa: Isa, t: &Tables, m: &TetraMatrix, xs: &[f32], n: u
         })
     });
     // `yt` is `[d_out, n]`; the caller wants `[n, d_out]`.
+    for r in 0..m.d_out {
+        for i in 0..n {
+            y[i * m.d_out + r] = yt[r * n + i];
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// The same points, decoded once: four bits a coordinate.
+// ---------------------------------------------------------------------------
+
+/// Bytes of nibbles a block holds: 24 coordinates, four bits each.
+const NIB_BYTES: usize = DIM / 2;
+
+/// Bytes past the last block of [`TetraNib::nib`]: the SIMD rows load 16
+/// bytes at a block of 12.
+const NIB_PAD: usize = 16 - NIB_BYTES;
+
+/// The codes of a [`TetraMatrix`] decoded once into four bits a coordinate.
+///
+/// In a block of parity `p` a coordinate is `val(p + 2·bit, rank)` with a
+/// rank below eight: sixteen values, a nibble. The block's parity, its gain
+/// bit and its shell go in one header byte. That is 4.33 bits a weight where
+/// the served words hold 2, and a row needs no table walk: twelve bytes, one
+/// sixteen-entry lookup, the dot product. The lanes and the scale are the
+/// ones [`Tables::sections`] and [`Tables::scale`] give, and every sum is
+/// formed in the same order, so a matvec over nibbles equals the matvec over
+/// words bit for bit on each SIMD path.
+///
+/// Row scales and tails stay in the [`TetraMatrix`] it was expanded from.
+pub struct TetraNib {
+    nblocks: usize,
+    /// `d_out × nblocks × 12` bytes and [`NIB_PAD`]: coordinate `t` of a
+    /// block, in trio order, is nibble `t & 1` of its byte `t / 2`.
+    nib: Vec<u8>,
+    /// `d_out × nblocks`: `p << 6 | g << 5 | shell`, the low six bits the
+    /// index [`Tables::scale_table`] is read at.
+    hdr: Vec<u8>,
+}
+
+impl TetraNib {
+    /// Every word of `m` decoded, rows across the pool.
+    pub fn expand(t: &Tables, m: &TetraMatrix) -> Self {
+        let per = m.nblocks;
+        let mut nib = vec![0u8; m.d_out * per * NIB_BYTES + NIB_PAD];
+        let mut hdr = vec![0u8; m.d_out * per];
+        if per == 0 {
+            return Self { nblocks: 0, nib, hdr };
+        }
+        // The nibble of each value, per parity: the two progressions of a
+        // parity are disjoint, so a value has one nibble.
+        let mut inv = [[0xffu8; 64]; 2];
+        for (p, row) in inv.iter_mut().enumerate() {
+            for (n, &v) in t.nibval[p].iter().enumerate() {
+                row[(i32::from(v as i8) + 32) as usize] = n as u8;
+            }
+        }
+        pool().install(|| {
+            nib[..m.d_out * per * NIB_BYTES].par_chunks_mut(per * NIB_BYTES).zip(hdr.par_chunks_mut(per)).enumerate().for_each(
+                |(r, (nr, hr))| {
+                    for_each_word(m.row(r), per, |j, w| {
+                        let (y, g) = t.decode_trio(w);
+                        let p = (w & 1) as usize;
+                        let mut n2 = 0u32;
+                        for (k, &v) in y.iter().enumerate() {
+                            n2 += (v * v) as u32;
+                            let n = inv[p][((v + 32) & 63) as usize];
+                            assert!(n < 16, "word {w:#014x}: coordinate {v} is not a value of parity {p}");
+                            nr[j * NIB_BYTES + k / 2] |= n << (4 * (k & 1));
+                        }
+                        hr[j] = (p as u8) << 6 | (g as u8 & 1) << 5 | ((n2 >> 4) & 31) as u8;
+                    });
+                },
+            )
+        });
+        Self { nblocks: per, nib, hdr }
+    }
+
+    /// Bytes the nibbles and headers hold in memory.
+    pub fn bytes(&self) -> u64 {
+        (self.nib.len() + self.hdr.len()) as u64
+    }
+
+    /// The nibbles of row `r`, [`NIB_PAD`] readable bytes past them, and its
+    /// headers.
+    #[inline(always)]
+    fn row(&self, r: usize) -> (&[u8], &[u8]) {
+        let n = self.nblocks;
+        (&self.nib[r * n * NIB_BYTES..(r + 1) * n * NIB_BYTES + NIB_PAD], &self.hdr[r * n..(r + 1) * n])
+    }
+}
+
+/// Coordinate `k` of a block, from its twelve bytes and its value table.
+#[inline(always)]
+fn nib_coord(tab: &[u8; 16], b: &[u8], k: usize) -> f32 {
+    f32::from(tab[((b[k / 2] >> (4 * (k & 1))) & 15) as usize] as i8)
+}
+
+fn nib_row_scalar(t: &Tables, nib: &[u8], hdr: &[u8], sc: &[f32; 64], x: &[f32]) -> f32 {
+    let mut acc = 0f32;
+    for (j, &h) in hdr.iter().enumerate() {
+        let tab = &t.nibval[usize::from(h >> 6) & 1];
+        let (b, xb) = (&nib[j * NIB_BYTES..(j + 1) * NIB_BYTES], &x[j * DIM..(j + 1) * DIM]);
+        let mut d = 0f32;
+        for (k, &xv) in xb.iter().enumerate() {
+            d = nib_coord(tab, b, k).mul_add(xv, d);
+        }
+        acc = d.mul_add(sc[usize::from(h & 63)], acc);
+    }
+    acc
+}
+
+fn nib_rows_scalar(t: &Tables, nib: &[u8], hdr: &[u8], sc: &[f32; 64], xs: &[f32], stride: usize, out: &mut [f32]) {
+    let n = out.len();
+    let mut acc = [0f32; MAX_BATCH];
+    for (j, &h) in hdr.iter().enumerate() {
+        let tab = &t.nibval[usize::from(h >> 6) & 1];
+        let b = &nib[j * NIB_BYTES..(j + 1) * NIB_BYTES];
+        let y: [f32; DIM] = std::array::from_fn(|k| nib_coord(tab, b, k));
+        let s = sc[usize::from(h & 63)];
+        for (r, a) in acc.iter_mut().enumerate().take(n) {
+            let xb = &xs[r * stride + j * DIM..r * stride + (j + 1) * DIM];
+            let mut d = 0f32;
+            for (v, &xv) in y.iter().zip(xb) {
+                d = v.mul_add(xv, d);
+            }
+            *a = d.mul_add(s, *a);
+        }
+    }
+    out.copy_from_slice(&acc[..n]);
+}
+
+fn nib_row(isa: Isa, t: &Tables, nib: &[u8], hdr: &[u8], sc: &[f32; 64], x: &[f32]) -> f32 {
+    match isa {
+        Isa::Scalar => nib_row_scalar(t, nib, hdr, sc, x),
+        #[cfg(target_arch = "aarch64")]
+        Isa::Neon => neon::nib_row(t, nib, hdr, sc, x),
+        // SAFETY: as in `tetra_row`.
+        #[cfg(target_arch = "x86_64")]
+        Isa::Avx2 => unsafe { avx2::nib_row(t, nib, hdr, sc, x) },
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn nib_rows(isa: Isa, t: &Tables, nib: &[u8], hdr: &[u8], sc: &[f32; 64], xs: &[f32], stride: usize, out: &mut [f32]) {
+    match isa {
+        Isa::Scalar => nib_rows_scalar(t, nib, hdr, sc, xs, stride, out),
+        #[cfg(target_arch = "aarch64")]
+        Isa::Neon => neon::nib_rows(t, nib, hdr, sc, xs, stride, out),
+        // SAFETY: as in `tetra_row`.
+        #[cfg(target_arch = "x86_64")]
+        Isa::Avx2 => unsafe { avx2::nib_rows(t, nib, hdr, sc, xs, stride, out) },
+    }
+}
+
+/// [`tetra_matvec`] over the nibbles of `m`: the same `y`, bit for bit.
+pub fn tetra_nib_matvec(isa: Isa, t: &Tables, m: &TetraMatrix, nb: &TetraNib, xp: &[f32], y: &mut [f32]) {
+    assert_eq!(xp.len(), m.d_in);
+    assert_eq!(y.len(), m.d_out);
+    assert!(nb.nblocks == m.nblocks && nb.hdr.len() == m.d_out * m.nblocks, "nibbles of another matrix");
+    let sc = t.scale_table(&m.gscale);
+    let c = chunk_rows(m.d_out);
+    pool().install(|| {
+        y.par_chunks_mut(c).enumerate().for_each(|(ci, ys)| {
+            for (k, yo) in ys.iter_mut().enumerate() {
+                let r = ci * c + k;
+                let (nib, hdr) = nb.row(r);
+                *yo = m.finish(isa, r, nib_row(isa, t, nib, hdr, &sc, xp), xp);
+            }
+        })
+    });
+}
+
+/// [`tetra_matvec_rows`] over the nibbles of `m`: the same `Y`, bit for bit.
+pub fn tetra_nib_matvec_rows(isa: Isa, t: &Tables, m: &TetraMatrix, nb: &TetraNib, xs: &[f32], n: usize, y: &mut [f32]) {
+    assert_eq!(xs.len(), n * m.d_in);
+    assert_eq!(y.len(), n * m.d_out);
+    assert!(nb.nblocks == m.nblocks && nb.hdr.len() == m.d_out * m.nblocks, "nibbles of another matrix");
+    let sc = t.scale_table(&m.gscale);
+    let c = chunk_rows(m.d_out);
+    let mut yt = vec![0f32; n * m.d_out];
+    pool().install(|| {
+        yt.par_chunks_mut(c * n).enumerate().for_each(|(ci, ys)| {
+            for (k, out) in ys.chunks_mut(n).enumerate() {
+                let r = ci * c + k;
+                let (nib, hdr) = nb.row(r);
+                let mut start = 0;
+                while start < n {
+                    let len = (n - start).min(MAX_BATCH);
+                    let o = &mut out[start..start + len];
+                    nib_rows(isa, t, nib, hdr, &sc, &xs[start * m.d_in..], m.d_in, o);
+                    for (i, v) in o.iter_mut().enumerate() {
+                        let x = &xs[(start + i) * m.d_in..(start + i + 1) * m.d_in];
+                        *v = m.finish(isa, r, *v, x);
+                    }
+                    start += len;
+                }
+            }
+        })
+    });
     for r in 0..m.d_out {
         for i in 0..n {
             y[i * m.d_out + r] = yt[r * n + i];
@@ -768,18 +1476,36 @@ impl Q4Act {
     }
 }
 
-fn q4_row(isa: Isa, m: &Q4Matrix, r: usize, a: &Q4Act) -> f32 {
-    let (half_row, half_g, gpr) = (m.d_in / 2, m.group / 2, m.d_in / m.group);
-    let bytes = &m.packed[r * half_row..(r + 1) * half_row];
+/// One int4 row, the reference order: per group, the bias term then the
+/// scaled sum, into one scalar.
+fn q4_row_scalar(bytes: &[u8], scales: &[u16], biases: &[u16], half_g: usize, a: &Q4Act) -> f32 {
     let mut acc = 0f32;
-    for g in 0..gpr {
+    for (g, (&s, &b)) in scales.iter().zip(biases).enumerate() {
         let at = g * half_g;
-        let d = q4_group(isa, &bytes[at..at + half_g], &a.xe[at..at + half_g], &a.xo[at..at + half_g]);
-        let s = half::f16::from_bits(m.scales[r * gpr + g]).to_f32();
-        let b = half::f16::from_bits(m.biases[r * gpr + g]).to_f32();
+        let d = q4_group_scalar(&bytes[at..at + half_g], &a.xe[at..at + half_g], &a.xo[at..at + half_g]);
+        let (s, b) = (half::f16::from_bits(s).to_f32(), half::f16::from_bits(b).to_f32());
         acc = s.mul_add(d, b.mul_add(a.gsum[g], acc));
     }
     acc
+}
+
+fn q4_row(isa: Isa, m: &Q4Matrix, r: usize, a: &Q4Act) -> f32 {
+    let (half_row, half_g, gpr) = (m.d_in / 2, m.group / 2, m.d_in / m.group);
+    let bytes = &m.packed[r * half_row..(r + 1) * half_row];
+    let (scales, biases) = (&m.scales[r * gpr..(r + 1) * gpr], &m.biases[r * gpr..(r + 1) * gpr]);
+    // The SIMD rows step 16 bytes at a time; a group of another width takes
+    // the scalar row.
+    if !half_g.is_multiple_of(16) {
+        return q4_row_scalar(bytes, scales, biases, half_g, a);
+    }
+    match isa {
+        Isa::Scalar => q4_row_scalar(bytes, scales, biases, half_g, a),
+        #[cfg(target_arch = "aarch64")]
+        Isa::Neon => neon::q4_row(bytes, scales, biases, half_g, a),
+        // SAFETY: as in `tetra_row`.
+        #[cfg(target_arch = "x86_64")]
+        Isa::Avx2 => unsafe { avx2::q4_row(bytes, scales, biases, half_g, a) },
+    }
 }
 
 /// `y = W x` for one int4 matrix and one activation in the natural basis.

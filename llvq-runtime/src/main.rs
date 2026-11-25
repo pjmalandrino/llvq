@@ -117,8 +117,11 @@ fn ago(secs: u64) -> String {
     }
 }
 
-/// One progress line on stderr, rewritten in place.
+/// One progress line on stderr, rewritten in place, with the rate since the
+/// first progress event of this pull (a resumed file counts from where it
+/// resumed).
 fn progress(e: &PullEvent) {
+    thread_local!(static FIRST: std::cell::Cell<Option<(std::time::Instant, u64)>> = const { std::cell::Cell::new(None) });
     match e {
         PullEvent::Status(s) => eprintln!("\r\x1b[K{s}"),
         PullEvent::Progress { digest, total, completed } => {
@@ -126,8 +129,18 @@ fn progress(e: &PullEvent) {
                 0 => 100.0,
                 t => *completed as f64 * 100.0 / t as f64,
             };
+            let (t0, from) = FIRST.with(|f| {
+                let first = f.get().unwrap_or((std::time::Instant::now(), *completed));
+                f.set(Some(first));
+                first
+            });
+            let secs = t0.elapsed().as_secs_f64();
+            let rate = match secs > 0.5 {
+                true => format!(", {}/s", human((completed.saturating_sub(from) as f64 / secs) as u64)),
+                false => String::new(),
+            };
             eprint!(
-                "\r\x1b[Kpulling {}… {pct:3.0}% {} / {}",
+                "\r\x1b[Kpulling {}… {pct:3.0}% {} / {}{rate}",
                 &digest[7..digest.len().min(19)],
                 human(*completed),
                 human(*total)
@@ -268,7 +281,7 @@ fn show(client: &Client, model: &str) -> anyhow::Result<()> {
 
 fn stop(client: &Client, model: &str) -> anyhow::Result<()> {
     let n = name(model)?;
-    anyhow::ensure!(client.alive(), "no llvq server answers at {}", client.base());
+    anyhow::ensure!(client.alive(), "no llvq server answers at {}, so no model is loaded", client.base());
     client.send("POST", "/api/generate", &json!({ "model": n.to_string(), "keep_alive": 0, "stream": false }))?;
     Ok(())
 }

@@ -1,0 +1,17 @@
+Here's a Python function that returns the n-th Fibonacci number:
+
+```python
+def fibonacci(n):
+    a, b = 0, 1
+    for _ in range(n):
+        a, b = b, a + b
+    return a
+```
+
+This function calculates the Fibonacci sequence iteratively using two variables to store the last two numbers. It iterates n times to reach the n-th number. The function returns the n-th Fibonacci number, starting with the 0th Fibonacci number being 0 and the 1st being 1.
+
+The function is efficient and runs in O(n) time complexity, making it suitable for large values of n.
+
+prompt: 31 tokens (3 cached) in 13.33 s
+answer: 136 tokens in 268.89 s, 0.5 tok/s (this client's rate, not a measurement)
+end: stop

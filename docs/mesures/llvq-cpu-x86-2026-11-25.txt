@@ -1,0 +1,195 @@
+THE CPU ARCHIVE ON A PLAIN x86_64 MACHINE: IT INSTALLS AND ANSWERS, AT 0.5 TO 0.6 TOK/S ON THE 4B; THE AVX2 TETRA MATVEC IS THE CAUSE (2026-11-25)
+====================================================================================================================================================
+Why:    no CPU archive of `llvq` had ever been built, and the AVX2 path of llvq-llm/src/tetra_cpu.rs had passed tests
+        in CI without ever being timed or generating a token.
+Cost:   $0.03, *estimated* from the wall times at $0.03 an hour: three jobs on the Hugging Face flavor cpu-upgrade.
+Machine: 8 vCPU of an AMD EPYC 7R13 (Zen 3, 2 threads a core, KVM), 32 GB, shared. AVX2 and FMA, no AVX-512.
+Object: llvq-0.1.2-linux-x86_64-cpu.tar.gz, 5,232,018 bytes, built by the workflow `llvq archives` (run
+        45503744535) from the branch of pull request 51 at a0a4153d42e2, profile dist. qwen3:4b and qwen3:8b pulled
+        by name at the library's pins.
+Preregs: proofs/preregistration-llvq-cpu-install-2026-11-25.md, proofs/preregistration-cpu-matvec-x86-2026-11-25.md.
+Raw:    docs/mesures/llvq-cpu-install-2026-11-25-brut/, docs/mesures/cpu-matvec-x86-2026-11-25-brut/.
+Nature: every time and rate *measured*, one run each, no interval; the per-token sums *computed* by the bench.
+
+JOB 1, llvq-cpu-install (6b0615aad0582cfbbefd2fae), image ubuntu:22.04, no compiler, no GPU
+-----------------------------------------------------------------------------------------
+  install.sh picked linux-x86_64-cpu by itself; `llvq -v` = 0.1.2 (a0a4153d42e2).             PASS
+  `llvq run inkling2:mini`: "Inkling 2 has no CPU path; this llvq is a CPU build."              PASS
+  qwen3:4b, three prompts: right answers in readable English.                                  PASS
+  Verdict against the prereg's criterion: PASS.
+
+  pull of inkling2:mini, 8,145,313,108 bytes, no server    LLVQ_PULL_JOBS=4   60.8 s      =1   165.1 s
+  qwen3:4b   prompt 24-31 tokens in 12.5-13.3 s    answers of 2, 136, 160 tokens at 0.5, 0.5, 0.6 tok/s
+             server peak resident memory 1.87 GB (VmHWM 1,870,516 kB)
+  qwen3:8b   prompt 27 tokens in 21.9 s            152 tokens at 0.3 tok/s    peak resident memory 4.82 GB
+  server:    "cpu: avx2+fma SIMD on 8 threads"
+
+  Predictions: PASS at 0.7, held. The 4B at 3 to 7 tok/s: WRONG by a factor of six. Peak memory 1.8 to 2.4 GB:
+  held. The pull at four files 1.0 to 1.5 times faster: WRONG, it was 2.7 times faster; one reading, the four-file
+  arm first. The 8B answers at 0.45 to 0.6 of the 4B's rate: held (0.5 to 0.6).
+  The 8B's peak includes the 4B the server had held before it; it is an upper bound, not the 8B's own figure.
+
+JOB 2, cpu-matvec-x86 (6b062331d0582cfbbefd4039): stopped at "cargo: command not found" before any measurement.
+JOB 3, cpu-matvec-x86 retry 2 (6b06256d1460ffe1d5e9592d), image rust:1.95.0-bookworm
+---------------------------------------------------------------------------------
+  The six correctness tests of cpu_tetra pass on this CPU's AVX2 path.
+  ns per call, median of 7 rounds. before = main 4071f5d + the bench commit; after = the branch at f8f27a0.
+
+  site                         1 thread before      after    4 threads after    8 threads before      after
+  tetra q_proj 4096x2560          11,163,115    8,564,692       9,136,812          9,688,877    6,036,634
+  tetra gate/up 9728x2560         23,139,536   27,710,837      16,920,691         17,668,308   19,800,342
+  int4 g128 down 2560x9728         7,176,681    5,192,312       3,063,793          5,556,071    3,360,594
+  int4 g64 head 151936x2560      167,621,724   81,831,372      56,669,772        119,905,135   65,177,041
+  one 4B token (computed)           3,119 ms     3,082 ms        2,123 ms           2,453 ms     2,231 ms
+
+  Reading, by the prereg's rule: the 8-thread sum is above 1.2 s, so the matvecs explain the 1.75 s a token of job 1.
+  Three facts in it:
+  1. The kernel change of 2026-11-25 does nothing for Tetra on AVX2 (3,119 to 3,082 ms at one thread). It helps
+     int4: the head is 2.0 times faster, g128 down 1.4 times.
+  2. Against the same code on one NEON core of an M3 Max (docs/mesures/cpu-tetra-speed-2026-11-25.txt), int4 is
+     3.1 times slower here and Tetra 6.4 to 8.6 times slower. The AVX2 Tetra decode carries a factor of 2 to 3 of
+     its own on top of the machine.
+  3. Threads barely help on this machine: 8 threads give 1.4 times one thread on the token sum, where the Mac
+     gives 5.6. The rounds spread by a factor of two. Whether that is the shared virtual machine or our row
+     splitting is not known from this run.
+
+Not known: the rate on a desktop x86 CPU with its own cores. The 14B has never run on any CPU.
+
+JOB 4, cpu-matvec-x86-arms (6b063689d0582cfbbefd5aa4): three arms of the AVX2 kernel in one job
+----------------------------------------------------------------------------------------------
+Prereg: proofs/preregistration-cpu-matvec-x86-arms-2026-11-25.md. Raw: docs/mesures/cpu-matvec-x86-arms-2026-11-25-brut/.
+Same flavor and the same CPU model as job 3, another instance. Steal time read in /proc/stat: 0.0 % on every arm.
+The six tests of cpu_tetra pass on the three arms.
+
+  one 4B token, ms (computed by the bench)      1 thread    4 threads    8 threads
+  f8f27a0   the kernel of job 3                    2,009         576          315      again at the end, 1 thread: 1,763
+  d47526c   byte-shuffle select, integer norm      1,146         393          227
+  b4a6684   + eight addresses at once                984         327          182
+
+  ns per call at 8 threads        f8f27a0      d47526c      b4a6684
+  tetra q_proj 4096x2560        1,136,189      762,593      605,385
+  tetra gate/up 9728x2560       2,434,292    1,738,847    1,336,828
+  int4 g128 down 2560x9728        638,444      604,215      527,571
+  int4 g64 head 151936x2560     9,777,237    7,604,115    8,037,676
+
+  By the prereg's rule: the first arm drifted by 12 % between its two one-thread runs. d47526c beats it by 1.75
+  times at one thread and b4a6684 by 2.04; b4a6684 beats d47526c by 14 %, 17 % and 20 % at 1, 4 and 8 threads, above
+  the drift each time. The branch keeps b4a6684. At 8 threads the token sum goes from 315 to 182 ms, 1.73 times.
+  Predictions: the tests pass, held. d47526c 1.2 to 1.6 times faster at one thread: it is 1.75, above the range.
+  b4a6684 faster than d47526c (0.5): yes. The best arm stays above 1.0 s at 8 threads (0.7): WRONG, it is 0.18 s.
+
+  THE MACHINE OF JOBS 1 AND 3 WAS THE OUTLIER. The same commit f8f27a0 on the same flavor read 2,231 ms a token at
+  8 threads in job 3 and 315 ms here, seven times less, and threads now give 6.4 times at eight where they gave 1.4.
+  The 0.5 to 0.6 tok/s of job 1 is what that instance did that hour, not what the kernel does on this CPU. Job 1's
+  rate is to be read again on an archive built from b4a6684.
+
+JOB 5, llvq-cpu-install retry 2 (6b063b3cd0582cfbbefd6251): the archive with the kernel of b4a6684, end to end
+-----------------------------------------------------------------------------------------------------------
+Deviation E1 of the install prereg. Archive built from 532c56e (workflow run 45525372204), `llvq -v` = 0.1.2
+(774ee34cb665). Same script, same flavor, AMD EPYC 7R13, 8 vCPU. Raw: docs/mesures/llvq-cpu-install-2026-11-25-r2-brut/.
+Verdict against the criterion: PASS (flavor picked, Inkling refused by name, three right answers).
+
+                                         job 1 (f8f27a0's kernel, outlier instance)    job 5 (b4a6684's kernel)
+  pull inkling2:mini, 4 files at once            60.8 s                                   18.6 s
+  pull inkling2:mini, 1 file at a time          165.1 s                                   49.0 s
+  qwen3:4b  prompt of 24-31 tokens           12.5-13.3 s                                2.4-3.0 s
+  qwen3:4b  answers                     0.5, 0.5, 0.6 tok/s               3.3 (2 tokens), 3.0 (155), 2.1 (146) tok/s
+  qwen3:4b  server peak resident memory          1.87 GB                                  1.87 GB
+  qwen3:8b  one answer                           0.3 tok/s                                1.9 tok/s (147 tokens)
+  qwen3:8b  peak, the 4B held before it          4.82 GB                                  4.81 GB
+
+  The two jobs differ by the kernel AND by the instance: no factor between their columns is the kernel's. The
+  kernel's own factor is job 4's, 1.73 at 8 threads on one instance.
+  The pull at four files is 2.7 and 2.6 times faster than at one in the two jobs, the four-file arm first each time.
+  Prediction of E1, 2.5 to 5 tok/s on the 4B: held on two answers of three; the third read 2.1.
+  The matvecs of a 4B token cost 182 ms at 8 threads in job 4, which alone would be 5.5 tok/s. The served rate is
+  2.1 to 3.0: between 150 and 290 ms a token are spent outside the matvecs, or the instance was slower. Not
+  attributed. That is the next thing to read on the CPU path.
+  The rates are the client's, streaming included, one run each on a shared virtual machine: readings, not medians.
+
+JOB 6, cpu-phases-x86 (6b069ca11460ffe1d5ea37cc): a 4B token split by part, on the real file, one instance
+-------------------------------------------------------------------------------------------------------
+Prereg: proofs/preregistration-cpu-phases-x86-2026-11-25.md. Raw: docs/mesures/cpu-phases-x86-2026-11-25-brut/.
+Commit 1960e6d, profile ci, AMD EPYC 7R13, 8 vCPU, 12 minutes, $0.01 *estimated*. Ended on DONE; the six tests pass.
+`cpurun <sealed> phases 48`: four prompts, 188 greedy decode steps, the counters of fused_cpu::phases. *Measured*,
+one run an arm; the default arm ran twice, at the start and at the end.
+
+  ms a token            default    again at the end    RAYON_NUM_THREADS=1    LLVQ_THREADS=4
+  token                  274.8          256.5                 281.7                483.9
+  tetra kernel           182.7          173.5                 196.5                361.1
+  int4 kernel             31.2           27.3                  34.1                 46.5
+  head                     8.9            8.3                  10.5                 19.3
+  prepare (rotation)      10.7           10.8                  11.2                 12.0
+  tensor copies            2.6            2.3                   2.5                  2.7
+  rest (model around)     38.7           34.3                  27.0                 42.3
+  rate, tok/s             3.64           3.90                  3.55                 2.07
+
+  bench, same instance: token sum 203.6 ms at 8 threads (201.6 at the end), 1,100.8 ms at one.
+  runtime, same build:  `llvq run qwen3:4b` 3.4 tok/s twice (139 and 147 tokens), the client's rate.
+
+  Reading, by the prereg's rule:
+  1. The two kernels and the head are 81 % of the token (222.8 of 274.8 ms; 81.5 % in the second run). Under the
+     85 % of the rule, and no other part reaches 15 %: the rest is 14 %, the rotation 4 %, the tensor copies 1 %.
+     There is no hidden cost. The 150 to 290 ms of job 5 were mostly its instance: here the token is 71 ms above
+     the bench's sum, 19 ms of it the kernels on real weights (1.09 times the bench).
+  2. RAYON_NUM_THREADS=1 reads 281.7 ms between two default runs of 274.8 and 256.5: inside the drift (7 %). The
+     two pools do not contend.
+  3. Four threads read 483.9 ms: the eight virtual cores (four physical, two threads each) are 1.76 times faster
+     than four threads. The second hardware thread of a core helps this kernel.
+  4. The runtime is at 3.4 tok/s against cpurun's 3.64 to 3.90: 7 to 13 % for the server, the sampler and the
+     stream.
+  5. The gate/up shape with 16 distinct labels (tables in the first-level cache) is 1.20 times faster than random
+     labels at one thread (7.23 against 8.66 ms) and 1.18 times at eight. Between the rule's two bounds (1.15 and
+     1.3): the table misses cost the Tetra kernel 17 % at most on this CPU. On an M3 Max the same pair reads 0.530
+     against 0.534 ms at 8 threads, no difference. The kernel is bound by its instructions, not by its tables.
+  6. Per weight and per call at 8 threads, int4 g128 down reads 44.8 Gweight/s and Tetra gate/up 16.7: Tetra is 2.7
+     times slower per weight. The "six times" of the GB/s column is the same fact in bytes, Tetra holding about
+     half the bytes a weight.
+
+  Predictions: DONE (0.75), held. Kernels within 1.3 times the bench: held (1.09). Rest above 30 %: WRONG, 14 %.
+  RAYON_NUM_THREADS=1 moves the token by more than 10 %: held as a no (0.3 said yes). 16 labels more than 1.3
+  times faster: held as a no (0.4 said yes); 1.20. Runtime within 15 % of cpurun: held.
+
+  What follows: no part outside the kernels is worth more than 14 % of the token, and the Tetra decode cannot gain
+  more than 17 % from its tables. A factor on this path needs the decode out of the token: the points decoded once
+  at load into int8 (about 8.3 bits a weight in RAM instead of 2.15), read by a dot product of the int4 kind.
+  That trades RAM for rate and is an operator decision; not written.
+
+JOB 7, cpu-nibbles-x86 (6b06a221d0582cfbbefe1585): the codes decoded once into nibbles against the served words
+-----------------------------------------------------------------------------------------------------------
+Prereg: proofs/preregistration-cpu-nibbles-x86-2026-11-25.md. Raw: docs/mesures/cpu-nibbles-x86-2026-11-25-brut/.
+Commit b3eee88, profile ci, AMD EPYC 7R13, 8 vCPU, 8 minutes, $0.01 *estimated*. Ended on DONE; the seven tests pass,
+`nibbles_give_the_words_outputs_bit_for_bit` among them on this CPU's AVX2 path.
+LLVQ_CPU_WEIGHTS=nibbles: every Tetra word decoded at load into four bits a coordinate and one header byte a block,
+4.33 bits a weight for 2. `cpurun <sealed> phases 48` on the real 4B, 188 decode steps an arm, *measured*, one run.
+
+  ms a token            packed     nibbles    packed again
+  token                  172.4      118.5        153.1
+  tetra kernel           118.7       67.2        105.8
+  int4 kernel             17.4       17.4         16.1
+  head                     5.9        5.7          5.3
+  prepare (rotation)       9.5        8.6          8.3
+  rest                    19.4       18.0         16.5
+  rate, tok/s             5.80       8.44         6.53
+  peak resident memory  1.81 GB    2.61 GB      1.82 GB      (/usr/bin/time, the whole process)
+  in memory, loader's   1.38 GB    2.20 GB      1.38 GB
+  load                   4.3 s      5.8 s        4.2 s
+
+  tokens, `cpurun tetra 48`, 192 ids over four prompts: IDENTICAL. Rates there: 6.73 packed, 8.47 nibbles.
+  runtime, `llvq run qwen3:4b`: 5.4 tok/s packed (141 tokens), 6.8 nibbles (158 tokens), the client's rate.
+  bench, 8 threads: token sum 164.4 ms packed, 87.9 ms with the Tetra sites as nibbles; gate/up 1.223 ms against
+  0.564, 2.17 times. At one thread 769.1 against 457.0 ms.
+
+  By the prereg's rule: tokens identical, and the nibble token (118.5 ms) is below both packed runs (172.4 and
+  153.1, 11 % apart) by 23 % at least. The mode is kept in the tree, default packed; the default is the operator's.
+  The token is 1.29 to 1.45 times faster, the Tetra kernel 1.57 to 1.77 times, for 0.80 GB more.
+  On the real file the kernel gains less than on the bench (1.6 to 1.8 against 2.2): the bench's matrix stays in
+  the cache, the model's 1.6 GB of nibbles do not.
+
+  Predictions: DONE, held. Tokens identical, held. Tetra kernel 1.8 to 3.0 times faster: WRONG, 1.57 to 1.77.
+  Token 1.5 to 2.0 times faster: WRONG, 1.29 to 1.45. Peak memory 2.5 to 3.0 GB: held (2.61). Load at most 10 s
+  longer: held (1.5 s).
+  This instance is faster than job 6's on the same packed code (172 and 153 ms a token against 275 and 257): the
+  rates of two jobs do not compare, only the arms of one.
+  Not valid: the server's peak memory in the runtime arms. The job read VmHWM of the wrong process (3 MB).
+  Not measured: any CPU other than this one; the 8B and 14B in nibbles; the target laptop (4 cores, 8 threads).

@@ -1,0 +1,3 @@
+Filesystem      Size  Used Avail Use% Mounted on
+overlay         1.5T  1.2T  364G  76% /
+overlay         1.5T  1.2T  364G  76% /

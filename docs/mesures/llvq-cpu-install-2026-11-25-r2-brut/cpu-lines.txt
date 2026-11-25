@@ -1,0 +1,2 @@
+cpu: avx2+fma SIMD on 8 threads | tetra 168 + int4 84 matrices | 1.38 GB in memory (projections 1.16 + carried 0.22)
+cpu: avx2+fma SIMD on 8 threads | tetra 199 + int4 53 matrices | 2.77 GB in memory (projections 2.06 + carried 0.70)

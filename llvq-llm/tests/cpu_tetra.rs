@@ -139,6 +139,28 @@ fn a_batch_computes_what_one_row_at_a_time_computes() {
     }
 }
 
+/// The codes decoded once into nibbles give the outputs the words give, bit
+/// for bit, on every SIMD path, one row and a batch: the lanes, the scale and
+/// the order of the sums are the same.
+#[test]
+fn nibbles_give_the_words_outputs_bit_for_bit() {
+    for (i, &(d_out, d_in, rotate)) in SHAPES.iter().enumerate() {
+        let rows = 19;
+        let x: Vec<f32> = activations(d_in, rows, 0x41b + i as u64).iter().map(|&v| v as f32).collect();
+        for isa in available_isas() {
+            let words = case(d_out, d_in, 0x41b0 + i as u64, rotate).proj.with_isa(isa);
+            let nib = case(d_out, d_in, 0x41b0 + i as u64, rotate).proj.with_isa(isa).expanded();
+            assert!(nib.bytes() > words.bytes(), "{d_out}x{d_in}: the nibbles hold more than the words");
+            for n in [1, rows] {
+                let xp = words.prepare_vec(&x[..n * d_in], n);
+                let (a, b) = (words.matvec_vec(&xp, n), nib.matvec_vec(&xp, n));
+                let same = a.iter().zip(&b).all(|(u, v)| u.to_bits() == v.to_bits());
+                assert!(same, "{d_out}x{d_in}, {n} rows on {}: the nibbles and the words disagree", isa.name());
+            }
+        }
+    }
+}
+
 /// A rotation left out is a different answer, not a small error: the check
 /// above cannot pass by accident on a path that skips it.
 #[test]
@@ -258,5 +280,173 @@ fn the_int4_embedding_gathers_and_projects_its_rows() {
             assert!(err < 2e-6, "row {r} on {}: {err:.3e}", isa.name());
         }
         assert!(e.gather(&Tensor::from_vec(vec![300u32], (1, 1), &Device::Cpu).unwrap()).is_err(), "past the vocabulary");
+    }
+}
+
+// ---------------------------------------------------------------------------
+// The microbenchmark: random codes at the served 4B's shapes, no model.
+//
+//   LLVQ_THREADS=8 cargo test --profile ci -p llvq-llm --test cpu_tetra -- --ignored --nocapture bench_
+//
+// Prints the median time of one call over rounds of about 0.15 s, the range
+// of the rounds, and the bytes the matrix holds over that time. The pool's
+// size is fixed per process by LLVQ_THREADS.
+// ---------------------------------------------------------------------------
+
+/// A random Tetra matrix as the loader holds it: random 47-bit labels and
+/// gain bits through the served transcode, random row scales, a binary16 tail.
+fn random_tetra(d_out: usize, d_in: usize, seed: u64) -> TetraMatrix {
+    tetra_of_labels(d_out, d_in, seed, None)
+}
+
+/// [`random_tetra`], every label drawn from `distinct` of them when given: a
+/// matrix whose decode reads the same few table lines, so that the tables
+/// stay in the first-level cache. Against the random matrix of the same
+/// shape it reads what the table misses cost.
+fn tetra_of_labels(d_out: usize, d_in: usize, seed: u64, distinct: Option<usize>) -> TetraMatrix {
+    let mut rng = SplitMix64::new(seed);
+    let (nblocks, tail_w) = (d_in / DIM, d_in % DIM);
+    let label = |rng: &mut SplitMix64| rng.next() & ((1u64 << 47) - 1);
+    let labels: Vec<u64> = match distinct {
+        None => (0..d_out * nblocks).map(|_| label(&mut rng)).collect(),
+        Some(n) => {
+            let few: Vec<u64> = (0..n).map(|_| label(&mut rng)).collect();
+            (0..d_out * nblocks).map(|_| few[(rng.next() % n as u64) as usize]).collect()
+        }
+    };
+    let gains: Vec<u32> = (0..d_out * nblocks).map(|_| (rng.next() & 1) as u32).collect();
+    let s = llvq_artifact::tetra48::transcode_tetra48(&labels, &gains, d_out, nblocks).unwrap();
+    TetraMatrix {
+        d_out,
+        d_in,
+        nblocks,
+        tail_w,
+        stride: s.stride_u32,
+        words: s.data.chunks_exact(4).map(|c| u32::from_le_bytes([c[0], c[1], c[2], c[3]])).collect(),
+        gscale: [0.625, 1.375],
+        rscale: (0..d_out).map(|_| 0.5 + rng.next_gaussian().abs() as f32).collect(),
+        tail: (0..d_out * tail_w).map(|_| half::f16::from_f64(rng.next_gaussian()).to_bits()).collect(),
+    }
+}
+
+/// A random int4 matrix, bytes drawn eight at a time.
+fn random_q4(d_out: usize, d_in: usize, group: usize, seed: u64) -> Q4Matrix {
+    let mut rng = SplitMix64::new(seed);
+    let groups = d_out * d_in / group;
+    let packed: Vec<u8> = (0..d_out * d_in / 16).flat_map(|_| rng.next().to_le_bytes()).collect();
+    Q4Matrix {
+        d_out,
+        d_in,
+        group,
+        packed,
+        scales: (0..groups).map(|_| half::f16::from_f64(0.01 + 0.02 * rng.next_gaussian().abs()).to_bits()).collect(),
+        biases: (0..groups).map(|_| half::f16::from_f64(-0.1 * rng.next_gaussian().abs()).to_bits()).collect(),
+    }
+}
+
+/// Median and range, in ns, of one call of `f` over rounds of about 0.15 s.
+fn time_ns(mut f: impl FnMut()) -> (f64, f64, f64) {
+    use std::time::Instant;
+    for _ in 0..3 {
+        f();
+    }
+    let t0 = Instant::now();
+    f();
+    let one = t0.elapsed().as_secs_f64().max(1e-7);
+    let per_round = ((0.15 / one) as usize).clamp(1, 100_000);
+    let mut v: Vec<f64> = (0..7)
+        .map(|_| {
+            let t = Instant::now();
+            for _ in 0..per_round {
+                f();
+            }
+            t.elapsed().as_secs_f64() * 1e9 / per_round as f64
+        })
+        .collect();
+    v.sort_by(f64::total_cmp);
+    (v[v.len() / 2], v[0], v[v.len() - 1])
+}
+
+fn report(what: &str, bytes: u64, weights: usize, (med, lo, hi): (f64, f64, f64)) -> f64 {
+    println!(
+        "bench {what:<34} {:>11.0} ns  [{:.0} ; {:.0}]  {:>6.2} GB/s  {:>6.2} Gweight/s",
+        med,
+        lo,
+        hi,
+        bytes as f64 / med,
+        weights as f64 / med
+    );
+    med
+}
+
+#[test]
+#[ignore = "a microbenchmark: run by hand with --ignored --nocapture"]
+fn bench_cpu_matvecs_at_the_4b_shapes() {
+    use llvq_llm::tetra_cpu::{self, Isa};
+    let isa = Isa::detect();
+    let t = Tables::new(&Tetra::new());
+    println!("bench isa {} threads {}", isa.name(), tetra_cpu::pool().current_num_threads());
+    let (mut ms_token, mut ms_words, mut ms_nib) = (0f64, 0f64, 0f64);
+    // (name, d_out, d_in, calls per token): the served 4B, Tetra sites.
+    for (name, d_out, d_in, per_token) in [
+        ("tetra q_proj 4096x2560", 4096usize, 2560usize, 36usize),
+        ("tetra k_proj 1024x2560", 1024, 2560, 36),
+        ("tetra gate/up 9728x2560", 9728, 2560, 72),
+        ("tetra down 2560x9728", 2560, 9728, 24),
+    ] {
+        let m = random_tetra(d_out, d_in, d_out as u64 ^ d_in as u64);
+        let x: Vec<f32> = activations(d_in, 1, 3).iter().map(|&v| v as f32).collect();
+        let mut xp = vec![0f32; d_in];
+        tetra_cpu::permute_blocks(&t, &x, &mut xp);
+        let mut y = vec![0f32; d_out];
+        let r = time_ns(|| tetra_cpu::tetra_matvec(isa, &t, &m, &xp, &mut y));
+        let ms = report(name, m.bytes(), d_out * d_in, r) * per_token as f64 / 1e6;
+        ms_token += ms;
+        ms_words += ms;
+        // The same matrix decoded once into nibbles: 4.33 bits a weight.
+        let nb = tetra_cpu::TetraNib::expand(&t, &m);
+        let r = time_ns(|| tetra_cpu::tetra_nib_matvec(isa, &t, &m, &nb, &xp, &mut y));
+        ms_nib += report(&name.replace("tetra", "nibbles"), nb.bytes(), d_out * d_in, r) * per_token as f64 / 1e6;
+    }
+    // int4 sites: v_proj, o_proj, down_proj of layers 12 to 23, g128; the tied head, g64.
+    for (name, d_out, d_in, group, per_token) in [
+        ("int4 g128 v_proj 1024x2560", 1024usize, 2560usize, 128usize, 36usize),
+        ("int4 g128 o_proj 2560x4096", 2560, 4096, 128, 36),
+        ("int4 g128 down 2560x9728", 2560, 9728, 128, 12),
+        ("int4 g64 head 151936x2560", 151_936, 2560, 64, 1),
+    ] {
+        let m = random_q4(d_out, d_in, group, 11 + d_out as u64);
+        let x: Vec<f32> = activations(d_in, 1, 5).iter().map(|&v| v as f32).collect();
+        let mut y = vec![0f32; d_out];
+        let r = time_ns(|| tetra_cpu::q4_matvec(isa, &m, &x, &mut y));
+        ms_token += report(name, m.bytes(), d_out * d_in, r) * per_token as f64 / 1e6;
+    }
+    println!("bench projections and head of one 4B token (computed from the rows above): {ms_token:.2} ms");
+    println!("bench the same token with the Tetra sites as nibbles (computed): {:.2} ms", ms_token - ms_words + ms_nib);
+
+    // The largest Tetra site again with 16 distinct labels: the same loop, the
+    // decode tables in the first-level cache. Not in the token's sum.
+    let m = tetra_of_labels(9728, 2560, 31, Some(16));
+    let x: Vec<f32> = activations(2560, 1, 3).iter().map(|&v| v as f32).collect();
+    let mut xp = vec![0f32; 2560];
+    tetra_cpu::permute_blocks(&t, &x, &mut xp);
+    let mut y = vec![0f32; 9728];
+    report("tetra gate/up, 16 labels", m.bytes(), 9728 * 2560, time_ns(|| tetra_cpu::tetra_matvec(isa, &t, &m, &xp, &mut y)));
+
+    // The candle adapter around the largest site: f32 tensor in, rotation,
+    // trio order, matvec, f32 tensor out.
+    let m = random_tetra(9728, 2560, 99);
+    let bytes = m.bytes();
+    let p = CpuLattice::new("bench.gate".into(), Arc::new(Tables::new(&Tetra::new())), m, Some(Arc::new(Rotation::new(2560, 7))), Some((2560, 7)), DType::F32)
+        .unwrap();
+    let x = Tensor::from_vec(activations(2560, 1, 9).iter().map(|&v| v as f32).collect::<Vec<_>>(), (1, 1, 2560), &Device::Cpu).unwrap();
+    let xr = p.prepare(&x).unwrap();
+    let xv: Vec<f32> = xr.flatten_all().unwrap().to_vec1().unwrap();
+    report("adapter prepare 2560", 0, 0, time_ns(|| drop(p.prepare(&x).unwrap())));
+    // The same matrix through the slices, then through the tensors, twice, so
+    // that a change of machine state between the two shows as a disagreement.
+    for _ in 0..2 {
+        report("slices matvec gate 9728x2560", bytes, 9728 * 2560, time_ns(|| drop(p.matvec_vec(&xv, 1))));
+        report("adapter matvec gate 9728x2560", bytes, 9728 * 2560, time_ns(|| drop(p.matvec(&xr, x.dims()).unwrap())));
     }
 }

@@ -48,14 +48,14 @@ rustc --version
 export RUSTFLAGS="${RUSTFLAGS:-} -C link-arg=-Wl,-rpath,\$ORIGIN/lib -C link-arg=-Wl,--disable-new-dtags"
 # The same profile overrides as ops/Dockerfile.cuda: thin LTO in one codegen unit is too much for a small builder.
 export CARGO_PROFILE_RELEASE_CODEGEN_UNITS=${CARGO_PROFILE_RELEASE_CODEGEN_UNITS:-16}
-cargo build --release --locked -p llvq-runtime --features cuda --bin llvq
+cargo build --profile dist --locked -p llvq-runtime --features cuda --bin llvq
 
 VERSION=$(sed -n 's/^version = "\(.*\)"/\1/p' llvq-runtime/Cargo.toml | head -n 1)
 COMMIT=$(git rev-parse --short=12 HEAD 2> /dev/null || echo unknown)
 OUT=dist/llvq
 rm -rf dist
 mkdir -p "$OUT/lib" "$OUT/licenses"
-cp target/release/llvq "$OUT/llvq"
+cp target/dist/llvq "$OUT/llvq"
 strip "$OUT/llvq" || true
 echo "$FLAVOR" > "$OUT/FLAVOR"
 printf 'llvq %s (%s), %s, CUDA %s, compute capability %s\n' "$VERSION" "$COMMIT" "$FLAVOR" "$NVCC" "$CAP" > "$OUT/VERSION"

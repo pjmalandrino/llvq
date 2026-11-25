@@ -721,22 +721,7 @@ pub async fn copy(State(st): State<AppState>, body: Bytes) -> Response {
 }
 
 fn chunk_chat(model: &str, content: String, thinking: String, done: Option<DoneFields>) -> Value {
-    let message = ChatMessage {
-        role: "assistant".into(),
-        content,
-        thinking: (!thinking.is_empty()).then_some(thinking),
-        images: None,
-        tool_calls: None,
-        tool_name: None,
-    };
-    serde_json::to_value(ChatResponse {
-        model: model.into(),
-        created_at: rfc3339(SystemTime::now()),
-        message,
-        done: done.is_some(),
-        stats: done.unwrap_or_default(),
-    })
-    .expect("a chunk serializes")
+    chunk_tools(model, content, thinking, Vec::new(), done)
 }
 
 fn chunk_generate(model: &str, content: String, thinking: String, done: Option<DoneFields>) -> Value {

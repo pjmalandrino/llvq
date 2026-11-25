@@ -6,12 +6,15 @@
 # release, no tag, no upload outside the run's own artifacts, which expire. Making a release from them is the
 # operator's decision.
 #
-# Linux: the build runs in nvidia/cuda:12.4.1-devel-ubuntu22.04, the base of ops/Dockerfile.cuda, through
+# Linux CUDA: the build runs in nvidia/cuda:12.4.1-devel-ubuntu22.04, the base of ops/Dockerfile.cuda, through
 # ops/release/build-linux-cuda.sh, which anyone with Docker can run the same way. No GPU is needed to build.
-# macOS: an Apple Silicon runner builds the Metal binary. It needs no library beside it.
+# macOS Metal: an Apple Silicon runner builds the Metal binary. It needs no library beside it.
+# CPU flavors, for a machine with no supported GPU (install.sh picks them): Linux x86_64 and arm64 in ubuntu:22.04
+# through ops/release/build-linux-cpu.sh, each on a runner of its own architecture; macOS x86_64 cross-compiled on
+# the Apple Silicon runner. No CPU build raises the compile-time baseline: the SIMD path is chosen at run time.
 #
-# Neither job runs the binary on a GPU: a green run means it compiled, linked, and that every CUDA library it
-# names resolves into its own lib/. Whether it serves a model is checked on a card, by hand.
+# No job runs the binary on a GPU or serves a model: a green run means it compiled, linked, starts (`llvq -v`), and
+# that every CUDA library it names resolves into its own lib/. Whether it serves a model is checked by hand.
 
 name: llvq archives
 
@@ -74,14 +77,14 @@ jobs:
       - name: Build
         env:
           CARGO_PROFILE_RELEASE_CODEGEN_UNITS: "16"
-        run: cargo build --release --locked -p llvq-runtime --features metal --bin llvq
+        run: cargo build --profile dist --locked -p llvq-runtime --features metal --bin llvq
       - name: Pack
         run: |
           set -euo pipefail
           VERSION=$(sed -n 's/^version = "\(.*\)"/\1/p' llvq-runtime/Cargo.toml | head -n 1)
           FLAVOR=macos-arm64-metal
           mkdir -p dist/llvq/licenses
-          cp target/release/llvq dist/llvq/llvq
+          cp target/dist/llvq dist/llvq/llvq
           echo "$FLAVOR" > dist/llvq/FLAVOR
           printf 'llvq %s (%s), %s\n' "$VERSION" "$(git rev-parse --short=12 HEAD)" "$FLAVOR" > dist/llvq/VERSION
           cp LICENSE-MIT LICENSE-APACHE dist/llvq/licenses/
@@ -94,6 +97,81 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: llvq-macos-arm64-metal
+          path: |
+            dist/*.tar.gz
+            dist/*.tar.gz.sha256
+          if-no-files-found: error
+          retention-days: 14
+
+  linux-cpu:
+    name: Linux ${{ matrix.arch }}, CPU
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: x86_64
+            runner: ubuntu-22.04
+          - arch: arm64
+            runner: ubuntu-22.04-arm
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build in ubuntu:22.04
+        run: |
+          docker run --rm -v "$PWD":/src -w /src ubuntu:22.04 bash ops/release/build-linux-cpu.sh
+      - name: Check the flavor
+        run: |
+          set -euo pipefail
+          test "$(cat dist/llvq/FLAVOR)" = "linux-${{ matrix.arch }}-cpu"
+          file dist/llvq/llvq
+      - uses: actions/upload-artifact@v4
+        with:
+          name: llvq-linux-${{ matrix.arch }}-cpu
+          path: |
+            dist/*.tar.gz
+            dist/*.tar.gz.sha256
+          if-no-files-found: error
+          retention-days: 14
+
+  macos-x86_64-cpu:
+    name: macOS x86_64, CPU
+    runs-on: macos-15
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install the pinned toolchain and the Intel target
+        run: |
+          rustup toolchain install
+          rustup target add x86_64-apple-darwin
+          cargo --version
+      - name: Build
+        env:
+          CARGO_PROFILE_RELEASE_CODEGEN_UNITS: "16"
+        # No metal feature: Backend::of_build() is the CPU on this build.
+        run: cargo build --profile dist --locked --target x86_64-apple-darwin -p llvq-runtime --bin llvq
+      - name: Pack
+        run: |
+          set -euo pipefail
+          VERSION=$(sed -n 's/^version = "\(.*\)"/\1/p' llvq-runtime/Cargo.toml | head -n 1)
+          FLAVOR=macos-x86_64-cpu
+          BIN=target/x86_64-apple-darwin/dist/llvq
+          test "$(lipo -archs "$BIN")" = x86_64
+          mkdir -p dist/llvq/licenses
+          cp "$BIN" dist/llvq/llvq
+          echo "$FLAVOR" > dist/llvq/FLAVOR
+          printf 'llvq %s (%s), %s\n' "$VERSION" "$(git rev-parse --short=12 HEAD)" "$FLAVOR" > dist/llvq/VERSION
+          cp LICENSE-MIT LICENSE-APACHE dist/llvq/licenses/
+          otool -L dist/llvq/llvq
+          # Started under Rosetta when the runner has it; an Intel Mac runs it natively.
+          if arch -x86_64 /usr/bin/true 2> /dev/null; then arch -x86_64 dist/llvq/llvq -v; else echo "no Rosetta: not started"; fi
+          NAME="llvq-$VERSION-$FLAVOR"
+          tar -czf "dist/$NAME.tar.gz" -C dist llvq
+          (cd dist && shasum -a 256 "$NAME.tar.gz" > "$NAME.tar.gz.sha256")
+          cat "dist/$NAME.tar.gz.sha256"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: llvq-macos-x86_64-cpu
           path: |
             dist/*.tar.gz
             dist/*.tar.gz.sha256

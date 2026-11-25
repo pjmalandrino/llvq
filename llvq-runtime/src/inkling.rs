@@ -168,7 +168,7 @@ pub fn register(store: &Store, path: &Path) -> anyhow::Result<(ModelName, Manife
     let file = path.to_str().ok_or_else(|| anyhow::anyhow!("{}: not UTF-8", path.display()))?.to_string();
     let manifest = Manifest {
         schema: 1,
-        sha256: crate::store::sha256_file(&path, |_| {})?,
+        sha256: crate::store::sha256_file(&path)?,
         size: std::fs::metadata(&m.checkpoint)?.len(),
         repo: "local".into(),
         revision: "local".into(),
@@ -327,6 +327,11 @@ fn load_model(l: &LocalModel, dev: &Device) -> anyhow::Result<(llvq_llm::inkling
 pub fn load_local(name: &ModelName, path: &Path) -> anyhow::Result<InkEngine> {
     let local = LocalModel::read(path)?;
     let backend = Backend::of_build();
+    // Refused before anything is read: the experts are served only resident in lattice codes on CUDA or Metal.
+    anyhow::ensure!(
+        backend != Backend::Cpu,
+        "{name}: Inkling 2 has no CPU path; this llvq is a CPU build. It runs on CUDA (Linux) or Metal (macOS)"
+    );
     eprintln!("llvq: loading {name} (inkling2, {}) on {}", path.display(), backend.label());
     let dev = match backend {
         Backend::Cuda => Device::new_cuda(0)?,
@@ -341,7 +346,7 @@ pub fn load_local(name: &ModelName, path: &Path) -> anyhow::Result<InkEngine> {
     let template = local.tokenizer.with_file_name("chat_template.jinja");
     let mut first = vec![match template.exists() {
         true => {
-            let sha = crate::store::sha256_file(&template, |_| {})?;
+            let sha = crate::store::sha256_file(&template)?;
             anyhow::ensure!(
                 sha == llvq_llm::inkchat::TEMPLATE_SHA256,
                 "{}: sha256 {sha}, the template llvq_llm::inkchat renders is {}",
@@ -402,12 +407,9 @@ pub(crate) fn serve(
         let l = load.take().unwrap_or_default();
         let ran = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| e.0.run(&job, l)));
         if let Err(p) = ran {
-            let why = p
-                .downcast_ref::<&str>()
-                .map(|s| s.to_string())
-                .or_else(|| p.downcast_ref::<String>().cloned())
-                .unwrap_or_else(|| "no message".into());
-            let msg = format!("the engine of {name} panicked: {why}");
+            let msg = format!("the engine of {name} panicked: {}", crate::engine::panic_message(&*p));
+            // The weights go now, as in the Qwen3 engine.
+            drop(e);
             *inf.state.lock().expect("state lock") = State::Failed(msg.clone());
             let _ = job.events.blocking_send(Event::Error { status: 500, message: msg.clone() });
             inf.busy.store(false, Ordering::SeqCst);

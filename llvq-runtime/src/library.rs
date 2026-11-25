@@ -240,59 +240,31 @@ pub fn served_configs(c: &Configs, sha256: &str) -> Configs {
     entries().iter().find(|e| e.sha256 == sha256).map_or_else(|| c.clone(), |e| e.configs.clone())
 }
 
+/// One `(name, text)` row per config file, read at build time.
+macro_rules! configs {
+    ($($f:literal),* $(,)?) => {
+        &[$(($f, include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../configs/", $f)))),*]
+    };
+}
+
 /// The served configs, compiled in from `configs/` so the runtime serves the
 /// bytes the journals pinned. One row per file `library.json` names.
-const CONFIGS: &[(&str, &str)] = &[
-    (
-        "qwen3-4b-tetra-e4-4e-v9.json",
-        include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../configs/qwen3-4b-tetra-e4-4e-v9.json")),
-    ),
-    (
-        "qwen3-4b-tetra-e4.json",
-        include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../configs/qwen3-4b-tetra-e4.json")),
-    ),
-    (
-        "qwen3-8b-tetra-e4-4e-v9.json",
-        include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../configs/qwen3-8b-tetra-e4-4e-v9.json")),
-    ),
-    (
-        "qwen3-8b-tetra-e4.json",
-        include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../configs/qwen3-8b-tetra-e4.json")),
-    ),
-    (
-        "qwen3-14b-tetra-e4-4e-v9.json",
-        include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../configs/qwen3-14b-tetra-e4-4e-v9.json")),
-    ),
-    (
-        "qwen3-14b-tetra-e4.json",
-        include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../configs/qwen3-14b-tetra-e4.json")),
-    ),
-    (
-        "qwen3-4b-tetra-e4-4e-v9-batch.json",
-        include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../configs/qwen3-4b-tetra-e4-4e-v9-batch.json")),
-    ),
-    (
-        "qwen3-8b-tetra-e4-4e-v9-batch.json",
-        include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../configs/qwen3-8b-tetra-e4-4e-v9-batch.json")),
-    ),
-    (
-        "qwen3-14b-tetra-e4-4e-v9-batch.json",
-        include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../configs/qwen3-14b-tetra-e4-4e-v9-batch.json")),
-    ),
-    (
-        "qwen3-4b-tetra-e4-4e-v9-chain.json",
-        include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../configs/qwen3-4b-tetra-e4-4e-v9-chain.json")),
-    ),
+const CONFIGS: &[(&str, &str)] = configs![
+    "qwen3-4b-tetra-e4-4e-v9.json",
+    "qwen3-4b-tetra-e4.json",
+    "qwen3-8b-tetra-e4-4e-v9.json",
+    "qwen3-8b-tetra-e4.json",
+    "qwen3-14b-tetra-e4-4e-v9.json",
+    "qwen3-14b-tetra-e4.json",
+    "qwen3-4b-tetra-e4-4e-v9-batch.json",
+    "qwen3-8b-tetra-e4-4e-v9-batch.json",
+    "qwen3-14b-tetra-e4-4e-v9-batch.json",
+    "qwen3-4b-tetra-e4-4e-v9-chain.json",
 ];
 
 /// The text of a compiled-in config.
 pub fn config_text(file: &str) -> Option<&'static str> {
     CONFIGS.iter().find(|(n, _)| *n == file).map(|(_, t)| *t)
-}
-
-/// The compiled-in config files, by name.
-pub fn config_files() -> impl Iterator<Item = &'static str> {
-    CONFIGS.iter().map(|(n, _)| *n)
 }
 
 /// The engine this build serves with.

@@ -1,0 +1,25 @@
+    Updating crates.io index
+   Compiling llvq-llm v0.1.0 (/src/llvq-llm)
+    Finished `ci` profile [optimized] target(s) in 2m 27s
+     Running tests/cpu_tetra.rs (target/ci/deps/cpu_tetra-705b4a7712cb51ce)
+
+running 1 test
+bench isa avx2+fma threads 1
+bench tetra q_proj 4096x2560                11163115 ns  [9563788 ; 13342258]    0.25 GB/s    0.94 Gweight/s
+bench tetra k_proj 1024x2560                 2613223 ns  [2438220 ; 3215747]    0.26 GB/s    1.00 Gweight/s
+bench tetra gate/up 9728x2560               23139536 ns  [22857044 ; 25452624]    0.28 GB/s    1.08 Gweight/s
+bench tetra down 2560x9728                  23469025 ns  [22419064 ; 28380364]    0.27 GB/s    1.06 Gweight/s
+bench int4 g128 v_proj 1024x2560              768229 ns  [730316 ; 816712]    1.81 GB/s    3.41 Gweight/s
+bench int4 g128 o_proj 2560x4096             3127586 ns  [2873905 ; 3432196]    1.78 GB/s    3.35 Gweight/s
+bench int4 g128 down 2560x9728               7176681 ns  [6964056 ; 8133140]    1.84 GB/s    3.47 Gweight/s
+bench int4 g64 head 151936x2560            167621724 ns  [158071210 ; 189840917]    1.31 GB/s    2.32 Gweight/s
+bench projections and head of one 4B token (computed from the rows above): 3119.24 ms
+bench adapter prepare 2560                     51361 ns  [49127 ; 55182]    0.00 GB/s    0.00 Gweight/s
+bench slices matvec gate 9728x2560          35010129 ns  [26944794 ; 39743176]    0.19 GB/s    0.71 Gweight/s
+bench adapter matvec gate 9728x2560         26304166 ns  [22854906 ; 29253125]    0.25 GB/s    0.95 Gweight/s
+bench slices matvec gate 9728x2560          25165035 ns  [23081947 ; 29724433]    0.26 GB/s    0.99 Gweight/s
+bench adapter matvec gate 9728x2560         23527195 ns  [22187673 ; 25834106]    0.28 GB/s    1.06 Gweight/s
+test bench_cpu_matvecs_at_the_4b_shapes ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 6 filtered out; finished in 16.25s
+

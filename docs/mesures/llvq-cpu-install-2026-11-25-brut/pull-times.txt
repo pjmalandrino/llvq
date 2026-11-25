@@ -1,0 +1,6 @@
+jobs 4: 60.8 s
+7.6G	/tmp/llvq-home
+deleted 'inkling2:mini'
+0	/tmp/llvq-home
+jobs 1: 165.1 s
+7.6G	/tmp/llvq-home
