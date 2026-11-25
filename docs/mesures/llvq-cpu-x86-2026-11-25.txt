@@ -82,3 +82,27 @@ The six tests of cpu_tetra pass on the three arms.
   8 threads in job 3 and 315 ms here, seven times less, and threads now give 6.4 times at eight where they gave 1.4.
   The 0.5 to 0.6 tok/s of job 1 is what that instance did that hour, not what the kernel does on this CPU. Job 1's
   rate is to be read again on an archive built from b4a6684.
+
+JOB 5, llvq-cpu-install retry 2 (6b063b3cd0582cfbbefd6251): the archive with the kernel of b4a6684, end to end
+-----------------------------------------------------------------------------------------------------------
+Deviation E1 of the install prereg. Archive built from 532c56e (workflow run 45525372204), `llvq -v` = 0.1.2
+(774ee34cb665). Same script, same flavor, AMD EPYC 7R13, 8 vCPU. Raw: docs/mesures/llvq-cpu-install-2026-11-25-r2-brut/.
+Verdict against the criterion: PASS (flavor picked, Inkling refused by name, three right answers).
+
+                                         job 1 (f8f27a0's kernel, outlier instance)    job 5 (b4a6684's kernel)
+  pull inkling2:mini, 4 files at once            60.8 s                                   18.6 s
+  pull inkling2:mini, 1 file at a time          165.1 s                                   49.0 s
+  qwen3:4b  prompt of 24-31 tokens           12.5-13.3 s                                2.4-3.0 s
+  qwen3:4b  answers                     0.5, 0.5, 0.6 tok/s               3.3 (2 tokens), 3.0 (155), 2.1 (146) tok/s
+  qwen3:4b  server peak resident memory          1.87 GB                                  1.87 GB
+  qwen3:8b  one answer                           0.3 tok/s                                1.9 tok/s (147 tokens)
+  qwen3:8b  peak, the 4B held before it          4.82 GB                                  4.81 GB
+
+  The two jobs differ by the kernel AND by the instance: no factor between their columns is the kernel's. The
+  kernel's own factor is job 4's, 1.73 at 8 threads on one instance.
+  The pull at four files is 2.7 and 2.6 times faster than at one in the two jobs, the four-file arm first each time.
+  Prediction of E1, 2.5 to 5 tok/s on the 4B: held on two answers of three; the third read 2.1.
+  The matvecs of a 4B token cost 182 ms at 8 threads in job 4, which alone would be 5.5 tok/s. The served rate is
+  2.1 to 3.0: between 150 and 290 ms a token are spent outside the matvecs, or the instance was slower. Not
+  attributed. That is the next thing to read on the CPU path.
+  The rates are the client's, streaming included, one run each on a shared virtual machine: readings, not medians.

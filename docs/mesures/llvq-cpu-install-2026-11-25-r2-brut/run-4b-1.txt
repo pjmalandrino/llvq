@@ -1,0 +1,5 @@
+Paris.
+
+prompt: 24 tokens (0 cached) in 2.40 s
+answer: 2 tokens in 0.61 s, 3.3 tok/s (this client's rate, not a measurement)
+end: stop

@@ -1,0 +1,2 @@
+Error: loading inkling2:mini: inkling2:mini: Inkling 2 has no CPU path; this llvq is a CPU build. It runs on CUDA (Linux) or Metal (macOS) (HTTP 500)
+llvq run exit 1

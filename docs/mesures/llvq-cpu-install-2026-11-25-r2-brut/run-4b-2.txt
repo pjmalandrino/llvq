@@ -1,0 +1,19 @@
+Here's a Python function that returns the n-th Fibonacci number:
+
+```python
+def fibonacci(n):
+    if n <= 0:
+        return 0
+    elif n == 1 or n == 2:
+        return 1
+    else:
+        return fibonacci(n-1) + fibonacci(n-2)
+```
+
+This function uses recursion to calculate the Fibonacci sequence. It checks for base cases (n <= 0, n == 1, n == 2) and recursively calculates the value for n greater than 2. The function is straightforward but has exponential time complexity due to repeated calculations.
+
+The function is efficient for small values of n, but for large n, it's better to use an iterative approach or memoization to avoid redundant calculations.
+
+prompt: 31 tokens (3 cached) in 2.68 s
+answer: 155 tokens in 51.75 s, 3.0 tok/s (this client's rate, not a measurement)
+end: stop
