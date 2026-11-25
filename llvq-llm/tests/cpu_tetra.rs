@@ -139,6 +139,28 @@ fn a_batch_computes_what_one_row_at_a_time_computes() {
     }
 }
 
+/// The codes decoded once into nibbles give the outputs the words give, bit
+/// for bit, on every SIMD path, one row and a batch: the lanes, the scale and
+/// the order of the sums are the same.
+#[test]
+fn nibbles_give_the_words_outputs_bit_for_bit() {
+    for (i, &(d_out, d_in, rotate)) in SHAPES.iter().enumerate() {
+        let rows = 19;
+        let x: Vec<f32> = activations(d_in, rows, 0x41b + i as u64).iter().map(|&v| v as f32).collect();
+        for isa in available_isas() {
+            let words = case(d_out, d_in, 0x41b0 + i as u64, rotate).proj.with_isa(isa);
+            let nib = case(d_out, d_in, 0x41b0 + i as u64, rotate).proj.with_isa(isa).expanded();
+            assert!(nib.bytes() > words.bytes(), "{d_out}x{d_in}: the nibbles hold more than the words");
+            for n in [1, rows] {
+                let xp = words.prepare_vec(&x[..n * d_in], n);
+                let (a, b) = (words.matvec_vec(&xp, n), nib.matvec_vec(&xp, n));
+                let same = a.iter().zip(&b).all(|(u, v)| u.to_bits() == v.to_bits());
+                assert!(same, "{d_out}x{d_in}, {n} rows on {}: the nibbles and the words disagree", isa.name());
+            }
+        }
+    }
+}
+
 /// A rotation left out is a different answer, not a small error: the check
 /// above cannot pass by accident on a path that skips it.
 #[test]
@@ -364,7 +386,7 @@ fn bench_cpu_matvecs_at_the_4b_shapes() {
     let isa = Isa::detect();
     let t = Tables::new(&Tetra::new());
     println!("bench isa {} threads {}", isa.name(), tetra_cpu::pool().current_num_threads());
-    let mut ms_token = 0f64;
+    let (mut ms_token, mut ms_words, mut ms_nib) = (0f64, 0f64, 0f64);
     // (name, d_out, d_in, calls per token): the served 4B, Tetra sites.
     for (name, d_out, d_in, per_token) in [
         ("tetra q_proj 4096x2560", 4096usize, 2560usize, 36usize),
@@ -378,7 +400,13 @@ fn bench_cpu_matvecs_at_the_4b_shapes() {
         tetra_cpu::permute_blocks(&t, &x, &mut xp);
         let mut y = vec![0f32; d_out];
         let r = time_ns(|| tetra_cpu::tetra_matvec(isa, &t, &m, &xp, &mut y));
-        ms_token += report(name, m.bytes(), d_out * d_in, r) * per_token as f64 / 1e6;
+        let ms = report(name, m.bytes(), d_out * d_in, r) * per_token as f64 / 1e6;
+        ms_token += ms;
+        ms_words += ms;
+        // The same matrix decoded once into nibbles: 4.33 bits a weight.
+        let nb = tetra_cpu::TetraNib::expand(&t, &m);
+        let r = time_ns(|| tetra_cpu::tetra_nib_matvec(isa, &t, &m, &nb, &xp, &mut y));
+        ms_nib += report(&name.replace("tetra", "nibbles"), nb.bytes(), d_out * d_in, r) * per_token as f64 / 1e6;
     }
     // int4 sites: v_proj, o_proj, down_proj of layers 12 to 23, g128; the tied head, g64.
     for (name, d_out, d_in, group, per_token) in [
@@ -394,6 +422,7 @@ fn bench_cpu_matvecs_at_the_4b_shapes() {
         ms_token += report(name, m.bytes(), d_out * d_in, r) * per_token as f64 / 1e6;
     }
     println!("bench projections and head of one 4B token (computed from the rows above): {ms_token:.2} ms");
+    println!("bench the same token with the Tetra sites as nibbles (computed): {:.2} ms", ms_token - ms_words + ms_nib);
 
     // The largest Tetra site again with 16 distinct labels: the same loop, the
     // decode tables in the first-level cache. Not in the token's sum.

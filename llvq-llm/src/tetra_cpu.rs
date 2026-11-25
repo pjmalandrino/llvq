@@ -104,6 +104,9 @@ pub struct Tables {
     sel: Sel,
     /// `1/√(16 m)` with entry 0 zero: the origin reconstructs to zero.
     invnorm: [f32; 32],
+    /// `nibval[p][n] = val(p + 2·(n >> 3), n & 7)` as an `i8`: the coordinate
+    /// a nibble of [`TetraNib`] stands for in a block of parity `p`.
+    nibval: [[u8; 16]; 2],
     /// `order[t]`: the natural coordinate at trio position `t`.
     order: [usize; DIM],
 }
@@ -169,6 +172,13 @@ impl Tables {
         for (m, e) in invnorm.iter_mut().enumerate().skip(1) {
             *e = (1.0f64 / ((16 * m) as f64).sqrt()) as f32;
         }
+        let mut nibval = [[0u8; 16]; 2];
+        for (p, tab) in nibval.iter_mut().enumerate() {
+            for (n, v) in tab.iter_mut().enumerate() {
+                let y = llvq_search::tetra::val(p as u32 + 2 * (n as u32 >> 3), n as u32 & 7);
+                *v = i8::try_from(y).expect("a Tetra coordinate fits an i8") as u8;
+            }
+        }
         let mut order = [0usize; DIM];
         for (o, &n) in order.iter_mut().zip(t.order()) {
             *o = n as usize;
@@ -180,6 +190,7 @@ impl Tables {
             #[cfg(target_arch = "x86_64")]
             sel,
             invnorm,
+            nibval,
             order,
         }
     }
@@ -315,7 +326,7 @@ impl TetraMatrix {
 
     /// The tail's contribution to row `r` and the row scale applied.
     #[inline(always)]
-    fn finish(&self, isa: Isa, r: usize, acc: f32, x: &[f32]) -> f32 {
+    pub(crate) fn finish(&self, isa: Isa, r: usize, acc: f32, x: &[f32]) -> f32 {
         let tail = &self.tail[r * self.tail_w..(r + 1) * self.tail_w];
         let xt = &x[self.nblocks * DIM..];
         match isa {
@@ -574,6 +585,61 @@ mod neon {
                     *a = vfmaq_n_f32(*a, d, s);
                 }
             });
+            for (o, a) in out.iter_mut().zip(acc.iter()) {
+                *o = vaddvq_f32(*a);
+            }
+        }
+    }
+
+    /// The 24 lanes of a block of [`super::TetraNib`]: twelve bytes split
+    /// into nibbles, interleaved back into coordinate order, and looked up
+    /// in the parity's sixteen values. The same floats as [`sections`],
+    /// [`widen`], [`lo`] and [`hi`] give for the block's word.
+    ///
+    /// # Safety
+    /// `nib` points at 16 readable bytes, the block's twelve first.
+    #[inline(always)]
+    unsafe fn nib_lanes(t: &Tables, nib: *const u8, h: u8) -> [float32x4_t; 6] {
+        let v = vld1q_u8(nib);
+        let (l, u) = (vandq_u8(v, vdupq_n_u8(0x0f)), vshrq_n_u8(v, 4));
+        let tab = vreinterpretq_s8_u8(vld1q_u8(t.nibval[usize::from(h >> 6) & 1].as_ptr()));
+        // Coordinates 0..16, then 16..24 in the low half.
+        let (y0, y1) = (vqtbl1q_s8(tab, vzip1q_u8(l, u)), vqtbl1q_s8(tab, vzip2q_u8(l, u)));
+        let (a0, a1, a2) = (vmovl_s8(vget_low_s8(y0)), vmovl_high_s8(y0), vmovl_s8(vget_low_s8(y1)));
+        [lo(a0), hi(a0), lo(a1), hi(a1), lo(a2), hi(a2)]
+    }
+
+    pub fn nib_row(t: &Tables, nib: &[u8], hdr: &[u8], sc: &[f32; 64], x: &[f32]) -> f32 {
+        let n = hdr.len();
+        assert!(x.len() >= n * DIM && nib.len() >= n * super::NIB_BYTES + super::NIB_PAD);
+        // SAFETY: NEON baseline; block `j` reads 16 bytes at `12 j`, inside
+        // the pad asserted above, and 24 floats of `x` at `24 j`.
+        unsafe {
+            let mut acc = vdupq_n_f32(0.0);
+            for (j, &h) in hdr.iter().enumerate() {
+                let f = nib_lanes(t, nib.as_ptr().add(j * super::NIB_BYTES), h);
+                let d = dot(&f, x.as_ptr().add(j * DIM));
+                acc = vfmaq_n_f32(acc, d, sc[usize::from(h & 63)]);
+            }
+            vaddvq_f32(acc)
+        }
+    }
+
+    pub fn nib_rows(t: &Tables, nib: &[u8], hdr: &[u8], sc: &[f32; 64], xs: &[f32], stride: usize, out: &mut [f32]) {
+        let (n, nb) = (out.len(), hdr.len());
+        assert!(n <= MAX_BATCH && n > 0 && nib.len() >= nb * super::NIB_BYTES + super::NIB_PAD);
+        assert!(stride >= nb * DIM && xs.len() >= (n - 1) * stride + nb * DIM);
+        // SAFETY: as in `nib_row`; activation `r` is read at `r * stride + 24 j`.
+        unsafe {
+            let mut acc = [vdupq_n_f32(0.0); MAX_BATCH];
+            for (j, &h) in hdr.iter().enumerate() {
+                let f = nib_lanes(t, nib.as_ptr().add(j * super::NIB_BYTES), h);
+                let s = sc[usize::from(h & 63)];
+                for (r, a) in acc.iter_mut().enumerate().take(n) {
+                    let d = dot(&f, xs.as_ptr().add(r * stride + j * DIM));
+                    *a = vfmaq_n_f32(*a, d, s);
+                }
+            }
             for (o, a) in out.iter_mut().zip(acc.iter()) {
                 *o = vaddvq_f32(*a);
             }
@@ -893,6 +959,62 @@ mod avx2 {
         }
     }
 
+    /// The 24 lanes of a block of [`super::TetraNib`], as `neon::nib_lanes`:
+    /// the same floats [`decode`] gives for the block's word.
+    ///
+    /// # Safety
+    /// AVX2; `nib` points at 16 readable bytes, the block's twelve first.
+    #[inline(always)]
+    unsafe fn nib_lanes(t: &Tables, nib: *const u8, h: u8) -> [__m256; 3] {
+        let m = _mm_set1_epi8(0x0f);
+        let v = _mm_loadu_si128(nib.cast());
+        let (l, u) = (_mm_and_si128(v, m), _mm_and_si128(_mm_srli_epi16(v, 4), m));
+        let tab = _mm_loadu_si128(t.nibval[usize::from(h >> 6) & 1].as_ptr().cast());
+        // Coordinates 0..16, then 16..24 in the low half.
+        let y0 = _mm_shuffle_epi8(tab, _mm_unpacklo_epi8(l, u));
+        let y1 = _mm_shuffle_epi8(tab, _mm_unpackhi_epi8(l, u));
+        [lanes(y0), lanes(_mm_srli_si128(y0, 8)), lanes(y1)]
+    }
+
+    /// # Safety
+    /// The CPU must have AVX2 and FMA ([`super::Isa::detect`]).
+    #[target_feature(enable = "avx2,fma")]
+    pub unsafe fn nib_row(t: &Tables, nib: &[u8], hdr: &[u8], sc: &[f32; 64], x: &[f32]) -> f32 {
+        let n = hdr.len();
+        assert!(x.len() >= n * DIM && nib.len() >= n * super::NIB_BYTES + super::NIB_PAD);
+        let mut acc = _mm256_setzero_ps();
+        // Block `j` reads 16 bytes at `12 j`, inside the pad asserted above,
+        // and 24 floats of `x` at `24 j`.
+        for (j, &h) in hdr.iter().enumerate() {
+            let f = nib_lanes(t, nib.as_ptr().add(j.wrapping_mul(super::NIB_BYTES)), h);
+            let d = dot(&f, x.as_ptr().add(j.wrapping_mul(DIM)));
+            acc = _mm256_fmadd_ps(d, _mm256_set1_ps(sc[usize::from(h & 63)]), acc);
+        }
+        hsum(acc)
+    }
+
+    /// # Safety
+    /// The CPU must have AVX2 and FMA ([`super::Isa::detect`]).
+    #[target_feature(enable = "avx2,fma")]
+    pub unsafe fn nib_rows(t: &Tables, nib: &[u8], hdr: &[u8], sc: &[f32; 64], xs: &[f32], stride: usize, out: &mut [f32]) {
+        let (n, nb) = (out.len(), hdr.len());
+        assert!(n <= MAX_BATCH && n > 0 && nib.len() >= nb * super::NIB_BYTES + super::NIB_PAD);
+        assert!(stride >= nb * DIM && xs.len() >= (n - 1) * stride + nb * DIM);
+        let mut acc = [_mm256_setzero_ps(); MAX_BATCH];
+        for (j, &h) in hdr.iter().enumerate() {
+            let f = nib_lanes(t, nib.as_ptr().add(j.wrapping_mul(super::NIB_BYTES)), h);
+            let s = _mm256_set1_ps(sc[usize::from(h & 63)]);
+            let xb = xs.as_ptr().add(j.wrapping_mul(DIM));
+            for (r, a) in acc.iter_mut().enumerate().take(n) {
+                let d = dot(&f, xb.add(r.wrapping_mul(stride)));
+                *a = _mm256_fmadd_ps(d, s, *a);
+            }
+        }
+        for (o, a) in out.iter_mut().zip(acc.iter()) {
+            *o = hsum(*a);
+        }
+    }
+
     /// `Σ q·x` over one int4 group of `half_g` bytes, as in `neon`: eight
     /// lanes still to be summed, from four accumulators.
     #[inline(always)]
@@ -1082,6 +1204,206 @@ pub fn tetra_matvec_rows(isa: Isa, t: &Tables, m: &TetraMatrix, xs: &[f32], n: u
         })
     });
     // `yt` is `[d_out, n]`; the caller wants `[n, d_out]`.
+    for r in 0..m.d_out {
+        for i in 0..n {
+            y[i * m.d_out + r] = yt[r * n + i];
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// The same points, decoded once: four bits a coordinate.
+// ---------------------------------------------------------------------------
+
+/// Bytes of nibbles a block holds: 24 coordinates, four bits each.
+const NIB_BYTES: usize = DIM / 2;
+
+/// Bytes past the last block of [`TetraNib::nib`]: the SIMD rows load 16
+/// bytes at a block of 12.
+const NIB_PAD: usize = 16 - NIB_BYTES;
+
+/// The codes of a [`TetraMatrix`] decoded once into four bits a coordinate.
+///
+/// In a block of parity `p` a coordinate is `val(p + 2·bit, rank)` with a
+/// rank below eight: sixteen values, a nibble. The block's parity, its gain
+/// bit and its shell go in one header byte. That is 4.33 bits a weight where
+/// the served words hold 2, and a row needs no table walk: twelve bytes, one
+/// sixteen-entry lookup, the dot product. The lanes and the scale are the
+/// ones [`Tables::sections`] and [`Tables::scale`] give, and every sum is
+/// formed in the same order, so a matvec over nibbles equals the matvec over
+/// words bit for bit on each SIMD path.
+///
+/// Row scales and tails stay in the [`TetraMatrix`] it was expanded from.
+pub struct TetraNib {
+    nblocks: usize,
+    /// `d_out × nblocks × 12` bytes and [`NIB_PAD`]: coordinate `t` of a
+    /// block, in trio order, is nibble `t & 1` of its byte `t / 2`.
+    nib: Vec<u8>,
+    /// `d_out × nblocks`: `p << 6 | g << 5 | shell`, the low six bits the
+    /// index [`Tables::scale_table`] is read at.
+    hdr: Vec<u8>,
+}
+
+impl TetraNib {
+    /// Every word of `m` decoded, rows across the pool.
+    pub fn expand(t: &Tables, m: &TetraMatrix) -> Self {
+        let per = m.nblocks;
+        let mut nib = vec![0u8; m.d_out * per * NIB_BYTES + NIB_PAD];
+        let mut hdr = vec![0u8; m.d_out * per];
+        if per == 0 {
+            return Self { nblocks: 0, nib, hdr };
+        }
+        // The nibble of each value, per parity: the two progressions of a
+        // parity are disjoint, so a value has one nibble.
+        let mut inv = [[0xffu8; 64]; 2];
+        for (p, row) in inv.iter_mut().enumerate() {
+            for (n, &v) in t.nibval[p].iter().enumerate() {
+                row[(i32::from(v as i8) + 32) as usize] = n as u8;
+            }
+        }
+        pool().install(|| {
+            nib[..m.d_out * per * NIB_BYTES].par_chunks_mut(per * NIB_BYTES).zip(hdr.par_chunks_mut(per)).enumerate().for_each(
+                |(r, (nr, hr))| {
+                    for_each_word(m.row(r), per, |j, w| {
+                        let (y, g) = t.decode_trio(w);
+                        let p = (w & 1) as usize;
+                        let mut n2 = 0u32;
+                        for (k, &v) in y.iter().enumerate() {
+                            n2 += (v * v) as u32;
+                            let n = inv[p][((v + 32) & 63) as usize];
+                            assert!(n < 16, "word {w:#014x}: coordinate {v} is not a value of parity {p}");
+                            nr[j * NIB_BYTES + k / 2] |= n << (4 * (k & 1));
+                        }
+                        hr[j] = (p as u8) << 6 | (g as u8 & 1) << 5 | ((n2 >> 4) & 31) as u8;
+                    });
+                },
+            )
+        });
+        Self { nblocks: per, nib, hdr }
+    }
+
+    /// Bytes the nibbles and headers hold in memory.
+    pub fn bytes(&self) -> u64 {
+        (self.nib.len() + self.hdr.len()) as u64
+    }
+
+    /// The nibbles of row `r`, [`NIB_PAD`] readable bytes past them, and its
+    /// headers.
+    #[inline(always)]
+    fn row(&self, r: usize) -> (&[u8], &[u8]) {
+        let n = self.nblocks;
+        (&self.nib[r * n * NIB_BYTES..(r + 1) * n * NIB_BYTES + NIB_PAD], &self.hdr[r * n..(r + 1) * n])
+    }
+}
+
+/// Coordinate `k` of a block, from its twelve bytes and its value table.
+#[inline(always)]
+fn nib_coord(tab: &[u8; 16], b: &[u8], k: usize) -> f32 {
+    f32::from(tab[((b[k / 2] >> (4 * (k & 1))) & 15) as usize] as i8)
+}
+
+fn nib_row_scalar(t: &Tables, nib: &[u8], hdr: &[u8], sc: &[f32; 64], x: &[f32]) -> f32 {
+    let mut acc = 0f32;
+    for (j, &h) in hdr.iter().enumerate() {
+        let tab = &t.nibval[usize::from(h >> 6) & 1];
+        let (b, xb) = (&nib[j * NIB_BYTES..(j + 1) * NIB_BYTES], &x[j * DIM..(j + 1) * DIM]);
+        let mut d = 0f32;
+        for (k, &xv) in xb.iter().enumerate() {
+            d = nib_coord(tab, b, k).mul_add(xv, d);
+        }
+        acc = d.mul_add(sc[usize::from(h & 63)], acc);
+    }
+    acc
+}
+
+fn nib_rows_scalar(t: &Tables, nib: &[u8], hdr: &[u8], sc: &[f32; 64], xs: &[f32], stride: usize, out: &mut [f32]) {
+    let n = out.len();
+    let mut acc = [0f32; MAX_BATCH];
+    for (j, &h) in hdr.iter().enumerate() {
+        let tab = &t.nibval[usize::from(h >> 6) & 1];
+        let b = &nib[j * NIB_BYTES..(j + 1) * NIB_BYTES];
+        let y: [f32; DIM] = std::array::from_fn(|k| nib_coord(tab, b, k));
+        let s = sc[usize::from(h & 63)];
+        for (r, a) in acc.iter_mut().enumerate().take(n) {
+            let xb = &xs[r * stride + j * DIM..r * stride + (j + 1) * DIM];
+            let mut d = 0f32;
+            for (v, &xv) in y.iter().zip(xb) {
+                d = v.mul_add(xv, d);
+            }
+            *a = d.mul_add(s, *a);
+        }
+    }
+    out.copy_from_slice(&acc[..n]);
+}
+
+fn nib_row(isa: Isa, t: &Tables, nib: &[u8], hdr: &[u8], sc: &[f32; 64], x: &[f32]) -> f32 {
+    match isa {
+        Isa::Scalar => nib_row_scalar(t, nib, hdr, sc, x),
+        #[cfg(target_arch = "aarch64")]
+        Isa::Neon => neon::nib_row(t, nib, hdr, sc, x),
+        // SAFETY: as in `tetra_row`.
+        #[cfg(target_arch = "x86_64")]
+        Isa::Avx2 => unsafe { avx2::nib_row(t, nib, hdr, sc, x) },
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn nib_rows(isa: Isa, t: &Tables, nib: &[u8], hdr: &[u8], sc: &[f32; 64], xs: &[f32], stride: usize, out: &mut [f32]) {
+    match isa {
+        Isa::Scalar => nib_rows_scalar(t, nib, hdr, sc, xs, stride, out),
+        #[cfg(target_arch = "aarch64")]
+        Isa::Neon => neon::nib_rows(t, nib, hdr, sc, xs, stride, out),
+        // SAFETY: as in `tetra_row`.
+        #[cfg(target_arch = "x86_64")]
+        Isa::Avx2 => unsafe { avx2::nib_rows(t, nib, hdr, sc, xs, stride, out) },
+    }
+}
+
+/// [`tetra_matvec`] over the nibbles of `m`: the same `y`, bit for bit.
+pub fn tetra_nib_matvec(isa: Isa, t: &Tables, m: &TetraMatrix, nb: &TetraNib, xp: &[f32], y: &mut [f32]) {
+    assert_eq!(xp.len(), m.d_in);
+    assert_eq!(y.len(), m.d_out);
+    assert!(nb.nblocks == m.nblocks && nb.hdr.len() == m.d_out * m.nblocks, "nibbles of another matrix");
+    let sc = t.scale_table(&m.gscale);
+    let c = chunk_rows(m.d_out);
+    pool().install(|| {
+        y.par_chunks_mut(c).enumerate().for_each(|(ci, ys)| {
+            for (k, yo) in ys.iter_mut().enumerate() {
+                let r = ci * c + k;
+                let (nib, hdr) = nb.row(r);
+                *yo = m.finish(isa, r, nib_row(isa, t, nib, hdr, &sc, xp), xp);
+            }
+        })
+    });
+}
+
+/// [`tetra_matvec_rows`] over the nibbles of `m`: the same `Y`, bit for bit.
+pub fn tetra_nib_matvec_rows(isa: Isa, t: &Tables, m: &TetraMatrix, nb: &TetraNib, xs: &[f32], n: usize, y: &mut [f32]) {
+    assert_eq!(xs.len(), n * m.d_in);
+    assert_eq!(y.len(), n * m.d_out);
+    assert!(nb.nblocks == m.nblocks && nb.hdr.len() == m.d_out * m.nblocks, "nibbles of another matrix");
+    let sc = t.scale_table(&m.gscale);
+    let c = chunk_rows(m.d_out);
+    let mut yt = vec![0f32; n * m.d_out];
+    pool().install(|| {
+        yt.par_chunks_mut(c * n).enumerate().for_each(|(ci, ys)| {
+            for (k, out) in ys.chunks_mut(n).enumerate() {
+                let r = ci * c + k;
+                let (nib, hdr) = nb.row(r);
+                let mut start = 0;
+                while start < n {
+                    let len = (n - start).min(MAX_BATCH);
+                    let o = &mut out[start..start + len];
+                    nib_rows(isa, t, nib, hdr, &sc, &xs[start * m.d_in..], m.d_in, o);
+                    for (i, v) in o.iter_mut().enumerate() {
+                        let x = &xs[(start + i) * m.d_in..(start + i + 1) * m.d_in];
+                        *v = m.finish(isa, r, *v, x);
+                    }
+                    start += len;
+                }
+            }
+        })
+    });
     for r in 0..m.d_out {
         for i in 0..n {
             y[i * m.d_out + r] = yt[r * n + i];

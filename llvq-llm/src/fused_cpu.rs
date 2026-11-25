@@ -18,7 +18,7 @@
 //! the activation rotated AND put in trio order, as f32: only this module's
 //! `matvec` reads it.
 
-use crate::tetra_cpu::{self, Isa, Q4Matrix, Tables, TetraMatrix};
+use crate::tetra_cpu::{self, Isa, Q4Matrix, Tables, TetraMatrix, TetraNib};
 use candle_core::{DType, Device, Result, Tensor};
 use llvq_quant::rotation::Rotation;
 use std::collections::HashMap;
@@ -64,6 +64,40 @@ pub mod phases {
     }
 }
 
+/// How the CPU holds the Tetra codes: what `LLVQ_CPU_WEIGHTS` names.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum CpuWeights {
+    /// The served words, decoded at every matvec: 2 bits a weight.
+    Packed,
+    /// The points decoded once at load into four bits a coordinate
+    /// ([`TetraNib`]): 4.33 bits a weight, no decode in the token, and the
+    /// same outputs bit for bit.
+    Nibbles,
+}
+
+impl CpuWeights {
+    pub const ENV: &'static str = "LLVQ_CPU_WEIGHTS";
+
+    /// `packed` when unset; any other value than the two names is refused.
+    pub fn from_env() -> std::result::Result<Self, String> {
+        match std::env::var(Self::ENV) {
+            Err(_) => Ok(Self::Packed),
+            Ok(v) => match v.as_str() {
+                "packed" => Ok(Self::Packed),
+                "nibbles" => Ok(Self::Nibbles),
+                other => Err(format!("{}={other:?}: packed or nibbles", Self::ENV)),
+            },
+        }
+    }
+
+    pub fn name(self) -> &'static str {
+        match self {
+            Self::Packed => "packed",
+            Self::Nibbles => "nibbles",
+        }
+    }
+}
+
 /// `x` as one f32 vector, whatever its dtype and layout.
 fn host_f32(x: &Tensor) -> Result<Vec<f32>> {
     x.to_dtype(DType::F32)?.flatten_all()?.to_vec1::<f32>()
@@ -75,6 +109,9 @@ pub struct CpuLattice {
     isa: Isa,
     tables: Arc<Tables>,
     m: TetraMatrix,
+    /// The codes of `m` decoded once ([`CpuWeights::Nibbles`]); `m` then
+    /// holds no words, only its shape, scales and tails.
+    nib: Option<TetraNib>,
     rot: Option<Arc<Rotation>>,
     key: Option<crate::fused::RotKey>,
     /// The dtype `matvec` hands back: the model's.
@@ -96,7 +133,15 @@ impl CpuLattice {
                 return Err(format!("{name}: rotation of {} for d_in {}", r.dim(), m.d_in));
             }
         }
-        Ok(Self { name, isa: Isa::detect(), tables, m, rot, key, dtype })
+        Ok(Self { name, isa: Isa::detect(), tables, m, nib: None, rot, key, dtype })
+    }
+
+    /// The same projection with its codes decoded once into nibbles, the
+    /// words freed: 4.33 bits a weight for 2, and the same outputs.
+    pub fn expanded(mut self) -> Self {
+        self.nib = Some(TetraNib::expand(&self.tables, &self.m));
+        self.m.words = Vec::new();
+        self
     }
 
     /// The same projection on another SIMD path: what the tests sweep.
@@ -106,7 +151,7 @@ impl CpuLattice {
     }
 
     pub fn bytes(&self) -> u64 {
-        self.m.bytes()
+        self.m.bytes() + self.nib.as_ref().map_or(0, TetraNib::bytes)
     }
 
     /// `rows` activations of `d_in`, rotated and put in trio order.
@@ -137,9 +182,11 @@ impl CpuLattice {
     /// `y = W x` for `rows` prepared activations, `[rows, d_out]`.
     pub fn matvec_vec(&self, xp: &[f32], rows: usize) -> Vec<f32> {
         let mut y = vec![0f32; rows * self.m.d_out];
-        phases::timed(phases::TETRA_KERNEL, || match rows {
-            1 => tetra_cpu::tetra_matvec(self.isa, &self.tables, &self.m, xp, &mut y),
-            _ => tetra_cpu::tetra_matvec_rows(self.isa, &self.tables, &self.m, xp, rows, &mut y),
+        phases::timed(phases::TETRA_KERNEL, || match (&self.nib, rows) {
+            (None, 1) => tetra_cpu::tetra_matvec(self.isa, &self.tables, &self.m, xp, &mut y),
+            (None, _) => tetra_cpu::tetra_matvec_rows(self.isa, &self.tables, &self.m, xp, rows, &mut y),
+            (Some(nb), 1) => tetra_cpu::tetra_nib_matvec(self.isa, &self.tables, &self.m, nb, xp, &mut y),
+            (Some(nb), _) => tetra_cpu::tetra_nib_matvec_rows(self.isa, &self.tables, &self.m, nb, xp, rows, &mut y),
         });
         y
     }
@@ -392,6 +439,7 @@ pub fn load_resolved(
     let from = |var: &str| origin.unwrap_or(var).to_string();
     // A bad `LLVQ_THREADS` is refused here, before the pool's first use.
     tetra_cpu::threads().map_err(candle_core::Error::msg)?;
+    let weights = CpuWeights::from_env().map_err(candle_core::Error::msg)?;
     if !matches!(dtype, DType::F16 | DType::F32) {
         candle_core::bail!("the CPU path runs at f16 or f32, asked for {dtype:?}");
     }
@@ -451,6 +499,10 @@ pub fn load_resolved(
         };
         let (layer, site) = llvq_artifact::split_name(&m.name).map_err(|e| candle_core::Error::msg(e.to_string()))?;
         let p = CpuLattice::new(m.name, tables.clone(), tm, rot, m.rotation, dtype).map_err(candle_core::Error::msg)?;
+        let p = match weights {
+            CpuWeights::Packed => p,
+            CpuWeights::Nibbles => p.expanded(),
+        };
         runtime_bytes += p.bytes();
         by_site.insert((layer, site), crate::model::Proj::Lattice(Arc::new(p)));
     }
@@ -506,9 +558,10 @@ pub fn load_resolved(
         }
     };
     println!(
-        "cpu: {} SIMD on {} threads | tetra {} + int4 {} matrices | {:.2} GB in memory (projections {:.2} + carried {:.2})",
+        "cpu: {} SIMD on {} threads | weights {} | tetra {} + int4 {} matrices | {:.2} GB in memory (projections {:.2} + carried {:.2})",
         Isa::detect().name(),
         tetra_cpu::pool().current_num_threads(),
+        weights.name(),
         by_site.values().filter(|p| matches!(p, crate::model::Proj::Lattice(_))).count(),
         by_site.values().filter(|p| matches!(p, crate::model::Proj::Int4(_))).count(),
         (runtime_bytes + carried_bytes) as f64 / 1e9,
