@@ -56,3 +56,56 @@ WHAT THIS DOES NOT SHOW
   - AVX2 takes changes 2 and 3; it is type-checked for x86_64 Linux and runs in CI, never timed. Change 1 has no AVX2
     counterpart yet. No AVX-512 path.
   - One machine, shared, one run per arm.
+
+THE AVX2 PATH, REWORKED FROM ITS ASSEMBLY (2026-11-25, NIGHT)
+------------------------------------------------------------
+Why:    on 8 vCPU of an AMD EPYC 7R13 the AVX2 Tetra matvec was 6.4 to 8.6 times slower than NEON on an M3 core,
+        where int4 was about 3 times slower: the AVX2 Tetra decode carried its own factor of 2 to 3.
+Cost:   $0. No x86 CPU was used. Branch cpu/avx2-tetra-2026-11-25, three commits on nuit/runtime-cpu-2026-11-25.
+Nature: the instruction counts are *measured* in the emitted x86_64 assembly (rustc 1.95.0, opt-level 3). Every
+        time below is *measured under Rosetta 2 on the M3 Max, not on an x86 CPU*: a translated binary, useful as
+        a before/after signal only. Rosetta reports AVX2, FMA and F16C only with ROSETTA_ADVERTISE_AVX=1; without
+        it the bench ran the scalar path.
+
+What the assembly showed (avx2::row, two blocks per iteration of for_each_word):
+  - Everything was inlined and VEX-encoded: no out-of-line intrinsic, no SSE code, no vzeroupper in the loop.
+  - About 115 instructions a block. About 65 were scalar: Tables::locate (about 45 integer operations), then the
+    candidate merge as xor/and/xor on general registers and one general-to-vector move per section.
+  - The block norm was an f32 horizontal sum and a saturating float-to-int with two compares and a branch.
+  - avx2::rows called its block body as an out-of-line closure, once per block (for_each_word has three call
+    sites); the closure is AVX2 code and ended with a vzeroupper.
+  - int4: half's to_f32 on x86_64 is a runtime F16C check and an out-of-line call, twice per group. The Tetra
+    row tail called fmaf for each mul_add, the crate not being built with the fma feature.
+  - No gathers, no store-forwarding pattern in the loop.
+
+What changed, in commit order (each bit-identical on the AVX2 path: a fingerprint of the outputs of 6 Tetra shapes
+x 5 batch sizes and 3 int4 shapes, taken before the first change, is unchanged after each):
+  3336c4a  candidates selected by one byte shuffle of the 16-byte entry (a 4 KiB x86-only table); the norm from
+           the selected bytes in integers (squares by |y| <= 11, asserted at build, then psadbw); the candidate
+           table aligned to 64 bytes; the batch body inlined. About 97 instructions a block.
+  d47526c  binary16 by vcvtph2ps in the int4 row and in an AVX2 Tetra tail; Isa::detect requires F16C.
+  tip      the addresses of eight blocks formed at once in AVX2 (32-bit lanes, variable shifts) and stored a
+           chunk of 64 blocks ahead of the decode, which reads them back as loads. About 54 instructions a block
+           in the decode and 9.5 in the vector preparation, of which about 12 scalar.
+
+RESULTS UNDER ROSETTA, NOT A CPU (ns per call, 1 thread, median of 7 rounds)
+  site                          base f8f27a0    3336c4a      d47526c        tip
+  tetra q_proj 4096x2560          5,565,950   3,936,882    3,680,522    6,425,690
+  tetra k_proj 1024x2560          1,403,836     992,424      931,098    1,612,133
+  tetra gate/up 9728x2560        13,168,246   9,338,232    8,705,958   15,345,699
+  tetra down 2560x9728           12,710,254   9,023,906    8,748,208   15,199,217
+  int4 g128 v_proj 1024x2560        699,906     695,289      491,600      480,788
+  int4 g128 o_proj 2560x4096      2,740,474   2,739,861    1,895,294    1,843,503
+  int4 g128 down 2560x9728        6,442,955   6,502,290    4,470,013    4,386,670
+  int4 g64 head 151936x2560     144,939,417 142,754,791   83,438,500   80,613,083
+
+The tip is SLOWER than d47526c under Rosetta, by 1.75x on gate/up, while it runs about a third fewer x86
+instructions a block. Two probes of the tip on the same machine: the decode through the staged addresses with
+the scalar locate in place of the vector preparation read 13.66 ms on gate/up; with the vector preparation,
+16.08 ms. Rosetta has no 256-bit registers and translates the variable shifts and cross-lane inserts into several
+NEON operations each, so this says how Rosetta runs the vector preparation, not how a Zen 3 core does. Which of
+d47526c and the tip is faster on x86 is open: only the timed job on an x86 CPU decides it.
+
+WHAT THIS DOES NOT SHOW
+  - No x86 CPU was timed. The x86 job must time d47526c and the tip side by side.
+  - Thread scaling was not touched: the row split is unchanged.
