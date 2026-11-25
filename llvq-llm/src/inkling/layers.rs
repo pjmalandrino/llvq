@@ -367,6 +367,42 @@ pub struct AttnWeights {
     /// in these buffers and widened for a several-row call.
     #[cfg(ink_glue)]
     pub dense: Option<super::attn_dense::FusedAttn>,
+    /// The seven matrices in BF16 on the host for the CPU kernels, when the
+    /// loader chose them ([`LayerWeights::load_cpu`]): every forward then
+    /// reads them, and the seven f32 tensors above are empty.
+    pub cpu: Option<CpuAttnProj>,
+}
+
+/// The seven attention matrices of one block in BF16 on the host, as the
+/// file stores them, applied by `tetra_cpu::bf16_matvec` (one row, or a few)
+/// or widened for candle's matmul (a longer prompt): [`crate::fused_cpu::CpuBf16`].
+pub struct CpuAttnProj {
+    pub wq: crate::fused_cpu::CpuBf16,
+    pub wr: crate::fused_cpu::CpuBf16,
+    pub sink: crate::fused_cpu::CpuBf16,
+    pub gate: crate::fused_cpu::CpuBf16,
+    pub wk: crate::fused_cpu::CpuBf16,
+    pub wv: crate::fused_cpu::CpuBf16,
+    pub wo: crate::fused_cpu::CpuBf16,
+}
+
+impl CpuAttnProj {
+    fn refs(&self) -> MatRefs<'_> {
+        MatRefs {
+            wq: Proj::Cpu(&self.wq),
+            wr: Proj::Cpu(&self.wr),
+            sink: Proj::Cpu(&self.sink),
+            gate: Proj::Cpu(&self.gate),
+            wk: Proj::Cpu(&self.wk),
+            wv: Proj::Cpu(&self.wv),
+            wo: Proj::Cpu(&self.wo),
+        }
+    }
+
+    /// Host bytes of the seven matrices.
+    pub fn bytes(&self) -> u64 {
+        [&self.wq, &self.wr, &self.sink, &self.gate, &self.wk, &self.wv, &self.wo].iter().map(|m| m.bytes()).sum()
+    }
 }
 
 /// The seven f32 matrices of one attention block, owned: what a several-row
@@ -1006,8 +1042,8 @@ impl SlotCache {
 }
 
 impl AttnWeights {
-    fn kv(&self, x: &Tensor, w: &Tensor, conv: &KvConv, state: &mut ConvState) -> Result<Tensor> {
-        let s = timed(ATTN_PROJ, || linear(x, w))?;
+    fn kv(&self, x: &Tensor, w: Proj, conv: &KvConv, state: &mut ConvState) -> Result<Tensor> {
+        let s = timed(ATTN_PROJ, || w.apply(x))?;
         mark(x.device(), Phase::AttnProducts)?;
         let y = timed(CONVS, || match conv {
             KvConv::Static(cw) => short_conv(&s, cw, state),
@@ -1061,23 +1097,26 @@ impl AttnWeights {
             let m = d.widen()?;
             return self.forward_mats(cfg, &m.refs(), xq, xk, xv, cache, chunk);
         }
+        if let Some(c) = &self.cpu {
+            return self.forward_mats(cfg, &c.refs(), xq, xk, xv, cache, chunk);
+        }
         self.forward_mats(cfg, &self.refs(), xq, xk, xv, cache, chunk)
     }
 
     /// The seven matrices this block holds in f32.
     fn refs(&self) -> MatRefs<'_> {
         MatRefs {
-            wq: &self.wq,
-            wr: &self.wr,
-            sink: &self.sink,
-            gate: &self.gate,
-            wk: &self.wk,
-            wv: &self.wv,
-            wo: &self.wo,
+            wq: Proj::F32(&self.wq),
+            wr: Proj::F32(&self.wr),
+            sink: Proj::F32(&self.sink),
+            gate: Proj::F32(&self.gate),
+            wk: Proj::F32(&self.wk),
+            wv: Proj::F32(&self.wv),
+            wo: Proj::F32(&self.wo),
         }
     }
 
-    /// [`Self::forward_chunked`] through candle on the f32 matrices `m`.
+    /// [`Self::forward_chunked`] through candle, the seven products by `m`.
     #[allow(clippy::too_many_arguments)]
     fn forward_mats(
         &self,
@@ -1097,7 +1136,7 @@ impl AttnWeights {
         let tau = if self.sliding { None } else { Some(log_scale(cfg, &positions, dev)?) };
 
         // Query: linear, learned scale, L2 clip, and the log scale in full layers (lines 458-475, 190-236).
-        let q = timed(ATTN_PROJ, || linear(xq, m.wq))?.reshape((t, nh, hd))?.broadcast_mul(&self.q_scale)?;
+        let q = timed(ATTN_PROJ, || m.wq.apply(xq))?.reshape((t, nh, hd))?.broadcast_mul(&self.q_scale)?;
         let mut q = l2_clip(&q, cfg.qk_l2_clip_threshold)?;
         if let Some(tau) = &tau {
             q = q.broadcast_mul(tau)?;
@@ -1118,7 +1157,7 @@ impl AttnWeights {
         mark(dev, Phase::CacheCopies)?;
 
         // Relative bias (lines 260-270): per-head states, scale, L2 clip at the rel threshold, log scale in full layers.
-        let r = timed(ATTN_PROJ, || linear(xq, m.wr))?.reshape((t, nh, cfg.d_rel))?.broadcast_mul(&self.rel_scale)?;
+        let r = timed(ATTN_PROJ, || m.wr.apply(xq))?.reshape((t, nh, cfg.d_rel))?.broadcast_mul(&self.rel_scale)?;
         let mut r = l2_clip(&r, cfg.rel_l2_clip_threshold)?;
         if let Some(tau) = &tau {
             r = r.broadcast_mul(tau)?;
@@ -1126,15 +1165,15 @@ impl AttnWeights {
         let rel_logits = timed(ATTN_PROJ, || r.transpose(0, 1)?.contiguous()?.broadcast_matmul(&self.rel_proj))?; // [nh, T, extent]
         mark(dev, Phase::AttnProducts)?;
 
-        let sinks = || timed(ATTN_PROJ, || linear(xq, m.sink))?.t()?.unsqueeze(2); // [nh, T, 1], line 619
+        let sinks = || timed(ATTN_PROJ, || m.sink.apply(xq))?.t()?.unsqueeze(2); // [nh, T, 1], line 619
         // The bias reads distances only: the query positions counted from the first key held.
         let a = self.scores(cfg, &q, &kt, &v, &rel_logits, sinks, offset - base, s, t, chunk)?;
         drop((kt, v));
 
         // Gated output (lines 540-543).
-        let gate = candle_nn::ops::sigmoid(&timed(ATTN_PROJ, || linear(xq, m.gate))?)?;
+        let gate = candle_nn::ops::sigmoid(&timed(ATTN_PROJ, || m.gate.apply(xq))?)?;
         let gated = a.mul(&gate)?;
-        let out = timed(ATTN_PROJ, || linear(&gated, m.wo))?;
+        let out = timed(ATTN_PROJ, || m.wo.apply(&gated))?;
         mark(dev, Phase::AttnProducts)?;
         cache.settle_window()?;
         Ok(out)
@@ -1258,21 +1297,47 @@ impl AttnWeights {
     }
 }
 
-/// The seven f32 matrices a candle attention call reads, borrowed.
+/// One attention matrix as a candle attention call reads it: an f32
+/// tensor (candle's matmul) or a BF16 matrix of the CPU path.
+#[derive(Clone, Copy)]
+enum Proj<'a> {
+    F32(&'a Tensor),
+    Cpu(&'a crate::fused_cpu::CpuBf16),
+}
+
+impl Proj<'_> {
+    /// `x @ w.T` for `x` `[T, in]`.
+    fn apply(self, x: &Tensor) -> Result<Tensor> {
+        match self {
+            Proj::F32(w) => linear(x, w),
+            Proj::Cpu(w) => w.forward(x),
+        }
+    }
+}
+
+/// The seven matrices a candle attention call reads, borrowed.
 struct MatRefs<'a> {
-    wq: &'a Tensor,
-    wr: &'a Tensor,
-    sink: &'a Tensor,
-    gate: &'a Tensor,
-    wk: &'a Tensor,
-    wv: &'a Tensor,
-    wo: &'a Tensor,
+    wq: Proj<'a>,
+    wr: Proj<'a>,
+    sink: Proj<'a>,
+    gate: Proj<'a>,
+    wk: Proj<'a>,
+    wv: Proj<'a>,
+    wo: Proj<'a>,
 }
 
 #[cfg(ink_glue)]
 impl AttnMats {
     fn refs(&self) -> MatRefs<'_> {
-        MatRefs { wq: &self.wq, wr: &self.wr, sink: &self.sink, gate: &self.gate, wk: &self.wk, wv: &self.wv, wo: &self.wo }
+        MatRefs {
+            wq: Proj::F32(&self.wq),
+            wr: Proj::F32(&self.wr),
+            sink: Proj::F32(&self.sink),
+            gate: Proj::F32(&self.gate),
+            wk: Proj::F32(&self.wk),
+            wv: Proj::F32(&self.wv),
+            wo: Proj::F32(&self.wo),
+        }
     }
 }
 
@@ -1372,8 +1437,41 @@ impl LayerWeights {
         Ok(lw)
     }
 
+    /// [`Self::load`] on the CPU with the attention products through the
+    /// CPU kernels: the seven attention matrices are read from the file as
+    /// it stores them and held in BF16 ([`CpuAttnProj`]), and no f32 copy of
+    /// them is made. A file that stores them otherwise than in BF16 keeps
+    /// them in f32 on candle, as [`Self::load`] does.
+    pub fn load_cpu(ck: &NativeCheckpoint, cfg: &InklingConfig, l: usize) -> Result<Self> {
+        let mut lw = Self::load_impl(ck, cfg, l, &Device::Cpu, true)?;
+        let a = &mut lw.attn;
+        let mats = [&mut a.wq, &mut a.wr, &mut a.sink, &mut a.gate, &mut a.wk, &mut a.wv, &mut a.wo];
+        if mats.iter().any(|m| m.dtype() != DType::BF16) {
+            for m in mats {
+                *m = m.to_dtype(DType::F32)?;
+            }
+            return Ok(lw);
+        }
+        let p = |s: &str, t: &Tensor| crate::fused_cpu::CpuBf16::from_tensor(format!("layers.{l}.attn.{s}"), t);
+        a.cpu = Some(CpuAttnProj {
+            wq: p("wq_du", &a.wq)?,
+            wr: p("wr_du", &a.wr)?,
+            sink: p("attn_sink_proj", &a.sink)?,
+            gate: p("gate_attn", &a.gate)?,
+            wk: p("wk_dv", &a.wk)?,
+            wv: p("wv_dv", &a.wv)?,
+            wo: p("wo_ud", &a.wo)?,
+        });
+        let empty = Tensor::zeros(0, DType::F32, &Device::Cpu)?;
+        for m in [&mut a.wq, &mut a.wr, &mut a.sink, &mut a.gate, &mut a.wk, &mut a.wv, &mut a.wo] {
+            *m = empty.clone();
+        }
+        Ok(lw)
+    }
+
     /// The body of [`Self::load`]; `host_bf16` reads the seven attention
-    /// matrices as the file stores them, on the host, for [`Self::load_dense`].
+    /// matrices as the file stores them, on the host, for [`Self::load_dense`]
+    /// and [`Self::load_cpu`].
     fn load_impl(ck: &NativeCheckpoint, cfg: &InklingConfig, l: usize, dev: &Device, host_bf16: bool) -> Result<Self> {
         if l >= cfg.num_hidden_layers {
             candle_core::bail!("layer {l}: the model has {} layers", cfg.num_hidden_layers);
@@ -1413,6 +1511,7 @@ impl LayerWeights {
             rel_proj: f("attn.rel_logits_proj.proj")?,
             #[cfg(ink_glue)]
             dense: None,
+            cpu: None,
         };
         // `attn_res.attn_queries.{i}` is layer i+1's (Inkling2IndexOffsetWeightRename, offset 1).
         let attention_input = if l > 0 {
@@ -1824,6 +1923,7 @@ mod tests {
                 rel_proj: r(&[cfg.d_rel, cfg.layer_rel_extent(l)]),
                 #[cfg(ink_glue)]
                 dense: None,
+                cpu: None,
             },
             post_attention_convolution: r(&[h, 4]),
             post_mlp_convolution: r(&[h, 4]),
@@ -1971,6 +2071,7 @@ mod tests {
                 rel_proj: mv(&lw.attn.rel_proj),
                 #[cfg(ink_glue)]
                 dense: None,
+                cpu: None,
             },
             post_attention_convolution: mv(&lw.post_attention_convolution),
             post_mlp_convolution: mv(&lw.post_mlp_convolution),

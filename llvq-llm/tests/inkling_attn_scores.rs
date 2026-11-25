@@ -134,6 +134,7 @@ fn weights(rng: &mut Rng, cfg: &InklingConfig, d: Dims, sliding: bool) -> AttnWe
         rel_scale: rng.t(&[nh, cfg.d_rel], 1.0, 0.2),
         rel_proj: rng.t(&[cfg.d_rel, extent], 0.0, 0.3),
         dense: None,
+        cpu: None,
     }
 }
 
@@ -168,6 +169,7 @@ fn to_dev(w: &AttnWeights, dev: &Device) -> AttnWeights {
         rel_scale: m(&w.rel_scale),
         rel_proj: m(&w.rel_proj),
         dense: None,
+        cpu: None,
     }
 }
 

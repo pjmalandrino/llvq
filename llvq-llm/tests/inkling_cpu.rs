@@ -25,7 +25,7 @@ use llvq_llm::inkling::expert_codes::{record_name, rotation_seed};
 use llvq_llm::inkling::experts_cpu::{CpuExpert, CpuExperts};
 use llvq_llm::inkling::head::{OutputProjection, Q4CpuHead};
 use llvq_llm::inkling::layers::{experts_forward, ExpertSource, MoeSource, Routing};
-use llvq_llm::inkling::{Inkling, LayerExperts};
+use llvq_llm::inkling::{AttnKind, Inkling, LayerExperts};
 use llvq_llm::lm::CausalLm;
 use llvq_llm::tetra_cpu::{available_isas, Tables, TetraMatrix};
 use llvq_quant::quantizer::BlockCode;
@@ -495,12 +495,19 @@ impl Gen {
 }
 
 /// The non-expert checkpoint of the tiny model of `tests/inkling_wave1.rs`,
-/// without `embed.weight` and `unembed.weight`, as the served file holds it.
+/// without `embed.weight` and `unembed.weight`, as the served file holds it:
+/// the seven attention matrices in BF16, the rest in f32.
 fn write_checkpoint(path: &Path, cfg: &InklingConfig) {
     let mut g = Gen(0x5eed_1a71);
     let (h, k, rank) = (cfg.hidden_size, cfg.sconv_kernel_size, cfg.loop_config.gate_rank);
     let mut t: Vec<(String, Tensor)> = vec![];
-    let mut put = |name: String, x: Tensor| t.push((format!("model.llm.{name}"), x));
+    let mut put = |name: String, x: Tensor| {
+        let bf16 = ["wq_du", "wk_dv", "wv_dv", "gate_attn", "wo_ud", "attn_sink_proj", "wr_du"]
+            .iter()
+            .any(|m| name.ends_with(&format!("attn.{m}.weight")));
+        let x = if bf16 { x.to_dtype(DType::BF16).unwrap() } else { x };
+        t.push((format!("model.llm.{name}"), x))
+    };
     for l in 0..cfg.num_hidden_layers {
         let p = |s: &str| format!("layers.{l}.{s}");
         let sliding = cfg.is_sliding(l);
@@ -608,6 +615,75 @@ fn load(dir: &Path) -> Inkling {
         println!("{l}");
     }
     m
+}
+
+/// [`load`] with the attention `attn` in place of the served one.
+fn load_attn(dir: &Path, attn: AttnKind) -> Inkling {
+    let (m, lines) = llvq_llm::inkling::experts_cpu::load_served_with(
+        &dir.join("config.json"),
+        &dir.join("model.safetensors"),
+        &dir.join("layers"),
+        &dir.join("tables"),
+        attn,
+    )
+    .unwrap();
+    for l in lines {
+        println!("{l}");
+    }
+    m
+}
+
+/// Tolerance of the logits of the BF16 attention kernels against the candle
+/// f32 attention, relative to a row's largest logit: f32 rounding of sums
+/// taken in another order, through the 24 visits of the tiny model.
+const ATTN_TOL: f64 = 1e-5;
+
+#[test]
+fn the_cpu_attention_kernels_track_the_candle_attention() {
+    let dir = temp_dir("attn");
+    let (cfg, _) = write_file_set(&dir);
+    let cpu = load(&dir);
+    let cand = load_attn(&dir, AttnKind::Candle);
+    assert_eq!(cpu.attn(), AttnKind::Cpu);
+    // What each holds: BF16 only on the served path, f32 only on the reference, twice the bytes.
+    let (cf, cb) = cpu.attention_matrix_bytes();
+    let (rf, rb) = cand.attention_matrix_bytes();
+    println!("attention bytes: served BF16 {cb} + f32 {cf}, reference BF16 {rb} + f32 {rf}");
+    assert!(cb > 0 && cf == 0 && rb == 0, "served {cb} + {cf}, reference {rb} + {rf}");
+    assert_eq!(rf, 2 * cb, "the f32 reference holds twice the BF16 bytes");
+    let v = cfg.unpadded_vocab_size;
+
+    // A prompt longer than PREFILL_ROWS widens the matrices for candle's
+    // matmul: the same bits as the f32 reference.
+    let long: Vec<u32> = (0..21u32).map(|i| (i * 5 + 2) % v as u32).collect();
+    let a = rows_of(&cpu.forward(&long, &mut cpu.new_cache(), false, true).unwrap().logits);
+    let b = rows_of(&cand.forward(&long, &mut cand.new_cache(), false, true).unwrap().logits);
+    let diff = a.iter().flatten().zip(b.iter().flatten()).position(|(p, q)| p.to_bits() != q.to_bits());
+    assert_eq!(diff, None, "a prompt of {} rows: the widened matrices differ from the f32 ones", long.len());
+
+    // A short prompt and the greedy steps after it through the kernels.
+    let ids: Vec<u32> = (0..13u32).map(|i| (i * 7 + 3) % v as u32).collect();
+    let a = rows_of(&cpu.forward(&ids, &mut cpu.new_cache(), false, true).unwrap().logits);
+    let b = rows_of(&cand.forward(&ids, &mut cand.new_cache(), false, true).unwrap().logits);
+    let gap = worst_gap(&a, &b);
+    println!("tiny model: a prompt of {} rows, BF16 kernels against candle f32, largest relative gap {gap:.3e}", ids.len());
+    assert!(gap < ATTN_TOL, "prompt: gap {gap:.3e}");
+    let (mut ca, mut cb) = (cpu.new_cache(), cand.new_cache());
+    let mut ta = argmax(&rows_of(&cpu.prefill(&ids, &mut ca).unwrap().reshape((1, v)).unwrap())[0]) as u32;
+    let mut tb = argmax(&rows_of(&cand.prefill(&ids, &mut cb).unwrap().reshape((1, v)).unwrap())[0]) as u32;
+    let mut worst = 0f64;
+    for step in 0..8 {
+        assert_eq!(ta, tb, "step {step}");
+        let pos = ca.len();
+        let la = rows_of(&cpu.step(ta, pos, &mut ca).unwrap().reshape((1, v)).unwrap());
+        let lb = rows_of(&cand.step(tb, pos, &mut cb).unwrap().reshape((1, v)).unwrap());
+        worst = worst.max(worst_gap(&la, &lb));
+        ta = argmax(&la[0]) as u32;
+        tb = argmax(&lb[0]) as u32;
+    }
+    println!("tiny model: 8 greedy steps, BF16 kernels against candle f32, largest relative gap {worst:.3e}");
+    assert!(worst < ATTN_TOL, "steps: gap {worst:.3e}");
+    let _ = std::fs::remove_dir_all(&dir);
 }
 
 #[test]

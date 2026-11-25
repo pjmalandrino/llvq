@@ -7,8 +7,10 @@
 //! The directory is the file set `llvq pull inkling2:mini` unpacks:
 //! `config.json`, `model.safetensors`, `tokenizer.json`, `tables/` and
 //! `layers/`. The load is `inkling::experts_cpu::load_served`, the function
-//! the runtime calls on a CPU build: candle attention and glue in f32, the
-//! int4 head and embedding, the experts from their codes, the prompt bounds.
+//! the runtime calls on a CPU build: the attention matrices in BF16 through
+//! the CPU kernels (`attn proj` holds them, `bf16 kernel` inside it), the
+//! glue on candle in f32, the int4 head and embedding, the experts from their
+//! codes, the prompt bounds.
 //! Every layer must load its experts, or the run is refused before any token.
 //!
 //! One fixed user message, rendered by the checkpoint's template at reasoning

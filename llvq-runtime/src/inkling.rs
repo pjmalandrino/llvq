@@ -266,9 +266,9 @@ const SCORE_ROWS: usize = 128;
 const KV_SLACK: usize = 1024;
 
 /// The model on the CPU: `experts_cpu::load_served`, the load `inkcpu`
-/// measures. One stack whatever the local file's `stack` says: the candle
-/// attention and glue in f32, the int4 head and embedding of `tables`, the
-/// experts from their codes.
+/// measures. One stack whatever the local file's `stack` says: the attention
+/// matrices in BF16 through the CPU kernels, the glue on candle in f32, the
+/// int4 head and embedding of `tables`, the experts from their codes.
 fn load_model_cpu(l: &LocalModel) -> anyhow::Result<(llvq_llm::inkling::Inkling, Vec<String>)> {
     let Some(tables) = &l.tables else {
         anyhow::bail!("the CPU stack reads the int4 tables: name their directory in \"tables\"");

@@ -284,6 +284,91 @@ fn the_int4_embedding_gathers_and_projects_its_rows() {
 }
 
 // ---------------------------------------------------------------------------
+// BF16 matrices: the attention products of Inkling 2 Mini on the CPU path.
+// ---------------------------------------------------------------------------
+
+/// Tolerance of the BF16 matvec against the f64 product of the same BF16
+/// weights, on the repository's scale `|y - y_ref| / Σ|w·x|`: f32 rounding
+/// of the products and the partial sums.
+const BF16_TOL: f64 = 1e-6;
+
+/// Random BF16 bits of weights about `N(0, 0.05)`, and their f32 values.
+fn random_bf16(d_out: usize, d_in: usize, seed: u64) -> (Vec<u16>, Vec<f32>) {
+    let mut rng = SplitMix64::new(seed);
+    let bits: Vec<u16> = (0..d_out * d_in).map(|_| half::bf16::from_f64(0.05 * rng.next_gaussian()).to_bits()).collect();
+    let w = bits.iter().map(|&b| half::bf16::from_bits(b).to_f32()).collect();
+    (bits, w)
+}
+
+#[test]
+fn the_bf16_matvec_computes_the_plain_product_of_its_weights() {
+    use llvq_llm::tetra_cpu::{bf16_matvec, bf16_matvec_rows, bf16_to_f32};
+    // The model's widths, and odd ones: tails under every SIMD step.
+    for (d_out, d_in) in [(384usize, 2304usize), (61, 3072), (37, 77), (5, 13), (3, 1)] {
+        let (bits, w) = random_bf16(d_out, d_in, (d_out * 1000 + d_in) as u64);
+        for (b, &v) in bits.iter().zip(&w).take(64) {
+            assert_eq!(bf16_to_f32(*b).to_bits(), v.to_bits(), "widening of {b:#06x}");
+        }
+        let n = 5;
+        let x = activations(d_in, n, 0xb16 ^ d_in as u64);
+        let xf: Vec<f32> = x.iter().map(|&v| v as f32).collect();
+        // The reference reads the f32 activation the kernel reads.
+        let x32: Vec<f64> = xf.iter().map(|&v| v as f64).collect();
+        for isa in available_isas() {
+            let mut y = vec![0f32; d_out];
+            bf16_matvec(isa, &bits, d_out, d_in, &xf[..d_in], &mut y);
+            let err = worst(&w, d_in, &x32[..d_in], &y);
+            println!("bf16 {d_out}x{d_in} on {}: one row {err:.3e}", isa.name());
+            assert!(err < BF16_TOL, "{d_out}x{d_in} on {}: {err:.3e}", isa.name());
+            let mut ys = vec![0f32; n * d_out];
+            bf16_matvec_rows(isa, &bits, d_out, d_in, &xf, n, &mut ys);
+            for i in 0..n {
+                let got = &ys[i * d_out..(i + 1) * d_out];
+                let err = worst(&w, d_in, &x32[i * d_in..(i + 1) * d_in], got);
+                assert!(err < BF16_TOL, "{d_out}x{d_in} on {}, row {i} of {n}: {err:.3e}", isa.name());
+                bf16_matvec(isa, &bits, d_out, d_in, &xf[i * d_in..(i + 1) * d_in], &mut y);
+                let diff = got.iter().zip(&y).position(|(p, q)| p.to_bits() != q.to_bits());
+                assert_eq!(diff, None, "{d_out}x{d_in} on {}: row {i} of a batch differs from the row alone", isa.name());
+            }
+        }
+    }
+}
+
+#[test]
+fn the_bf16_adapter_binds_the_same_product() {
+    use llvq_llm::fused_cpu::{CpuBf16, PREFILL_ROWS};
+    let (d_out, d_in) = (96usize, 200usize);
+    let (bits, w) = random_bf16(d_out, d_in, 0xada);
+    let t = Tensor::from_vec(w.clone(), (d_out, d_in), &Device::Cpu).unwrap().to_dtype(DType::BF16).unwrap();
+    let wt = Tensor::from_vec(w.clone(), (d_out, d_in), &Device::Cpu).unwrap();
+    for isa in available_isas() {
+        let p = CpuBf16::from_tensor("t.w".into(), &t).unwrap().with_isa(isa);
+        assert_eq!((p.d_out(), p.d_in(), p.bytes()), (d_out, d_in, 2 * bits.len() as u64));
+        assert_eq!(p.widen().unwrap().flatten_all().unwrap().to_vec1::<f32>().unwrap(), w, "widened exactly");
+        for rows in [1, 3, PREFILL_ROWS, PREFILL_ROWS + 1] {
+            let xv: Vec<f32> = activations(d_in, rows, rows as u64).iter().map(|&v| v as f32).collect();
+            let x = Tensor::from_vec(xv.clone(), (rows, d_in), &Device::Cpu).unwrap();
+            let y = p.forward(&x).unwrap();
+            assert_eq!(y.dims(), [rows, d_out]);
+            let got: Vec<f32> = y.flatten_all().unwrap().to_vec1().unwrap();
+            let x64: Vec<f64> = xv.iter().map(|&v| v as f64).collect();
+            for i in 0..rows {
+                let err = worst(&w, d_in, &x64[i * d_in..(i + 1) * d_in], &got[i * d_out..(i + 1) * d_out]);
+                assert!(err < BF16_TOL, "{} rows on {}, row {i}: {err:.3e}", rows, isa.name());
+            }
+            if rows > PREFILL_ROWS {
+                // Past PREFILL_ROWS the call is candle's matmul on the widened matrix.
+                let want: Vec<f32> = x.matmul(&wt.t().unwrap()).unwrap().flatten_all().unwrap().to_vec1().unwrap();
+                assert_eq!(got, want, "{rows} rows: not candle's product");
+            }
+        }
+        assert!(p.forward(&Tensor::zeros((1, d_in + 1), DType::F32, &Device::Cpu).unwrap()).is_err(), "a row of another width");
+    }
+    assert!(CpuBf16::from_tensor("t.w".into(), &wt).is_err(), "an f32 tensor");
+    assert!(CpuBf16::new("t.w".into(), 2, 3, vec![0; 5]).is_err(), "5 weights for 2 x 3");
+}
+
+// ---------------------------------------------------------------------------
 // The microbenchmark: random codes at the served 4B's shapes, no model.
 //
 //   LLVQ_THREADS=8 cargo test --profile ci -p llvq-llm --test cpu_tetra -- --ignored --nocapture bench_

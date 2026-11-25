@@ -34,7 +34,7 @@ use llvq_quant::rotation::Rotation;
 use super::config::InklingConfig;
 use super::expert_codes::{self, check_layer, layer_dir, read_expert, rotation_seed, tetra48_transcoder};
 use super::layers::{MoeSource, Routing};
-use super::{Inkling, LayerExperts};
+use super::{AttnKind, Inkling, LayerExperts};
 use crate::device::LatticeProj;
 use crate::fused::{FusedMatrix, HostStream};
 use crate::fused_cpu::{phases, CpuLattice, CpuWeights};
@@ -335,17 +335,30 @@ pub fn make_resident(model: &mut Inkling, layers_dir: &Path) -> anyhow::Result<V
 }
 
 /// The served file set on the CPU, loaded as the runtime serves it: the
-/// candle attention and glue in f32, the int4 head from
+/// attention matrices in BF16 through the CPU kernels ([`AttnKind::Cpu`]),
+/// the glue on candle in f32, the int4 head from
 /// `tables/unembed.q4g64.llvqraw`, the int4 embedding from
 /// `tables/embed.q4g64.llvqraw` kept packed, the experts of every verified
 /// layer from their codes, and the prompt bounds of the runtime's CUDA stack.
 /// Returns the model and the lines its load reports.
 pub fn load_served(config: &Path, checkpoint: &Path, layers: &Path, tables_dir: &Path) -> anyhow::Result<(Inkling, Vec<String>)> {
-    use super::{tables, AttnKind, LoadOptions};
+    load_served_with(config, checkpoint, layers, tables_dir, AttnKind::Cpu)
+}
+
+/// [`load_served`] with the attention `attn`: [`AttnKind::Cpu`] is the
+/// served one, [`AttnKind::Candle`] the f32 reference its gate reads.
+pub fn load_served_with(
+    config: &Path,
+    checkpoint: &Path,
+    layers: &Path,
+    tables_dir: &Path,
+    attn: AttnKind,
+) -> anyhow::Result<(Inkling, Vec<String>)> {
+    use super::{tables, LoadOptions};
     let dev = Device::Cpu;
     let mut lines = Vec::new();
     let opts = LoadOptions { int4_head: Some(tables_dir.join(tables::UNEMBED_FILE)) };
-    let mut model = Inkling::load_with_attn(config, checkpoint, &dev, &opts, AttnKind::Candle)?;
+    let mut model = Inkling::load_with_attn(config, checkpoint, &dev, &opts, attn)?;
     let t = tables::load_embed(tables_dir, &model.cfg, true)?;
     lines.push(format!("tables: embed {}, unembed {}", &t.embed_sha256[..16], &t.unembed_sha256[..16]));
     let embed_bytes = t.embed.bytes();
@@ -355,7 +368,7 @@ pub fn load_served(config: &Path, checkpoint: &Path, layers: &Path, tables_dir: 
     model.set_attn_chunk(SCORE_ROWS);
     model.set_kv_window(Some(KV_SLACK));
     let sum = |f: fn(&LoadStats) -> u64| stats.iter().map(|(_, s)| f(s)).sum::<u64>();
-    let (attn_f32, _) = model.attention_matrix_bytes();
+    let (attn_f32, attn_bf16) = model.attention_matrix_bytes();
     let head_bytes = model.out_proj.as_ref().map_or(0, |p| p.device_bytes());
     let gb = |b: u64| b as f64 / 1e9;
     lines.push(format!(
@@ -369,7 +382,9 @@ pub fn load_served(config: &Path, checkpoint: &Path, layers: &Path, tables_dir: 
         stats.iter().map(|(_, s)| s.seconds).sum::<f64>()
     ));
     lines.push(format!(
-        "cpu: attention f32 {:.2} GB, int4 embedding {:.2} GB, int4 head {:.2} GB",
+        "cpu: attention {} | BF16 {:.2} GB + f32 {:.2} GB, int4 embedding {:.2} GB, int4 head {:.2} GB",
+        model.attn().name(),
+        gb(attn_bf16 as u64),
         gb(attn_f32 as u64),
         gb(embed_bytes),
         gb(head_bytes)
