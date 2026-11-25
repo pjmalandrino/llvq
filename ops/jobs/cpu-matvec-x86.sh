@@ -26,6 +26,8 @@ fi
 PRE=$(printf 'O=%q\nBRANCH=%q\nBASE=%q\nBENCH=%q' "$O" "$BRANCH" "$BASE" "$BENCH")
 IFS= read -r -d '' BODY <<'JOB' || true
 mkdir -p "$O"
+# The launcher's shell does not carry the image's PATH.
+export PATH=/usr/local/cargo/bin:$PATH RUSTUP_HOME=/usr/local/rustup CARGO_HOME=/usr/local/cargo
 export DEBIAN_FRONTEND=noninteractive
 apt-get update -qq > /dev/null
 apt-get install -y -qq --no-install-recommends git ca-certificates pkg-config libssl-dev build-essential cmake > /dev/null
