@@ -2,8 +2,10 @@
 
 Goal: a Tetra file of `OVHaiLLM/Olala-v1.0-mini-7A1B` near 2.6 bits per parameter, 2.2 GB against the 13.6 GB of the
 bf16 checkpoint, measured against that checkpoint and against the public quantized files, then served.
-State on 2026-11-25: a reconnaissance at $0 is done and nothing is encoded
-([olala-reconnaissance](mesures/olala-reconnaissance-2026-11-25.txt)). Every later lot waits for the operator.
+State on 2026-11-26: a reconnaissance at $0 is done and no file is encoded
+([olala-reconnaissance](mesures/olala-reconnaissance-2026-11-25.txt)); the routed experts of three layers were
+encoded data-free to calibrate its noise proxy
+([olala-calibrage-proxy](mesures/olala-calibrage-proxy-2026-11-26.txt)). Every later lot waits for the operator.
 Never without him: a paid run, a format change, kernel work on a card, a publication, a served object.
 
 ## 1. The object
@@ -93,12 +95,24 @@ corpus). The Inkling encode met 28 % of such cells and took no fallback.
 **A second word buys what a better code cannot.** At 48 bits a block the code is within 0.60 dB of any
 24-dimension rival ([`CERVEAU.md`](CERVEAU.md) C7), so its error at 2 bits is close to final. A second Tetra word
 on the residual takes the error from 0.085 to 0.0074 at 4.00 bits a weight, under int4 g128's 0.0100 at 4.25
-(*measured*, [olala-second-mot](mesures/olala-second-mot-2026-11-26.txt)). Under the proxy, a second word on the
+(*measured*, [olala-second-mot](mesures/olala-second-mot-2026-11-26.txt)). In the model, on the routed experts of
+layers 6, 17 and 28, two real words read 19 % less KL to bf16 than int4 g128, a paired difference of -0.00133
+[-0.00173, -0.00092], and the same top-1 agreement, 96.5 % (*measured*, 8,192 positions,
+[olala-calibrage-proxy](mesures/olala-calibrage-proxy-2026-11-26.txt)). Under the proxy, a second word on the
 busiest 20 % of the experts halves the KL to bf16, from 0.125 to 0.061. The format holds one word a block today.
 
-The noise proxy is not an encoded file. It ignores the Hessian, which is the whole of what GPTQ uses, and by
-[`MODES.md`](MODES.md) a gain projected through a proxy is not a result. It ranks the parts of the model and
-bounds nothing.
+**The proxy reads a data-free encode faithfully, and it does not read the file.** On the routed experts of the same
+three layers, a real Tetra encode with H = I reads 1.04 times the proxy's KL at one word and 0.95 times at two, and
+int4 g128 reads 0.98 times (*measured*, same journal); the band written before the reads was 0.7 to 1.3. Those
+layers are none of the ones with massive activations. The proxy still ignores the Hessian, which is the whole of
+what GPTQ uses, so by [`MODES.md`](MODES.md) a gain projected through it is not a result on the file.
+
+**The KL falls more slowly than the error.** An error 11.5 times smaller divides the KL by 5.4 under noise and by
+5.9 under the real encode, an exponent near 0.7 (*computed* from the measured arms, same journal). A second word
+therefore buys about half the KL its error suggests. The same three layers read a KL of 0.032 at one word, a fifth
+of the figure of all 36 under the proxy and not a twelfth, so a part of the model does not scale to the whole by
+its share; the two figures are not the same sum (journal section 6). The cause is not measured; the near-tie
+routing of section 7 is one candidate.
 
 ## 4. The recipe proposed
 
@@ -144,6 +158,8 @@ file reads a KL to bf16 at or under the 3.72 GB file's and a top-1 agreement at 
 reports 0.0587 and 88.8 %. The honest reading tonight is that this gate is hard. The isotropic proxy puts the
 experts alone at a KL near 0.16 on our text, and on Inkling the real encode of the experts at 2.04 bits read 0.083
 on the whole model and did not beat the public ladder ([whole-model](mesures/inkling2-mini-whole-model-2026-11-22.txt)).
+On three layers the proxy reads what a data-free encode reads (section 3), so the distance to the gate is not an
+artefact of the proxy.
 Three levers stand between the proxy and the gate, none measured on this model: GPTQ against real Hessians, trained
 row scales, which gained 1.7 to 3.3 MMLU points on the Qwen3 files, and a second word on the busiest experts
 (section 3). The fallback target is the same gate at 2.94 b/param, 2.49 GB, still 33 % under the smallest public

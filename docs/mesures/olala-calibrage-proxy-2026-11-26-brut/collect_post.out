@@ -1,0 +1,18 @@
+by sequence, KL(t2) - KL(q4): mean -0.001327 +- 0.000241 over 16 sequences  [-0.001841, -0.000813] (t, 15 df)   negative in 15 of 16
+by sequence, KL(t1) - KL(n1): mean +0.001166 +- 0.000980 over 16 sequences  [-0.000922, +0.003254] (t, 15 df)   negative in 5 of 16
+by sequence, KL(t2) - KL(n2): mean -0.000285 +- 0.000230 over 16 sequences  [-0.000775, +0.000205] (t, 15 df)   negative in 13 of 16
+by sequence, KL(q4) - KL(n4): mean -0.000140 +- 0.000330 over 16 sequences  [-0.000842, +0.000563] (t, 15 df)   negative in 10 of 16
+by sequence, KL(n2) - KL(n4): mean -0.001182 +- 0.000137 over 16 sequences  [-0.001472, -0.000891] (t, 15 df)   negative in 16 of 16
+by sequence, KL(t1)/KL(n1): min 0.848  median 1.043  max 1.279
+by sequence, KL(t2)/KL(n2): min 0.707  median 0.941  max 1.302
+by sequence, KL(q4)/KL(n4): min 0.724  median 0.941  max 1.429
+top-1, t2 against q4: 96.52 % and 96.56 %; agree with bf16 where the other does not: 166 and 169 of 8,192; z = -0.16
+top-1, t1 against n1: 91.66 % and 91.74 %; agree with bf16 where the other does not: 356 and 362 of 8,192; z = -0.22
+top-1, t2 against n2: 96.52 % and 96.40 %; agree with bf16 where the other does not: 162 and 152 of 8,192; z = +0.56
+top-1, q4 against n4: 96.56 % and 96.22 %; agree with bf16 where the other does not: 176 and 148 of 8,192; z = +1.56
+KL(n1)/KL(n2) = 5.386 for an error ratio of 11.486: exponent 0.690
+KL(t1)/KL(t2) = 5.868 for an error ratio of 11.478: exponent 0.725
+KL(n4)/KL(n2) = 1.200 for an error ratio of 1.351: exponent 0.607
+KL(n1)/KL(n4) = 4.487 for an error ratio of 8.500: exponent 0.701
+KL(t1)/KL(q4) = 4.746 for an error ratio of 8.499: exponent 0.728
+mean rel error: {'t1': 0.08505, 'n1': 0.085, 't2': 0.00741, 'n2': 0.0074, 'q4': 0.01001, 'n4': 0.01}

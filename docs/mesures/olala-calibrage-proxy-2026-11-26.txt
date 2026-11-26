@@ -1,0 +1,131 @@
+
+OLALA V1.0 MINI 7A1B, THE NOISE PROXY AGAINST A REAL ENCODE ON THREE LAYERS, 2026-11-26
+
+RESULT
+  Q1. The noise proxy reads the KL of a real data-free Tetra encode: KL(T1)/KL(N1) = 1.037 for one word and
+  KL(T2)/KL(N2) = 0.952 for two, over 8,192 positions (*measured*). Both are inside the [0.7, 1.3] band written
+  before the reads, so the proxy is called faithful. Window by window the ratios run 0.987 to 1.100 and 0.920 to
+  0.980.
+  Q2. Two Tetra words read a lower KL than int4 g128 in the model: 0.00561 against 0.00694, a paired difference of
+  -0.00133 [-0.00173, -0.00092], negative on all four windows (*measured*). By the rule written before the reads
+  two words are called better: 19 % less KL for 4.06 bits a weight against 4.25. Top-1 agreement does not separate
+  them, 96.52 % against 96.56 %.
+  The levels expected before the reads were wrong. The proxy at one word reads a KL of 0.0318 where 0.010 to 0.013
+  was written, and at two words 0.0059 where 0.0013 was written.
+  The KL falls more slowly than the error. An error 11.5 times smaller divides the KL by 5.4 under noise and by 5.9
+  under the real encode, an exponent near 0.7 (*computed* from the measured arms).
+  Every encode here is data-free, H = I, on the routed experts of three layers of 36. No file exists, and nothing
+  here says what GPTQ against real Hessians adds.
+
+WHAT WAS RUN
+  The reading plan is `olala-calibrage-proxy-2026-11-26-plan.txt`, committed as 6820f47 before any number below was
+  read. It is not a prereg: no OpenTimestamps stamp. Its questions, arms, readings and rules are not repeated here.
+  The container of the reconnaissance: 4 threads of a Xeon at 2.10 GHz, 15 GiB, no GPU, $0. The weights are
+  sha256 99a208e1...9356442, the forward is OVH's `modeling_olala.py` with each block cast to float32.
+  Raw outputs and scripts in `olala-calibrage-proxy-2026-11-26-brut/`:
+    export.py               the six tensors as f32 from the safetensors file
+    olalaprobe3_main.rs     the one-word and two-word encode, an expert at a time, on `llvq-quant` and `llvq-search`
+    encode.sh, encode.log   its run over layers 17, 6 and 28
+    fwd3.py                 one arm on one window; Q4 is a Python transcription of `embedquant::quantize_affine`
+    eval1.sh, eval1.log     the base, Q4, N1, N2 and N4
+    eval2b.sh, eval2.log    the null controls, T1 and T2
+    collect.py, collect.out the table and the two rules of the plan
+    collect_post.py, collect_post.out   what was added after the reads, section 6
+
+DEVIATIONS FROM THE PLAN
+  The plan is not edited. Three things were not in it.
+  1. The Tetra reads were first scripted on 4 threads (`eval2-stopped-before-any-read.sh`) while the base and the
+     noise arms had run on 3. That script was stopped before its first read and replaced by `eval2b.sh` on 3
+     threads.
+  2. Two null controls were added before the Tetra reads, section 2.
+  3. Section 6 was computed after the reads from the saved per-position results. It has no rule written before it.
+
+1. THE ENCODE (*measured*, `encode.log`, `eval2.log`)
+  256 experts a tensor, each with its own rotation, frozen row scales, two gain centroids, the block loop with
+  retraction, H = I; the second word on the residual in the rotated basis with the same pieces. Relative squared
+  error of the whole tensor against bf16:
+    tensor                              one word   two words   encode time
+    experts.weight         layer 6      0.08495    0.00738       1,522 s
+    output_experts.weight  layer 6      0.08515    0.00744       1,051 s
+    experts.weight         layer 17     0.08494    0.00738       1,479 s
+    output_experts.weight  layer 17     0.08517    0.00744       1,502 s
+    experts.weight         layer 28     0.08494    0.00738         911 s
+    output_experts.weight  layer 28     0.08517    0.00744       1,291 s
+  7,756 s in all for 453 M parameters and two words, on 4 threads shared with the reads for most of the run.
+  `olala-second-mot-2026-11-26.txt` read 0.0851 to 0.0853 and 0.0074 on 1,536 rows of the two layer 17 tensors.
+  int4 g128 reads 0.00989 to 0.01019 on the same six tensors (`eval1.log`).
+
+2. NULL CONTROLS (*measured*, `eval2.log`; the exact values read from the saved results)
+  The unmodified bf16 model against its own saved base, offset 0, 2,048 positions.
+    3 threads, as the base   KL 0 exactly, top-1 100 %, dNLL 0 exactly: the forward repeats bit for bit
+    4 threads                mean KL -5.7e-10, largest |KL| at a position 5.4e-7, top-1 100 %, largest |dNLL| 6.8e-4
+  The thread count moves the KL four orders of magnitude under the smallest arm. Every arm below ran on 3 threads.
+
+3. THE SIX ARMS (*measured*, `collect.out`)
+  Only the routed experts of layers 6, 17 and 28 change. KL(bf16 || arm) over the whole vocabulary, mean over
+  8,192 positions with its standard error over positions; top-1 agreement; dNLL on the true token.
+    arm                    rel. error   KL                    top-1     dNLL
+    T1  one Tetra word      0.0850      0.03292 +- 0.00123    91.66 %   +0.00434 +- 0.00340
+    N1  proxy at 0.085      0.0850      0.03176 +- 0.00131    91.74 %   +0.01085 +- 0.00325
+    T2  two Tetra words     0.0074      0.00561 +- 0.00026    96.52 %   -0.00027 +- 0.00143
+    N2  proxy at 0.0074     0.0074      0.00590 +- 0.00035    96.40 %   +0.00181 +- 0.00139
+    Q4  int4 g128           0.0100      0.00694 +- 0.00036    96.56 %   +0.00149 +- 0.00155
+    N4  proxy at 0.0100     0.0100      0.00708 +- 0.00039    96.22 %   +0.00367 +- 0.00153
+  KL by window, offsets 0, 2,048, 4,096 and 6,144:
+    T1  0.02913  0.02459  0.03745  0.04053        N1  0.02683  0.02237  0.03794  0.03989
+    T2  0.00440  0.00415  0.00672  0.00718        N2  0.00478  0.00433  0.00685  0.00763
+    Q4  0.00586  0.00509  0.00744  0.00936        N4  0.00584  0.00540  0.00816  0.00890
+  The base reads a loss of 2.102, 1.851, 3.008 and 3.140 on the four windows (`eval1.log`).
+
+4. Q1, THE PROXY AGAINST THE ENCODE (*measured*; the rule is the plan's)
+    KL(T1)/KL(N1) = 1.037     by window 1.086  1.100  0.987  1.016     inside [0.7, 1.3]: faithful
+    KL(T2)/KL(N2) = 0.952     by window 0.920  0.960  0.980  0.941     inside [0.7, 1.3]: faithful
+  Paired, position by position: KL(T1) - KL(N1) = +0.00117 [-0.00096, +0.00329] and KL(T2) - KL(N2) = -0.00029
+  [-0.00080, +0.00023]. Neither interval excludes zero.
+  The plan had no rule for int4, and the proxy reads it the same way: KL(Q4)/KL(N4) = 0.980, by window 1.003,
+  0.943, 0.911, 1.051.
+
+5. Q2, TWO WORDS AGAINST INT4 G128 (*measured*; the rule is the plan's)
+    KL(T2) - KL(Q4), paired = -0.001327 +- 0.000207   [-0.001733, -0.000922]
+    by window                 -0.001466  -0.000941  -0.000721  -0.002180
+  The mean is negative and the mean plus 1.96 standard errors is still negative: two words are called better.
+  The gap is 19 % of int4's KL. Two words cost 4.06 bits a weight with their row scales, int4 g128 costs 4.25.
+  The proxy alone gave the same sign and nearly the same size: KL(N2) - KL(N4) = -0.00118 [-0.00137, -0.00099].
+
+6. ADDED AFTER THE READS (*computed* from the measured per-position results, `collect_post.out`)
+  By sequence. Positions of one sequence are not independent, so the 16 sequences of 512 are taken as the units,
+  with a t interval at 15 degrees of freedom.
+    KL(T2) - KL(Q4)   -0.00133 [-0.00184, -0.00081]   negative in 15 sequences of 16
+    KL(T1) - KL(N1)   +0.00117 [-0.00092, +0.00325]   negative in 5 of 16
+    KL(T2) - KL(N2)   -0.00029 [-0.00078, +0.00021]   negative in 13 of 16
+    KL(Q4) - KL(N4)   -0.00014 [-0.00084, +0.00056]   negative in 10 of 16
+  Q2 holds with the wider interval. Sequence by sequence the Q1 ratios run 0.848 to 1.279 for one word and 0.707 to
+  1.302 for two: the band holds on four windows and is touched on single sequences.
+  Top-1. Positions where one arm agrees with bf16 and the other does not, of 8,192:
+    T2 against Q4   166 and 169, z = -0.16      T1 against N1   356 and 362, z = -0.22
+    T2 against N2   162 and 152, z = +0.56      Q4 against N4   176 and 148, z = +1.56
+  No pair separates on top-1. The gain of two words over int4 is in the KL only.
+  The KL against the error, both taken from the arms above:
+    N1 against N2   KL x5.39 for an error x11.49   exponent 0.690
+    T1 against T2   KL x5.87 for an error x11.48   exponent 0.725
+    N1 against N4   KL x4.49 for an error x8.50    exponent 0.701
+    N4 against N2   KL x1.20 for an error x1.35    exponent 0.607
+  A KL proportional to the error would read 1. Nothing here says why it does not. The near-tie routing of the
+  reconnaissance, section 5, is one candidate and was not tested.
+  The plan expected the three layers to read a twelfth of the whole-model figure. N1 reads 0.0318 where all the
+  routed experts under the same noise read 0.158 on the same four windows, a fifth. The two figures are not the
+  same sum: 0.158 is taken over the bf16 model's 64 likeliest tokens, 0.0318 over the whole vocabulary.
+
+HOW TO READ IT
+  What it supports. On these three layers, a data-free encode after a rotation behaves in the model as isotropic
+  noise of the same relative error, for Tetra at one word and two and for int4 g128, in KL and in top-1. The noise
+  arms of the two earlier journals can be read as estimates of a data-free encode, and no longer only as a ranking.
+  A second word is worth more than int4 g128 in the model for fewer bits, on these layers.
+  What it does not support. Layers 6, 17 and 28 are none of the layers with massive activations (0 to 3, 5, 7,
+  19, 23). The dense matrices, the embedding and the head are untouched. The text is OVH's report and one of our
+  documents in windows of 512, not WikiText-2 and not the calibration corpus. One noise draw an arm. The published
+  recipe encodes with GPTQ against real Hessians, which the proxy ignores and this test does not run: the faithful
+  proxy bounds a data-free encode, not the file.
+  What it changes for the plan. The KL cannot be scaled from the error: a second word divides the error by 11.5
+  and the KL by 5.9. Nor can it be scaled from a part of the model to the whole by the share of the layers: three
+  layers of 36 read a fifth of the whole-model figure, under the caveat of section 6 on the two sums.
