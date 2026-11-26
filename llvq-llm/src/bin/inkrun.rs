@@ -128,6 +128,15 @@
 //! negative log-likelihood of each scored position (f64, from the f32
 //! logits read back, log-sum-exp on the host) to `--nll-out` as JSON.
 //!
+//! `--save-at N --state-file <file>` cuts the prompt's read at `N`, a
+//! multiple of `--prefill-chunk`: the first `N` tokens are read, the cache's
+//! state is written to the file (`inkling::snapshot`), loaded into a new cache
+//! made by the model, and the rest of the prompt is read on that one (plan
+//! item P7, the prefix cache of `llvq serve`). The logits are meant to be
+//! those of the read without the cut, bit for bit; the report gives the
+//! file's bytes and the seconds of the write and of the load, inside the
+//! prefill's time.
+//!
 //! `--logits-out` writes the f32 logits of the prefill's last position and
 //! of every step, as read back by the greedy choice: raw little-endian f32,
 //! one row of `vocab` values a position, prefill first, no header. The
@@ -200,6 +209,8 @@ struct Args {
     score_from: Option<usize>,
     score_prompt: bool,
     nll_out: Option<PathBuf>,
+    save_at: Option<usize>,
+    state_file: Option<PathBuf>,
 }
 
 fn usage() -> ! {
@@ -210,7 +221,7 @@ fn usage() -> ! {
          [--prompt-len N] [--phases K] [--attn-chunk N] [--prefill-chunk N] [--kv-window full|bounded[=S]] [--peak-probe on] \
          [--rollback-gate on] [--prefill-rows 1|2|4|8] [--head bf16|int4 --head-table <file>] \
          [--glue candle|fused] [--attn candle|fused|fused+scores] [--routing device|host] [--moe-act fused|candle] [--moe four|one] [--moe-rows chunk|batch] [--moe-down sg|serial] [--attn-bias host|device] [--prefill-phases on] [--events on|off] [--kernel-times on|off] [--routing-steps-out <file>] [--score-from N | --score-prompt on] \
-         [--nll-out <file>]"
+         [--nll-out <file>] [--save-at N --state-file <file>]"
     );
     std::process::exit(2)
 }
@@ -337,7 +348,20 @@ fn parse() -> Result<Args> {
             Some(o) => bail!("--score-prompt {o}: on or off"),
         },
         nll_out: take("nll-out").map(PathBuf::from),
+        save_at: take("save-at").map(|v| v.parse()).transpose().context("--save-at")?,
+        state_file: take("state-file").map(PathBuf::from),
     };
+    if args.save_at.is_some() != args.state_file.is_some() {
+        bail!("--save-at and --state-file go together");
+    }
+    if let Some(n) = args.save_at {
+        if args.prefill_chunk == 0 || n == 0 || !n.is_multiple_of(args.prefill_chunk) {
+            bail!("--save-at {n}: a positive multiple of --prefill-chunk ({})", args.prefill_chunk);
+        }
+        if args.routing_out.is_some() || args.prefill_phases {
+            bail!("--save-at with --routing-out or --prefill-phases: one read at a time");
+        }
+    }
     if args.score_from.is_some() && args.score_prompt {
         bail!("--score-from and --score-prompt are two modes; name one");
     }
@@ -632,7 +656,37 @@ fn main() -> Result<()> {
     if args.prefill_phases {
         phases::start(&dev)?;
     }
+    let mut state_report = Value::Null;
     let logits = match &args.routing_out {
+        None if args.save_at.is_some() => {
+            let (n, file) = (args.save_at.expect("checked"), args.state_file.as_ref().expect("checked"));
+            if prompt.len() < n + 2 {
+                bail!("--save-at {n}: the prompt is {} tokens; the rest must hold at least 2", prompt.len());
+            }
+            model.forward_pieces(&prompt[..n], &mut cache, false)?;
+            dev.synchronize()?;
+            let t_write = Instant::now();
+            {
+                let f = std::fs::File::create(file).with_context(|| format!("create {}", file.display()))?;
+                let mut w = std::io::BufWriter::with_capacity(1 << 22, f);
+                cache.write_state(&mut w)?;
+                use std::io::Write;
+                w.flush()?;
+            }
+            let seconds_write = t_write.elapsed().as_secs_f64();
+            let bytes = std::fs::metadata(file)?.len();
+            drop(cache);
+            let t_load = Instant::now();
+            let f = std::fs::File::open(file).with_context(|| format!("open {}", file.display()))?;
+            cache = model.read_cache(&mut std::io::BufReader::with_capacity(1 << 22, f))?;
+            dev.synchronize()?;
+            let seconds_load = t_load.elapsed().as_secs_f64();
+            eprintln!("inkrun: state at {n} tokens, {bytes} bytes, written in {seconds_write:.2} s, loaded in {seconds_load:.2} s");
+            state_report = json!({"save_at": n, "file": file, "bytes": bytes, "seconds_write": seconds_write,
+                                  "seconds_load": seconds_load});
+            let l = model.forward_pieces(&prompt[n..], &mut cache, false)?;
+            l.reshape((1, 1, CausalLm::vocab_size(&model)))?
+        }
         None => CausalLm::prefill(&model, &prompt, &mut cache)?,
         Some(p) => {
             let out = model.forward(&prompt, &mut cache, true, false)?;
@@ -799,6 +853,7 @@ fn main() -> Result<()> {
         "kv_window": kv_window,
         "kv_positions_allocated": kv_positions,
         "rollback_gate": rollback_gate,
+        "state": state_report,
         "peak_probe": if args.peak_probe {
             json!({"kind": "largest allocated size read after a layer visit, before and after a drain",
                    "prefill": peak_prefill, "whole_run": peak.load(std::sync::atomic::Ordering::Relaxed)})

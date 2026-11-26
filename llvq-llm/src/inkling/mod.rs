@@ -32,6 +32,7 @@ pub mod moe_act;
 pub mod tables;
 #[cfg(all(target_os = "macos", feature = "metal"))]
 pub mod resident;
+pub mod snapshot;
 #[cfg(ink_glue)]
 pub mod attn_bias;
 #[cfg(all(target_os = "linux", feature = "cuda"))]
@@ -204,6 +205,21 @@ impl InklingCache {
 
     pub fn is_empty(&self) -> bool {
         self.len == 0
+    }
+
+    /// Write the whole state in the format of [`snapshot`]: the tokens held,
+    /// then every slot. [`Inkling::read_cache`] makes a cache that holds the
+    /// same. Nothing changes.
+    pub fn write_state(&self, w: &mut dyn std::io::Write) -> Result<()> {
+        use snapshot::put_u64;
+        w.write_all(snapshot::MAGIC).map_err(|e| candle_core::Error::msg(format!("cache state: {e}")))?;
+        put_u64(w, snapshot::VERSION)?;
+        put_u64(w, self.slots.len() as u64)?;
+        put_u64(w, self.len as u64)?;
+        put_u64(w, self.tokens.len() as u64)?;
+        let toks: Vec<u8> = self.tokens.iter().flat_map(|t| t.to_le_bytes()).collect();
+        w.write_all(&toks).map_err(|e| candle_core::Error::msg(format!("cache state: {e}")))?;
+        self.slots.iter().try_for_each(|s| s.write_state(w))
     }
 
     /// The slot of every visit, for inspection.
@@ -846,6 +862,46 @@ impl Inkling {
             }
         }
         InklingCache { slots, len: 0, tokens: vec![] }
+    }
+
+    /// A cache that holds what [`InklingCache::write_state`] wrote, its slots
+    /// on this model's device. Refused by name, with nothing returned, when
+    /// the state is not this model's: another number of slots, a bound that
+    /// is not the one [`Self::set_kv_window`] gives a new cache, a damaged
+    /// record. The reads after it give the logits the reads after the saved
+    /// cache gave, bit for bit.
+    pub fn read_cache(&self, r: &mut dyn std::io::Read) -> Result<InklingCache> {
+        use snapshot::{get_u64, get_usize};
+        let mut magic = [0u8; 8];
+        r.read_exact(&mut magic).map_err(|e| candle_core::Error::msg(format!("cache state: {e}")))?;
+        if &magic != snapshot::MAGIC {
+            candle_core::bail!("cache state: not a cache state (magic {magic:?})");
+        }
+        let version = get_u64(r)?;
+        if version != snapshot::VERSION {
+            candle_core::bail!("cache state: version {version}, this build reads {}", snapshot::VERSION);
+        }
+        let mut c = self.new_cache();
+        let n_slots = get_usize(r, "slots")?;
+        if n_slots != c.slots.len() {
+            candle_core::bail!("cache state: {n_slots} slots, the model has {}", c.slots.len());
+        }
+        let len = get_usize(r, "len")?;
+        let n = get_usize(r, "tokens")?;
+        if n != len {
+            candle_core::bail!("cache state: {n} tokens for {len} positions");
+        }
+        let mut toks = vec![0u8; n.checked_mul(4).ok_or_else(|| candle_core::Error::msg("cache state: tokens"))?];
+        r.read_exact(&mut toks).map_err(|e| candle_core::Error::msg(format!("cache state: {e}")))?;
+        c.tokens = toks.chunks_exact(4).map(|b| u32::from_le_bytes([b[0], b[1], b[2], b[3]])).collect();
+        for (i, s) in c.slots.iter_mut().enumerate() {
+            s.read_state(r, &self.dev).map_err(|e| candle_core::Error::msg(format!("slot {i}: {e}")))?;
+            if s.len() != len {
+                candle_core::bail!("cache state: slot {i} holds {} positions, the cache {len}", s.len());
+            }
+        }
+        c.len = len;
+        Ok(c)
     }
 
     /// Bound the sliding slots of every cache made from now on

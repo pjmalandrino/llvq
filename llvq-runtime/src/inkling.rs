@@ -31,6 +31,12 @@
 //! - An answer cut by its cap, by a stop string, by a client that left, or by
 //!   a turn the template's parser refuses, is dropped from the cache: the
 //!   next request reads it again as the client renders it.
+//! - The prefix cache on disk ([`crate::prefix`], `llvq serve --prefix-cache`):
+//!   the first read of a prompt whose static block (system prompt and tools)
+//!   is long saves the cache at the last piece boundary of that block; a later
+//!   prompt that starts with the same tokens, in a new conversation or after a
+//!   restart, loads it instead of reading them. The read after a load cuts the
+//!   prompt where a read from 0 does, so its logits are those of a read from 0.
 
 use crate::chat::{self, Msg, Role, Scan};
 use crate::engine::{nanos, total, EngineInfo, Event, Job, Prompt, State, Stats, DEFAULT_TOP_P};
@@ -203,6 +209,15 @@ pub trait TurnLm {
     fn rollback(&mut self, m: &Self::Mark) -> anyhow::Result<()>;
     /// An empty cache.
     fn reset(&mut self);
+    /// Write the cache's whole state, for the prefix cache. Not every model can.
+    fn save_state(&self, _w: &mut dyn std::io::Write) -> anyhow::Result<()> {
+        anyhow::bail!("this model does not write its cache")
+    }
+    /// Replace the cache by a state [`Self::save_state`] wrote, reading all of
+    /// it. On an error the cache may hold anything: the caller resets it.
+    fn load_state(&mut self, _r: &mut dyn std::io::Read) -> anyhow::Result<()> {
+        anyhow::bail!("this model does not read a cache")
+    }
 }
 
 struct InklingLm {
@@ -232,6 +247,17 @@ impl TurnLm for InklingLm {
 
     fn reset(&mut self) {
         self.cache = self.model.new_cache();
+    }
+
+    fn save_state(&self, w: &mut dyn std::io::Write) -> anyhow::Result<()> {
+        Ok(self.cache.write_state(w)?)
+    }
+
+    fn load_state(&mut self, r: &mut dyn std::io::Read) -> anyhow::Result<()> {
+        // The old cache goes first, so the device never holds both.
+        self.cache = self.model.new_cache();
+        self.cache = self.model.read_cache(r)?;
+        Ok(())
     }
 }
 
@@ -383,8 +409,44 @@ fn load_model(l: &LocalModel, dev: &Device) -> anyhow::Result<(llvq_llm::inkling
     Ok((model, lines))
 }
 
+/// The prefix cache of a model loaded on `backend` from the local file
+/// `path`, in `<store>/prefix`, as the options of `llvq serve` ask: on by
+/// default on Metal only, refused by name when asked for on a load without the
+/// long-prompt settings (its save point is a boundary of their pieces).
+fn prefix_cache(store: &Store, path: &Path, backend: Backend, fused: bool, long: LongPrompt) -> anyhow::Result<Option<crate::prefix::PrefixCache>> {
+    let o = crate::prefix::options();
+    let on = o.enabled.unwrap_or(backend == Backend::Metal);
+    if !on {
+        return Ok(None);
+    }
+    if long == LongPrompt::Off {
+        anyhow::ensure!(
+            o.enabled != Some(true),
+            "--prefix-cache on: the prefix cache saves at a boundary of the prompt's pieces, and this load ({}, stack {}) \
+             reads a prompt in one call; it serves the fused stack on Metal or CUDA",
+            backend.label(),
+            if fused { "fused" } else { "candle" }
+        );
+        return Ok(None);
+    }
+    let exe = std::env::current_exe()?;
+    let key = crate::prefix::Key {
+        format: crate::prefix::FORMAT,
+        family: FAMILY.into(),
+        model_sha256: crate::store::sha256_file(path)?,
+        build_sha256: crate::store::sha256_file(&exe)?,
+        backend: backend.label().into(),
+        stack: if fused { "fused" } else { "candle" }.into(),
+        prompt_piece: PROMPT_PIECE,
+        score_rows: SCORE_ROWS,
+        kv_slack: KV_SLACK,
+        bias: if long == LongPrompt::BiasOnCard { "card" } else { "host" }.into(),
+    };
+    Ok(Some(crate::prefix::PrefixCache::new(store.root().join("prefix"), o.max_bytes, key)))
+}
+
 /// Load the model a local file names, on this build's device.
-pub fn load_local(name: &ModelName, path: &Path) -> anyhow::Result<InkEngine> {
+pub fn load_local(name: &ModelName, path: &Path, store: &Store) -> anyhow::Result<InkEngine> {
     let local = LocalModel::read(path)?;
     let backend = Backend::of_build();
     eprintln!("llvq: loading {name} (inkling2, {}) on {}", path.display(), backend.label());
@@ -415,15 +477,26 @@ pub fn load_local(name: &ModelName, path: &Path) -> anyhow::Result<InkEngine> {
             &llvq_llm::inkchat::TEMPLATE_SHA256[..16]
         ),
     }];
+    let fused = !dev.is_cpu() && local.fused().map_err(anyhow::Error::msg)?;
+    let prefix = prefix_cache(store, path, backend, fused, long_prompt(backend, fused))?;
     let (model, mut lines) = load_model(&local, &dev)?;
     first.append(&mut lines);
+    first.push(match &prefix {
+        Some(p) => format!(
+            "prefix cache: on, in {}, cap {:.1} GiB, key {}",
+            p.dir().display(),
+            p.max_bytes() as f64 / (1u64 << 30) as f64,
+            p.key().id()
+        ),
+        None => "prefix cache: off".into(),
+    });
     let lines = first;
     for l in &lines {
         eprintln!("llvq: {name}: {l}");
     }
     let lm = InklingLm { cache: model.new_cache(), model };
     let config = path.file_name().map(|f| f.to_string_lossy().into_owned());
-    Ok(InkEngine::new(lm, chat, local.context.unwrap_or(DEFAULT_CONTEXT), backend.label(), config))
+    Ok(InkEngine::with_prefix(lm, chat, local.context.unwrap_or(DEFAULT_CONTEXT), backend.label(), config, prefix))
 }
 
 // ---------------------------------------------------------------------------
@@ -442,7 +515,19 @@ impl InkEngine {
     /// The engine over `lm`, with the template of `chat`, serving `context`
     /// positions. `backend` and `config` are what `/api/ps` shows.
     pub fn new<M: TurnLm + 'static>(lm: M, chat: InkChat, context: usize, backend: &str, config: Option<String>) -> Self {
-        InkEngine(Box::new(Worker { lm, chat, context, backend: backend.into(), config, held: Vec::new() }))
+        Self::with_prefix(lm, chat, context, backend, config, None)
+    }
+
+    /// [`Self::new`] with the prefix cache `prefix` ([`crate::prefix`]).
+    pub fn with_prefix<M: TurnLm + 'static>(
+        lm: M,
+        chat: InkChat,
+        context: usize,
+        backend: &str,
+        config: Option<String>,
+        prefix: Option<crate::prefix::PrefixCache>,
+    ) -> Self {
+        InkEngine(Box::new(Worker { lm, chat, context, backend: backend.into(), config, held: Vec::new(), prefix }))
     }
 }
 
@@ -495,6 +580,7 @@ struct Worker<M: TurnLm> {
     backend: String,
     config: Option<String>,
     held: Vec<Held<M::Mark>>,
+    prefix: Option<crate::prefix::PrefixCache>,
 }
 
 fn refusal(status: u16, message: impl Into<String>) -> Event {
@@ -535,6 +621,28 @@ pub fn pieces(spans: &[Range<usize>], from: usize, end: usize) -> Vec<Range<usiz
         }
     }
     out
+}
+
+/// Where the static block of a prompt ends: the length of the common prefix
+/// of `ids` (the rendering of `msgs`) and of the rendering of the leading
+/// system messages of `msgs` alone, with the same tools and effort. `None`
+/// when every message is a system one, or when that rendering is refused.
+pub fn static_end(chat: &InkChat, msgs: &[Json], tools: &[Json], effort: &Json, ids: &[u32]) -> Option<usize> {
+    let k = msgs.iter().take_while(|m| m.get("role").and_then(Json::as_str) == Some("system")).count();
+    if k == msgs.len() {
+        return None;
+    }
+    let r = chat.render(&msgs[..k], tools, Some(effort)).ok()?;
+    Some(crate::prefix::common_prefix(ids, &r.ids))
+}
+
+/// Whether a prompt of `len` ids whose first piece ends at `first_cut` (its
+/// first assistant turn, or its end) can be cut at `b` with the pieces of a
+/// read from 0 unchanged: `b` is a boundary of the forward pieces of `piece`
+/// tokens, and the rest of that first piece is not a lone token (a lone last
+/// token joins the piece before it, `llvq_llm::inkling::prefill_pieces`).
+pub fn cut_keeps_pieces(b: usize, piece: usize, first_cut: usize, len: usize) -> bool {
+    piece > 0 && b > 0 && b.is_multiple_of(piece) && b < len && (first_cut == b || first_cut >= b + 2)
 }
 
 /// The ids the template renders for the assistant message a client sends
@@ -753,6 +861,32 @@ impl<M: TurnLm> Worker<M> {
             (kept, from, base)
         };
         let _ = kept;
+        // The prefix cache: a saved state longer than what memory keeps is loaded in its place.
+        let first_cut = pieces(&r.assistant_spans, 0, r.ids.len()).first().map_or(r.ids.len(), |p| p.end);
+        let n_ids = r.ids.len();
+        let fits = |b: usize, piece: usize| cut_keeps_pieces(b, piece, first_cut, n_ids);
+        // Whether the read from `from` cuts the prompt where a read from 0 does: what a save needs.
+        let mut aligned = from == 0;
+        let (from, base) = match self.prefix.clone() {
+            Some(pc) => match self.load_prefix(pc.clone(), &r.ids, from, &|b| fits(b, pc.piece())) {
+                Some(b) => {
+                    aligned = true;
+                    (b, b)
+                }
+                None if self.held.is_empty() && self.lm.held() == 0 => {
+                    aligned = true;
+                    (0, 0)
+                }
+                None => (from, base),
+            },
+            None => (from, base),
+        };
+        let save_at = match (&self.prefix, aligned) {
+            (Some(pc), true) => static_end(&self.chat, &msgs, &tools, &eff, &r.ids)
+                .and_then(|l| pc.save_point(l))
+                .filter(|&b| b > from && fits(b, pc.piece())),
+            _ => None,
+        };
         let room = limit.saturating_sub(base + (r.ids.len() - from) + 1);
         if room == 0 {
             send(refusal(
@@ -775,8 +909,20 @@ impl<M: TurnLm> Worker<M> {
         let t_prompt = Instant::now();
         let mut logits = None;
         for p in pieces(&r.assistant_spans, from, r.ids.len()) {
+            // The save point cuts the piece it falls in; the forward pieces stay those of the read without it.
+            let parts = match save_at {
+                Some(s) if p.start < s && s < p.end => vec![p.start..s, s..p.end],
+                _ => vec![p.clone()],
+            };
+            for q in parts {
+                logits = Some(self.lm.feed(&r.ids[q])?);
+                if let (Some(s), Some(pc)) = (save_at, &self.prefix) {
+                    if self.lm.held() == s {
+                        self.save_prefix(pc, &r.ids, s);
+                    }
+                }
+            }
             let ids = &r.ids[p];
-            logits = Some(self.lm.feed(ids)?);
             self.held.push(Held { keys: vec![ids.to_vec()], len: self.lm.held(), mark: self.lm.mark() });
         }
         let mut logits = logits.ok_or_else(|| anyhow::anyhow!("nothing of the prompt was fed"))?;
@@ -851,6 +997,64 @@ impl<M: TurnLm> Worker<M> {
             None => self.drop_answer()?,
         }
         Ok(())
+    }
+
+    /// Load the longest saved prefix of `ids` longer than `keep`, the tokens
+    /// the cache in memory keeps of them, and that `fits`. Its length, the
+    /// cache then holding it as one held segment; `None` with nothing changed
+    /// when there is none or every one is refused, or with the cache emptied
+    /// when a load failed half way. Every refusal goes to the log by name.
+    fn load_prefix(&mut self, pc: crate::prefix::PrefixCache, ids: &[u32], keep: usize, fits: &dyn Fn(usize) -> bool) -> Option<usize> {
+        for f in pc.find(ids, keep, fits) {
+            let t = Instant::now();
+            let v = match pc.verify(&f, ids) {
+                Ok(v) => v,
+                Err(e) => {
+                    eprintln!("llvq: prefix cache: {} refused, the prompt is read without it: {e:#}", f.name());
+                    continue;
+                }
+            };
+            let t_verify = t.elapsed();
+            self.lm.reset();
+            self.held.clear();
+            match pc.load(&v, &mut |r| self.lm.load_state(r)) {
+                Ok(()) if self.lm.held() == f.b => {
+                    self.held.push(Held { keys: vec![ids[..f.b].to_vec()], len: f.b, mark: self.lm.mark() });
+                    eprintln!(
+                        "llvq: prefix cache: loaded {} tokens from {} in {:.2} s (checked in {:.2} s)",
+                        f.b,
+                        f.name(),
+                        t.elapsed().as_secs_f64(),
+                        t_verify.as_secs_f64()
+                    );
+                    return Some(f.b);
+                }
+                Ok(()) => {
+                    eprintln!("llvq: prefix cache: {} loaded {} positions, not {}; the prompt is read from its start", f.name(), self.lm.held(), f.b);
+                }
+                Err(e) => {
+                    eprintln!("llvq: prefix cache: {} failed to load, the prompt is read from its start: {e:#}", f.name());
+                }
+            }
+            self.lm.reset();
+            self.held.clear();
+            return None;
+        }
+        None
+    }
+
+    /// Save the cache, which holds `ids[..b]`, as a prefix. A failure is
+    /// logged and costs nothing else.
+    fn save_prefix(&self, pc: &crate::prefix::PrefixCache, ids: &[u32], b: usize) {
+        let t = Instant::now();
+        match pc.save(ids, b, &mut |w| self.lm.save_state(w)) {
+            Ok((path, bytes)) => eprintln!(
+                "llvq: prefix cache: saved {b} tokens, {bytes} bytes, in {:.2} s: {}",
+                t.elapsed().as_secs_f64(),
+                path.file_name().map(|f| f.to_string_lossy().into_owned()).unwrap_or_default()
+            ),
+            Err(e) => eprintln!("llvq: prefix cache: the save of {b} tokens failed, nothing kept: {e:#}"),
+        }
     }
 
     /// Back to the end of the prompt: the answer is not kept.

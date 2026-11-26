@@ -100,7 +100,7 @@ impl Loader for DeviceLoader {
     /// Qwen3 from the store's blob otherwise.
     fn build(&self, name: &ModelName, m: &Manifest, store: &Store) -> anyhow::Result<Built> {
         match m.family.as_str() {
-            crate::inkling::FAMILY => crate::inkling::load_local(name, std::path::Path::new(&m.file)).map(Built::Inkling),
+            crate::inkling::FAMILY => crate::inkling::load_local(name, std::path::Path::new(&m.file), store).map(Built::Inkling),
             _ => self.load(name, m, store).map(|l| Built::Qwen3(Box::new(l))),
         }
     }
