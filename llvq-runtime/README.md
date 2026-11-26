@@ -68,9 +68,9 @@ llvq ls; llvq ps; llvq show qwen3:4b; llvq stop qwen3:4b; llvq rm qwen3:4b
 
 | model | file | b/param | Metal config | CUDA config |
 |---|---|---|---|---|
-| `qwen3:4b`, also `qwen3:latest` | `qwen3-4b-sealed.bin`, 1.42 GB | 2.7320 | expanded | 4E v9 after the chain prefill (`LLVQ_PROFILE=eager`: the eager prefill), greedy only |
-| `qwen3:8b` | `qwen3-8b-sealed-B.bin`, 2.82 GB | 2.6953 | expanded, never run fused on Metal | 4E v9 (greedy only) |
-| `qwen3:14b` | `qwen3-14b-sealed.bin`, 5.09 GB | 2.7305 | expanded, never run fused on Metal | 4E v9 (greedy only) |
+| `qwen3:4b`, also `qwen3:latest` | `qwen3-4b-sealed.bin`, 1.42 GB | 2.7320 | grouped, kernels `lutd+h+pq` | 4E v9 after the chain prefill (`LLVQ_PROFILE=eager`: the eager prefill), greedy only |
+| `qwen3:8b` | `qwen3-8b-sealed-B.bin`, 2.82 GB | 2.6953 | grouped, kernels `lutd+h+pq` | 4E v9 (greedy only) |
+| `qwen3:14b` | `qwen3-14b-sealed.bin`, 5.09 GB | 2.7305 | grouped, kernels `lutd+h+pq` | 4E v9 (greedy only) |
 
 `inkling2:mini` (also `inkling2`, `inklingmini-2-tetra`) is a set of files, not one sealed file. The library
 pins an index, `llvq-files.json`, which pins every file by size and sha256 (`ops/inkling/files_index.py` writes it):
@@ -149,9 +149,15 @@ the tools, so a new conversation or a restarted server does not read it again. I
 at the last 512-token boundary of that block, and loaded by any prompt that starts with the same
 tokens; the logits are those of a read from the start, bit for bit. On a 64 GB M3 Max the first
 token of a new session over an 8,704-token block comes after 3.9 s [3.62, 4.57] instead of 155 to
-202 s (*measured*, `docs/mesures/inkling-mac-prefix-2026-11-26.txt`).
+202 s (*measured*, `docs/mesures/inkling-mac-prefix-2026-11-26.txt`). On that Mac's CPU a restarted
+server gives the first token of a 2,316-token prompt after 20.33 s instead of 140.99 s (*measured*,
+`docs/mesures/inkling-cpu-prefix-held-2026-11-26.txt`).
 
-- `llvq serve --prefix-cache on|off`: on by default on Metal, off on CUDA and on the CPU, where
+A request whose whole prompt is held is answered from the logits kept at the end of its first read,
+with no read: on Metal the same 8,791-token prompt sent again gets its first token after 0.159 s
+instead of 2.687 s (same journal).
+
+- `llvq serve --prefix-cache on|off`: on by default on Metal and on the CPU, off on CUDA, where
   it has not run. `--prefix-cache-max SIZE` caps the directory, 4G by default, and the least
   recently used files go first.
 - The files are in `<LLVQ_HOME>/prefix/`, mode 0600, 1.41 GB for 8,704 tokens. Each holds the

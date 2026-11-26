@@ -1222,3 +1222,27 @@ O13, the number the long-context speed phase took on main the next day.
   the files the model loads. The same 9,000-token read ranged from 109 to 305 s over the day with no cause found.
 - `CERVEAU.md` gains A3 and A4, both supported, and the anomaly N9, and goes from 72 claims to 74. The operator had
   the branch pushed and merged ("Oui, pousse", "relis et merge").
+
+
+## 2026-11-26 to 11-27. The Qwen3 files served on Metal grouped, the prefix cache on the CPU, a held prompt answered with no read; $0
+
+- Three lots ran on one M3 Max under a prereg stamped before the first measurement
+  ([`servi-au-bit`](../proofs/preregistration-servi-au-bit-2026-11-26.md)), at no cost.
+- Part A. `llvq` serves the Qwen3 4B, 8B and 14B on Metal through `configs/qwen3-{4b,8b,14b}-tetra-e4-metal.json`,
+  which carry the grouped attention and a new optional field, `metal_kernels`, naming the kernels `lutd+h+pq`. The
+  matrices read 253 of 253 and 281 of 281 bit for bit, grouped against expanded max |dlogit| 0, the same tokens and
+  the same text through the server. Against the expanded configs, round by round, decode after 5 tokens is x1.142,
+  x1.097 and x1.077, after a long prompt x3.201, x1.689 and x1.525, and the 4B's first token at 4,096 tokens falls
+  from 67.87 to 35.17 s (*measured*, [qwen-metal-servi](mesures/qwen-metal-servi-2026-11-26.txt)). The absolute
+  rates of that night came from a loaded machine and are not quoted. The CPU keeps the expanded configs.
+- Part B. The Inkling prefix cache is on by default on the CPU as on Metal. A restarted server gives the first token
+  of a 2,316-token prompt after 20.33 s against 140.99 s cold, with the same answer (*measured*,
+  [inkling-cpu-prefix-held](mesures/inkling-cpu-prefix-held-2026-11-26.txt)).
+- Part C. A request whose whole prompt is held is answered from the logits kept at the end of its first read. On
+  Metal the 8,791-token prompt sent again gets its first token after 0.159 s against 2.687 s, same journal.
+- Two statements replaced in the living documents. `CLAUDE.md` said the grouped form is refused on Metal, where it
+  had never been measured: it was measured bit for bit on 2026-11-06 and is served there since this lot, and
+  `ETAT.md` §4 and §5 said the same until 2026-11-26. `ETAT.md` and `CERVEAU.md` A2 said the CPU backend was never
+  run on x86: it ran on 2026-11-25, 3.64 and 3.90 tok/s on the 4B on one 8 vCPU instance
+  ([llvq-cpu-x86](mesures/llvq-cpu-x86-2026-11-25.txt)).
+- `CERVEAU.md` gains A5 to A8 and goes from 74 claims to 78.
