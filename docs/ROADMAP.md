@@ -114,6 +114,9 @@ and the PR go together, from a fork; the drafts are in `upstream/transformers-ll
 
 - **MoE.** Qwen3-30B-A3B chosen, gpt-oss ruled out. A policy for experts below full rank is missing (*measured*,
   [moe-routing](mesures/moe-routing-gptoss20b-2026-08-12.txt)). About $1.4 to open, $69 to serve (*estimated*).
+- **Olala v1.0 mini 7A1B.** OVH's 6.8 B MoE was read at $0 on 2026-11-25 and 11-26. A recipe at 2.61 b/param,
+  2.21 GB, is *computed* and no file is encoded ([`plan-olala-mini.md`](plan-olala-mini.md)). Its first lot, the
+  quality gate at $0, waits for the operator.
 - **The 32B.** About $62 and 11.4 h on `rtx-pro-6000x2` to encode (*estimated*). The `rot_apply` wall is lifted
   (*measured*, [lot1](mesures/lot1-4b-2026-11-04.txt)). A gate on the 14B-to-32B gap comes first.
 - **Prefill by GEMM.** The 4B's first token at 8,192 takes 6.74 s under the served chain prefill (*measured*,

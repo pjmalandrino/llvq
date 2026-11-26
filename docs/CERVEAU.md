@@ -20,7 +20,9 @@ added Q29 and the anomaly N8. A conjecture drawn from it was refuted at R6, and 
 map, added Q30. The operator closed the phase the same day: O15 is condensed and one belief joined the dropped ones.
 The same day the chain prefill was read at a served door on the development branch, and P2 is established for the
 4B's first token and its peak.
-68 claims: 17 established, 2 proved, 40 supported, 5 conjecture, 4 refuted.
+On 2026-11-26 three journals at $0 on OVH's Olala v1.0 mini 7A1B, an MoE outside the served family, added C8, C9
+and Q31; none of them is measured on a served object.
+71 claims: 17 established, 2 proved, 43 supported, 5 conjecture, 4 refuted.
 
 This document lists what we believe to be true about quantizing LLMs on the Leech lattice, each belief with its
 standing. It is not the served state ([`ETAT.md`](ETAT.md)), the history ([`HISTORIQUE.md`](HISTORIQUE.md)) or a plan
@@ -486,6 +488,26 @@ L40S for the 8B and the 14B.
 - Overturn: another family, or another task, where the lens accuracy rises over many blocks.
 - Checked: 2026-11-14.
 
+**Q31.** On an MoE outside the served family, a data-free encode behaves in the model as isotropic noise of the same
+relative error, and the KL to the original falls more slowly than that error. On the routed experts of three layers
+of Olala v1.0 mini 7A1B, a real Tetra encode reads 1.037 times the KL of the noise at one word and 0.952 times at
+two, and int4 g128 0.980 times. Two words read a KL of 0.00561 against 0.00694 for int4 g128, a paired difference of
+−0.00133 [−0.00173, −0.00092], for 4.06 b/weight against 4.25; top-1 agreement does not separate them, 96.52 % and
+96.56 %. An error 11.5 times smaller divides the KL by 5.4 under noise and by 5.9 under the encode, an exponent near
+0.7.
+- Standing: supported (measured once, another model, data-free). A reading plan committed before the reads, not a
+  stamped prereg; both of its rules were met, and the KL levels it expected were wrong: 0.0318 where 0.010 to 0.013
+  was written, 0.0059 where 0.0013 was written. Scope: Olala v1.0 mini 7A1B, the routed experts of layers 6, 17 and
+  28 only, none of them a layer with massive activations; H = I; 8,192 positions of technical text in windows of
+  512, not WikiText-2; one noise draw an arm; a float32 forward on a CPU. It does not cover GPTQ against real
+  Hessians, which is the published recipe, and the cause of the exponent is not measured.
+- Evidence: [olala-calibrage-proxy](mesures/olala-calibrage-proxy-2026-11-26.txt) sections 3 to 6 (*measured*, $0),
+  read against [its plan](mesures/olala-calibrage-proxy-2026-11-26-plan.txt).
+- Overturn: a data-free encode of other layers of the same model, those with massive activations among them, whose
+  KL leaves the band of 0.7 to 1.3 around the noise of its error; or a second text on which two words do not read
+  under int4 g128.
+- Checked: 2026-11-26.
+
 ## K. The decode kernel
 
 **K1.** The served 4E v9 decodes the 4B at 221.5 tok/s against 129.0 for the eager engine, 1.717× round by round, with
@@ -654,6 +676,32 @@ source. The sphere-covering bound for a shape-gain code of 47 + 1 bits reads MSE
   sections 1 and 2.
 - Overturn: a 24-dimension fixed-rate code of 48 bits measured more than 0.60 dB under Tetra.
 - Checked: 2026-11-12.
+
+**C8.** A second Tetra word encoded on the residual of the first multiplies the error by about 0.087 again. The
+relative squared error reads 0.0851 at one word, 0.0074 at two and 0.0007 at three, on a Gaussian matrix and on
+rotated weight matrices alike. Two words cost 4.00 b/weight, 4.06 with the second row scale, and int4 g128 reads
+0.0100 at 4.25 on the same matrices.
+- Standing: supported (synthetic data and another model's weights, data-free; not the served object). Scope: a
+  Gaussian matrix of 768 columns and matrices of OVH's Olala v1.0 mini 7A1B, H = I, greedy stages, each with its own
+  frozen row scales and two gain centroids. All 256 routed experts of three layers read 0.0849 to 0.0852 and 0.0074.
+  The degenerate `output_experts` of Olala's layer 1 reads 0.0098 at two words. No GPTQ loop over two stages was
+  run, and neither the format nor a kernel holds a second word.
+- Evidence: [olala-second-mot](mesures/olala-second-mot-2026-11-26.txt) section 2;
+  [olala-calibrage-proxy](mesures/olala-calibrage-proxy-2026-11-26.txt) section 1 (*measured*, $0).
+- Overturn: a two-stage encode under GPTQ against real Hessians whose second word leaves markedly more than 0.087
+  of its input.
+- Checked: 2026-11-26.
+
+**C9.** The weight matrices of an architecture far from Qwen3 are as easy for the code as Gaussian noise, once each
+row has its scale and the matrix its rotation. Run data-free on OVH's Olala v1.0 mini 7A1B, the encoder leaves 0.0846
+to 0.0854 on 14 of the 20 matrices tried and 0.0863 to 0.1016 on the other six, against 0.0848 and 0.0852 on Gaussian
+matrices of the same widths. Without the rotation two output-side matrices of layer 1 read 0.2574 and 0.2379.
+- Standing: supported (measured once, another model, data-free). Scope: Olala v1.0 mini 7A1B, Mamba-3 and attention
+  blocks with a latent MoE, 20 matrices, up to 4,608 rows drawn a tensor, H = I. It says nothing of the error against
+  a real Hessian.
+- Evidence: [olala-reconnaissance](mesures/olala-reconnaissance-2026-11-25.txt) section 3 (*measured*, $0).
+- Overturn: a family whose rotated, row-scaled matrices read far from the Gaussian figure on most of their tensors.
+- Checked: 2026-11-26.
 
 ## S. How it scales with model size
 
