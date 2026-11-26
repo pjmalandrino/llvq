@@ -103,6 +103,7 @@ fn key() -> Key {
         format: FORMAT,
         family: "inkling2".into(),
         model_sha256: "1".repeat(64),
+        files_sha256: "3".repeat(64),
         build_sha256: "2".repeat(64),
         backend: "script".into(),
         stack: "fused".into(),

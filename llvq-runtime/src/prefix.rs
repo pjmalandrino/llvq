@@ -47,6 +47,11 @@ pub const SUFFIX: &str = "llvqprefix";
 const MAGIC: &[u8; 8] = b"LLVQPFX\0";
 /// The largest header read.
 const MAX_HEADER: u32 = 1 << 20;
+/// The extension of a file being written.
+const PART: &str = "part";
+/// How old a file being written is before [`PrefixCache::evict`] takes it for
+/// the leftover of a write that never ended.
+const STALE_PART: std::time::Duration = std::time::Duration::from_secs(3600);
 
 /// What `llvq serve --prefix-cache` and `--prefix-cache-max` set.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -119,6 +124,11 @@ pub struct Key {
     pub family: String,
     /// The sha256 of the model's local file, as its manifest holds it.
     pub model_sha256: String,
+    /// What identifies the files that local file names: the local file alone
+    /// does not, since files sealed again keep their paths and a pulled set
+    /// writes the same local file for two releases. For Inkling 2,
+    /// `inkling::files_id`.
+    pub files_sha256: String,
     /// The sha256 of the running executable: another build may read a prompt
     /// with other kernels.
     pub build_sha256: String,
@@ -393,7 +403,7 @@ impl PrefixCache {
         let sha = tokens_sha256(&ids[..b]);
         let path = self.dir.join(self.file_name(b, &sha));
         let tmp = self.dir.join(format!(
-            ".{}.{}-{}.part",
+            ".{}.{}-{}.{PART}",
             self.file_name(b, &sha),
             std::process::id(),
             std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_nanos()).unwrap_or(0)
@@ -432,8 +442,17 @@ impl PrefixCache {
     }
 
     /// Remove the least recently used prefix files until the directory holds
-    /// at most the cap. The names of the files removed.
+    /// at most the cap, and first the temporary files a write that never ended
+    /// left more than [`STALE_PART`] ago. The names of the prefix files removed.
     pub fn evict(&self) -> anyhow::Result<Vec<String>> {
+        let now = std::time::SystemTime::now();
+        for e in std::fs::read_dir(&self.dir)?.filter_map(|e| e.ok()) {
+            let stale = e.file_name().to_string_lossy().ends_with(&format!(".{PART}"))
+                && e.metadata().ok().and_then(|m| m.modified().ok()).and_then(|t| now.duration_since(t).ok()).is_some_and(|d| d > STALE_PART);
+            if stale {
+                let _ = std::fs::remove_file(e.path());
+            }
+        }
         let mut files: Vec<(std::time::SystemTime, u64, PathBuf)> = std::fs::read_dir(&self.dir)?
             .filter_map(|e| e.ok())
             .filter(|e| e.file_name().to_string_lossy().ends_with(&format!(".{SUFFIX}")))
@@ -488,6 +507,7 @@ mod tests {
             format: FORMAT,
             family: "inkling2".into(),
             model_sha256: "a".repeat(64),
+            files_sha256: "f".repeat(64),
             build_sha256: "b".repeat(64),
             backend: "metal".into(),
             stack: "fused".into(),
@@ -661,6 +681,7 @@ mod tests {
             ("format", Key { format: FORMAT + 1, ..k.clone() }),
             ("family", Key { family: "qwen3".into(), ..k.clone() }),
             ("model_sha256", Key { model_sha256: "c".repeat(64), ..k.clone() }),
+            ("files_sha256", Key { files_sha256: "e".repeat(64), ..k.clone() }),
             ("build_sha256", Key { build_sha256: "d".repeat(64), ..k.clone() }),
             ("backend", Key { backend: "cuda".into(), ..k.clone() }),
             ("stack", Key { stack: "candle".into(), ..k.clone() }),
@@ -697,6 +718,24 @@ mod tests {
         std::thread::sleep(std::time::Duration::from_millis(20));
         let (p3, _) = save(&c, &p, 2048, &s);
         assert!(p1.exists() && !p2.exists() && p3.exists(), "{:?}", std::fs::read_dir(&d).unwrap().collect::<Vec<_>>());
+        let _ = std::fs::remove_dir_all(&d);
+    }
+
+    #[test]
+    fn a_write_that_never_ended_is_removed_once_stale() {
+        let d = dir("part");
+        let c = PrefixCache::new(d.clone(), DEFAULT_MAX_BYTES, key());
+        let p = ids(2000, 5);
+        let (kept, _) = save(&c, &p, 1024, &state(100));
+        let (old, new) = (d.join(format!(".x.1-1.{PART}")), d.join(format!(".y.1-2.{PART}")));
+        std::fs::write(&old, b"half").unwrap();
+        std::fs::write(&new, b"half").unwrap();
+        let long_ago = std::time::SystemTime::now() - STALE_PART - std::time::Duration::from_secs(60);
+        std::fs::File::options().write(true).open(&old).unwrap().set_modified(long_ago).unwrap();
+        assert!(c.evict().unwrap().is_empty(), "no prefix file is past the cap");
+        assert!(!old.exists(), "the stale temporary file stayed");
+        assert!(new.exists(), "a write that may still run was removed");
+        assert!(kept.exists());
         let _ = std::fs::remove_dir_all(&d);
     }
 

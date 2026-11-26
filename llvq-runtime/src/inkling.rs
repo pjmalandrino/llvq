@@ -409,11 +409,51 @@ fn load_model(l: &LocalModel, dev: &Device) -> anyhow::Result<(llvq_llm::inkling
     Ok((model, lines))
 }
 
+/// What identifies the files a local model loads, for the prefix cache's key:
+/// the sha256 of every file under its parts, each as its part, its canonical
+/// path, its size and its modification time, in the order of the paths. The
+/// local file's own digest does not identify them: files sealed again keep
+/// their paths, and a pulled set writes the same local file for two releases.
+/// Nothing of a file is read, so 8 GB of weights cost a few hundred `stat`.
+pub fn files_id(l: &LocalModel) -> anyhow::Result<String> {
+    use sha2::{Digest, Sha256};
+    fn walk(p: &Path, out: &mut Vec<(PathBuf, u64, u128)>) -> anyhow::Result<()> {
+        let m = std::fs::metadata(p).map_err(|e| anyhow::anyhow!("{}: {e}", p.display()))?;
+        if m.is_dir() {
+            for e in std::fs::read_dir(p).map_err(|e| anyhow::anyhow!("{}: {e}", p.display()))? {
+                walk(&e?.path(), out)?;
+            }
+            return Ok(());
+        }
+        let at = m.modified()?.duration_since(SystemTime::UNIX_EPOCH).map_or(0, |d| d.as_nanos());
+        out.push((p.to_path_buf(), m.len(), at));
+        Ok(())
+    }
+    let mut h = Sha256::new();
+    for (what, p) in l.paths() {
+        let root = std::fs::canonicalize(p).map_err(|e| anyhow::anyhow!("{what} {}: {e}", p.display()))?;
+        let mut files = Vec::new();
+        walk(&root, &mut files)?;
+        files.sort();
+        for (path, len, at) in files {
+            h.update(format!("{what}\0{}\0{len}\0{at}\n", path.display()));
+        }
+    }
+    Ok(h.finalize().iter().map(|b| format!("{b:02x}")).collect())
+}
+
 /// The prefix cache of a model loaded on `backend` from the local file
 /// `path`, in `<store>/prefix`, as the options of `llvq serve` ask: on by
 /// default on Metal only, refused by name when asked for on a load without the
 /// long-prompt settings (its save point is a boundary of their pieces).
-fn prefix_cache(store: &Store, path: &Path, backend: Backend, fused: bool, long: LongPrompt) -> anyhow::Result<Option<crate::prefix::PrefixCache>> {
+fn prefix_cache(
+    store: &Store,
+    path: &Path,
+    local: &LocalModel,
+    backend: Backend,
+    fused: bool,
+    long: LongPrompt,
+) -> anyhow::Result<Option<crate::prefix::PrefixCache>> {
     let o = crate::prefix::options();
     let on = o.enabled.unwrap_or(backend == Backend::Metal);
     if !on {
@@ -434,6 +474,7 @@ fn prefix_cache(store: &Store, path: &Path, backend: Backend, fused: bool, long:
         format: crate::prefix::FORMAT,
         family: FAMILY.into(),
         model_sha256: crate::store::sha256_file(path)?,
+        files_sha256: files_id(local)?,
         build_sha256: crate::store::sha256_file(&exe)?,
         backend: backend.label().into(),
         stack: if fused { "fused" } else { "candle" }.into(),
@@ -478,7 +519,7 @@ pub fn load_local(name: &ModelName, path: &Path, store: &Store) -> anyhow::Resul
         ),
     }];
     let fused = !dev.is_cpu() && local.fused().map_err(anyhow::Error::msg)?;
-    let prefix = prefix_cache(store, path, backend, fused, long_prompt(backend, fused))?;
+    let prefix = prefix_cache(store, path, &local, backend, fused, long_prompt(backend, fused))?;
     let (model, mut lines) = load_model(&local, &dev)?;
     first.append(&mut lines);
     first.push(match &prefix {
@@ -1178,6 +1219,57 @@ mod tests {
         assert_eq!(effort(Some("high"), false), Json::str("high"));
         assert_eq!(effort(Some("0.5"), false), Json::Float(0.5));
         assert_eq!(effort(Some("0"), false), Json::Int("0".into()));
+    }
+
+    /// A local file over real files: a config, a checkpoint, a tokenizer, and
+    /// two directories with one file each.
+    fn local_set(dir: &Path) -> LocalModel {
+        for d in ["textonly", "layers/L00", "native", "tables"] {
+            std::fs::create_dir_all(dir.join(d)).unwrap();
+        }
+        for f in ["textonly/config.json", "textonly/model.safetensors", "layers/L00/codes.bin", "native/tokenizer.json", "tables/embed.q4"] {
+            std::fs::write(dir.join(f), f.as_bytes()).unwrap();
+        }
+        let p = dir.join("inkling.json");
+        std::fs::write(
+            &p,
+            r#"{"name": "inkling2-mini:local", "family": "inkling2", "config": "textonly/config.json",
+                "checkpoint": "textonly/model.safetensors", "layers": "layers", "tokenizer": "native/tokenizer.json",
+                "tables": "tables"}"#,
+        )
+        .unwrap();
+        LocalModel::read(&p).unwrap()
+    }
+
+    #[test]
+    fn the_files_id_follows_every_part_and_not_the_local_file_alone() {
+        let root = std::env::temp_dir().join(format!("llvq-files-id-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        let (a, b) = (root.join("a"), root.join("b"));
+        let la = local_set(&a);
+        let id = files_id(&la).unwrap();
+        assert_eq!(files_id(&la).unwrap(), id, "the same files give another id");
+        // the same local file, byte for byte, over another copy of the files: another id
+        let lb = local_set(&b);
+        assert_eq!(std::fs::read(a.join("inkling.json")).unwrap(), std::fs::read(b.join("inkling.json")).unwrap());
+        assert_ne!(files_id(&lb).unwrap(), id, "two sets with one local file share an id");
+        // a file of each part written again, its path kept: another id each time
+        let mut seen = vec![id];
+        for f in ["textonly/config.json", "textonly/model.safetensors", "layers/L00/codes.bin", "native/tokenizer.json", "tables/embed.q4"] {
+            std::fs::write(a.join(f), format!("{f} sealed again")).unwrap();
+            let now = files_id(&la).unwrap();
+            assert!(!seen.contains(&now), "{f} written again and the id did not move");
+            seen.push(now);
+        }
+        // the same bytes at a later time: another id (the content is not read)
+        let f = a.join("layers/L00/codes.bin");
+        let later = SystemTime::now() + Duration::from_secs(5);
+        std::fs::File::options().write(true).open(&f).unwrap().set_modified(later).unwrap();
+        assert!(!seen.contains(&files_id(&la).unwrap()), "a later modification time and the id did not move");
+        // a part that is gone is an error that names it
+        std::fs::remove_dir_all(a.join("tables")).unwrap();
+        assert!(format!("{:#}", files_id(&la).unwrap_err()).contains("tables"));
+        let _ = std::fs::remove_dir_all(&root);
     }
 
     #[test]
