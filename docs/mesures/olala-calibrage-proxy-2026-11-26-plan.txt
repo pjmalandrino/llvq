@@ -1,0 +1,43 @@
+OLALA V1.0 MINI 7A1B, THE NOISE PROXY AGAINST A REAL ENCODE ON THREE LAYERS: WHAT WILL BE RUN
+Written on 2026-11-26 before any of its numbers was read. Not a prereg: it carries no OpenTimestamps stamp, and the
+commit that adds this file is its only date. The operator's go: "Tu peux sur cette machine ? Si oui go."
+
+QUESTIONS
+  Q1. Does the isotropic noise proxy of `olala-reconnaissance-2026-11-25.txt` read the same KL as a real Tetra
+      encode of the same matrices, for one word and for two?
+  Q2. In the model, does a second Tetra word (4.06 b/weight) beat int4 g128 (4.25 b/weight), as it does in squared
+      error (0.0074 against 0.0100, `olala-second-mot-2026-11-26.txt`)?
+  It does not answer what GPTQ against real Hessians adds: every encode here is data-free, H = I.
+
+OBJECT AND SETTING
+  The weights, the forward, the container and the text of the reconnaissance: sha256 99a208e1...9356442, OVH's
+  `modeling_olala.py` on a CPU, each block cast to float32, $0. Four windows of 4 x 512 tokens at offsets 0, 2,048,
+  4,096 and 6,144 of the same text, 8,192 positions.
+  Only the routed experts of layers 6, 17 and 28 change, both matrices of all 256 experts: 453 M parameters, a
+  twelfth of the routed experts. Everything else is the bf16 model.
+
+ARMS
+  T1   one Tetra word, the repository's encoder as `extq::encode_matrix` uses it, H = I: one rotation a matrix
+       (seed 0x110FEED ^ L<<32 ^ e<<20 ^ g<<16), frozen row scales, two gain centroids a matrix, retraction.
+  T2   T1 plus a second word on its residual in the rotated basis, same pieces.
+  Q4   int4 g128 by the arithmetic of `embedquant::quantize_affine`: min and max of a group of 128, scale and bias
+       rounded to f16.
+  N1   the proxy at r = 0.085.      N2   the proxy at r = 0.0074.      N4   the proxy at r = 0.0100.
+  One noise draw an arm.
+
+READINGS
+  KL(bf16 || arm) on the next-token distribution over the whole vocabulary, at every position; its mean, with a
+  standard error over positions. Top-1 agreement. dNLL on the true token.
+  Q1: the ratios KL(T1)/KL(N1) and KL(T2)/KL(N2). The proxy is called faithful inside [0.7, 1.3], pessimistic
+      under 0.7, optimistic over 1.3.
+  Q2: the paired difference KL(T2) - KL(Q4), position by position. Two words are called better if its mean is
+      negative and the mean plus 1.96 standard errors is still negative; worse if the mirror holds; else not
+      separated.
+  Positions of one window are not independent, so the standard errors are too narrow; the four windows are also
+  reported one by one.
+
+EXPECTED, BEFORE THE READS
+  If the 36 layers weighed the same and added up, three layers would read about a twelfth of the proxy's pooled
+  figures: KL near 0.010 to 0.013 for N1, near 0.0013 for N2. Both ifs are unverified.
+  A data-free code after a rotation should look like isotropic noise, so both Q1 ratios are expected inside
+  [0.7, 1.3], and T2 is expected under Q4.
