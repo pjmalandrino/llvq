@@ -910,10 +910,10 @@ and its prototype decodes 93.9 tok/s on an M3 Max where mlx-lm's 4-bit 4B decode
 **A2.** On a CPU, reading the codes at every matvec beats the dense reconstruction by speed and memory: 8.65 tok/s in
 1.86 GB against 0.71 tok/s in 10.6 GB, perplexity −0.0021 %.
 - Standing: supported. Scope: 4B, M3 Max, 12 threads, f32. On x86, one instance of 8 vCPU of an AMD EPYC 7R13 with
-  the AVX2 kernel reads 3.64 and 3.90 tok/s through `cpurun` and 3.4 through `llvq run`, 1.87 GB resident; no
-  dense arm ran there.
+  the AVX2 kernel reads 5.80 and 6.53 tok/s through `cpurun` and 5.4 through `llvq run`, 1.81 GB resident (job 7;
+  3.64 and 3.90 on the build of job 5); no dense arm ran there.
 - Evidence: [cpu-tetra](mesures/cpu-tetra-2026-11-07.txt);
-  [llvq-cpu-x86](mesures/llvq-cpu-x86-2026-11-25.txt) jobs 5 and 6,
+  [llvq-cpu-x86](mesures/llvq-cpu-x86-2026-11-25.txt) jobs 5 to 7,
   [cpu-tetra-speed](mesures/cpu-tetra-speed-2026-11-25.txt).
 - Overturn: a dense reconstruction on x86 that reads faster than the codes, or an x86 machine with its own cores
   that reads far under the rate of that instance.

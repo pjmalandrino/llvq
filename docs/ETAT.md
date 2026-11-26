@@ -39,8 +39,9 @@ All three sizes share one setting: layout `tetra48`, `LLVQ_EMBED=q4`, `LLVQ_ROT_
   reads the Tetra codes at every matvec: 8.6 tok/s in 1.86 GB on the 4B at 12 threads of an M3 Max, against 0.71
   tok/s in 10.6 GB for the dense reconstruction it replaced; perplexity -0.0021 % of the dense f32 over 12 windows
   (*measured*, [cpu-tetra](mesures/cpu-tetra-2026-11-07.txt)). On 8 vCPU of an AMD EPYC 7R13 with its AVX2 kernel the
-  4B decodes 3.64 and 3.90 tok/s through `cpurun` and 3.4 through `llvq run`, in 1.87 GB resident (*measured*, one
-  instance, [llvq-cpu-x86](mesures/llvq-cpu-x86-2026-11-25.txt), [cpu-tetra-speed](mesures/cpu-tetra-speed-2026-11-25.txt)).
+  4B decodes 5.80 and 6.53 tok/s through `cpurun` and 5.4 through `llvq run`, in 1.81 GB resident (*measured*, one
+  instance, one run an arm, job 7 of [llvq-cpu-x86](mesures/llvq-cpu-x86-2026-11-25.txt); 3.64 and 3.90 on the build
+  of job 5, [cpu-tetra-speed](mesures/cpu-tetra-speed-2026-11-25.txt)).
 - **Inkling 2 Mini, prefix cache**: on by default on Metal and on the CPU, off on CUDA, where it has not run. On
   this Mac's CPU (6 threads) a restarted server gives the first token of a 2,316-token agent prompt after 20.33 s
   [20.31, 20.39] against 140.99 s cold, with the same answer as a server with the cache off; the file is 0.81 GB.

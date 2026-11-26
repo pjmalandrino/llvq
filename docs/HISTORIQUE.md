@@ -1243,6 +1243,6 @@ O13, the number the long-context speed phase took on main the next day.
 - Two statements replaced in the living documents. `CLAUDE.md` said the grouped form is refused on Metal, where it
   had never been measured: it was measured bit for bit on 2026-11-06 and is served there since this lot, and
   `ETAT.md` §4 and §5 said the same until 2026-11-26. `ETAT.md` and `CERVEAU.md` A2 said the CPU backend was never
-  run on x86: it ran on 2026-11-25, 3.64 and 3.90 tok/s on the 4B on one 8 vCPU instance
+  run on x86: it ran on 2026-11-25, 5.80 and 6.53 tok/s on the 4B on one 8 vCPU instance at its last job
   ([llvq-cpu-x86](mesures/llvq-cpu-x86-2026-11-25.txt)).
 - `CERVEAU.md` gains A5 to A8 and goes from 74 claims to 78.
