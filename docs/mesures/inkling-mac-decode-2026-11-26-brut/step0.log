@@ -1,0 +1,19 @@
+2026-11-26 13:43:32 load1 3.45 gpu 6% memfree 81%
+prompt 9000 read in 133.54 s; step median 0.0431 s = 23.20 tok/s; all_equal None
+0140733aceb0789513f4c76dc922b6401b2f919c96f11d018adafb492fcdf226  docs/mesures/inkling-mac-decode-2026-11-26-brut/s0-a1.logits.f32
+2026-11-26 13:46:34 load1 3.13 gpu 0% memfree 81%
+prompt 9000 read in 109.03 s; step median 0.0426 s = 23.47 tok/s; all_equal None
+0140733aceb0789513f4c76dc922b6401b2f919c96f11d018adafb492fcdf226  docs/mesures/inkling-mac-decode-2026-11-26-brut/s0-b1.logits.f32
+2026-11-26 13:48:56 load1 3.25 gpu 0% memfree 81%
+prompt 9000 read in 136.60 s; step median 0.0437 s = 22.89 tok/s; all_equal None
+0140733aceb0789513f4c76dc922b6401b2f919c96f11d018adafb492fcdf226  docs/mesures/inkling-mac-decode-2026-11-26-brut/s0-a2.logits.f32
+2026-11-26 13:51:45 load1 2.86 gpu 4% memfree 81%
+prompt 9000 read in 140.38 s; step median 0.0434 s = 23.03 tok/s; all_equal None
+0140733aceb0789513f4c76dc922b6401b2f919c96f11d018adafb492fcdf226  docs/mesures/inkling-mac-decode-2026-11-26-brut/s0-b2.logits.f32
+2026-11-26 13:54:39 load1 2.45 gpu 3% memfree 81%
+prompt 9000 read in 164.71 s; step median 0.0440 s = 22.71 tok/s; all_equal None
+0140733aceb0789513f4c76dc922b6401b2f919c96f11d018adafb492fcdf226  docs/mesures/inkling-mac-decode-2026-11-26-brut/s0-a3.logits.f32
+2026-11-26 13:58:41 load1 5.80 gpu 0% memfree 82%
+prompt 9000 read in 119.69 s; step median 0.0420 s = 23.79 tok/s; all_equal None
+0140733aceb0789513f4c76dc922b6401b2f919c96f11d018adafb492fcdf226  docs/mesures/inkling-mac-decode-2026-11-26-brut/s0-b3.logits.f32
+step0: all done

@@ -1,0 +1,4 @@
+inkrun: dense weights on metal in 0.4 s
+inkrun: 24 layers resident in 16.1 s: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23]
+inkrun: prefill of 9000 tokens in 119.69 s
+inkrun: 32 tokens, median step 0.042 s, equal to the reference: None (first mismatch None), report docs/mesures/inkling-mac-decode-2026-11-26-brut/s0-b3.json
