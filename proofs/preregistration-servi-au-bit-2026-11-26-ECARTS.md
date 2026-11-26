@@ -24,6 +24,26 @@ timed runs.
 
 # Parts B and C
 
+## A-E4. The "after" `llvq` binary carries other lots' uncommitted edits
+
+`llvq-after` (sha256 `735681ed…`, commit `1e35fa1b`) was built with the uncommitted edits of parts B and C in the
+same worktree (`llvq-runtime/src/inkling.rs`, `llvq-runtime/src/main.rs`). A-v reads its Qwen3 path, which those
+edits do not reach; the 13 Inkling checks of `serve-mac.sh` read the Inkling path with those edits in.
+
+## A-E5. A-v ran twice: the first run waited on its stdin
+
+The first run (2026-11-26 22:24) sat 1 h 37 inside `llvq run`, which reads stdin to the end when stdin is not a
+terminal, under a harness that never closes it; it sent no request and held the guard lock. Stopped by its process
+group, kept in `a-v-hung-2026-11-26/`. The rerun (2026-11-27 00:0x) closes stdin and bounds each step at 600 s, the
+whole script at 2,400 s. No reading of the first run is used.
+
+## A-E6. The mutants M1 and M3 were applied before their locked job started
+
+M1 and M3 were written into their files, then their test waited for the guard lock behind another lot's job, so a
+build of another lot could have seen them for a few minutes. Each was restored by `git checkout` and checked clean
+after its test. M2 was applied and restored around its own build and run. No later mutant was applied outside a
+locked job.
+
 ## BC1. Files outside the lot's list
 
 Gate B-i is a test added to `llvq-llm/tests/inkling_cpu.rs`, which holds the tiny served file set and its CPU load.

@@ -1,0 +1,42 @@
+start 2026-11-26 22:14:57 loadavg { 1.66 1.60 1.64 } | System-wide memory free percentage: 79%
+environment: no LLVQ_* or CANDLE_* variable
+binary  /Users/pjmalandrino/Documents/Pro/workspace/poc/llvq/.claude/worktrees/mac-inkling/docs/mesures/qwen-metal-servi-2026-11-26-brut/work/metalrun-1e35fa1b sha256 2fba57590ed8cccd746d39f30d83a3dc6bd9ce55b58611cca42e3260ed2fdaf4
+object  /Users/pjmalandrino/q8b-14b-sealed-2026-09-23/qwen3-14b-sealed.bin sha256 61db37fe7ce8e6a57c5c59f257319c796574981ecb5e450a02c73dd3c17e2ca0
+config  configs/qwen3-14b-tetra-e4.json sha256 833aec4c3a213c81e2f475acb0a643c4caf0cd7180d2bdb3c561618331032f78
+served config: configs/qwen3-14b-tetra-e4.json (layout tetra48, embed q4, rot_share 1, fuse 0, kv f16, attention expanded on cat) — Qwen3-14B paper-2 object, sealed 2026-09-23: Tetra with dclm-edu calibration and trained row scales, v_proj + o_proj + down_proj@10-28 as int4 g128 records, both untied tables stored int4 g64 in the file (qwen3-14b-sealed.bin). fuse is 0 because Tetra carries no segmented kernel, not because fusion was declined.
+machine Apple M3 Max | Note: No thermal warning level has been recorded | Note: No performance warning level has been recorded | Note: No CPU power status has been recorded
+load    GPU Some(0) % busy, other processes 46 % CPU
+config  configs/qwen3-14b-tetra-e4.json sha256 833aec4c3a213c81e2f475acb0a643c4caf0cd7180d2bdb3c561618331032f78
+arm cfg:configs/qwen3-14b-tetra-e4.json: served config: configs/qwen3-14b-tetra-e4.json (layout tetra48, embed q4, rot_share 1, fuse 0, kv f16, attention expanded on cat) — Qwen3-14B paper-2 object, sealed 2026-09-23: Tetra with dclm-edu calibration and trained row scales, v_proj + o_proj + down_proj@10-28 as int4 g128 records, both untied tables stored int4 g64 in the file (qwen3-14b-sealed.bin). fuse is 0 because Tetra carries no segmented kernel, not because fusion was declined.
+metal: tetra matvec tv_tetra48_metal_lut | int4 99 records, 19 through tv_q4_metal_tiled at 2048 columns a tile, 80 untiled | int4 row loop served | io f32 (served) | prefill row by row (served) | rotation device (served)
+embedding: q4 g64 (metalrun cfg: arm), 2 tables (model.embed_tokens.weight + lm_head.weight), 875.2 MB on the card (int4 777.9 + scales/biases 97.2)
+total expected on the device: 5.04 GB (projections 4.17 + carried 0.88)
+arm cfg:configs/qwen3-14b-tetra-e4.json loaded in   8.0 s | host count 5.044 GB | 4.606 GB of weights a token | attention expanded on cat | kernels Some(MetalTuning { q4_tile_cols: 2048, tetra_kernel: "tv_tetra48_metal_lut", q4_prefetch: false, half_io: false, prefill_rows: 1, q4_rows: false, rot_tg: false })
+prompt: the first 2048 tokens of the WikiText-2 test split, sha256 942f9f56dff7c8d099cda59e3439e87bf9646019220263793e333a4724d8e44d
+prompt 2048 tokens; 64 new tokens; 0 discarded + 1 timed rounds; order cfg:configs/qwen3-14b-tetra-e4.json
+round 0 arm cfg:configs/qwen3-14b-tetra-e4.json door    0.72 tok/s | decode   14.24 tok/s | first token 83990.3 ms | others 10 % CPU
+--- medians over 1 timed rounds [min-max], niced, measured on this Mac
+arm cfg:configs/qwen3-14b-tetra-e4.json door    0.72 tok/s [0.72-0.72] | decode   14.24 tok/s [14.24-14.24] | first token 83.990 s [83.990-83.990] | 70.22 ms a decode token | 65.6 GB/s of weights (computed)
+tokens of cfg:configs/qwen3-14b-tetra-e4.json: sha256 a063e3f10f747599e07a68036af1eb3f758e8b947aafcabe0c66dd4a1bf2260c (u32 little-endian)
+text of cfg:configs/qwen3-14b-tetra-e4.json: " have been a prodigy , but his early poems are not particularly outstanding . He was not the first of his family to pursue a career in the civil service ; his grandfather had been a high official , and his father had been a minor official . However , his family 's fortunes declined after his father 's death in"
+other processes, worst sample between arms: 10 % CPU
+end     Note: No thermal warning level has been recorded | Note: No performance warning level has been recorded | Note: No CPU power status has been recorded | GPU Some(99) % busy
+      113.12 real        27.73 user        15.90 sys
+         10769285120  maximum resident set size
+                   0  average shared memory size
+                   0  average unshared data size
+                   0  average unshared stack size
+             1563555  page reclaims
+                   7  page faults
+                   0  swaps
+                   0  block input operations
+                   0  block output operations
+                   0  messages sent
+                   0  messages received
+                   0  signals received
+                   4  voluntary context switches
+              147042  involuntary context switches
+        516600318375  instructions retired
+        152470840511  cycles elapsed
+         10864323168  peak memory footprint
+exit 0

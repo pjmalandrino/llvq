@@ -1,0 +1,1 @@
+{"model":"qwen3:4b","messages":[{"role":"user","content":"Write a haiku about the sea."}],"stream":false,"options":{"temperature":0,"num_predict":120}}

@@ -6,5 +6,5 @@
   "kv": "f16",
   "attention": "grouped",
   "metal_kernels": "lutd+h+pq",
-  "note": "PENDING its gates (proofs/preregistration-servi-au-bit-2026-11-26.md, part A)."
+  "note": "The qwen3-14b-tetra-e4 object (qwen3-14b-sealed.bin, sha256 61db37fe), served on Metal since 2026-11-26 with the grouped attention and the Metal kernels lutd+h+pq (see the 4B's Metal config). Same tokens as qwen3-14b-tetra-e4.json, which the CPU keeps: 281 of 281 records bit for bit against the default kernels, max |dlogit| 0 over 2,047 decode steps of one WikiText-2 window of 2,048 against the expanded form, the same 256 tokens after 5 and the same 64 after 2,048. On the M3 Max against that config, round by round: decode x1.077 [1.072-1.085] at 5 tokens and x1.525 [1.428-1.538] at 2,048, first token at 2,048 x1.783 [1.618-1.839], peak footprint at 2,048 10.87 GB on both (measured, qwen-metal-servi-2026-11-26). Refused off Metal."
 }

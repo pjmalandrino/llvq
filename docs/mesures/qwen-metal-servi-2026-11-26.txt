@@ -1,0 +1,197 @@
+QWEN3 ON METAL SERVED GROUPED, WITH THE KERNELS lutd+h+pq: 4B, 8B AND 14B PASS (2026-11-26 TO 2026-11-27)
+==========================================================================================================
+Prereg: proofs/preregistration-servi-au-bit-2026-11-26.md, part A, timestamped before the first measurement (anchor
+commit a05d99ad). Deviations: proofs/preregistration-servi-au-bit-2026-11-26-ECARTS.md, A-E1 to A-E6.
+Code: commit 1e35fa1b (the wiring). Timed binary: metalrun sha256
+2fba57590ed8cccd746d39f30d83a3dc6bd9ce55b58611cca42e3260ed2fdaf4, built from 1e35fa1b alone, copied to
+work/metalrun-1e35fa1b before any run. Machine: the operator's Apple M3 Max, 64 GiB. $0, no job, no network.
+Raw outputs: docs/mesures/qwen-metal-servi-2026-11-26-brut/. Every number below is measured on this Mac unless it
+says computed.
+
+VERDICT
+-------
+The three sizes pass the rule of the prereg. llvq-runtime/library.json names qwen3-{4b,8b,14b}-tetra-e4-metal.json
+under `metal`; the CPU keeps qwen3-{4b,8b,14b}-tetra-e4.json.
+
+  size  A-i bit gate   A-ii max |dlogit|        A-iii tokens (short, long)   decode at 5 tokens, new / served
+  4B    253 of 253     0 (M5, 49,140 steps)     same 256, same 64 at 4,096   x1.142 [1.097-1.154]
+  8B    253 of 253     0 (2,047 steps)          same 256, same 64 at 2,048   x1.097 [1.094-1.099]
+  14B   281 of 281     0 (2,047 steps)          same 256, same 64 at 2,048   x1.077 [1.072-1.085]
+
+Rule: A-i, A-ii and A-iii hold and the decode at 5 tokens is not under x0.97 by the median. It holds for all three.
+
+WHAT IS SERVED
+--------------
+A config field, `metal_kernels`, optional, one closed name: "lutd+h+pq". It is the metalrun arm that measured the
+kernels, read by one parser (`MetalTuning::parse_arm`), so the arm a journal timed and the config that serves it
+cannot mean two things. "lutd+h+pq" is the Tetra matvec tv_tetra48_metal_lutd, the half-io twins, and the prefill
+kernels of 8 rows a launch for the Tetra (tv_tetra48_metal_lutdr) and the int4 records (tv_q4_metal_rows): the bundle
+arm lutd+h+grp+pq of metal-nuit-2026-11-06 (M2, M8, M10). `+r` (rot_tg) has no "retained" verdict in that journal and
+is left out.
+- The three new configs carry the five object fields of the expanded configs, `"attention": "grouped"` and
+  `"metal_kernels": "lutd+h+pq"`.
+- served.rs: a config with `metal_kernels` is refused off Metal and beside 4E or a batch. Metal accepts the grouped
+  form only from such a config, so the card's grouped configs stay refused on Metal by name. The kernel form stays
+  refused on Metal, with or without the field.
+- `served::load_served` hands the config's kernels to the Metal loader. `Served::apply` checks on Metal that the
+  loaded runtime launches the kernels the config names, so a door that loads through the older `load_resolved`
+  (bin/mmlu, bin/gsm8k, bin/chat) is refused by name under a Metal config instead of serving the default kernels.
+  The runtime engine loads through `load_served`.
+- MetalTuning::default() is unchanged (pinned by a test), so Inkling's Metal stack and every bench keep their bits.
+  LLVQ_CONFIG with one of the older configs serves the expanded form with the default kernels, as before.
+- bin/metalrun gains `cfg:<config>` arms (another config's served door, whole, with no measurement fallback), a
+  discarded-round count, the first token per arm and its ratio round by round, and a one-window ppl.
+
+A-i, THE BIT GATE OF THE MATRICES (metalrun gate, arms lut and cfg:<metal config>)
+-----------------------------------------------------------------------------------
+Every projection and the head of the new config's arm against the default kernels on the default arm's own
+decode-step inputs, bit for bit.
+  4B   253 of 253   a-i-gate-4b.txt
+  8B   253 of 253   a-i-gate-8b.txt
+  14B  281 of 281   a-i-gate-14b.txt (40 layers)
+The gate ran again at the start of each A-iv process, cfg:<served config> as the reference: the same counts
+(a-iv-*.txt).
+
+A-ii, GROUPED AGAINST EXPANDED ON THE DECODE PATH (metalrun ppl, arm lutd+h+pq, one window of 2,048)
+------------------------------------------------------------------------------------------------------
+WikiText-2 test, the first 2,048 tokens (span sha256 942f9f56...e44d), decode path in lockstep.
+  8B   ppl 8.221096 both, max |dlogit| 0.000e0, top-1 2047/2047   a-ii-ppl-8b.txt   (127 s)
+  14B  ppl 7.099703 both, max |dlogit| 0.000e0, top-1 2047/2047   a-ii-ppl-14b.txt  (276 s)
+  4B   not run again: M5 of metal-nuit-2026-11-06, 12 windows of 4,096, max |dlogit| 0 over 49,140 steps.
+The 14B has 40 query heads in 8 groups of 5 against the 4B's 32 in groups of 4; it reads bit for bit too.
+
+A-iii AND A-iv, THE NEW CONFIG AGAINST THE SERVED ONE, ONE PROCESS A SIZE AND A LENGTH
+--------------------------------------------------------------------------------------
+metalrun time <sealed> <served config> cfg:<served config>,cfg:<metal config> <n_new> <timed> <prompt> 1: both
+arms through their served doors, the same order every round, 1 discarded round, 5 timed for the 4B and 3 for the 8B
+and the 14B. Short prompt: "The capital of France is" (5 tokens), 256 new. Long prompt: the first 4,096 (4B) or
+2,048 (8B, 14B) tokens of the WikiText-2 test split, 64 new. Decode = (n_new - 1) over the decode clock. First
+token = prompt plus first sample. Medians [min-max]; every ratio formed round by round (new over served for decode,
+served over new for the first token, so above 1 is faster). Load before each process 1.1 to 2.0, worst other-process
+sample 45 to 96 % CPU, no thermal warning recorded.
+
+  size length  served decode tok/s     new decode tok/s       decode ratio            first token served / new (s)      first token ratio      tokens        raw
+  4B   5       30.38 [29.54-32.46]     34.54 [33.74-36.02]    x1.142 [1.097-1.154]    0.123 / 0.096                     x1.282 [1.216-1.296]   same 256      a-iv-4b-short.txt
+  4B   4,096   11.65 [11.33-11.98]     37.63 [35.29-38.23]    x3.201 [3.071-3.268]    67.87 [66.70-71.04] / 35.17 [34.56-37.10]   x1.942 [1.830-1.970]   same 64   a-iv-4b-long.txt
+  8B   5       29.94 [29.54-30.39]     32.84 [32.45-33.25]    x1.097 [1.094-1.099]    0.137 / 0.112                     x1.230 [1.195-1.241]   same 256      a-iv-8b-short.txt
+  8B   2,048   17.04 [16.62-18.76]     28.85 [28.07-29.97]    x1.689 [1.598-1.693]    55.45 [52.47-56.93] / 28.44 [27.25-29.33]   x1.926 [1.890-2.002]   same 64   a-iv-8b-long.txt
+  14B  5       19.51 [18.97-19.81]     21.02 [20.58-21.23]    x1.077 [1.072-1.085]    0.214 / 0.197                     x1.129 [1.072-1.187]   same 256      a-iv-14b-short.txt
+  14B  2,048   12.33 [12.15-12.56]     18.69 [17.62-19.16]    x1.525 [1.428-1.538]    91.92 [87.85-96.73] / 52.59 [51.54-54.29]   x1.783 [1.618-1.839]   same 64   a-iv-14b-long.txt
+
+Token digests (u32 little-endian), the same on both arms: 4B d2267d6b...c41d (5) and 7cbd553b...ca18 (4,096), the
+digests of metal-nuit-2026-11-06; 8B a6a952bd...6dd1 (5) and 32a5bfc2...8c8d (2,048); 14B 0701277f...6fcc (5) and
+a063e3f1...260c (2,048).
+
+One reading not explained: the 4B's absolute rate at 5 tokens, 30.4 tok/s for the served config, sits far under
+M2's 50.85 on the same file and kernels three weeks ago, and level with the 8B's 29.9 in the next process. Its
+rounds drift from 36.3 (discarded) to 29.5. The ratio is formed round by round inside one process and is the
+reading the rule takes; the absolute 4B rate at 5 tokens of this process is not one to quote.
+
+PEAK MEMORY AT THE LONG PROMPT (one process a config, one generation, /usr/bin/time -l; ECARTS A-E3)
+------------------------------------------------------------------------------------------------------
+"peak memory footprint" of the process, Metal buffers included, the sealed file mapped.
+  4B   at 4,096   served 4.984 GB, new 3.553 GB (-1.431 GB)   peak-qwen3-4b-tetra-e4{,-metal}.json.txt
+  8B   at 2,048   served 6.239 GB, new 6.239 GB (+0.0001)     peak-qwen3-8b-tetra-e4{,-metal}.json.txt
+  14B  at 2,048   served 10.864 GB, new 10.869 GB (+0.005)    peak-qwen3-14b-tetra-e4{,-metal}.json.txt
+The 4B at 4,096 no longer copies the expanded keys and values (repeat_kv); at 2,048 on the larger files the copy
+stays under what the mapped file and the weights already hold at their peak. The 14B's +4.7 MB is the one reading
+above the served config.
+
+A-v, THROUGH llvq serve AND llvq run (a-v/)
+--------------------------------------------
+A working store under work/home (LLVQ_HOME), the 4B registered from the local sealed file by `llvq pull --from`
+(an APFS clone, no network), server on 127.0.0.1:11437. llvq-before (sha256 9a35c3cb..., a05d99ad, the expanded
+config) then llvq-after (sha256 735681ed..., 1e35fa1b, the Metal config), each answering three requests at
+temperature 0:
+- `llvq run --temperature 0 qwen3:4b "Why is the sky blue? Answer in two sentences."`: SAME TEXT, 205 characters.
+- /api/generate, the same prompt, num_predict 200: SAME TEXT, 204 characters.
+- /api/chat, "Write a haiku about the sea.", num_predict 120: SAME TEXT, 70 characters.
+The server logs say which config loaded: "loading qwen3:4b on metal with config qwen3-4b-tetra-e4.json" (before) and
+"... qwen3-4b-tetra-e4-metal.json" (after). Comparison in a-v/compare.txt.
+
+Finding, not fixed in this lot: `llvq run <model> "<prompt>"` reads stdin to the end when stdin is not a terminal,
+even with the prompt on its command line. Under a parent that leaves stdin open and never closes it (here the
+harness's socket), it waits forever before sending anything: the first A-v run sat 1 h 37 in
+StdinLock::read_to_string and held the guard lock (a-v-hung-2026-11-26/, before-run.txt empty, no "loading" line
+in the server log). The rerun closes stdin (< /dev/null) and bounds each step at 600 s. The behaviour goes to the
+operator.
+
+SERVE-MAC: THE INKLING CHECKS (serve-mac/)
+-------------------------------------------
+ops/inkling/serve-mac.sh with llvq-after on the real Inkling 2 Mini (inkling2:mini, read in place, a fresh
+LLVQ_HOME under serve-mac/home), 2026-11-27 00:11 to about 00:20: correctness 13 PASS, 0 FAIL. One reading FAIL,
+e3-reuse-answer (the answer cut by its cap is not reused), the reading FAIL of the earlier lots
+(inkling-mac-prefix-2026-11-26). e1 first token 135.47 s cold, e2 0.157 s from the prefix file. The 1.41 GB prefix
+file the run wrote was removed after the run; its sha256 is in serve-mac/prefix-file.sha256. Log: serve-mac.log.
+
+MUTANTS (mutants.txt), each applied in place on a committed file, its site counted, seen red, then git checkout and
+the file checked clean
+--------------------------------------------------------------------------------------------------------------------
+- M1, check_device accepting the kernel form on Metal: 1 site in llvq-llm/src/served.rs. RED: the lib test
+  model::tests::the_kernel_form_attends_through_the_replay fails (249 passed, 1 failed). Restored, clean.
+- M2, the Metal config's kernels not applied at load (load_served hands None to the loader): 1 site in served.rs.
+  RED at the served door: metalrun gate on the 4B with cfg:qwen3-4b-tetra-e4-metal.json loads tv_tetra48_metal_lut
+  and Served::apply refuses it ("the config names the Metal kernels "lutd+h+pq" ... and the loaded model launches
+  ... tv_tetra48_metal_lut ..."), exit 1. No test in the suite loads a sealed file, so this mutant is red at run
+  time only; the mapping from the name to the kernels is held by the unit test
+  the_served_metal_kernels_are_the_measured_arm. Restored, clean.
+- M3, the grouped field dropped from configs/qwen3-4b-tetra-e4-metal.json: 1 site. RED: served_config fails 2
+  (an_absent_attention_field_is_the_published_form, the_grouped_form_is_served_on_metal_only_through_a_metal_config)
+  and llvq-runtime fails 1 (library::tests::metal_serves_the_grouped_form_through_its_metal_config). Restored, clean.
+
+TESTS AND CLIPPY
+----------------
+- cargo test in debug, --no-fail-fast, -p llvq-llm -p llvq-runtime --features metal, on 6724c6b0 plus the
+  uncommitted config notes of this lot and lot D's uncommitted edits (inkling/layers.rs, bin/inkrun.rs): 130
+  `test result:` lines, all ok, 875 passed, 0 failed, 76 ignored (work/test-full.log, work/test-full.head).
+  Earlier on 1e35fa1b's tree: llvq-llm lib 250 passed and served_config 46 passed (work/test-quick.log),
+  llvq-runtime lib 49 passed (work/test-runtime-lib.log).
+- cargo clippy --all-targets (workspace) and -p llvq-llm -p llvq-runtime --features metal --all-targets: zero
+  warnings in this lot's files. One warning in the workspace run, an unused import `GlueKind` in
+  llvq-llm/tests/inkling_window.rs, an untracked file of another lot (work/clippy-mac-workspace.log,
+  work/clippy-mac-metal.log).
+- ops/check-linux-cuda.sh clippy -p llvq-llm --features cuda --all-targets: rc 0, the same one warning in
+  inkling_window.rs and none else; -p llvq-runtime --features cuda --all-targets: rc 0, zero warnings
+  (work/clippy-linux-llm.log, work/clippy-linux-runtime.log).
+
+AGAINST THE SIGNED PREDICTIONS
+------------------------------
+  prediction                                            measured                          held
+  4B identity: A-i 253/253, A-iii same tokens           253/253, same at both lengths     yes
+  4B decode at 5 tokens x1.03 [1.00 ; 1.07]             x1.142 [1.097-1.154]              no, above
+  4B decode at 4,096 x2.4 [2.1 ; 2.7]                   x3.201 [3.071-3.268]              no, above
+  4B new decode at 4,096 36 to 42 tok/s                 37.63                             yes
+  4B served decode at 4,096 15 to 17 tok/s              11.65                             no, below
+  4B first token at 4,096: served 57 to 66 s            67.87 s                           no, above
+  4B first token at 4,096: new 31 s [27 ; 36]           35.17 s                           yes
+  4B first token ratio x1.9 [1.6 ; 2.2]                 x1.942                            yes
+  4B peak at 4,096 not higher                           3.55 GB against 4.98              yes
+  8B and 14B identity (85 %)                            held on A-i, A-ii, A-iii          yes
+  8B decode at 2,048 x1.35 [1.15 ; 1.7]                 x1.689                            yes, at the top
+  14B decode at 2,048 x1.3 [1.1 ; 1.7]                  x1.525                            yes
+  8B first token at 2,048 x1.5 [1.2 ; 2.1]              x1.926                            yes
+  14B first token at 2,048 x1.5 [1.2 ; 2.1]             x1.783                            yes
+  8B decode at 5 tokens x1.02 [0.98 ; 1.06]             x1.097                            no, above
+  14B decode at 5 tokens x1.02 [0.98 ; 1.06]            x1.077                            no, above
+Reading: the short-context gain is larger than M2's lutd alone (x1.025) because the half-io twins and the grouped
+store come with it; the 4B's long-context gain is larger than M4's x2.38 because the served config's own rate at
+4,096 was lower here (11.65 against M4's 15.81).
+
+WHAT THIS DOES NOT ESTABLISH
+----------------------------
+- Any rate on another Mac. The ratios are this M3 Max's, round by round in one process.
+- A-ii for the 8B and the 14B past one window of 2,048, or past 2,048 positions; the 4B's 12 windows of 4,096 are
+  M5's.
+- That bin/mmlu, bin/gsm8k and bin/chat serve the Metal configs: they load through load_resolved and are refused by
+  name under them; they still serve the older configs as before. Wiring them to load_served is a one-line change
+  in each, outside this lot's files.
+- A same-head ratio (rule 4): both arms are the same object with the same head.
+
+PROVENANCE
+----------
+Raw files in docs/mesures/qwen-metal-servi-2026-11-26-brut/: a-i-gate-{4b,8b,14b}.txt, a-ii-ppl-{8b,14b}.txt,
+a-iv-{4b,8b,14b}-{short,long}.txt, peak-*.txt, a-v/ (and a-v-hung-2026-11-26/, the hung first run), serve-mac/ and
+serve-mac.log, mutants.txt, work/run-a-iv.sh, work/run-peak.sh, work/run-a-v.sh, work/binaries.sha256, the test and
+clippy logs under work/, the mutants' logs work/m1.log, work/m2-*.log, work/m3.log. The four binaries stay in work/
+uncommitted; their sha256 are in work/binaries.sha256. The working store of A-v (an APFS clone of the 4B) was
+removed after the run; its manifest is a-v/store-manifest-4b.json.

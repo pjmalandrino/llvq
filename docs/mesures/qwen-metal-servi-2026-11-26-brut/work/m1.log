@@ -1,0 +1,288 @@
+   Compiling llvq-llm v0.1.0 (/Users/pjmalandrino/Documents/Pro/workspace/poc/llvq/.claude/worktrees/mac-inkling/llvq-llm)
+warning: unreachable pattern
+    --> llvq-llm/src/served.rs:1039:13
+     |
+1037 |             (AttnHeads::Expanded | AttnHeads::Kernel, _) | (_, false) => Ok(()),
+     |             --------------------------------------------------------- matches all the relevant values
+1038 |             (AttnHeads::Grouped, true) if self.metal_kernels != MetalKernels::Default => Ok(()),
+1039 |             (AttnHeads::Kernel, true) => Err(format!(
+     |             ^^^^^^^^^^^^^^^^^^^^^^^^^ no value can reach this
+     |
+     = note: `#[warn(unreachable_patterns)]` (part of `#[warn(unused)]`) on by default
+
+warning: `llvq-llm` (lib) generated 1 warning (1 duplicate)
+warning: `llvq-llm` (lib test) generated 1 warning
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 9.82s
+     Running unittests src/lib.rs (target/debug/deps/llvq_llm-dfe62a33704c325e)
+
+running 254 tests
+test argmax_key::tests::sparse_ties_agree_300 ... ignored
+test argmax_key::tests::key_index_inverts_tie_key ... ok
+test calib::shrink_tests::rho_one_is_the_identity_bit_for_bit ... ok
+test calib::shrink_tests::off_diagonals_are_scaled_by_rho_exactly_and_the_diagonal_is_not ... ok
+test calib::shrink_tests::rho_zero_keeps_the_diagonal_and_nothing_else ... ok
+test argmax_key::tests::key_preconditions_hold_for_qwen3_and_refuse_the_rest ... ok
+test calib::shrink_tests::symmetry_survives_every_rho ... ok
+test argmax_key::tests::every_card_mutant_applies_exactly_once_and_changes_the_text ... ok
+test corpus::tests::the_dclm_shard_is_read_bounded ... ignored
+test corpus::tests::a_set_pin_is_carried ... ok
+test corpus::tests::an_unset_pin_means_main ... ok
+test corpus::tests::evaluation_keeps_the_published_shard ... ok
+test corpus::tests::the_two_roles_read_different_shards ... ok
+test corpus::tests::both_paths_are_well_formed_shards ... ok
+test dflash::tests::dequant_low_nibble_first ... ok
+test errmodel::tests::a_flat_or_concave_direction_has_no_optimum ... ok
+test corpus::tests::the_resolved_commit_is_recovered_from_the_cache_path ... ok
+test errmodel::tests::central_differences_are_exact_on_a_quadratic ... ok
+test errmodel::tests::malformed_probe_pairs_are_refused_by_name ... ok
+test errmodel::tests::duplicate_matrices_are_refused ... ok
+test errmodel::tests::non_convex_and_invariant_directions_are_counted_not_hidden ... ok
+test calib::shrink_tests::a_rho_outside_the_unit_interval_is_a_programming_error - should panic ... ok
+test errmodel::tests::optimum_is_the_minimum_and_the_gain_is_negative ... ok
+test errmodel::tests::ranking_puts_the_biggest_available_gain_first ... ok
+test errmodel::tests::residual_reads_error_against_the_move_and_not_the_loss ... ok
+test errmodel::tests::unprobed_matrices_contribute_nothing ... ok
+test errmodel::tests::surrogate_reproduces_the_function_it_models ... ok
+test dflash::tests::tree_is_closed_under_ancestors_and_best_first ... ok
+test eval::tests::an_unknown_name_is_refused ... ok
+test eval::tests::a_flag_is_zero_one_or_refused ... ok
+test eval::tests::narrowing_is_a_no_op_at_f32 ... ok
+test eval::tests::spellings_of_the_same_dtype_agree ... ok
+test eval::tests::t95_is_students_quantile ... ok
+test eval::tests::printed_names_parse_back ... ok
+test eval::tests::narrowing_rounds_at_half_precision ... ok
+test eval::tests::the_fingerprint_separates_streams_that_differ ... ok
+test fused::tests::every_layout_only_names_kernels_its_own_unit_carries ... ok
+test fused::tests::fuse_mode_parse_refuses_anything_else ... ok
+test fused::tests::the_int4_bytes_reach_the_footprint_the_runtime_prints ... ok
+test fused::tests::the_int4_kernel_names_and_constants_match_its_source ... ok
+test fused::tests::the_int4_staging_fits_the_card_at_every_sealed_size ... ok
+test fused::tests::the_q4_embedding_kernel_names_match_its_source ... ok
+test corpus::tests::a_missing_column_is_named ... ok
+test errmodel::tests::trust_region_minimum_is_the_true_minimum_of_the_quadratic ... ok
+test fused::tests::the_served_models_keep_todays_kernels_after_the_wall_lift ... ok
+test corpus::tests::the_report_names_the_revision ... ok
+test corpus::tests::a_bounded_read_projects_one_column ... ok
+test fused::tests::the_two_defaults_are_compatible ... ok
+test corpus::tests::a_bounded_read_refuses_to_come_up_short ... ok
+test fused_metal::tests::every_kernel_the_variable_names_passes_validate ... ok
+test fused::tests::the_scale_is_over_the_power_of_two_factor ... ok
+test fused_metal::tests::the_patterns_an_earlier_h2f_got_wrong ... ok
+test fused_metal::tests::an_unknown_metal_kernel_is_refused ... ok
+test fused_metal::tests::the_served_metal_kernels_are_the_measured_arm ... ok
+test gsm8k::tests::a_dump_header_round_trips_and_an_old_one_reads_as_expanded_and_eager ... ok
+test gsm8k::tests::a_dump_round_trips_and_a_short_one_is_refused ... ok
+test gsm8k::tests::a_fraction_box_is_an_integer_or_nothing ... ok
+test gsm8k::tests::a_prompt_past_the_engine_is_refused_before_the_run ... ok
+test gsm8k::tests::a_truncated_box_falls_back_to_the_last_number ... ok
+test gsm8k::tests::a_served_header_names_the_attention_and_the_engine ... ok
+test gsm8k::tests::an_ungraded_row_is_graded_and_a_graded_one_is_left_alone ... ok
+test gsm8k::tests::canonical_forms_agree_and_differ_where_they_should ... ok
+test argmax_key::tests::dense_ties_keep_the_in_thread_order ... ok
+test gsm8k::tests::extraction_reads_the_box_first_and_the_text_second ... ok
+test gsm8k::tests::grading_is_exact ... ok
+test gsm8k::tests::mcnemar_matches_the_hand_computation ... ok
+test gsm8k::tests::numbers_are_read_as_written ... ok
+test gsm8k::tests::pairing_refuses_different_prompts_or_problems ... ok
+test gsm8k::tests::pairing_refuses_two_golds_for_one_problem ... ok
+test gsm8k::tests::pairing_counts_the_discordant_problems ... ok
+test gsm8k::tests::the_gold_is_the_number_after_the_last_marker ... ok
+test gsm8k::tests::the_instruction_follows_the_problem_on_its_own_line ... ok
+test gsm8k::tests::the_last_closed_box_wins ... ok
+test gsm8k::tests::the_paired_interval_is_centred_and_closes_on_agreement ... ok
+test gsm8k::tests::the_prefill_keys_are_written_only_when_they_differ_and_read_as_eager_when_absent ... ok
+test guided::tests::a_clip_above_every_weight_changes_nothing ... ok
+test fused_metal::tests::h2f_widens_every_binary16_pattern ... ok
+test guided::tests::a_clip_caps_at_c_times_the_mean_before_the_clip_and_renormalises ... ok
+test corpus::tests::a_bounded_read_stops_well_before_the_end ... ok
+test fused_cpu::tests::a_tokenizer_id_past_the_embedding_table_is_refused_by_name ... ok
+test guided::tests::clip_parses_finite_numbers_from_one_only ... ok
+test guided::tests::describe_and_state_lines_carry_the_clip_only_when_set ... ok
+test gsm8k::tests::the_sample_is_fixed_nested_and_sorted ... ok
+test guided::tests::group_weights_sum_neighbours_and_normalise_to_mean_one ... ok
+test guided::tests::groups_parse_divisors_of_sixteen_only ... ok
+test guided::tests::the_variables_are_refused_by_name_when_malformed ... ok
+test inkling::expert_codes::tests::reads_one_real_expert_of_layer_6 ... ignored
+test inkling::config::tests::layer_types_follow_the_reference_derivation ... ok
+test inkling::expert_codes::tests::seed_matches_the_metal_module ... ok
+test inkling::layers::tests::tiny_stack_on_metal_matches_cpu ... ignored, uses the GPU; run under the guard's lock
+test guided::tests::row_ranges_are_consecutive_equal_chunks ... ok
+test inkling::config::tests::local_layer_ids_that_disagree_are_refused ... ok
+test inkling::loader::tests::e8m0_is_an_exact_power_of_two ... ok
+test argmax_key::tests::a_nan_raises_the_flag_and_yields_token_zero ... ok
+test inkling::layers::tests::conv_state_after_a_prompt_owns_its_rows ... ok
+test inkling::tables::tests::packed_embedding_rows_are_the_decoded_rows ... ok
+test inkling::loader::tests::e4m3_matches_candle_float8 ... ok
+test inkling::tests::prefill_pieces_cover_the_prompt_without_a_lone_token ... ok
+test inkling::layers::tests::short_conv_matches_direct_sum ... ok
+test inkseal::tests::expert_names_parse_and_split ... ok
+test inkseal::tests::rename_strips_only_the_text_prefix ... ok
+test inkling::tables::tests::dense_head_and_embed_rows ... ok
+test inkseal::tests::stream_seeds_are_distinct_from_expert_seeds ... ok
+test kvcapture::tests::a_window_is_taken_whole_or_refused ... ok
+test kvcapture::tests::the_spec_parses_and_refuses ... ok
+test kvladder::tests::bytes_a_position_on_the_4b ... ok
+test fused::tests::the_tables_describe_the_rotation ... ok
+test argmax_key::tests::adversarial_cases_agree_with_candle_and_their_pinned_index ... ok
+test fused::tests::a_tetra_file_has_no_runtime_layout_among_the_ball_ones ... ok
+test kvladder::tests::int4_g64_against_g128 ... ok
+test fused::tests::a_huge_count_in_a_short_file_is_an_error_not_an_abort ... ok
+test fused::tests::the_synthetic_int4_record_has_the_record_shape ... ok
+test kvladder::tests::the_hadamard_is_orthonormal ... ok
+test kvladder::tests::the_statistic_and_the_step_layout ... ok
+test kvladder::tests::the_variable_names_its_arms_exactly ... ok
+test kvq::tests::a_constant_group_reconstructs_exactly ... ok
+test kvq::tests::attn_heads_parse_contract ... ok
+test kvq::tests::kv_store_labels ... ok
+test kvq::tests::prefill_and_decode_agree_bit_for_bit ... ok
+test kvq::tests::the_env_contract_matches_embed_mode ... ok
+test kvq::tests::the_geometry_is_the_published_one ... ok
+test kvq::tests::the_k8_arms_codes_are_kvqs ... ok
+test kvq::tests::the_round_is_load_bearing ... ok
+test kvq::tests::the_store_rides_the_attention_form ... ok
+test digest::tests::the_typed_helpers_hash_little_endian_patterns ... ok
+test inkling::layers::tests::tiny_stack_runs_and_is_causal ... ok
+test loader::tests::a_bare_repo_id_is_a_hub_repo_at_main ... ok
+test loader::tests::a_directory_named_qwen_does_not_capture_the_repo_id ... ok
+test loader::tests::a_local_directory_serves_a_sharded_checkpoint ... ok
+test loader::tests::a_local_directory_serves_a_single_shard ... ok
+test loader::tests::a_malformed_pin_is_refused ... ok
+test loader::tests::a_missing_file_is_named ... ok
+test loader::tests::a_missing_local_path_never_becomes_a_repo_id ... ok
+test loader::tests::a_real_cached_sharded_snapshot_resolves_every_shard ... ok
+test argmax_key::tests::sparse_ties_agree_card_set ... ok
+test argmax_key::tests::the_card_sequence_is_41_cases_with_the_nan_last ... ok
+test loader::tests::a_shard_the_index_lists_but_the_directory_lacks_is_named ... ok
+test loader::tests::a_tilde_is_expanded ... ok
+test loader::tests::an_at_sign_pins_the_revision ... ok
+test loader::tests::path_shapes_resolve_local ... ok
+test loader::tests::pinning_main_is_what_the_hub_path_already_did ... ok
+test inkling::layers::tests::steps_on_the_cache_match_one_call ... ok
+test kvladder::tests::the_key_step_is_rope_invariant ... ok
+test model::tests::a_group_without_rotation_ignores_the_mode ... ok
+test model::tests::a_rotated_activation_of_the_wrong_key_is_refused ... ok
+test model::tests::a_call_is_split_at_the_threshold_by_position ... ok
+test argmax_key::tests::sparse_ties_reach_the_cross_thread_order ... ok
+test model::tests::a_served_config_sets_the_store_and_the_attention_form ... ok
+test model::tests::a_decode_step_without_its_zero_mask_is_bit_identical ... ok
+test model::tests::a_chunked_prefill_next_is_the_prefill_of_generate ... ok
+test model::tests::grow_reserve_keeps_the_positions ... ok
+test model::tests::grow_store_holds_what_cat_holds ... ok
+test lm::tests::qwen3_rollback_restores_the_cache ... ok
+test model::tests::a_timed_generation_returns_the_tokens_of_generate ... ok
+test lm::tests::qwen3_trait_delegates_bit_for_bit ... ok
+test kvcapture::tests::a_capture_is_the_rows_the_engine_read ... ok
+test model::tests::ladder_caches_hold_a_prefill_as_its_decode_steps ... ok
+test model::tests::preparing_a_dense_projection_moves_nothing ... ok
+test model::tests::rows_contiguous_copies_only_what_a_matmul_refuses ... ok
+test model::tests::the_causal_mask_is_built_in_its_dtype ... ok
+test model::tests::a_truncated_cache_decodes_like_a_fresh_one ... ok
+test model::tests::the_int4_rows_port_chunks_in_order_and_keeps_the_shape ... ok
+test kvladder::tests::k4v4c_without_steps_is_refused ... ok
+test model::tests::in_place_softmax_matches_the_whole_tensor ... ok
+test kvladder::tests::every_arm_codes_a_token_alone ... ok
+test model::tests::the_regroup_carries_the_output_width ... ok
+test model::tests::the_row_split_is_undone_by_the_regroup ... ok
+test kvladder::tests::each_arm_codes_each_side_at_its_bits ... ok
+test model::tests::wide_mask_padding_is_exactly_inert ... ok
+test repl::tests::a_nucleus_of_one_always_returns_the_top_token ... ok
+test repl::tests::a_tie_in_the_nucleus_falls_back_to_the_sort ... ok
+test model::tests::paired_decode_scores_what_the_window_scores ... ok
+test repl::tests::a_trailing_replacement_is_held_back_and_a_settled_one_is_not ... ok
+test repl::tests::a_turn_that_would_overrun_the_context_is_refused ... ok
+test repl::tests::sampling_is_reproducible_from_its_seed ... ok
+test repl::tests::temperature_zero_is_argmax_and_ignores_the_seed ... ok
+test repl::tests::the_fit_check_cannot_overflow_into_a_pass ... ok
+test repl::tests::the_nucleus_never_returns_a_token_it_cut ... ok
+test loader::tests::a_real_cached_snapshot_loads_and_maps ... ok
+test repl::tests::the_selection_gives_up_past_its_cap ... ok
+test repl::tests::the_stream_never_rewinds_what_it_printed ... ok
+test rotplan::tests::a_batch_of_one_is_the_per_row_loop ... ok
+test rotplan::tests::a_chunk_prepares_the_shared_rotation_once ... ok
+test rotplan::tests::a_group_of_natural_basis_sites_needs_no_representative ... ok
+test rotplan::tests::a_run_too_short_cannot_tell_the_arms_apart ... ok
+test rotplan::tests::a_site_without_a_rotation_takes_no_share_of_the_group_s ... ok
+test rotplan::tests::an_apply_that_answers_the_wrong_count_is_refused ... ok
+test rotplan::tests::an_empty_group_drives_nothing ... ok
+test rotplan::tests::check_key_names_the_projection ... ok
+test rotplan::tests::every_projection_suffix_maps_to_its_activation ... ok
+test rotplan::tests::rot_share_parse_refuses_anything_else ... ok
+test rotplan::tests::the_batched_loop_covers_every_row_once_and_in_order ... ok
+test sealed::restore_tests::a_name_the_source_cannot_serve_aborts_the_load ... ok
+test sealed::restore_tests::a_restored_window_is_named_in_the_label ... ok
+test sealed::restore_tests::a_shape_the_checkpoint_disagrees_on_is_refused ... ok
+test sealed::restore_tests::a_type_the_artifact_lacks_is_refused_not_skipped ... ok
+test sealed::restore_tests::covers_matches_the_tensor_name_segment_and_nothing_looser ... ok
+test sealed::restore_tests::restore_spec_parses_the_seven_names_and_refuses_the_rest ... ok
+test sealed::restore_tests::restore_window_is_inclusive_at_both_ends ... ok
+test sealed::restore_tests::restore_window_refuses_an_unreadable_layer ... ok
+test sealed::restore_tests::restore_window_refuses_what_it_cannot_read ... ok
+test sealed::restore_tests::restore_window_selects_layers ... ok
+test sealed::restore_tests::restore_windows_mix_with_bare_types ... ok
+test sealed::restore_tests::restoring_all_seven_leaves_no_quantized_projection ... ok
+test sealed::restore_tests::restoring_nothing_touches_nothing_and_never_calls_the_source ... ok
+test sealed::restore_tests::restoring_one_type_replaces_exactly_that_type ... ok
+test sealed::restore_tests::the_mmap_source_narrows_like_the_var_builder_does ... ok
+test sealed::restore_tests::the_q4_round_trip_quantizes_rather_than_copying ... ok
+test sealed::restore_tests::the_two_restore_variables_select_a_precision_and_refuse_each_other ... ok
+test sealed::tests::an_overlay_is_not_a_sealed_artifact ... ok
+test sealed::tests::repo_ids_are_never_sealed_paths ... ok
+test model::tests::a_session_feeds_a_long_turn_in_chunks_the_model_takes ... ok
+test served_decode::tests::the_launch_loop_is_the_greedy_loop ... ok
+test served_decode::tests::the_launch_loop_refuses_a_short_launch_with_no_stop ... ok
+test model::tests::in_place_softmax_matches_the_whole_tensor_on_metal ... ok
+test spec_prompts::tests::a_prompt_file_parses_and_refuses ... ok
+test spec_prompts::tests::the_gsm8k_set_parses_and_starts_as_the_house_set ... ok
+test spec_prompts::tests::the_house_set_parses ... ok
+test speculative::tests::lookup_drafts_the_latest_continuation_of_the_longest_ngram ... ok
+test speculative::tests::the_lookup_loop_is_the_greedy_loop ... ok
+test speculative::tests::the_lookup_policy_parses_and_probes ... ok
+test speculative::tests::the_loop_counts_and_refusals ... ok
+test speculative::tests::the_speculative_loop_is_the_greedy_loop ... ok
+test stats::tests::median_and_range_of_shuffled_series ... ok
+test tempfit::tests::a_fit_reports_what_a_temperature_bought ... ok
+test tempfit::tests::a_fit_that_does_not_transfer_reports_a_negative_fraction ... ok
+test tempfit::tests::a_model_that_matches_its_teacher_has_no_divergence ... ok
+test model::tests::kernel_prefill_rows_are_the_kernel_rows ... ok
+test tempfit::tests::collinear_points_have_no_vertex ... ok
+test tempfit::tests::decomposed_divergence_matches_the_definition ... ok
+test tempfit::tests::divergence_is_convex_in_beta_not_in_temperature ... ok
+test tempfit::tests::divergence_is_never_negative ... ok
+test tempfit::tests::log_partition_survives_a_large_beta ... ok
+test tempfit::tests::no_positive_temperature_moves_an_argmax ... ok
+test tempfit::tests::the_divergence_is_a_mean_over_positions ... ok
+test tempfit::tests::the_parabola_vertex_is_exact_on_a_parabola ... ok
+test tempfit::tests::totals_sum_over_windows ... ok
+test served_decode::tests::fresh_caches_get_their_grow_buffers_and_hold_nothing ... ok
+test tetra_cpu::tests::word_at_reads_the_served_stream ... ok
+test tempfit::tests::a_planted_temperature_is_recovered ... ok
+test served_decode::tests::the_served_door_refuses_the_int8_cache ... ok
+test kvladder::tests::sqnr_of_each_arm_on_synthetic_sources ... ok
+test repl::tests::a_top_p_on_the_edge_of_a_share_cuts_where_the_sort_cuts ... ok
+test tetra_cpu::tests::decode_matches_the_reference ... ok
+test model::tests::the_kernel_arm_runs_in_the_paired_decode ... ok
+test model::tests::the_kernel_form_attends_through_the_replay ... FAILED
+test repl::tests::the_selected_nucleus_is_the_sorted_one_bit_for_bit ... ok
+test model::tests::the_kernel_prefill_does_not_depend_on_the_chunking ... ok
+test inkling::tests::bounded_slot_refuses_a_rollback_deeper_than_its_slack ... ok
+test inkling::tests::prompt_in_pieces_matches_one_call ... ok
+test model::tests::attention_forms_agree ... ok
+test model::tests::the_in_place_softmax_moves_no_logit ... ok
+test inkling::tests::bounded_sliding_slots_match_full_slots ... ok
+test model::tests::the_served_threshold_is_position_1280 ... ok
+
+failures:
+
+---- model::tests::the_kernel_form_attends_through_the_replay stdout ----
+kernel against grouped: decode max |dlogit| 4.8828125e-4, chunks of 4 4.8828125e-4
+
+thread 'model::tests::the_kernel_form_attends_through_the_replay' (13464170) panicked at llvq-llm/src/model.rs:4400:43:
+the kernel form stays refused on Metal: ()
+
+
+failures:
+    model::tests::the_kernel_form_attends_through_the_replay
+
+test result: FAILED. 249 passed; 1 failed; 4 ignored; 0 measured; 0 filtered out; finished in 11.73s
+
+error: test failed, to rerun pass `-p llvq-llm --lib`

@@ -1,0 +1,7 @@
+6724c6b0
+ M configs/README.md
+ M configs/qwen3-14b-tetra-e4-metal.json
+ M configs/qwen3-4b-tetra-e4-metal.json
+ M configs/qwen3-8b-tetra-e4-metal.json
+ M llvq-llm/src/bin/inkrun.rs
+ M llvq-llm/src/inkling/layers.rs

@@ -1,0 +1,26 @@
+=== M1 check_device accepts kernel on Metal: sites 1 (2026-11-26 22:18:19, on 1e35fa1b)
+ llvq-llm/src/served.rs | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+rc 101
+    model::tests::the_kernel_form_attends_through_the_replay
+test model::tests::the_kernel_form_attends_through_the_replay ... FAILED
+test result: FAILED. 249 passed; 1 failed; 4 ignored; 0 measured; 0 filtered out; finished in 11.73s
+restored: llvq-llm/src/served.rs clean
+=== M3 grouped field dropped from the 4B Metal config: sites 1 (2026-11-26 22:18:47)
+ configs/qwen3-4b-tetra-e4-metal.json | 1 -
+ 1 file changed, 1 deletion(-)
+    an_absent_attention_field_is_the_published_form
+    library::tests::metal_serves_the_grouped_form_through_its_metal_config
+    the_grouped_form_is_served_on_metal_only_through_a_metal_config
+test result: FAILED. 44 passed; 2 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+test result: FAILED. 7 passed; 1 failed; 0 ignored; 0 measured; 42 filtered out; finished in 0.01s
+restored: configs/qwen3-4b-tetra-e4-metal.json clean
+=== M2 the Metal config's kernels not applied at load (load_served hands None): sites 1 (2026-11-26 22:19:07)
+ llvq-llm/src/served.rs | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+build rc 0
+gate rc 1
+metal: tetra matvec tv_tetra48_metal_lut | int4 84 records, 12 through tv_q4_metal_tiled at 2048 columns a tile, 72 untiled | int4 row loop served | io f32 (served) | prefill row by row (served) | rotation device (served)
+metal: tetra matvec tv_tetra48_metal_lut | int4 84 records, 12 through tv_q4_metal_tiled at 2048 columns a tile, 72 untiled | int4 row loop served | io f32 (served) | prefill row by row (served) | rotation device (served)
+Error: configs/qwen3-4b-tetra-e4-metal.json: the config names the Metal kernels "lutd+h+pq" (MetalTuning { q4_tile_cols: 2048, tetra_kernel: "tv_tetra48_metal_lutd", q4_prefetch: false, half_io: true, prefill_rows: 8, q4_rows: true, rot_tg: false }) and the loaded model launches Some(MetalTuning { q4_tile_cols: 2048, tetra_kernel: "tv_tetra48_metal_lut", q4_prefetch: false, half_io: false, prefill
+restored: llvq-llm/src/served.rs clean

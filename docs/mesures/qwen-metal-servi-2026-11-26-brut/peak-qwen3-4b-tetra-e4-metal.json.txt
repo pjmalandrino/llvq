@@ -1,0 +1,42 @@
+start 2026-11-26 22:12:29 loadavg { 2.05 1.55 1.63 } | System-wide memory free percentage: 77%
+environment: no LLVQ_* or CANDLE_* variable
+binary  /Users/pjmalandrino/Documents/Pro/workspace/poc/llvq/.claude/worktrees/mac-inkling/docs/mesures/qwen-metal-servi-2026-11-26-brut/work/metalrun-1e35fa1b sha256 2fba57590ed8cccd746d39f30d83a3dc6bd9ce55b58611cca42e3260ed2fdaf4
+object  /Users/pjmalandrino/q4b-sealed-2026-09-23/qwen3-4b-sealed.bin sha256 886391a8c03f66dc269cc65c3598c6627dbdcd259180aff36604ef10d37371b8
+config  configs/qwen3-4b-tetra-e4-metal.json sha256 b7a814a90bda573a87205cd08fe867e41272d05d80aaa572bc981e86453f5349
+served config: configs/qwen3-4b-tetra-e4-metal.json (layout tetra48, embed q4, rot_share 1, fuse 0, kv f16, attention grouped on grow(256), Metal kernels lutd+h+pq) — PENDING its gates (proofs/preregistration-servi-au-bit-2026-11-26.md, part A).
+machine Apple M3 Max | Note: No thermal warning level has been recorded | Note: No performance warning level has been recorded | Note: No CPU power status has been recorded
+load    GPU Some(0) % busy, other processes 37 % CPU
+config  configs/qwen3-4b-tetra-e4-metal.json sha256 b7a814a90bda573a87205cd08fe867e41272d05d80aaa572bc981e86453f5349
+arm cfg:configs/qwen3-4b-tetra-e4-metal.json: served config: configs/qwen3-4b-tetra-e4-metal.json (layout tetra48, embed q4, rot_share 1, fuse 0, kv f16, attention grouped on grow(256), Metal kernels lutd+h+pq) — PENDING its gates (proofs/preregistration-servi-au-bit-2026-11-26.md, part A).
+metal: tetra matvec tv_tetra48_metal_lutd | int4 84 records, 12 through tv_q4_metal_tiled at 2048 columns a tile, 72 untiled | int4 row loop served | io half (in-kernel casts, tv_q4_pf.metal and llvq_tetra48_rows.metal) | prefill 8 rows a launch, Tetra (tv_tetra48_metal_lutdr) and int4 (tv_q4_metal_rows) | rotation device (served)
+embedding: q4 g64 (metalrun cfg: arm), 1 table (model.embed_tokens.weight, lm_head tied on it), 218.8 MB on the card (int4 194.5 + scales/biases 24.3)
+total expected on the device: 1.38 GB (projections 1.16 + carried 0.22)
+arm cfg:configs/qwen3-4b-tetra-e4-metal.json loaded in   2.2 s | host count 1.377 GB | 1.377 GB of weights a token | attention grouped on grow(256) | kernels Some(MetalTuning { q4_tile_cols: 2048, tetra_kernel: "tv_tetra48_metal_lutd", q4_prefetch: false, half_io: true, prefill_rows: 8, q4_rows: true, rot_tg: false })
+prompt: the first 4096 tokens of the WikiText-2 test split, sha256 04e38430c7007541a5c73f7f55f5c38021e1b507cf955c2762653b3d974a67fa
+prompt 4096 tokens; 64 new tokens; 0 discarded + 1 timed rounds; order cfg:configs/qwen3-4b-tetra-e4-metal.json
+round 0 arm cfg:configs/qwen3-4b-tetra-e4-metal.json door    1.97 tok/s | decode   41.17 tok/s | first token 30936.9 ms | others 57 % CPU
+--- medians over 1 timed rounds [min-max], niced, measured on this Mac
+arm cfg:configs/qwen3-4b-tetra-e4-metal.json door    1.97 tok/s [1.97-1.97] | decode   41.17 tok/s [41.17-41.17] | first token 30.937 s [30.937-30.937] | 24.29 ms a decode token | 56.7 GB/s of weights (computed)
+tokens of cfg:configs/qwen3-4b-tetra-e4-metal.json: sha256 7cbd553b74b0d385f6b49c463af45b4f747b042796457b235f222bdc310eca18 (u32 little-endian)
+text of cfg:configs/qwen3-4b-tetra-e4-metal.json: " \" Do not be too greedy for power , do not be too proud of your achievements , do not be too self-centered , and do not be too self-righteous . \" He is often described as a moral man , a man of the people , and a man of the world . He is also described as a man"
+other processes, worst sample between arms: 57 % CPU
+end     Note: No thermal warning level has been recorded | Note: No performance warning level has been recorded | Note: No CPU power status has been recorded | GPU Some(98) % busy
+       39.40 real         7.89 user         4.22 sys
+          3200778240  maximum resident set size
+                   0  average shared memory size
+                   0  average unshared data size
+                   0  average unshared stack size
+              330940  page reclaims
+                   7  page faults
+                   0  swaps
+                   0  block input operations
+                   0  block output operations
+                   0  messages sent
+                   0  messages received
+                   0  signals received
+                   4  voluntary context switches
+               69163  involuntary context switches
+        156036445263  instructions retired
+         43301697407  cycles elapsed
+          3553347648  peak memory footprint
+exit 0

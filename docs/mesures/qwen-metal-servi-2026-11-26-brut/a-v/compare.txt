@@ -1,0 +1,5 @@
+run: SAME TEXT (205 and 205 characters)
+generate: SAME TEXT (204 and 204 characters)
+chat: SAME TEXT (70 and 70 characters)
+before llvq: loading qwen3:4b on metal with config qwen3-4b-tetra-e4.json
+after llvq: loading qwen3:4b on metal with config qwen3-4b-tetra-e4-metal.json
