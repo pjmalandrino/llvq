@@ -1,0 +1,40 @@
+Tetra-like product (1, 2^-1/8, 1): MSE/dim 0.06735  gains 2.749 3.490
+  measured real Tetra 0.08506
+ball: MSE/dim 0.06405   measured real ball 0.0780
+  [lead 1, w<=12] greedy: 140 candidates, kept 11, Kraft left 0.0000
+  [lead 1, w<=13] greedy: 203 candidates, kept 11, Kraft left 0.0000
+      l=1 widths (11, 11, 10)
+      l=3 widths (7, 12, 11)
+      l=3 widths (10, 7, 13)
+      l=4 widths (8, 13, 8)
+      l=4 widths (13, 9, 7)
+      l=5 widths (7, 9, 12)
+      l=5 widths (9, 7, 12)
+      l=6 widths (7, 7, 13)
+      l=6 widths (7, 13, 7)
+      l=6 widths (13, 7, 7)
+      l=6 widths (12, 7, 8)
+  [lead 2, w<=10] greedy: 900 candidates, kept 13, Kraft left 0.0000
+  [lead 2, w<=11] greedy: 3870 candidates, kept 10, Kraft left 0.0000
+  [lead 2 pure, 8 x (10,10,10)] greedy: 45 candidates, kept 8, Kraft left 0.0000
+  [leads 1+2, w<=13] greedy: 10350 candidates, kept 12, Kraft left 0.0000
+
+candidate                                                                       dB vs Tetra-like  paired SE
+ball, 24 dims (calibration, measured -0.375)                                              -0.218  0.002
+symmetric product of three 8-balls                                                        -0.034  0.001
+k: 4 profiles, 2-bit selector (calibration, measured -0.18)                               -0.316  0.002
+lead 1: prefix profiles, widths <= 12 (11 profiles)                                       -0.213  0.001
+lead 1: prefix profiles, widths <= 13 (11 profiles)                                       -0.304  0.002
+lead 2: tetrad pairings, widths <= 10 (13 members, 10 pairings)                           -0.067  0.002
+lead 2: tetrad pairings, widths <= 11 (10 members, 8 pairings)                            -0.235  0.002
+lead 2 pure: 8 pairings at (10,10,10), 3-bit selector                                     -0.079  0.002
+leads 1+2: pairings and prefix profiles, widths <= 13 (12 members)                        -0.323  0.002
+top   1% of blocks carry  24.2% of the excess over the ball
+top   5% of blocks carry  68.8% of the excess over the ball
+top  10% of blocks carry 103.0% of the excess over the ball
+top  25% of blocks carry 160.2% of the excess over the ball
+blocks where the product is no worse than the ball: 50.5%
+  [lead 3] kept 24 six-section profiles, Kraft left 0.0000
+lead 3: two blocks, six sections, prefix profiles, widths 9..13                           -0.299  0.001
+      (reference: two Tetra-like blocks at the reference gains, MSE/dim 0.06737)
+total 31.6 s

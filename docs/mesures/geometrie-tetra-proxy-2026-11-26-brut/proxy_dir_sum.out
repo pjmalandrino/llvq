@@ -1,0 +1,50 @@
+candidate                                                                   shape   tot dB  SE
+Tetra-like product, radii (1, 2^-1/8, 1)                                    1.000   +0.000  0.000
+ball   [calibration: shape 0.908, total -0.375 measured]                    0.861   -0.580  0.001
+symmetric product of three 8-balls                                          0.989   -0.044  0.001
+k, 4 profiles   [calibration: shape 0.954, total -0.183 measured]           0.907   -0.380  0.001
+  [lead 1, w<=12] 140 candidates, kept 22, Kraft left 0.0000
+lead 1: prefix profiles, widths <= 12 (22 profiles)                         0.888   -0.462  0.001
+  [lead 1, w<=13] 203 candidates, kept 25, Kraft left 0.0000
+lead 1: prefix profiles, widths <= 13 (25 profiles)                         0.884   -0.480  0.001
+      l=1 widths (11, 11, 10)
+      l=5 widths (7, 12, 9)
+      l=5 widths (9, 12, 7)
+      l=5 widths (7, 10, 11)
+      l=5 widths (12, 9, 7)
+      l=5 widths (8, 13, 7)
+      l=5 widths (7, 11, 10)
+      l=5 widths (10, 7, 11)
+      l=5 widths (7, 13, 8)
+      l=6 widths (7, 13, 7)
+      l=6 widths (7, 8, 12)
+      l=6 widths (12, 8, 7)
+      l=6 widths (7, 12, 8)
+      l=6 widths (7, 9, 11)
+      l=6 widths (9, 7, 11)
+      l=6 widths (8, 12, 7)
+      l=6 widths (12, 7, 8)
+      l=6 widths (7, 7, 13)
+      l=6 widths (7, 10, 10)
+      l=6 widths (8, 8, 11)
+      l=6 widths (10, 7, 10)
+      l=6 widths (8, 7, 12)
+      l=6 widths (13, 7, 7)
+      l=6 widths (11, 7, 9)
+      l=6 widths (9, 11, 7)
+  [lead 2 pure] 45 candidates, kept 8, Kraft left 0.0000
+lead 2 pure: 8 pairings at (10,10,10), table halves                         0.905   -0.387  0.001
+  [lead 2, w<=11] 3870 candidates, kept 17, Kraft left 0.0000
+lead 2: pairings, widths <= 11, table unchanged (17 members, 9 pairings)    0.885   -0.474  0.001
+  [leads 1+2] 10350 candidates, kept 17, Kraft left 0.0000
+leads 1+2: pairings and prefix profiles, widths <= 13 (17 members)          0.881   -0.491  0.001
+
+top   1% of blocks carry   7.0% of Tetra's excess over the ball
+top   5% of blocks carry  25.2% of Tetra's excess over the ball
+top  10% of blocks carry  41.8% of Tetra's excess over the ball
+top  25% of blocks carry  75.2% of Tetra's excess over the ball
+blocks where Tetra is finer than the ball: 25.9%
+  [lead 3] kept 23 six-section profiles, Kraft left 0.0000
+lead 3: two blocks, six sections, 23 prefix profiles (conservative)         0.929   -0.289  0.001
+   k under the same conservative rule (best single profile)                 0.927   -0.297  0.002
+total 25.9 s
