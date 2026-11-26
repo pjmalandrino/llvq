@@ -1,0 +1,62 @@
+OLALA V1.0 MINI 7A1B, A SECOND TETRA WORD ON THE RESIDUAL, 2026-11-26
+
+RESULT
+  A second Tetra word encoded on the residual of the first takes the relative error of a matrix from 0.0851 to
+  0.0074 at 4.00 bits a weight, and a third to 0.0007 at 6.00 (*measured*, the repository's encoder, data-free).
+  int4 g128 reads 0.0100 at 4.25 bits on the same matrices, and the best fixed-rate scalar quantizer of a Gaussian
+  0.0095 at 4 bits (*computed*).
+  Under the noise proxy of the reconnaissance, a second word on the busiest 20 % of the routed experts halves the
+  KL to bf16, from 0.125 to 0.061, and takes the top-1 agreement from 85.9 % to 90.1 % (*measured*, a proxy on
+  4,088 positions, not an encode). That file would weigh 2.49 GB, 2.94 b/param (*computed*).
+  No file exists. The format holds one word a block, and a second word is a format and kernel change.
+
+WHAT WAS RUN
+  Not a preregistered gate. A reading with no threshold stated before it, in the container of the reconnaissance,
+  on the same weights (sha256 99a208e1...9356442), $0. Raw outputs and scripts in `olala-second-mot-2026-11-26-brut/`.
+  It follows `olala-reconnaissance-2026-11-25.txt` and uses its tensors, its forward and its noise proxy.
+
+1. WHY NOT A BETTER CODE AT 48 BITS (*computed* here; the bound is the repository's)
+  Best fixed-rate scalar quantizer of a Gaussian, Lloyd's iteration on 4 M samples (`scalar.out`):
+    2 bits 0.1177    3 bits 0.0346    4 bits 0.0095      Shannon: 0.0625, 0.0156, 0.0039
+  Tetra's one word reads 0.0851 at 2 bits: 28 % under the scalar quantizer, 36 % over Shannon.
+  `CERVEAU.md` C7 bounds what a better 24-dimension code of 48 bits could add at 0.60 dB, 13 % of the error, and Q4
+  records that codebook gains under 0.4 dB did not carry to perplexity.
+
+2. THE SECOND WORD ON REAL TENSORS (*measured*, `probe2.out`, source `olalaprobe2_main.rs`)
+  Stage 1 as in the reconnaissance. Stage 2 encodes W - Q1 in the rotated basis with the same pieces: its own
+  frozen row scales, its own two gain centroids, one gain bit, the block loop with retraction, H = I. Stage 3
+  encodes what stage 2 leaves. 1,536 rows a tensor. Relative squared error against the original:
+    tensor                         one word   two words   three words   stage 2 on its own input
+    Gaussian, 768 columns           0.08513    0.00743      0.00071       0.08725
+    experts.weight L17              0.08525    0.00744      0.00070       0.08730
+    output_experts L17              0.08508    0.00743      0.00071       0.08731
+    shared fc_1 L17                 0.08526    0.00744      0.00071       0.08732
+    mixer_proj L17                  0.08535    0.00749      0.00072       0.08778
+    up_proj L17                     0.08513    0.00743      0.00069       0.08730
+    output_experts L1               0.08563    0.00983      0.00137       0.11479
+  The residual of a lattice code is as easy to encode as the weights: stage 2 leaves 0.0873 of its input where
+  stage 1 leaves 0.0851. Each word multiplies the error by about 0.087. The degenerate `output_experts` of layer 1
+  gains less.
+  A second word costs 48 bits a block and one f16 row scale a row: 4.06 b/weight on the routed experts.
+
+3. NOISE ARMS, ROUTED EXPERTS ONLY (*measured*, `collect2.out`, `run5.log`)
+  The proxy of the reconnaissance, section 6: a row keeps its norm and takes a relative squared error r. Experts
+  under one word take r = 0.085, experts under two words r = 0.0074. The dense matrices, the embedding and the head
+  are untouched. Two windows of 4 x 512 tokens, offsets 0 and 2,048, 4,088 positions pooled.
+  "Busiest" ranks the 9,216 (layer, expert) cells by their count in the pooled census of the reconnaissance. That
+  census covers the window at offset 2,048 and not the one at offset 0.
+    arm                               share of traffic   dNLL pooled        ppl      top-1    KL~      file, b/param
+    one word everywhere                     -            +0.0746 +- 0.0092  x1.077   85.9 %   0.125    2.21 GB, 2.61
+    second word on the busiest 20 %       43.3 %         +0.0330 +- 0.0066  x1.034   90.1 %   0.061    2.49 GB, 2.94
+    second word on the busiest 50 %       74.8 %         +0.0241 +- 0.0057  x1.024   92.4 %   0.037    2.90 GB, 3.43
+    second word everywhere                100 %          +0.0085 +- 0.0039  x1.009   94.9 %   0.016    3.59 GB, 4.24
+  By window, offset 0 then 2,048: KL~ 0.130 and 0.120; 0.060 and 0.062; 0.035 and 0.039; 0.016 and 0.015.
+  The file sizes are *computed*: the proposed recipe of `plan-olala-mini.md` plus the second words and their row
+  scales. The arms do not include the int4 noise of that recipe's dense matrices.
+
+HOW TO READ IT
+  The proxy is isotropic and ignores the Hessian. One noise draw an arm. The KL is summed over the bf16 model's 64
+  likeliest tokens, on technical text in windows of 512; it is not the KLD the public files report on WikiText-2
+  (0.0587 at 3.72 GB, 0.0218 at 5.99 GB), which is given for scale only.
+  Not measured: a GPTQ loop over two stages, the decode cost of a second word in a kernel, a second word on the
+  dense matrices in place of int4.

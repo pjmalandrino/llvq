@@ -1162,6 +1162,29 @@ O13, the number the long-context speed phase took on main the next day.
   9,831, 5,625 and 5,659 bytes (*measured*). The 9,774 bytes `docs/plan-transformers.md` gives for the 4B card is its
   size on 2026-10-20.
 
+## 2026-11-25 to 11-26. Olala v1.0 mini 7A1B read before any encode: a plan, a second word and a calibrated proxy; nothing served changes, $0
+
+- OVHcloud released Olala v1.0 mini 7A1B on 2026-11-19 under Apache 2.0. The operator asked for an analysis and a
+  plan to quantize it. Everything ran in a cloud container of 4 threads with no GPU: no paid job, no Hessian, no GPTQ
+  loop on the model, no file, no task score.
+- The reconnaissance read the object and its difficulty. The file holds 6,773,124,360 parameters, 80.3 % of them in
+  the routed experts. Run data-free, the Tetra encoder leaves 0.0846 to 0.0854 on 14 of 20 matrices against 0.0848
+  and 0.0852 on Gaussian ones, and OVH's massive activations are reproduced, 2.9e16 at the mixer branch of layer 1
+  (*measured*, [olala-reconnaissance](mesures/olala-reconnaissance-2026-11-25.txt)).
+- [`plan-olala-mini.md`](plan-olala-mini.md) proposes a recipe at 2.61 b/param, 2.21 GB (*computed*), a quality gate
+  against the smallest public file, and six lots. Every lot waits for the operator.
+- A second Tetra word on the residual takes the error from 0.0851 to 0.0074 at 4.00 b/weight, under int4 g128's
+  0.0100 at 4.25 (*measured*, [olala-second-mot](mesures/olala-second-mot-2026-11-26.txt)).
+- On the operator's go ("Tu peux sur cette machine ? Si oui go") the noise proxy of the reconnaissance was read
+  against a real data-free encode of the routed experts of layers 6, 17 and 28, under a reading plan committed before
+  the reads. The encode reads 1.037 and 0.952 times the proxy's KL at one word and two, and two words read 19 % less
+  KL than int4 g128 with the same top-1 (*measured*,
+  [olala-calibrage-proxy](mesures/olala-calibrage-proxy-2026-11-26.txt)). The KL levels the plan expected were wrong,
+  0.0318 where 0.010 to 0.013 was written.
+- `CERVEAU.md` gains C8, C9 and Q31, all three supported, and goes from 68 claims to 71. `ROADMAP.md` §4 points at
+  the plan. The operator had the branch merged into main ("tu peut merge dans main pour alimenter la base de
+  connaissance").
+
 
 ## 2026-11-26. The Tetra cut: four repairs read through a model, the lead closed; nothing served changes, $0
 
@@ -1174,4 +1197,4 @@ O13, the number the long-context speed phase took on main the next day.
   because the excess is spread over blocks. Width profiles and the shared budget are known art (AMR-WB+, V.34).
 - The operator closed the lead ("non ferme et ajoute dans la base de connaissance") and declined the read of the
   per-section saturation rate on a sealed file, which stays the reopening condition in `ETAT.md` §6. `CERVEAU.md`
-  gains C8 as a conjecture and one dropped belief. No prereg, no job, no model load.
+  gains C10 as a conjecture and one dropped belief. No prereg, no job, no model load.

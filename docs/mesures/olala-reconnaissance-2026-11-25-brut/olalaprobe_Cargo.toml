@@ -1,0 +1,9 @@
+[package]
+name = "olalaprobe"
+version = "0.0.0"
+edition = "2021"
+[dependencies]
+llvq-quant = { path = "/home/user/llvq-tetra/llvq-quant" }
+llvq-search = { path = "/home/user/llvq-tetra/llvq-search" }
+llvq-core = { path = "/home/user/llvq-tetra/llvq-core" }
+[workspace]

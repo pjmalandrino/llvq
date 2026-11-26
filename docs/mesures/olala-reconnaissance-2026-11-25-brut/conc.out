@@ -1,0 +1,9 @@
+experts per layer carrying 50% of routed tokens: median 60, min 32, max 99, all layers 2410 of 9216 (26.2%)
+experts per layer carrying 80% of routed tokens: median 139, min 92, max 182, all layers 5237 of 9216 (56.8%)
+experts per layer carrying 90% of routed tokens: median 180, min 133, max 214, all layers 6643 of 9216 (72.1%)
+top 5% of cells carry 17.6% of routed tokens
+top 10% of cells carry 27.9% of routed tokens
+top 20% of cells carry 43.2% of routed tokens
+top 30% of cells carry 55.4% of routed tokens
+hot 10% of experts at int4 g128 instead of Tetra: +0.18 b/param -> 2.79
+hot 20% of experts at int4 g128 instead of Tetra: +0.36 b/param -> 2.97

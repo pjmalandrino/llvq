@@ -108,7 +108,7 @@ Half the excess needs corrections on more than 10 % of blocks. At 16 bits a corr
 5. CLAIMS TOUCHED IN CERVEAU.md
 -------------------------------
 - C7 is confirmed and unchanged: nothing here sits under its -0.30 dB best member, and nothing leaves its bound.
-- C8 is added, standing conjecture: the figures of section 3.
+- C10 is added, standing conjecture: the figures of section 3. (C8 and C9 went to the Olala journals of the same day.)
 - Q4 is cited, not changed.
 - One belief is dropped: that a cleverer cut recovers the ball at Tetra's decoder cost.
 
