@@ -264,7 +264,7 @@ fn decode_variants_kernel_bench() {
             per_arm[i].push(time(&call));
         }
     }
-    rt.set_moe_down_sg(false);
+    rt.set_moe_down_sg(llvq_llm::fused_metal::MOE_DOWN_SG_DEFAULT);
     for (i, sg) in ARMS.iter().enumerate() {
         println!("whole call, down_sg {sg}: {:.2} us, rounds {:.2?}", median(per_arm[i].clone()), per_arm[i]);
     }

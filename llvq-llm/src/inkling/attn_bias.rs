@@ -187,7 +187,8 @@ fn bias_with(
     let here = rel_logits.device().is_cuda();
     #[cfg(all(target_os = "macos", feature = "metal"))]
     let here = rel_logits.device().is_metal();
-    if !here || rel_logits.dtype() != DType::F32 || e != extent || heads * t * s == 0 {
+    // An extent of 0 would make the kernel's last column `extent - 1` wrap.
+    if !here || rel_logits.dtype() != DType::F32 || e != extent || extent == 0 || heads * t * s == 0 {
         return Ok(None);
     }
     let words = [heads, t, s, extent, offset, window.unwrap_or(0)];

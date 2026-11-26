@@ -500,6 +500,9 @@ fn ids(v: &Value, key: &str) -> Result<Option<Vec<u32>>> {
 
 #[allow(unused_variables, unused_mut, clippy::match_single_binding)]
 fn make_resident(model: &mut Inkling, args: &Args, dev: &Device) -> Result<Vec<Value>> {
+    if args.moe_down_sg.is_some() && !(args.resident && dev.is_metal()) {
+        bail!("--moe-down: a switch of the resident experts' Metal kernel; this run has no resident experts on Metal");
+    }
     if !args.resident {
         return Ok(vec![]);
     }

@@ -1227,8 +1227,11 @@ mod tests {
         for d in ["textonly", "layers/L00", "native", "tables"] {
             std::fs::create_dir_all(dir.join(d)).unwrap();
         }
+        // One modification time for every file of every set: two sets then differ by their paths alone.
+        let stamp = SystemTime::UNIX_EPOCH + Duration::from_secs(1_700_000_000);
         for f in ["textonly/config.json", "textonly/model.safetensors", "layers/L00/codes.bin", "native/tokenizer.json", "tables/embed.q4"] {
             std::fs::write(dir.join(f), f.as_bytes()).unwrap();
+            std::fs::File::options().write(true).open(dir.join(f)).unwrap().set_modified(stamp).unwrap();
         }
         let p = dir.join("inkling.json");
         std::fs::write(
