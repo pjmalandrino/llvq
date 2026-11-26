@@ -257,13 +257,36 @@ fn make_resident(model: &mut llvq_llm::inkling::Inkling, layers: &Path, dev: &De
 /// CUDA a prompt's rows through the experts in one launch a step
 /// (`Inkling::set_moe_batch_rows`, byte-identical values). Returns the lines
 /// the load prints.
-/// Tokens of a prompt one forward call reads on CUDA.
+/// Tokens of a prompt one forward call reads, on CUDA and on Metal.
 const PROMPT_PIECE: usize = 512;
-/// Query rows of one attention score tensor on CUDA.
+/// Query rows of one attention score tensor, on CUDA and on Metal.
 const SCORE_ROWS: usize = 128;
 /// Positions past its window a bounded sliding slot keeps, and so the deepest
 /// rollback it accepts.
 const KV_SLACK: usize = 1024;
+
+/// Whether a model loaded on `backend` reads a long prompt with the settings
+/// above, and where its score bias is built.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum LongPrompt {
+    /// One call a prompt, every position in every slot (the candle stack, the CPU).
+    Off,
+    /// The pieces, the chunked scores and the bounded slots, the bias built on
+    /// the host (Metal: `attn_bias` is a CUDA kernel).
+    BiasOnHost,
+    /// The same, the bias built on the card (`attn_bias::set_on_device`).
+    BiasOnCard,
+}
+
+/// The three settings depend on no device: they cut a prompt's calls, its
+/// score tensors and its sliding slots. Only the bias kernel is CUDA's.
+fn long_prompt(backend: Backend, fused: bool) -> LongPrompt {
+    match (backend, fused) {
+        (Backend::Cuda, true) => LongPrompt::BiasOnCard,
+        (Backend::Metal, true) => LongPrompt::BiasOnHost,
+        _ => LongPrompt::Off,
+    }
+}
 
 /// The model on the CPU: `experts_cpu::load_served`, the load `inkcpu`
 /// measures. One stack whatever the local file's `stack` says: the attention
@@ -325,18 +348,24 @@ fn load_model(l: &LocalModel, dev: &Device) -> anyhow::Result<(llvq_llm::inkling
         model.set_moe_batch_rows(true);
         lines.push("experts: a prompt's rows in one launch a step".into());
     }
-    if fused && matches!(dev, Device::Cuda(_)) {
-        // The long-prompt settings measured on 2026-11-24 (9,000 tokens: 12.0 GB at the peak against 19.5, read
-        // in 23.85 s against 55.89 on an L40S). The pieces change values inside the perplexity band (-0.042 %);
-        // the bounded slots and the chunked scores add no difference. The slack is what a rollback may undo: an
-        // answer longer than it is read again from the start (`Worker::back_to`).
+    let backend = if dev.is_cuda() { Backend::Cuda } else { Backend::Metal };
+    let long = long_prompt(backend, fused);
+    if long != LongPrompt::Off {
+        // The long-prompt settings measured on CUDA on 2026-11-24 (9,000 tokens: 12.0 GB at the peak against
+        // 19.5, read in 23.85 s against 55.89 on an L40S), and on Metal on 2026-11-26
+        // (`docs/mesures/inkling-mac-serve-2026-11-26.txt`). The pieces change values inside the perplexity band
+        // (-0.042 %); the bounded slots and the chunked scores add no difference. The slack is what a rollback
+        // may undo: an answer longer than it is read again from the start (`Worker::back_to`).
         model.set_prefill_piece(PROMPT_PIECE);
         model.set_attn_chunk(SCORE_ROWS);
         model.set_kv_window(Some(KV_SLACK));
         #[cfg(all(target_os = "linux", feature = "cuda"))]
-        llvq_llm::inkling::attn_bias::set_on_device(Some(dev))?;
+        if long == LongPrompt::BiasOnCard {
+            llvq_llm::inkling::attn_bias::set_on_device(Some(dev))?;
+        }
+        let bias = if long == LongPrompt::BiasOnCard { "bias on the card" } else { "bias on the host" };
         lines.push(format!(
-            "prompt: pieces of {PROMPT_PIECE} tokens, scores in chunks of {SCORE_ROWS} rows, sliding slots bounded with a slack of {KV_SLACK}, bias on the card"
+            "prompt: pieces of {PROMPT_PIECE} tokens, scores in chunks of {SCORE_ROWS} rows, sliding slots bounded with a slack of {KV_SLACK}, {bias}"
         ));
     }
     let resident = model.substituted_layers();
@@ -918,6 +947,15 @@ mod tests {
         assert_eq!(reuse(&keys, &[1, 2, 3]), vec![3]);
         let empty = vec![Vec::new()];
         assert_eq!(reuse(&[&empty], &[1]), Vec::<usize>::new(), "an empty key never matches");
+    }
+
+    #[test]
+    fn long_prompt_settings_follow_the_stack_not_only_cuda() {
+        assert_eq!(long_prompt(Backend::Cuda, true), LongPrompt::BiasOnCard);
+        assert_eq!(long_prompt(Backend::Metal, true), LongPrompt::BiasOnHost);
+        assert_eq!(long_prompt(Backend::Cuda, false), LongPrompt::Off);
+        assert_eq!(long_prompt(Backend::Metal, false), LongPrompt::Off);
+        assert_eq!(long_prompt(Backend::Cpu, true), LongPrompt::Off);
     }
 
     #[test]

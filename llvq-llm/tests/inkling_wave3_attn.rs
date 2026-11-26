@@ -430,3 +430,60 @@ fn fused_attn_holds_no_f32_matrices_metal() {
 fn fused_attn_is_refused_on_the_cpu() {
     assert!(tiny_model(&Device::Cpu, AttnKind::Fused).is_err(), "the fused attention was accepted on the CPU");
 }
+
+/// The three long-prompt settings the runtime turns on for a fused stack
+/// (`llvq-runtime`, `load_model`), on Metal under the served attention
+/// (`AttnKind::FusedScores`) and the fused glue: the 70-token prompt read in
+/// pieces of 16 tokens, its scores in chunks of 8 rows, the sliding slots
+/// bounded with a slack of 2 (6 positions kept in buffers of 8), then 16
+/// steps fed the same tokens, against one call over full slots. Every row
+/// within 1e-4 of the largest logit (the pieces and the shorter softmax rows
+/// round apart, class B), and every sliding slot has dropped its oldest
+/// positions while the full ones kept them all.
+#[test]
+fn long_prompt_settings_track_one_call_metal() {
+    let dev = metal();
+    let mut m = tiny_model(&dev, AttnKind::FusedScores).unwrap();
+    m.set_glue(GlueKind::Fused).unwrap();
+    let p = &prompts()[1];
+    let run = |m: &Inkling, feed: Option<&[u32]>| -> (Vec<Vec<f32>>, Vec<u32>, InklingCache) {
+        let mut cache = CausalLm::new_cache(m);
+        let logits = m.forward_pieces(p, &mut cache, true).unwrap();
+        assert_eq!(cache.len(), p.len());
+        let mut rows: Vec<Vec<f32>> = (0..p.len()).map(|r| row(&logits.narrow(0, r, 1).unwrap())).collect();
+        let mut fed = vec![];
+        for i in 0..STEPS {
+            let next = feed.map_or_else(|| argmax(rows.last().unwrap()), |f| f[i]);
+            fed.push(next);
+            rows.push(row(&CausalLm::step(m, next, p.len() + i, &mut cache).unwrap()));
+        }
+        (rows, fed, cache)
+    };
+    m.set_prefill_piece(0);
+    m.set_attn_chunk(0);
+    m.set_kv_window(None);
+    let (want, fed, _) = run(&m, None);
+    m.set_prefill_piece(16);
+    m.set_attn_chunk(8);
+    m.set_kv_window(Some(2));
+    let (got, _, cache) = run(&m, Some(&fed));
+    let g = gaps(&got, &want);
+    let worst = g.iter().copied().fold(0f32, f32::max);
+    let same = got.iter().zip(&want).filter(|(a, b)| argmax(a) == argmax(b)).count();
+    println!("long-prompt settings against one call: worst relative gap {worst:e}; argmax equal {same} of {}", g.len());
+    assert!(worst < 1e-4, "a row is off by {worst:e}");
+    let w = m.cfg.sliding_window_size;
+    let mut bounded = 0;
+    for (layer, pass) in m.schedule() {
+        let slot = &cache.slots()[m.slot(layer, pass)];
+        assert_eq!(slot.len(), p.len() + STEPS);
+        if m.cfg.is_sliding(layer) {
+            bounded += 1;
+            assert!(slot.is_bounded() && slot.base() > 0, "visit ({layer}, {pass}) kept every position");
+            assert!(slot.capacity() <= w + 4, "visit ({layer}, {pass}): {} positions", slot.capacity());
+        } else {
+            assert!(!slot.is_bounded() && slot.base() == 0);
+        }
+    }
+    assert!(bounded > 0, "no sliding visit in the schedule");
+}
