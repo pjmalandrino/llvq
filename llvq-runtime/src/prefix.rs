@@ -134,7 +134,7 @@ pub struct Key {
     pub build_sha256: String,
     /// `metal`, `cuda` or `cpu`.
     pub backend: String,
-    /// `fused` or `candle`.
+    /// `fused` or `candle` on a GPU, `cpu` on the CPU.
     pub stack: String,
     /// Tokens of a prompt one forward call reads.
     pub prompt_piece: usize,
@@ -142,7 +142,8 @@ pub struct Key {
     pub score_rows: usize,
     /// Positions past its window a bounded sliding slot keeps.
     pub kv_slack: usize,
-    /// Where the attention's score bias is built: `host` or `card`.
+    /// Where the attention's score bias is built: `host` or `card`. On the CPU
+    /// the host is the device, and `host` is what it builds.
     pub bias: String,
 }
 

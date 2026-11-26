@@ -291,26 +291,48 @@ const SCORE_ROWS: usize = 128;
 /// rollback it accepts.
 const KV_SLACK: usize = 1024;
 
+// The CPU load sets the same three settings itself (`experts_cpu::load_served`): one value for both.
+const _: () = assert!(
+    PROMPT_PIECE == llvq_llm::inkling::experts_cpu::PROMPT_PIECE
+        && SCORE_ROWS == llvq_llm::inkling::experts_cpu::SCORE_ROWS
+        && KV_SLACK == llvq_llm::inkling::experts_cpu::KV_SLACK
+);
+
 /// Whether a model loaded on `backend` reads a long prompt with the settings
 /// above, and where its score bias is built.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum LongPrompt {
-    /// One call a prompt, every position in every slot (the candle stack, the CPU).
+    /// One call a prompt, every position in every slot (the candle stack on a GPU).
     Off,
     /// The pieces, the chunked scores and the bounded slots, the bias built on
-    /// the host (Metal: `attn_bias` is a CUDA kernel).
+    /// the host: on Metal, and on the CPU, where the host is the device.
     BiasOnHost,
     /// The same, the bias built on the card (`attn_bias::set_on_device`).
     BiasOnCard,
 }
 
 /// The three settings depend on no device: they cut a prompt's calls, its
-/// score tensors and its sliding slots. Only the bias kernel is CUDA's.
+/// score tensors and its sliding slots. Only the bias kernel is CUDA's. On the
+/// CPU every load is `experts_cpu::load_served`, whatever the local file's
+/// stack, and it sets the three; a CPU build has no bias kernel
+/// (`attn_bias` is compiled for CUDA and Metal only), so the bias is the host
+/// tables of `layers::score_bias_host`.
 fn long_prompt(backend: Backend, fused: bool) -> LongPrompt {
     match (backend, fused) {
         (Backend::Cuda, true) => LongPrompt::BiasOnCard,
         (Backend::Metal, true) => LongPrompt::BiasOnHost,
+        (Backend::Cpu, _) => LongPrompt::BiasOnHost,
         _ => LongPrompt::Off,
+    }
+}
+
+/// The stack a model loaded on `backend` runs, as the prefix cache's key and
+/// the load's lines name it.
+fn stack_name(backend: Backend, fused: bool) -> &'static str {
+    match (backend, fused) {
+        (Backend::Cpu, _) => "cpu",
+        (_, true) => "fused",
+        (_, false) => "candle",
     }
 }
 
@@ -442,10 +464,16 @@ pub fn files_id(l: &LocalModel) -> anyhow::Result<String> {
     Ok(h.finalize().iter().map(|b| format!("{b:02x}")).collect())
 }
 
+/// Whether the prefix cache is on when `llvq serve` is not told.
+fn prefix_on_by_default(backend: Backend) -> bool {
+    backend == Backend::Metal
+}
+
 /// The prefix cache of a model loaded on `backend` from the local file
 /// `path`, in `<store>/prefix`, as the options of `llvq serve` ask: on by
-/// default on Metal only, refused by name when asked for on a load without the
-/// long-prompt settings (its save point is a boundary of their pieces).
+/// default where [`prefix_on_by_default`] says, refused by name when asked for
+/// on a load without the long-prompt settings (its save point is a boundary of
+/// their pieces).
 fn prefix_cache(
     store: &Store,
     path: &Path,
@@ -455,7 +483,7 @@ fn prefix_cache(
     long: LongPrompt,
 ) -> anyhow::Result<Option<crate::prefix::PrefixCache>> {
     let o = crate::prefix::options();
-    let on = o.enabled.unwrap_or(backend == Backend::Metal);
+    let on = o.enabled.unwrap_or(prefix_on_by_default(backend));
     if !on {
         return Ok(None);
     }
@@ -463,27 +491,41 @@ fn prefix_cache(
         anyhow::ensure!(
             o.enabled != Some(true),
             "--prefix-cache on: the prefix cache saves at a boundary of the prompt's pieces, and this load ({}, stack {}) \
-             reads a prompt in one call; it serves the fused stack on Metal or CUDA",
+             reads a prompt in one call; it serves the fused stack on Metal or CUDA, and the CPU",
             backend.label(),
-            if fused { "fused" } else { "candle" }
+            stack_name(backend, fused)
         );
         return Ok(None);
     }
     let exe = std::env::current_exe()?;
-    let key = crate::prefix::Key {
+    let key = prefix_key(
+        crate::store::sha256_file(path)?,
+        files_id(local)?,
+        crate::store::sha256_file(&exe)?,
+        backend,
+        fused,
+        long,
+    );
+    Ok(Some(crate::prefix::PrefixCache::new(store.root().join("prefix"), o.max_bytes, key)))
+}
+
+/// The key of a prefix file: the model's files, the build, and every setting
+/// that changes a bit of the state. A file is loaded only under the backend
+/// and the stack that wrote it.
+fn prefix_key(model_sha256: String, files_sha256: String, build_sha256: String, backend: Backend, fused: bool, long: LongPrompt) -> crate::prefix::Key {
+    crate::prefix::Key {
         format: crate::prefix::FORMAT,
         family: FAMILY.into(),
-        model_sha256: crate::store::sha256_file(path)?,
-        files_sha256: files_id(local)?,
-        build_sha256: crate::store::sha256_file(&exe)?,
+        model_sha256,
+        files_sha256,
+        build_sha256,
         backend: backend.label().into(),
-        stack: if fused { "fused" } else { "candle" }.into(),
+        stack: stack_name(backend, fused).into(),
         prompt_piece: PROMPT_PIECE,
         score_rows: SCORE_ROWS,
         kv_slack: KV_SLACK,
         bias: if long == LongPrompt::BiasOnCard { "card" } else { "host" }.into(),
-    };
-    Ok(Some(crate::prefix::PrefixCache::new(store.root().join("prefix"), o.max_bytes, key)))
+    }
 }
 
 /// Load the model a local file names, on this build's device.
@@ -612,6 +654,16 @@ struct Held<K> {
     keys: Vec<Vec<u32>>,
     len: usize,
     mark: K,
+    /// The logits of its last position, as [`pick`] reads them (f32 on the
+    /// host), when the segment ended a prompt: a request whose whole prompt is
+    /// held samples from them, with no read. 200,058 f32 (0.8 MB) for Inkling.
+    last: Option<Tensor>,
+}
+
+/// A logits row as [`pick`] reads it: flat, f32, on the host. Kept so, a
+/// row picks the token the same row picks on its device.
+fn host_row(logits: &Tensor) -> anyhow::Result<Tensor> {
+    Ok(logits.flatten_all()?.to_dtype(DType::F32)?.to_device(&Device::Cpu)?)
 }
 
 struct Worker<M: TurnLm> {
@@ -738,7 +790,9 @@ fn effort(e: Option<&str>, think: bool) -> Json {
 
 /// The first maximum at temperature zero, the sampler's draw above it.
 fn pick(logits: &Tensor, sampler: &mut Sampler) -> anyhow::Result<u32> {
-    let row = logits.flatten_all()?.to_dtype(DType::F32)?.to_device(&Device::Cpu)?;
+    let row = host_row(logits)?;
+    #[cfg(test)]
+    tests::PICKED.with(|p| p.borrow_mut().push(row.to_vec1::<f32>().expect("a host row").iter().map(|x| x.to_bits()).collect()));
     if sampler.temp > 0.0 {
         return sampler.pick(&row);
     }
@@ -866,10 +920,16 @@ impl<M: TurnLm> Worker<M> {
         let keys: Vec<&[Vec<u32>]> = self.held.iter().map(|h| h.keys.as_slice()).collect();
         let mut matched = reuse(&keys, &r.ids);
         let mut from: usize = matched.iter().sum();
+        // The logits of the prompt's last position, when the cache holds them.
+        let mut ready = None;
         if from == r.ids.len() {
-            // The whole prompt is held: its last segment is read again for
-            // the logits of its last position.
-            from -= matched.pop().unwrap_or(0);
+            // The whole prompt is held. Its last segment ended a prompt and kept the logits of its last position:
+            // the cache goes back to that segment's mark and the answer is sampled from them. Otherwise that
+            // segment is read again for them.
+            match matched.len().checked_sub(1).and_then(|i| self.held[i].last.clone()) {
+                Some(l) => ready = Some(l),
+                None => from -= matched.pop().unwrap_or(0),
+            }
         }
         let kept = matched.len();
         let base = match kept {
@@ -895,6 +955,7 @@ impl<M: TurnLm> Worker<M> {
                     eprintln!("llvq: the cache could not go back to its kept prefix, the prompt is read again: {e:#}");
                     self.lm.reset();
                     self.held.clear();
+                    ready = None;
                     (0, 0, 0)
                 }
             }
@@ -948,7 +1009,7 @@ impl<M: TurnLm> Worker<M> {
         }
 
         let t_prompt = Instant::now();
-        let mut logits = None;
+        let mut logits = ready;
         for p in pieces(&r.assistant_spans, from, r.ids.len()) {
             // The save point cuts the piece it falls in; the forward pieces stay those of the read without it.
             let parts = match save_at {
@@ -963,8 +1024,13 @@ impl<M: TurnLm> Worker<M> {
                     }
                 }
             }
+            // The segment that ends the prompt keeps the logits of its last position, for a request sent again.
+            let last = match (p.end == r.ids.len(), &logits) {
+                (true, Some(l)) => Some(host_row(l)?),
+                _ => None,
+            };
             let ids = &r.ids[p];
-            self.held.push(Held { keys: vec![ids.to_vec()], len: self.lm.held(), mark: self.lm.mark() });
+            self.held.push(Held { keys: vec![ids.to_vec()], len: self.lm.held(), mark: self.lm.mark(), last });
         }
         let mut logits = logits.ok_or_else(|| anyhow::anyhow!("nothing of the prompt was fed"))?;
         let prompt_eval = t_prompt.elapsed();
@@ -1033,7 +1099,7 @@ impl<M: TurnLm> Worker<M> {
         match key {
             Some(key) => {
                 self.lm.feed(&[end_sampling])?;
-                self.held.push(Held { keys: vec![key], len: self.lm.held(), mark: self.lm.mark() });
+                self.held.push(Held { keys: vec![key], len: self.lm.held(), mark: self.lm.mark(), last: None });
             }
             None => self.drop_answer()?,
         }
@@ -1060,7 +1126,7 @@ impl<M: TurnLm> Worker<M> {
             self.held.clear();
             match pc.load(&v, &mut |r| self.lm.load_state(r)) {
                 Ok(()) if self.lm.held() == f.b => {
-                    self.held.push(Held { keys: vec![ids[..f.b].to_vec()], len: f.b, mark: self.lm.mark() });
+                    self.held.push(Held { keys: vec![ids[..f.b].to_vec()], len: f.b, mark: self.lm.mark(), last: None });
                     eprintln!(
                         "llvq: prefix cache: loaded {} tokens from {} in {:.2} s (checked in {:.2} s)",
                         f.b,
@@ -1177,8 +1243,178 @@ impl Out<'_> {
 }
 
 #[cfg(test)]
+#[path = "../tests/common/ink.rs"]
+mod test_ink;
+
+#[cfg(test)]
 mod tests {
     use super::*;
+    use std::cell::RefCell;
+
+    thread_local! {
+        /// Every row [`pick`] read on this thread, as bits.
+        pub(super) static PICKED: RefCell<Vec<Vec<u32>>> = const { RefCell::new(Vec::new()) };
+    }
+
+    const WORDS: &str = "<|message_model|><|content_text|>the cat sat<|end_message|><|content_model_end_sampling|>";
+
+    /// A scripted model whose logits carry noise drawn from a counter of its
+    /// feeds: the turn `WORDS` wins every row, and no two reads, even of the
+    /// same ids, give the same bits. Every feed is recorded with the cache's
+    /// length before it and the row it returned.
+    struct Noisy {
+        ctx: Vec<u32>,
+        words: Vec<u32>,
+        n: u64,
+        feeds: Vec<(usize, Vec<u32>, Vec<u32>)>,
+        refuse: bool,
+    }
+
+    impl TurnLm for Noisy {
+        type Mark = usize;
+
+        fn feed(&mut self, ids: &[u32]) -> anyhow::Result<Tensor> {
+            let before = self.ctx.len();
+            self.ctx.extend_from_slice(ids);
+            let i = (1..self.words.len()).rev().find(|&i| self.ctx.ends_with(&self.words[..i])).unwrap_or(0);
+            let mut v: Vec<f32> = (0..test_ink::VOCAB)
+                .map(|j| {
+                    let mut z = (self.n * test_ink::VOCAB as u64 + j as u64).wrapping_mul(0x9E37_79B9_7F4A_7C15);
+                    z = (z ^ (z >> 31)).wrapping_mul(0xBF58_476D_1CE4_E5B9);
+                    (z >> 40) as f32 / (1u64 << 24) as f32
+                })
+                .collect();
+            v[self.words[i] as usize] = 10.0;
+            self.n += 1;
+            self.feeds.push((before, ids.to_vec(), v.iter().map(|x| x.to_bits()).collect()));
+            Ok(Tensor::from_vec(v, (1, test_ink::VOCAB), &Device::Cpu)?)
+        }
+
+        fn held(&self) -> usize {
+            self.ctx.len()
+        }
+
+        fn mark(&self) -> usize {
+            self.ctx.len()
+        }
+
+        fn rollback(&mut self, m: &usize) -> anyhow::Result<()> {
+            anyhow::ensure!(*m <= self.ctx.len(), "a mark past the cache");
+            anyhow::ensure!(!(self.refuse && *m < self.ctx.len()), "too deep for a bounded sliding slot");
+            self.ctx.truncate(*m);
+            Ok(())
+        }
+
+        fn reset(&mut self) {
+            self.ctx.clear();
+        }
+    }
+
+    fn noisy_worker() -> Worker<Noisy> {
+        let chat = InkChat::new(test_ink::byte_tokenizer()).unwrap();
+        let words = chat.tokenizer().encode(WORDS, false).unwrap().get_ids().to_vec();
+        let lm = Noisy { ctx: Vec::new(), words, n: 0, feeds: Vec::new(), refuse: false };
+        Worker { lm, chat, context: 4096, backend: "script".into(), config: None, held: Vec::new(), prefix: None }
+    }
+
+    /// One request of `msgs` at temperature 0: the text, the cached count, and
+    /// every row `pick` read for it.
+    fn ask(w: &mut Worker<Noisy>, msgs: &[(Role, &str)]) -> (String, usize, Vec<Vec<u32>>) {
+        let (tx, mut rx) = tokio::sync::mpsc::channel(100_000);
+        let msgs = msgs.iter().map(|(role, c)| Msg { role: *role, content: c.to_string() }).collect();
+        let job = Job {
+            request: crate::engine::Request { prompt: Prompt::Chat(msgs), think: false, options: Default::default() },
+            events: tx,
+            keep_alive: crate::engine::KeepAlive::Forever,
+            queued_at: Instant::now(),
+        };
+        PICKED.with(|p| p.borrow_mut().clear());
+        w.run(&job, Duration::ZERO);
+        let (mut text, mut cached) = (String::new(), usize::MAX);
+        while let Ok(e) = rx.try_recv() {
+            match e {
+                Event::Accepted { cached: c, .. } => cached = c,
+                Event::Delta { content, .. } => text.push_str(&content),
+                Event::Error { message, .. } => panic!("{message}"),
+                Event::Done(_) => {}
+            }
+        }
+        (text, cached, PICKED.with(|p| p.borrow().clone()))
+    }
+
+    const FIRST: [(Role, &str); 2] = [(Role::System, "You are terse."), (Role::User, "Say something.")];
+
+    #[test]
+    fn a_prompt_sent_again_samples_from_the_logits_of_its_first_read() {
+        let mut w = noisy_worker();
+        let (text, cached, rows) = ask(&mut w, &FIRST);
+        assert_eq!(text, "the cat sat");
+        assert_eq!(cached, 0);
+        let (len, prompt, row) = w.lm.feeds[0].clone();
+        assert_eq!(len, 0);
+        assert!(prompt.len() > 1, "the prompt in one feed");
+        assert_eq!(rows[0], row, "the first answer is sampled from its prompt's logits");
+        let n = w.lm.feeds.len();
+
+        let (again, cached, rows2) = ask(&mut w, &FIRST);
+        assert_eq!(again, text);
+        assert_eq!(cached, prompt.len(), "the whole prompt is held");
+        assert_eq!(rows2[0], row, "the logits handed back are those of the first read, bit for bit");
+        let fed = &w.lm.feeds[n..];
+        assert!(fed.iter().all(|(_, ids, _)| ids.len() == 1), "the prompt was read again: {:?}", fed.first());
+        assert_eq!(fed[0].0, prompt.len(), "the answer before was not dropped: the cache is not back at the prompt's mark");
+        // and a third time, from the same logits again
+        let (third, _, rows3) = ask(&mut w, &FIRST);
+        assert_eq!((third, &rows3[0]), (text, &row));
+    }
+
+    #[test]
+    fn a_segment_without_kept_logits_is_read_again() {
+        let mut w = noisy_worker();
+        let (text, _, first) = ask(&mut w, &FIRST);
+        let i = w.held.iter().position(|h| h.last.is_some()).expect("the prompt's segment keeps its logits");
+        w.held[i].last = None;
+        let n = w.lm.feeds.len();
+        let (again, cached, rows) = ask(&mut w, &FIRST);
+        assert_eq!(again, text);
+        assert_eq!(cached, 0, "the prompt of one segment is read again from its start");
+        let (len, ids, row) = w.lm.feeds[n].clone();
+        assert_eq!((len, ids.len()), (0, w.lm.feeds[0].1.len()), "the prompt is read again");
+        assert_eq!(rows[0], row, "sampled from the new read");
+        assert_ne!(rows[0], first[0], "two reads give two noises: the test sees which one was used");
+    }
+
+    #[test]
+    fn a_refused_rollback_falls_back_to_the_full_read() {
+        let mut w = noisy_worker();
+        let (text, _, first) = ask(&mut w, &FIRST);
+        w.lm.refuse = true;
+        let n = w.lm.feeds.len();
+        let (again, cached, rows) = ask(&mut w, &FIRST);
+        assert_eq!(again, text);
+        assert_eq!(cached, 0);
+        let (len, ids, row) = w.lm.feeds[n].clone();
+        assert_eq!((len, ids.len()), (0, w.lm.feeds[0].1.len()), "the whole prompt is read from an empty cache");
+        assert_eq!(rows[0], row);
+        assert_ne!(rows[0], first[0]);
+    }
+
+    #[test]
+    fn the_logits_handed_back_are_the_last_segments() {
+        let mut w = noisy_worker();
+        let (t1, _, r1) = ask(&mut w, &FIRST);
+        let second = [FIRST[0], FIRST[1], (Role::Assistant, t1.as_str()), (Role::User, "Again.")];
+        let n = w.lm.feeds.len();
+        let (t2, cached, r2) = ask(&mut w, &second);
+        assert!(cached > w.lm.feeds[0].1.len(), "the first turn and its answer are reused: cached {cached}");
+        assert_eq!(w.lm.feeds[n].1.len() + cached, w.lm.feeds[n].0 + w.lm.feeds[n].1.len());
+        assert_eq!(w.held.iter().filter(|h| h.last.is_some()).count(), 2, "both prompts' segments keep their logits");
+        let (t3, cached3, r3) = ask(&mut w, &second);
+        assert_eq!(t3, t2);
+        assert_eq!(r3[0], r2[0], "the logits of the second prompt's end");
+        assert_ne!(r3[0], r1[0]);
+        assert!(cached3 > cached);
+    }
 
     #[test]
     fn reuse_follows_the_held_keys_until_one_differs() {
@@ -1200,7 +1436,31 @@ mod tests {
         assert_eq!(long_prompt(Backend::Metal, true), LongPrompt::BiasOnHost);
         assert_eq!(long_prompt(Backend::Cuda, false), LongPrompt::Off);
         assert_eq!(long_prompt(Backend::Metal, false), LongPrompt::Off);
-        assert_eq!(long_prompt(Backend::Cpu, true), LongPrompt::Off);
+        // The CPU load sets the three settings on every stack (`experts_cpu::load_served`), the bias on the host.
+        assert_eq!(long_prompt(Backend::Cpu, false), LongPrompt::BiasOnHost);
+        assert_eq!(long_prompt(Backend::Cpu, true), LongPrompt::BiasOnHost);
+    }
+
+    #[test]
+    fn a_prefix_key_names_the_backend_and_the_stack_that_wrote_it() {
+        let key = |b: Backend, fused: bool| prefix_key("m".into(), "f".into(), "x".into(), b, fused, long_prompt(b, fused));
+        let cpu = key(Backend::Cpu, false);
+        assert_eq!((cpu.backend.as_str(), cpu.stack.as_str(), cpu.bias.as_str()), ("cpu", "cpu", "host"));
+        assert_eq!(cpu.prompt_piece, llvq_llm::inkling::experts_cpu::PROMPT_PIECE);
+        assert_eq!(cpu.score_rows, llvq_llm::inkling::experts_cpu::SCORE_ROWS);
+        assert_eq!(cpu.kv_slack, llvq_llm::inkling::experts_cpu::KV_SLACK);
+        let metal = key(Backend::Metal, true);
+        assert_eq!((metal.backend.as_str(), metal.stack.as_str(), metal.bias.as_str()), ("metal", "fused", "host"));
+        let cuda = key(Backend::Cuda, true);
+        assert_eq!((cuda.backend.as_str(), cuda.bias.as_str()), ("cuda", "card"));
+        // Same files and build, another backend: another key, and the backend is named among the differences.
+        assert_ne!(cpu.id(), metal.id());
+        assert!(cpu.differing(&metal).iter().any(|d| d.starts_with("backend ")), "{:?}", cpu.differing(&metal));
+        let mut stack_only = metal.clone();
+        stack_only.stack = cpu.stack.clone();
+        assert!(cpu.differing(&stack_only).iter().any(|d| d.starts_with("backend ")), "the backend alone tells a CPU file");
+        assert!(prefix_on_by_default(Backend::Metal));
+        assert!(!prefix_on_by_default(Backend::Cuda));
     }
 
     #[test]
