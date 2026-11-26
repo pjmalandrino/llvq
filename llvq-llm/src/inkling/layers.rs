@@ -1101,7 +1101,7 @@ impl SlotCache {
     /// [`Self::write_state`] wrote: refused by name when the state's bound is
     /// not this slot's, the slot unchanged. The buffers are made on `dev`.
     pub fn read_state(&mut self, r: &mut dyn std::io::Read, dev: &Device) -> Result<()> {
-        use super::snapshot::{get_tensor_bytes, get_u8, get_usize};
+        use super::snapshot::{get_padded, get_tensor_bytes, get_u8, get_usize};
         if self.len > 0 || self.k_buf.is_some() {
             candle_core::bail!("slot state: loaded into a slot that holds {} positions", self.len);
         }
@@ -1130,14 +1130,9 @@ impl SlotCache {
                 if h != held || capacity < held {
                     candle_core::bail!("slot state: {h} positions held of {held}, in buffers of {capacity}");
                 }
-                let k = get_tensor_bytes(r, &[nkv, d, held], dev)?;
-                let v = get_tensor_bytes(r, &[nkv, held, d], dev)?;
-                let kb = Tensor::zeros((nkv, d, capacity), k.dtype(), dev)?;
-                let vb = Tensor::zeros((nkv, capacity, d), v.dtype(), dev)?;
-                if held > 0 {
-                    kb.slice_set(&k, 2, 0)?;
-                    vb.slice_set(&v, 1, 0)?;
-                }
+                // Each buffer in one allocation, the held rows at row 0, zeros past them.
+                let kb = get_padded(r, nkv * d, held, 1, capacity, dev)?.reshape((nkv, d, capacity))?;
+                let vb = get_padded(r, nkv, held, d, capacity, dev)?;
                 Some((kb, vb))
             }
             o => candle_core::bail!("slot state: buffer flag {o}"),

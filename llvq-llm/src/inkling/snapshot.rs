@@ -105,15 +105,39 @@ pub(crate) fn put_tensor_bytes(w: &mut dyn Write, t: &Tensor) -> Result<()> {
     w.write_all(&bytes).map_err(io)
 }
 
+/// The bytes of `shape` in `dtype`, refused past [`MAX_TENSOR_BYTES`].
+fn byte_count(shape: &[usize], dtype: DType) -> Result<usize> {
+    let n = shape.iter().try_fold(1u64, |a, &d| a.checked_mul(d as u64));
+    let bytes = n.and_then(|n| n.checked_mul(dtype.size_in_bytes() as u64));
+    match bytes.filter(|&b| b <= MAX_TENSOR_BYTES) {
+        Some(b) => Ok(b as usize),
+        None => candle_core::bail!("cache state: a tensor of shape {shape:?} is past the size a state may hold"),
+    }
+}
+
 /// A dtype tag then `shape`'s raw bytes, as a tensor on `dev`.
 pub(crate) fn get_tensor_bytes(r: &mut dyn Read, shape: &[usize], dev: &Device) -> Result<Tensor> {
     let dtype = tag_dtype(get_u8(r)?)?;
-    let n = shape.iter().try_fold(1u64, |a, &d| a.checked_mul(d as u64));
-    let bytes = n.and_then(|n| n.checked_mul(dtype.size_in_bytes() as u64));
-    let Some(bytes) = bytes.filter(|&b| b <= MAX_TENSOR_BYTES) else {
-        candle_core::bail!("cache state: a tensor of shape {shape:?} is past the size a state may hold");
-    };
-    let mut buf = vec![0u8; bytes as usize];
+    let mut buf = vec![0u8; byte_count(shape, dtype)?];
     r.read_exact(&mut buf).map_err(io)?;
     Tensor::from_raw_buffer(&buf, dtype, shape, dev)
+}
+
+/// A dtype tag then the raw bytes of `[outer, held, inner]`, as a tensor
+/// `[outer, cap, inner]` on `dev` whose rows `held..cap` of the middle axis are
+/// zeros: a key or value buffer with room past what it holds, made in one
+/// device allocation.
+pub(crate) fn get_padded(r: &mut dyn Read, outer: usize, held: usize, inner: usize, cap: usize, dev: &Device) -> Result<Tensor> {
+    if held > cap {
+        candle_core::bail!("cache state: {held} rows in a buffer of {cap}");
+    }
+    let dtype = tag_dtype(get_u8(r)?)?;
+    let src = byte_count(&[outer, held, inner], dtype)?;
+    let mut buf = vec![0u8; byte_count(&[outer, cap, inner], dtype)?];
+    let (row, prow) = (held * inner * dtype.size_in_bytes(), cap * inner * dtype.size_in_bytes());
+    debug_assert_eq!(row * outer, src);
+    for o in 0..outer {
+        r.read_exact(&mut buf[o * prow..o * prow + row]).map_err(io)?;
+    }
+    Tensor::from_raw_buffer(&buf, dtype, &[outer, cap, inner], dev)
 }

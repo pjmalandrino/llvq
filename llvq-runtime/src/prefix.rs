@@ -16,8 +16,12 @@
 //! magic "LLVQPFX\0" | u32 header length | header, JSON ([`Header`])
 //! | u64 n | n x u32 token (the tokens 0..b)
 //! | the model's cache state (`llvq_llm::inkling::snapshot` for Inkling 2)
-//! | sha256 of every byte before it (32 bytes)
+//! | digest of every byte before it (32 bytes)
 //! ```
+//!
+//! The digest is the sha256 of the sha256 of each 64 MiB chunk of those bytes,
+//! in order ([`file_digest`]): the chunks are hashed on several threads, so a
+//! 1.4 GB file is checked in a fraction of the time one sha256 stream takes.
 //!
 //! The header carries the [`Key`]: the format version, the model's digest, the
 //! running executable's sha256, and every setting that changes the bits of a
@@ -204,23 +208,55 @@ pub struct Verified {
     state_len: u64,
 }
 
-/// A writer that hashes and counts what it passes on.
-struct Hashing<W: Write> {
-    inner: W,
-    h: Sha256,
-    n: u64,
-}
+/// Bytes of one chunk of [`file_digest`].
+const CHUNK: u64 = 64 << 20;
+/// Threads [`file_digest`] hashes on at most.
+const DIGEST_THREADS: usize = 6;
 
-impl<W: Write> Write for Hashing<W> {
-    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
-        let k = self.inner.write(buf)?;
-        self.h.update(&buf[..k]);
-        self.n += k as u64;
-        Ok(k)
+/// The digests one thread of [`file_digest`] made, by chunk index.
+type ChunkDigests = std::io::Result<Vec<(usize, [u8; 32])>>;
+
+/// The sha256 of the list of the sha256 of each [`CHUNK`] of the first `len`
+/// bytes of `path`, the chunks hashed on up to [`DIGEST_THREADS`] threads.
+pub fn file_digest(path: &Path, len: u64) -> std::io::Result<[u8; 32]> {
+    let n = len.div_ceil(CHUNK).max(1) as usize;
+    let threads = std::thread::available_parallelism().map_or(1, |t| t.get()).clamp(1, DIGEST_THREADS).min(n);
+    let hash_chunk = |file: &mut std::fs::File, i: usize, buf: &mut [u8]| -> std::io::Result<[u8; 32]> {
+        let start = i as u64 * CHUNK;
+        let mut left = CHUNK.min(len - start.min(len));
+        file.seek(SeekFrom::Start(start))?;
+        let mut h = Sha256::new();
+        while left > 0 {
+            let k = (buf.len() as u64).min(left) as usize;
+            file.read_exact(&mut buf[..k])?;
+            h.update(&buf[..k]);
+            left -= k as u64;
+        }
+        Ok(h.finalize().into())
+    };
+    let parts: Vec<ChunkDigests> = std::thread::scope(|sc| {
+        let handles: Vec<_> = (0..threads)
+            .map(|t| {
+                sc.spawn(move || -> ChunkDigests {
+                    let mut file = std::fs::File::open(path)?;
+                    let mut buf = vec![0u8; 1 << 20];
+                    (t..n).step_by(threads).map(|i| Ok((i, hash_chunk(&mut file, i, &mut buf)?))).collect()
+                })
+            })
+            .collect();
+        handles.into_iter().map(|h| h.join().expect("a digest thread panicked")).collect()
+    });
+    let mut digests = vec![[0u8; 32]; n];
+    for p in parts {
+        for (i, d) in p? {
+            digests[i] = d;
+        }
     }
-    fn flush(&mut self) -> std::io::Result<()> {
-        self.inner.flush()
+    let mut h = Sha256::new();
+    for d in &digests {
+        h.update(d);
     }
+    Ok(h.finalize().into())
 }
 
 /// The prefix cache of one loaded model.
@@ -324,23 +360,13 @@ impl PrefixCache {
         let state_at = 8 + 4 + hlen as u64 + 8 + 4 * f.b as u64;
         anyhow::ensure!(size >= state_at + 32, "the file ends at {size} bytes, before its state");
         let state_len = size - state_at - 32;
-        // The sha256 of every byte before the last 32, against those 32.
+        // The digest of every byte before the last 32, against those 32.
         let mut file = r.into_inner();
-        file.seek(SeekFrom::Start(0))?;
-        let mut r = BufReader::with_capacity(1 << 22, file).take(size - 32);
-        let mut h = Sha256::new();
-        let mut buf = vec![0u8; 1 << 22];
-        loop {
-            let k = r.read(&mut buf)?;
-            if k == 0 {
-                break;
-            }
-            h.update(&buf[..k]);
-        }
-        let mut file = r.into_inner();
+        file.seek(SeekFrom::Start(size - 32))?;
         let mut trailer = [0u8; 32];
-        file.read_exact(&mut trailer).map_err(|e| anyhow::anyhow!("sha256: {e}"))?;
-        anyhow::ensure!(h.finalize()[..] == trailer[..], "its sha256 does not hold: the file is damaged");
+        file.read_exact(&mut trailer).map_err(|e| anyhow::anyhow!("digest: {e}"))?;
+        let digest = file_digest(&f.path, size - 32)?;
+        anyhow::ensure!(digest == trailer, "its sha256 does not hold: the file is damaged");
         Ok(Verified { path: f.path.clone(), state_at, state_len })
     }
 
@@ -374,7 +400,7 @@ impl PrefixCache {
         ));
         let written = (|| -> anyhow::Result<u64> {
             let f = create_private(&tmp)?;
-            let mut w = Hashing { inner: BufWriter::with_capacity(1 << 22, f), h: Sha256::new(), n: 0 };
+            let mut w = BufWriter::with_capacity(1 << 22, f);
             let header = serde_json::to_vec(&Header { key: self.key.clone(), tokens: b, tokens_sha256: sha.clone() })?;
             w.write_all(MAGIC)?;
             w.write_all(&(header.len() as u32).to_le_bytes())?;
@@ -383,12 +409,12 @@ impl PrefixCache {
             let toks: Vec<u8> = ids[..b].iter().flat_map(|t| t.to_le_bytes()).collect();
             w.write_all(&toks)?;
             save(&mut w)?;
-            let digest = w.h.finalize_reset();
-            let n = w.n + 32;
-            let mut inner = w.inner;
-            inner.write_all(&digest)?;
-            inner.flush()?;
-            Ok(n)
+            let mut f = w.into_inner().map_err(|e| anyhow::anyhow!("{}: {}", tmp.display(), e.error()))?;
+            let n = f.stream_position()?;
+            // The digest of what was written, read back from the page cache on several threads.
+            let digest = file_digest(&tmp, n)?;
+            f.write_all(&digest)?;
+            Ok(n + 32)
         })();
         let n = match written {
             Ok(n) => n,
@@ -560,9 +586,34 @@ mod tests {
     fn rehash(path: &Path) {
         let mut b = std::fs::read(path).unwrap();
         let n = b.len() - 32;
-        let d = Sha256::digest(&b[..n]);
+        let d = file_digest(path, n as u64).unwrap();
         b[n..].copy_from_slice(&d);
         std::fs::write(path, b).unwrap();
+    }
+
+    /// The digest of several chunks is the chunks' own, in order: every chunk
+    /// counts, a byte moved between two chunks counts.
+    #[test]
+    fn the_digest_covers_every_chunk_in_order() {
+        let d = dir("digest");
+        std::fs::create_dir_all(&d).unwrap();
+        let p = d.join("f");
+        let len = 2 * CHUNK as usize + 12_345;
+        let mut b: Vec<u8> = (0..len).map(|i| (i * 31 % 253) as u8).collect();
+        std::fs::write(&p, &b).unwrap();
+        let mut want = Sha256::new();
+        for c in b.chunks(CHUNK as usize) {
+            want.update(Sha256::digest(c));
+        }
+        let want: [u8; 32] = want.finalize().into();
+        assert_eq!(file_digest(&p, len as u64).unwrap(), want);
+        for at in [0, CHUNK as usize - 1, CHUNK as usize, len - 1] {
+            b[at] ^= 1;
+            std::fs::write(&p, &b).unwrap();
+            assert_ne!(file_digest(&p, len as u64).unwrap(), want, "a byte at {at} not covered");
+            b[at] ^= 1;
+        }
+        let _ = std::fs::remove_dir_all(&d);
     }
 
     #[test]
