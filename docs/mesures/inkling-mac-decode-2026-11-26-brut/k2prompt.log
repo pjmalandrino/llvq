@@ -1,0 +1,13 @@
+2026-11-26 15:28:18 load1 2.56 gpu 7% memfree 77%
+prompt 9000 read in 174.69 s; step median 0.0493 s = 20.29 tok/s; all_equal None
+0140733aceb0789513f4c76dc922b6401b2f919c96f11d018adafb492fcdf226  docs/mesures/inkling-mac-decode-2026-11-26-brut/kp-c50-1.logits.f32
+2026-11-26 15:31:49 load1 2.96 gpu 7% memfree 77%
+prompt 9000 read in 225.23 s; step median 0.0509 s = 19.64 tok/s; all_equal None
+0140733aceb0789513f4c76dc922b6401b2f919c96f11d018adafb492fcdf226  docs/mesures/inkling-mac-decode-2026-11-26-brut/kp-c30-1.logits.f32
+2026-11-26 15:36:07 load1 2.93 gpu 6% memfree 77%
+prompt 9000 read in 168.83 s; step median 0.0451 s = 22.19 tok/s; all_equal None
+0140733aceb0789513f4c76dc922b6401b2f919c96f11d018adafb492fcdf226  docs/mesures/inkling-mac-decode-2026-11-26-brut/kp-c50-2.logits.f32
+2026-11-26 15:39:30 load1 2.41 gpu 6% memfree 78%
+prompt 9000 read in 168.26 s; step median 0.0441 s = 22.69 tok/s; all_equal None
+0140733aceb0789513f4c76dc922b6401b2f919c96f11d018adafb492fcdf226  docs/mesures/inkling-mac-decode-2026-11-26-brut/kp-c30-2.logits.f32
+k2prompt: all done

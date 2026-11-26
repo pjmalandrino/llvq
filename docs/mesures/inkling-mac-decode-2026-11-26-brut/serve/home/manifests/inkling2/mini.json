@@ -1,0 +1,17 @@
+{
+  "schema": 1,
+  "sha256": "a86d86840a9ed8bca3b07c25e0e826f263bac9e4f86a735eb391dccf17f80760",
+  "size": 1366330064,
+  "repo": "local",
+  "revision": "local",
+  "file": "/Users/pjmalandrino/.llvq/models/sha256-1e9314dba89332cb1af444619dc5d31a2a1ed6a50a1112e0ca2b8fc55bb6bfd3/inkling.json",
+  "family": "inkling2",
+  "parameter_size": "",
+  "bits_per_param": "",
+  "configs": {
+    "cuda": null,
+    "metal": null,
+    "cpu": null
+  },
+  "modified_at": 1795702743
+}

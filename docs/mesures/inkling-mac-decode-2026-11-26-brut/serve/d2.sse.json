@@ -1,0 +1,18 @@
+{
+ "lines": 78,
+ "chunks": 38,
+ "done": true,
+ "first_chunk_s": 0.020190000534057617,
+ "first_token_s": 0.8641510009765625,
+ "last_s": 2.2117629051208496,
+ "content": "Right now in Paris, it\u2019s 18\u00b0C with clear skies.",
+ "reasoning": "Need answer based on tool. Mention temperature 18C and clear sky. No extra.",
+ "tool_calls": [],
+ "finish_reason": "stop",
+ "usage": {
+  "completion_tokens": 42,
+  "prompt_tokens": 207,
+  "total_tokens": 249
+ },
+ "errors": []
+}

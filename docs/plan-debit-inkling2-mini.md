@@ -29,9 +29,11 @@ expert a call than pieces of 512 give; P3 to P7 are not started.
 | activation of the experts in one launch | done, default | A | 0.0433 s |
 | message gates and router scores over threadgroups | done, with the fused glue | A against the fused glue | 0.0361 s |
 | P1, P2: prompt rows 8 at a time, read in chunks | done, default | A | 600 tokens read in 6.0 s |
-| prompt, experts' rows of a visit in a few launches (Metal twin of the CUDA batched read) | done, `inkrun --moe-rows batch`, not a default | A | 9,000 tokens: 131.22 s against 134.15, under the spread of the runs; peak +1.5 GB (2026-11-26) |
+| prompt, experts' rows of a visit in a few launches (Metal twin of the CUDA batched read) | done, `inkrun --moe-rows batch`, not a default | A | 9,000 tokens with the device bias: median 18 % faster over 3 alternated rounds, but one round slower, so off; peak +1.5 GB (2026-11-26) |
 | prompt, score bias on the device (MSL twin of `attn_bias_rows`) | done, `inkrun --attn-bias device`, not a default | A | no gain at 2,000 or 9,000 tokens (2026-11-26) |
-| K2, D8, D9, D5 ring, P3 to P7 | not started | | |
+| `down` of the fused MoE call, one simdgroup a selected expert | done, default on Metal | A | 5.22 % a step, median of 5 rounds (2026-11-26) |
+| K2, 30 encoders a command buffer on the Inkling Metal device | done, default on Metal | A | 1.88 % a step, median of 5 rounds; its effect on the prompt's read is open (2026-11-26) |
+| D8, D9, D5 ring, P3 to P7 | not started | | |
 
 Class B was read on one WikiText-2 window for each switch and on three for the whole stack; the journal has the
 figures. The switches are not defaults: making one a default is the operator's decision.

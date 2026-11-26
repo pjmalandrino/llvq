@@ -1,0 +1,69 @@
+mutant order sites 1
+ llvq-llm/src/fused_metal.rs | 149 +++++++++++++++++++++++++++++++++++++++++---
+ 1 file changed, 141 insertions(+), 8 deletions(-)
+    Finished `release` profile [optimized] target(s) in 6m 03s
+
+running 3 tests
+test decode_variants_kernel_bench ... ignored, times the GPU; run under the guard's lock
+test decode_variants_are_one_row_at_model_shapes ... FAILED
+test decode_variants_are_one_row_on_small_layers ... FAILED
+
+failures:
+
+---- decode_variants_are_one_row_at_model_shapes stdout ----
+
+thread 'decode_variants_are_one_row_at_model_shapes' (12467470) panicked at llvq-llm/tests/inkling_decode_kernels.rs:152:13:
+assertion `left == right` failed: routing 0 [59, 35, 11, 92, 67, 77, 124, 44], down_sg true
+  left: Some((4, 0.0003594188, 0.00035941877))
+ right: None
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+---- decode_variants_are_one_row_on_small_layers stdout ----
+
+thread 'decode_variants_are_one_row_on_small_layers' (12467471) panicked at llvq-llm/tests/inkling_decode_kernels.rs:152:13:
+assertion `left == right` failed: routing 0 [5, 9, 4, 2, 0], down_sg true
+  left: Some((0, 1.44346795e-5, 1.443468e-5))
+ right: None
+
+
+failures:
+    decode_variants_are_one_row_at_model_shapes
+    decode_variants_are_one_row_on_small_layers
+
+test result: FAILED. 0 passed; 2 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.46s
+
+mutant weight sites 1
+ llvq-llm/src/fused_metal.rs | 149 +++++++++++++++++++++++++++++++++++++++++---
+ 1 file changed, 141 insertions(+), 8 deletions(-)
+    Finished `release` profile [optimized] target(s) in 6m 02s
+
+running 3 tests
+test decode_variants_kernel_bench ... ignored, times the GPU; run under the guard's lock
+test decode_variants_are_one_row_at_model_shapes ... FAILED
+test decode_variants_are_one_row_on_small_layers ... FAILED
+
+failures:
+
+---- decode_variants_are_one_row_at_model_shapes stdout ----
+
+thread 'decode_variants_are_one_row_at_model_shapes' (12497406) panicked at llvq-llm/tests/inkling_decode_kernels.rs:152:13:
+assertion `left == right` failed: routing 0 [59, 35, 11, 92, 67, 77, 124, 44], down_sg true
+  left: Some((0, 0.00033879938, 0.000500613))
+ right: None
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+---- decode_variants_are_one_row_on_small_layers stdout ----
+
+thread 'decode_variants_are_one_row_on_small_layers' (12497407) panicked at llvq-llm/tests/inkling_decode_kernels.rs:152:13:
+assertion `left == right` failed: routing 0 [10, 5], down_sg true
+  left: Some((0, -1.5794794e-5, -2.7376549e-5))
+ right: None
+
+
+failures:
+    decode_variants_are_one_row_at_model_shapes
+    decode_variants_are_one_row_on_small_layers
+
+test result: FAILED. 0 passed; 2 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.42s
+
+restored: identical

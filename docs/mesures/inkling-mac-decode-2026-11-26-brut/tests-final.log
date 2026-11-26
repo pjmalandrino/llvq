@@ -1,0 +1,29 @@
+   Compiling llvq-llm v0.1.0 (/Users/pjmalandrino/Documents/Pro/workspace/poc/llvq/.claude/worktrees/mac-inkling/llvq-llm)
+    Finished `release` profile [optimized] target(s) in 7m 59s
+     Running tests/inkling_decode_kernels.rs (target/release/deps/inkling_decode_kernels-02e24748676db1e0)
+
+running 3 tests
+test decode_variants_kernel_bench ... ignored, times the GPU; run under the guard's lock
+test decode_variants_are_one_row_at_model_shapes ... ok
+test decode_variants_are_one_row_on_small_layers ... ok
+
+test result: ok. 2 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.42s
+
+     Running tests/inkling_wave2_moe.rs (target/release/deps/inkling_wave2_moe-be580c8325edaa7a)
+
+running 12 tests
+test capture_logits_cpu ... ignored, loads the real model on the CPU; run under the guard's lock
+test capture_logits_metal_default ... ignored, loads the real model on the GPU; run under the guard's lock
+test capture_logits_metal_new ... ignored, loads the real model on the GPU; run under the guard's lock
+test capture_logits_metal_old ... ignored, loads the real model on the GPU; run under the guard's lock
+test m_decode_timing_new ... ignored, loads the real model on the GPU; run under the guard's lock
+test m_decode_timing_old ... ignored, loads the real model on the GPU; run under the guard's lock
+test m_moe_call_timing ... ignored, loads the real model on the GPU; run under the guard's lock
+test d9_routing_on_device_is_the_host_routing ... ok
+test d3_fused_is_one_row_at_model_shapes ... ok
+test d3_fused_is_one_row_on_small_layers ... ok
+test fused_activation_launch_is_candle_activation ... ok
+test d3_slab_aliases_are_the_unpooled_upload ... ok
+
+test result: ok. 5 passed; 0 failed; 7 ignored; 0 measured; 0 filtered out; finished in 0.97s
+

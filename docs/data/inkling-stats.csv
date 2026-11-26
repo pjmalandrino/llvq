@@ -97,3 +97,6 @@ date,seq,card,metric,value,unit,label,config,job_id
 2026-11-26,4,mac,ttft_s_p2000,23.69,s,measured,Metal; inkrun; same path as seq 2 read again; median of 23.27 and 24.10 without one outlier at 42.83,
 2026-11-26,4,mac,vram_peak_p9000_gb,11.42,GB,measured,Metal currentAllocatedSize; peak probe; same path as seq 2,
 2026-11-26,4,mac,decode_tok_s_p9000,22.73,tok/s,measured,Metal; inkrun; same path as seq 2 read again; median of 4 runs [22.45 23.56],
+2026-11-26,5,mac,decode_tok_s_p32,30.12,tok/s,measured,Metal; inkrun; down one simdgroup a slot + 30 encoders a buffer (lot 3 defaults); median of 3 runs of 128 steps [29.99 30.18],
+2026-11-26,5,mac,served_decode_tok_s_p32,28.5,tok/s,measured,llvq serve --local; Metal; lot 3 defaults; eval_count over eval_duration; two short turns 28.57 and 28.49,
+2026-11-26,5,mac,served_ttft_s_p8791,169.24,s,measured,llvq serve --local; Metal; lot 3 defaults; one reading in a slow window (journal inkling-mac-decode-2026-11-26),
