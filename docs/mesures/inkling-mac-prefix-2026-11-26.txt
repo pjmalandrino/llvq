@@ -110,3 +110,15 @@ WHAT THE READING DOES NOT SAY
   The in-memory path is unchanged: a new conversation on a server whose memory still holds 0..b (after a load) rolls
   back in memory, as before this lot. That rollback is not shown to give a cold read's bits when a bounded slot has
   moved its base since b (M5b suggests the extra masked keys change nothing; it was not measured on the real model).
+
+CLAIMS TOUCHED IN CERVEAU.md
+  A4 is added, standing supported: 3.90 s [3.62, 4.57] against 155 to 202 s, and the logits bit for bit.
+  N9 is added to the anomalies: this journal's cold reads, 305 s included, are part of its range.
+
+AFTER THE REVIEW BEFORE THE MERGE (2026-11-26, commit 404e6a0)
+  The key gained `files_sha256`: every file under the model's parts, as its canonical path, its size and its
+  modification time. The key had carried the sha256 of the local file alone, which files sealed again at the same
+  paths, or two releases of a pulled set, leave unchanged: a state saved by other weights would have been loaded.
+  Files written before that commit are refused by name, on the key. A temporary file left by a write that never
+  ended is removed by the eviction once it is an hour old. No measurement was run again: the read after a load is
+  the code the gates above ran.

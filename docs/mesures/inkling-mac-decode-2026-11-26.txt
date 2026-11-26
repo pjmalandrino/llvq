@@ -128,3 +128,7 @@ THE PROMPT UNDER K2 (`kp-*`, `k2prompt.sh`; outside the prereg, run because of t
   here, not hidden. Reverting it is one line (`METAL_COMPUTE_PER_BUFFER`), or one variable at launch.
 
 DEVIATIONS: proofs/preregistration-inkling-mac-decode-2026-11-26-ECARTS.md (E1 to E8).
+
+CLAIMS TOUCHED IN CERVEAU.md
+  A3 is added, standing supported: the three rounds of step 0 (0.816, 1.028, 0.727) are this journal's.
+  N9 is added to the anomalies: the cold reads of step 0 and of the K2 prompt arms are part of its 109 to 305 s.

@@ -113,3 +113,7 @@ WHAT IS LEFT, AND WHERE THE TIME IS
   products, about 30 to 40 % at 9,000 tokens). On this Mac both are class B work: P3 needs more rows an expert a
   call than pieces of 512 give, so it trades against the peak; P4, one prompt-attention kernel with the bias and the
   mask inside, is what reaches the scores. P5 and P7 (read a prompt once a session) remove the wait without a kernel.
+
+CLAIMS TOUCHED IN CERVEAU.md
+  A3 is added, standing supported: the launches (1,605,064 to 3,456) and the two kernel rates (1.56 and 9.23
+  TFLOP/s) are this journal's. Its three alternated rounds are step 0 of inkling-mac-decode-2026-11-26.txt.

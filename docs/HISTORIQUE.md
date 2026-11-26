@@ -1198,3 +1198,27 @@ O13, the number the long-context speed phase took on main the next day.
 - The operator closed the lead ("non ferme et ajoute dans la base de connaissance") and declined the read of the
   per-section saturation rate on a sealed file, which stays the reopening condition in `ETAT.md` §6. `CERVEAU.md`
   gains C10 as a conjecture and one dropped belief. No prereg, no job, no model load.
+
+
+## 2026-11-26. Inkling 2 Mini on the Mac: served by the runtime, 30.1 tok/s, a prefix cache on disk; $0
+
+- The operator opened a speed campaign on the Mac and centred it on Inkling ("je veux qu'il bombarde sur mac").
+  Four lots ran the same day on one 64 GB M3 Max, each under a prereg stamped before its first measurement, and
+  every change kept the logits bit for bit.
+- `llvq serve --local` serves the model on Metal with the long-prompt settings: 13 of 13 checks
+  (*measured*, [inkling-mac-serve](mesures/inkling-mac-serve-2026-11-26.txt)).
+- The two CUDA levers of the prompt read were ported to Metal and stay off. Lattice launches go from 1,605,064 to
+  3,456 at 9,000 tokens and the read does not follow: 0.816, 1.028 and 0.727 of the default over three alternated
+  rounds (*measured*, [inkling-mac-prompt](mesures/inkling-mac-prompt-2026-11-26.txt)). The coordinating session
+  had signed 70 to 110 s for that read; it stayed at 140 s [134, 149].
+- The decode went from 26.66 to 30.12 tok/s [29.99, 30.18] after a 32-token prompt: `down` of the fused MoE call
+  one simdgroup a slot, and 30 compute encoders a command buffer. The MoE rotations in threadgroup memory were
+  refuted at the kernel bench (*measured*, [inkling-mac-decode](mesures/inkling-mac-decode-2026-11-26.txt)).
+- The operator chose a prefix cache on disk for the long prompt ("Cache de préfixe"). A new session over an
+  8,704-token static block has its first token after 3.90 s [3.62, 4.57] instead of 155 to 202 s, in a 1.41 GB
+  file where 0.4 to 0.8 GB had been signed (*measured*,
+  [inkling-mac-prefix](mesures/inkling-mac-prefix-2026-11-26.txt)). It is on by default on Metal only.
+- The review before the merge found that the cache's key did not identify the weights, and the key now carries
+  the files the model loads. The same 9,000-token read ranged from 109 to 305 s over the day with no cause found.
+- `CERVEAU.md` gains A3 and A4, both supported, and the anomaly N9, and goes from 72 claims to 74. The operator had
+  the branch pushed and merged ("Oui, pousse", "relis et merge").
