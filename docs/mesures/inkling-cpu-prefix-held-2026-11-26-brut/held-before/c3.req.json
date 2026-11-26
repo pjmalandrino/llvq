@@ -1,0 +1,1 @@
+{"model": "inkling2:mini", "stream": true, "keep_alive": -1, "messages": [{"role": "user", "content": "In two short sentences: why is the sky blue during the day, and why is it red at sunset?"}], "options": {"num_predict": 48, "temperature": 0}}

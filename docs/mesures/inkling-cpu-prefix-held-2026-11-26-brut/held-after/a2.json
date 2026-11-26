@@ -1,0 +1,22 @@
+{
+ "lines": 47,
+ "first_token_s": 0.15816783905029297,
+ "last_s": 1.9955637454986572,
+ "content": "",
+ "thinking": "The user asks: \"Do not call any tool. In one short sentence: what does section 7 of the policy ask for?\"\n\nNeed answer based on policy text. Section 7, incidents, part 1:",
+ "tool_calls": [],
+ "final": {
+  "created_at": "2026-11-26T21:24:05.126032000Z",
+  "done": true,
+  "done_reason": "length",
+  "eval_count": 48,
+  "eval_duration": 1978627375,
+  "load_duration": 0,
+  "model": "inkling2:mini",
+  "prompt_eval_cached_count": 8791,
+  "prompt_eval_count": 8791,
+  "prompt_eval_duration": 292,
+  "total_duration": 1986897708
+ },
+ "errors": []
+}

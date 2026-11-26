@@ -464,9 +464,13 @@ pub fn files_id(l: &LocalModel) -> anyhow::Result<String> {
     Ok(h.finalize().iter().map(|b| format!("{b:02x}")).collect())
 }
 
-/// Whether the prefix cache is on when `llvq serve` is not told.
+/// Whether the prefix cache is on when `llvq serve` is not told: on Metal,
+/// and on the CPU, where a static block of 2,316 tokens gave its first token
+/// after 20.3 s from the file against 141.0 s cold, the answer unchanged
+/// (`docs/mesures/inkling-cpu-prefix-held-2026-11-26.txt`). Off on CUDA, where
+/// it has not run.
 fn prefix_on_by_default(backend: Backend) -> bool {
-    backend == Backend::Metal
+    matches!(backend, Backend::Metal | Backend::Cpu)
 }
 
 /// The prefix cache of a model loaded on `backend` from the local file
@@ -1460,6 +1464,7 @@ mod tests {
         stack_only.stack = cpu.stack.clone();
         assert!(cpu.differing(&stack_only).iter().any(|d| d.starts_with("backend ")), "the backend alone tells a CPU file");
         assert!(prefix_on_by_default(Backend::Metal));
+        assert!(prefix_on_by_default(Backend::Cpu));
         assert!(!prefix_on_by_default(Backend::Cuda));
     }
 

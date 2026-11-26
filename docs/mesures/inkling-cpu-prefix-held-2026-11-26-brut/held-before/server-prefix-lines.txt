@@ -1,0 +1,4 @@
+llvq: inkling2:mini: prefix cache: on, in docs/mesures/inkling-cpu-prefix-held-2026-11-26-brut/held-before/home/prefix, cap 4.0 GiB, key 6f3875cfcd3d7065
+llvq: prefix cache: saved 1536 tokens, 607833471 bytes, in 0.66 s: 6f3875cfcd3d7065-00001536-3d4d10c09f1bae201e2af194ccf5adf4.llvqprefix
+llvq: prefix cache: saved 8704 tokens, 1413197183 bytes, in 1.60 s: 6f3875cfcd3d7065-00008704-c7adec5e8c13cd35f4e45f13ac9167de.llvqprefix
+llvq: prefix cache: loaded 8704 tokens from 6f3875cfcd3d7065-00008704-c7adec5e8c13cd35f4e45f13ac9167de.llvqprefix in 0.88 s (checked in 0.61 s)

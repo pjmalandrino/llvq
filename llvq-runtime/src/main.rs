@@ -3,7 +3,7 @@
 //! ```text
 //! llvq serve                       start the server on LLVQ_HOST (127.0.0.1:11435)
 //! llvq serve --local inkling.json  also serve a model named by a local file (Inkling 2)
-//! llvq serve --prefix-cache off    no prefix cache on disk (on by default on Metal)
+//! llvq serve --prefix-cache off    no prefix cache on disk (on by default on Metal and the CPU)
 //! llvq pull qwen3:4b               download, check size and sha256, register
 //! llvq pull qwen3:4b --from FILE   register a local copy, same checks, no network
 //! llvq run qwen3:4b                interactive chat; /bye leaves, /clear forgets
@@ -55,7 +55,7 @@ enum Cmd {
         local: Vec<std::path::PathBuf>,
         /// Save the cache after a long static block (system prompt and tools)
         /// to disk, and load it for a prompt that starts with the same tokens:
-        /// on or off. Default: on for Metal, off on CUDA and the CPU. Inkling 2.
+        /// on or off. Default: on for Metal and the CPU, off on CUDA. Inkling 2.
         #[arg(long = "prefix-cache", value_name = "on|off")]
         prefix_cache: Option<String>,
         /// The disk cap of the prefix cache, least recently used files removed

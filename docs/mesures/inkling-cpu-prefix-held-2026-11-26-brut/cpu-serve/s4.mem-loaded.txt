@@ -1,0 +1,6 @@
+2026-11-26 21:20:08
+llvq [50345]: 64-bit    Footprint: 8322 MB (16384 bytes per page)
+8322 MB    1308 MB       862 MB       4927    TOTAL
+    phys_footprint: 8322 MB
+    phys_footprint_peak: 8322 MB
+{"models":[{"name":"inkling2:mini","model":"inkling2:mini","size":1366330064,"digest":"a86d86840a9ed8bca3b07c25e0e826f263bac9e4f86a735eb391dccf17f80760","details":{"parent_model":"","format":"llvq","family":"inkling2","families":["inkling2"],"parameter_size":"","quantization_level":"Tetra  b/param"},"expires_at":"9999-12-31T23:59:59.000000000Z","size_vram":0,"context_length":32768,"llvq":{"state":"ready","backend":"cpu","config":"inkling.json","queue":0,"busy":false,"error":null,"batch_pool_bytes":0}}]}

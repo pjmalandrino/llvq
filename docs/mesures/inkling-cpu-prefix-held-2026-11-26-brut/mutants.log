@@ -1,0 +1,64 @@
+== B-key: the backend removed from the key: 1 site(s)
+   test inkling::tests::long_prompt_settings_follow_the_stack_not_only_cuda ... ok
+   test inkling::tests::reuse_follows_the_held_keys_until_one_differs ... ok
+   test inkling::tests::pieces_cut_at_every_assistant_turn ... ok
+   test inkling::tests::the_effort_is_the_clients_or_none ... ok
+   test inkling::tests::a_prefix_key_names_the_backend_and_the_stack_that_wrote_it ... FAILED
+   test inkling::tests::a_local_file_reads_relative_paths_from_its_directory ... ok
+   test inkling::tests::the_files_id_follows_every_part_and_not_the_local_file_alone ... ok
+   test inkling::tests::a_segment_without_kept_logits_is_read_again ... ok
+   test inkling::tests::a_refused_rollback_falls_back_to_the_full_read ... ok
+   test inkling::tests::a_prompt_sent_again_samples_from_the_logits_of_its_first_read ... ok
+   test inkling::tests::the_logits_handed_back_are_the_last_segments ... ok
+   test result: FAILED. 10 passed; 1 failed; 0 ignored; 0 measured; 39 filtered out; finished in 0.02s
+   error: test failed, to rerun pass `-p llvq-runtime --lib`
+   verdict: RED
+   restored, clean
+== B-off: the CPU branch of long_prompt answers Off: 1 site(s)
+   test inkling::tests::reuse_follows_the_held_keys_until_one_differs ... ok
+   test inkling::tests::the_effort_is_the_clients_or_none ... ok
+   test inkling::tests::pieces_cut_at_every_assistant_turn ... ok
+   test inkling::tests::long_prompt_settings_follow_the_stack_not_only_cuda ... FAILED
+   test inkling::tests::a_prefix_key_names_the_backend_and_the_stack_that_wrote_it ... ok
+   test inkling::tests::a_local_file_reads_relative_paths_from_its_directory ... ok
+   test inkling::tests::the_files_id_follows_every_part_and_not_the_local_file_alone ... ok
+   test inkling::tests::a_segment_without_kept_logits_is_read_again ... ok
+   test inkling::tests::a_refused_rollback_falls_back_to_the_full_read ... ok
+   test inkling::tests::a_prompt_sent_again_samples_from_the_logits_of_its_first_read ... ok
+   test inkling::tests::the_logits_handed_back_are_the_last_segments ... ok
+   test result: FAILED. 10 passed; 1 failed; 0 ignored; 0 measured; 39 filtered out; finished in 0.02s
+   error: test failed, to rerun pass `-p llvq-runtime --lib`
+   verdict: RED
+   restored, clean
+== C-other: the kept logits of another segment handed back: 1 site(s)
+   test inkling::tests::long_prompt_settings_follow_the_stack_not_only_cuda ... ok
+   test inkling::tests::reuse_follows_the_held_keys_until_one_differs ... ok
+   test inkling::tests::the_effort_is_the_clients_or_none ... ok
+   test inkling::tests::pieces_cut_at_every_assistant_turn ... ok
+   test inkling::tests::a_prefix_key_names_the_backend_and_the_stack_that_wrote_it ... ok
+   test inkling::tests::a_local_file_reads_relative_paths_from_its_directory ... ok
+   test inkling::tests::the_files_id_follows_every_part_and_not_the_local_file_alone ... ok
+   test inkling::tests::a_segment_without_kept_logits_is_read_again ... ok
+   test inkling::tests::a_refused_rollback_falls_back_to_the_full_read ... ok
+   test inkling::tests::a_prompt_sent_again_samples_from_the_logits_of_its_first_read ... ok
+   test inkling::tests::the_logits_handed_back_are_the_last_segments ... FAILED
+   test result: FAILED. 10 passed; 1 failed; 0 ignored; 0 measured; 39 filtered out; finished in 0.02s
+   error: test failed, to rerun pass `-p llvq-runtime --lib`
+   verdict: RED
+   restored, clean
+== C-skip: the rollback to the mark skipped: 1 site(s)
+   test inkling::tests::long_prompt_settings_follow_the_stack_not_only_cuda ... ok
+   test inkling::tests::reuse_follows_the_held_keys_until_one_differs ... ok
+   test inkling::tests::pieces_cut_at_every_assistant_turn ... ok
+   test inkling::tests::the_effort_is_the_clients_or_none ... ok
+   test inkling::tests::a_prefix_key_names_the_backend_and_the_stack_that_wrote_it ... ok
+   test inkling::tests::a_local_file_reads_relative_paths_from_its_directory ... ok
+   test inkling::tests::the_files_id_follows_every_part_and_not_the_local_file_alone ... ok
+   test inkling::tests::a_segment_without_kept_logits_is_read_again ... ok
+   test inkling::tests::a_refused_rollback_falls_back_to_the_full_read ... FAILED
+   test inkling::tests::a_prompt_sent_again_samples_from_the_logits_of_its_first_read ... FAILED
+   test inkling::tests::the_logits_handed_back_are_the_last_segments ... ok
+   test result: FAILED. 9 passed; 2 failed; 0 ignored; 0 measured; 39 filtered out; finished in 0.02s
+   error: test failed, to rerun pass `-p llvq-runtime --lib`
+   verdict: RED
+   restored, clean

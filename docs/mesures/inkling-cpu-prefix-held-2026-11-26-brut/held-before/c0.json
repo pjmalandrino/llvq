@@ -1,0 +1,22 @@
+{
+ "lines": 47,
+ "first_token_s": 0.9163539409637451,
+ "last_s": 2.658730983734131,
+ "content": "",
+ "thinking": "The user wants two short sentences explaining why sky is blue during day and red at sunset. Need answer concise. Need ensure accuracy: daytime blue due to Rayleigh scattering of shorter wavelengths (blue) by air molecules",
+ "tool_calls": [],
+ "final": {
+  "created_at": "2026-11-26T20:13:11.152397000Z",
+  "done": true,
+  "done_reason": "length",
+  "eval_count": 48,
+  "eval_duration": 1868424208,
+  "load_duration": 0,
+  "model": "inkling2:mini",
+  "prompt_eval_cached_count": 0,
+  "prompt_eval_count": 36,
+  "prompt_eval_duration": 781549583,
+  "total_duration": 2650223750
+ },
+ "errors": []
+}
