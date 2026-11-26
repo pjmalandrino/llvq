@@ -1,0 +1,53 @@
+    Finished `release` profile [optimized] target(s) in 0.18s
+     Running tests/inkling_attn_bias.rs (target/release/deps/inkling_attn_bias-0b6bdd77f7324a07)
+
+running 2 tests
+test bias_kernel_is_the_host_tables_bit_for_bit ... ok
+test bias_switch_routes_score_bias_to_the_kernel ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.25s
+
+    Finished `release` profile [optimized] target(s) in 0.17s
+     Running tests/inkling_moe_rows.rs (target/release/deps/inkling_moe_rows-9340d99c32c22c9d)
+
+running 4 tests
+test batched_rows_are_the_general_path_at_model_shapes ... ok
+test batched_rows_are_the_general_path_on_small_layers ... ok
+test batched_rows_need_the_rows_kernel ... ok
+test batched_rows_stage_times ... ignored, times the GPU; run under the guard's lock
+
+test result: ok. 3 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 1.00s
+
+    Finished `release` profile [optimized] target(s) in 0.17s
+     Running tests/inkling_wave2_moe.rs (target/release/deps/inkling_wave2_moe-be580c8325edaa7a)
+
+running 12 tests
+test capture_logits_cpu ... ignored, loads the real model on the CPU; run under the guard's lock
+test capture_logits_metal_default ... ignored, loads the real model on the GPU; run under the guard's lock
+test capture_logits_metal_new ... ignored, loads the real model on the GPU; run under the guard's lock
+test capture_logits_metal_old ... ignored, loads the real model on the GPU; run under the guard's lock
+test d3_fused_is_one_row_at_model_shapes ... ok
+test d3_fused_is_one_row_on_small_layers ... ok
+test d3_slab_aliases_are_the_unpooled_upload ... ok
+test d9_routing_on_device_is_the_host_routing ... ok
+test fused_activation_launch_is_candle_activation ... ok
+test m_decode_timing_new ... ignored, loads the real model on the GPU; run under the guard's lock
+test m_decode_timing_old ... ignored, loads the real model on the GPU; run under the guard's lock
+test m_moe_call_timing ... ignored, loads the real model on the GPU; run under the guard's lock
+
+test result: ok. 5 passed; 0 failed; 7 ignored; 0 measured; 0 filtered out; finished in 0.99s
+
+    Finished `release` profile [optimized] target(s) in 0.17s
+     Running tests/inkling_wave3_attn.rs (target/release/deps/inkling_wave3_attn-4e9a1e6dcdb2d265)
+
+running 7 tests
+test fused_attn_from_an_empty_cache_metal ... ok
+test fused_attn_holds_no_f32_matrices_metal ... ok
+test fused_attn_is_refused_on_the_cpu ... ok
+test fused_attn_rings_mark_rollback_clone_metal ... ok
+test fused_attn_tracks_candle_attn_metal ... ok
+test fused_scores_track_candle_attn_metal ... ok
+test long_prompt_settings_track_one_call_metal ... ok
+
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 12.57s
+

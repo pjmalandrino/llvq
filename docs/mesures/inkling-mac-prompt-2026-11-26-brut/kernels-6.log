@@ -1,0 +1,30 @@
+    Finished `release` profile [optimized] target(s) in 0.15s
+     Running tests/inkling_moe_rows.rs (target/release/deps/inkling_moe_rows-9340d99c32c22c9d)
+
+running 4 tests
+test batched_rows_are_the_general_path_at_model_shapes ... ok
+test batched_rows_are_the_general_path_on_small_layers ... ok
+test batched_rows_need_the_rows_kernel ... ok
+test batched_rows_stage_times ... ignored, times the GPU; run under the guard's lock
+
+test result: ok. 3 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 2.58s
+
+    Finished `release` profile [optimized] target(s) in 0.13s
+     Running tests/inkling_moe_rows.rs (target/release/deps/inkling_moe_rows-9340d99c32c22c9d)
+
+running 1 test
+4096 pairs, 568 chunks, hidden 2304, inter 1152
+gather + f16: 1.55 ms
+rotation in: 0.69 ms
+rotation down: 0.36 ms
+gate and up, pair false: 87.19 ms
+down, pair false: 41.65 ms
+whole batched call, pair false: 143.55 ms
+gate and up, pair true: 83.63 ms
+down, pair true: 38.50 ms
+whole batched call, pair true: 127.32 ms
+general path: 141.22 ms
+test batched_rows_stage_times ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 3 filtered out; finished in 14.32s
+

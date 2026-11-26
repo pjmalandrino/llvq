@@ -93,3 +93,7 @@ date,seq,card,metric,value,unit,label,config,job_id
 2026-11-26,2,mac,decode_tok_s_p9000,19.80,tok/s,measured,Metal; inkrun; median step after a 9000-token prompt; long-prompt settings,
 2026-11-26,3,mac,served_ttft_s_p8791,145.03,s,measured,llvq serve --local; Metal; long-prompt settings; 13 of 13 checks,
 2026-11-26,3,mac,served_decode_tok_s_p32,27.1,tok/s,measured,llvq serve --local; Metal; eval_count over eval_duration on a short turn,
+2026-11-26,4,mac,ttft_s_p9000,140.40,s,measured,Metal; inkrun; same path as seq 2 read again; median of 4 runs [134.15 149.47],
+2026-11-26,4,mac,ttft_s_p2000,23.69,s,measured,Metal; inkrun; same path as seq 2 read again; median of 23.27 and 24.10 without one outlier at 42.83,
+2026-11-26,4,mac,vram_peak_p9000_gb,11.42,GB,measured,Metal currentAllocatedSize; peak probe; same path as seq 2,
+2026-11-26,4,mac,decode_tok_s_p9000,22.73,tok/s,measured,Metal; inkrun; same path as seq 2 read again; median of 4 runs [22.45 23.56],

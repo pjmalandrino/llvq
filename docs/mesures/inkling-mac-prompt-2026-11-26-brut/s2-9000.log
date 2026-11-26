@@ -1,0 +1,10 @@
+2026-11-26 12:11:41 load1 3.09 gpu 60% memfree 76% 
+prompt 9000 read in 134.15 s; step median 0.0425 s = 23.56 tok/s; GB after load 8.03, after the prompt 10.71, end 10.52; peak {}; all_equal None
+0140733aceb0789513f4c76dc922b6401b2f919c96f11d018adafb492fcdf226  docs/mesures/inkling-mac-prompt-2026-11-26-brut/s2-ref9000.logits.f32
+2026-11-26 12:14:59 load1 3.88 gpu 0% memfree 79% 
+prompt 9000 read in 131.22 s; step median 0.0425 s = 23.53 tok/s; GB after load 8.03, after the prompt 10.93, end 10.87; peak {}; all_equal None
+0140733aceb0789513f4c76dc922b6401b2f919c96f11d018adafb492fcdf226  docs/mesures/inkling-mac-prompt-2026-11-26-brut/s2-batch9000.logits.f32
+2026-11-26 12:18:12 load1 1.95 gpu 0% memfree 79% 
+prompt 9000 read in 131.09 s; step median 0.0429 s = 23.30 tok/s; GB after load 8.03, after the prompt 11.00, end 10.92; peak {}; all_equal None
+0140733aceb0789513f4c76dc922b6401b2f919c96f11d018adafb492fcdf226  docs/mesures/inkling-mac-prompt-2026-11-26-brut/s2-batchbias9000.logits.f32
+arms: all done

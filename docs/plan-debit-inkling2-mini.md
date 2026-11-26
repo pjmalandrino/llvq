@@ -7,7 +7,10 @@ items changes the file, its bits per parameter or its quality criteria, and they
 The rows below are the plan as written on 2026-11-22, with its estimates. What was built and timed since is in
 §0; the readings and their gates are in `docs/mesures/inkling-debit-boucle-2026-11-22.txt`. A gain in a row
 stays *estimated* until §0 names it. Of the prompt items (§4) the 8-row path and the chunked read are in, both
-bit for bit; the others and the CUDA twins are not started.
+bit for bit. On 2026-11-26 the Metal twins of the two CUDA prompt levers (batched experts, bias on the device) were
+built bit for bit and gained nothing measurable: on Metal the read is the lattice kernel's arithmetic and the
+attention products, not launches (`docs/mesures/inkling-mac-prompt-2026-11-26.txt`). P3 pays only with more rows an
+expert a call than pieces of 512 give; P3 to P7 are not started.
 
 ## 0. State on 2026-11-23 (*measured*, Mac, Metal, 32-token prompt, three rounds a line)
 
@@ -26,6 +29,8 @@ bit for bit; the others and the CUDA twins are not started.
 | activation of the experts in one launch | done, default | A | 0.0433 s |
 | message gates and router scores over threadgroups | done, with the fused glue | A against the fused glue | 0.0361 s |
 | P1, P2: prompt rows 8 at a time, read in chunks | done, default | A | 600 tokens read in 6.0 s |
+| prompt, experts' rows of a visit in a few launches (Metal twin of the CUDA batched read) | done, `inkrun --moe-rows batch`, not a default | A | 9,000 tokens: 131.22 s against 134.15, under the spread of the runs; peak +1.5 GB (2026-11-26) |
+| prompt, score bias on the device (MSL twin of `attn_bias_rows`) | done, `inkrun --attn-bias device`, not a default | A | no gain at 2,000 or 9,000 tokens (2026-11-26) |
 | K2, D8, D9, D5 ring, P3 to P7 | not started | | |
 
 Class B was read on one WikiText-2 window for each switch and on three for the whole stack; the journal has the

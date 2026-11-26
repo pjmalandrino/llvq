@@ -1,0 +1,10 @@
+lutdrf 1152x2304, 1 rows, 2000 launches: 7.5 us a launch, 0.71 TFLOP/s, 89.0 GB/s of codes
+lutdrf 1152x2304, 2 rows, 2000 launches: 10.6 us a launch, 1.00 TFLOP/s, 62.8 GB/s of codes
+lutdrf 1152x2304, 4 rows, 2000 launches: 17.1 us a launch, 1.25 TFLOP/s, 39.2 GB/s of codes
+lutdrf 1152x2304, 8 rows, 2000 launches: 27.2 us a launch, 1.56 TFLOP/s, 24.6 GB/s of codes
+lutdrf 1152x2304, 8 rows, 2000 launches: 27.9 us a launch, 1.52 TFLOP/s, 23.9 GB/s of codes
+lutdrf 2304x1152, 1 rows, 2000 launches: 9.6 us a launch, 0.55 TFLOP/s, 70.1 GB/s of codes
+lutdrf 2304x1152, 2 rows, 2000 launches: 12.8 us a launch, 0.83 TFLOP/s, 52.4 GB/s of codes
+lutdrf 2304x1152, 4 rows, 2000 launches: 19.3 us a launch, 1.10 TFLOP/s, 34.9 GB/s of codes
+lutdrf 2304x1152, 8 rows, 2000 launches: 29.2 us a launch, 1.46 TFLOP/s, 23.1 GB/s of codes
+lutdrf 2304x1152, 8 rows, 2000 launches: 29.5 us a launch, 1.44 TFLOP/s, 22.8 GB/s of codes
