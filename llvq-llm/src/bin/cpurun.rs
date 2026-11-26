@@ -7,6 +7,8 @@
 //! LLVQ_CONFIG=configs/qwen3-4b-tetra-e4.json cpurun <sealed> gate [windows] [len]
 //! LLVQ_CONFIG=configs/qwen3-4b-tetra-e4.json cpurun <sealed> ppl [windows] [len] [first]
 //! LLVQ_CONFIG=configs/qwen3-4b-tetra-e4.json cpurun <sealed> phases [n_new]
+//! LLVQ_CONFIG=configs/qwen3-4b-tetra-e4.json cpurun <sealed> timed <short|N> [n_new]
+//! LLVQ_CONFIG=configs/qwen3-4b-tetra-e4.json cpurun <sealed> lockstep <config_b> [len] [window]
 //! ```
 //!
 //! `tetra` loads through `served::load_resolved` on `Device::Cpu`, which is
@@ -29,11 +31,22 @@
 //! the parts of the CPU backend (`fused_cpu::phases`) and the model around
 //! them, in ms a token.
 //!
+//! `timed` decodes one prompt and prints the time to the first token, the
+//! decode rate and the ids (`LLVQ_RUN_DUMP` as for `tetra`): `short` is the
+//! first of [`PROMPTS`], a number N the first N tokens of WikiText-2 test.
+//!
+//! `lockstep` loads the file twice through the same CPU door, once under
+//! `LLVQ_CONFIG` and once under `config_b`, and feeds one WikiText-2 test
+//! window token by token to both, each on its own caches (teacher forcing on
+//! the decode path). Every step prints the largest |dlogit| between the two
+//! arms, both argmaxes, the largest |logit| of each and whether the two logit
+//! vectors are equal in every bit. Measurement only: it serves nothing.
+//!
 //! The CPU pool takes `LLVQ_THREADS` threads; candle's own takes
 //! `RAYON_NUM_THREADS`. Peak memory is the caller's to read
 //! (`/usr/bin/time -l` on macOS, `-v` on Linux).
 
-use candle_core::{DType, Device};
+use candle_core::{DType, Device, IndexOp};
 use llvq_llm::model::{NoCapture, Qwen3};
 
 const PROMPTS: &[&str] = &[
@@ -47,6 +60,16 @@ fn load_tetra(path: &str, dtype: DType) -> anyhow::Result<(Qwen3, tokenizers::To
     let cfg = llvq_llm::served::Served::from_env()
         .map_err(anyhow::Error::msg)?
         .ok_or_else(|| anyhow::anyhow!("tetra needs LLVQ_CONFIG, e.g. configs/qwen3-4b-tetra-e4.json"))?;
+    load_tetra_with(path, dtype, cfg)
+}
+
+/// The CPU door of [`load_tetra`] under a config already read. Prints the
+/// attention form and the store the loaded model reports, not the config's.
+fn load_tetra_with(
+    path: &str,
+    dtype: DType,
+    cfg: llvq_llm::served::Served,
+) -> anyhow::Result<(Qwen3, tokenizers::Tokenizer)> {
     let device = Device::Cpu;
     let mut f = llvq_llm::served::load_resolved(
         path,
@@ -62,6 +85,11 @@ fn load_tetra(path: &str, dtype: DType) -> anyhow::Result<(Qwen3, tokenizers::To
     )?;
     cfg.apply(&mut f.model, &device).map_err(anyhow::Error::msg)?;
     println!("tetra on the CPU: {} ({})", cfg.path.display(), llvq_llm::tetra_cpu::Isa::detect().name());
+    println!(
+        "loaded form: attention {} store {}",
+        f.model.attn_heads().label(),
+        f.model.kv_store().label()
+    );
     Ok((f.model, f.tokenizer))
 }
 
@@ -123,6 +151,92 @@ fn phases(model: &Qwen3, tok: &tokenizers::Tokenizer, n_new: usize) -> anyhow::R
     // The two kernels are inside `tetra` and `int4`: not counted twice.
     let backend: u64 = NAMES.iter().zip(spent).filter(|(n, _)| !n.ends_with("kernel")).map(|(_, (ns, _))| ns).sum();
     println!("phases: {:<13} {:>8.2} ms a token  (the model around the projections)", "rest", token_ms - per(backend));
+    Ok(())
+}
+
+/// The prompt of `timed`: `short` is the first of [`PROMPTS`], a number N
+/// the first N tokens of WikiText-2 test.
+fn timed_prompt(which: &str, tok: &tokenizers::Tokenizer) -> anyhow::Result<Vec<u32>> {
+    if which == "short" {
+        return Ok(tok.encode(PROMPTS[0], false).map_err(|e| anyhow::anyhow!("{e}"))?.get_ids().to_vec());
+    }
+    let n: usize = which.parse().map_err(|_| anyhow::anyhow!("timed {which:?}: short or a token count"))?;
+    let text = llvq_llm::corpus::wikitext2_test()?;
+    let ids = tok.encode(text.as_str(), false).map_err(|e| anyhow::anyhow!("{e}"))?.get_ids().to_vec();
+    anyhow::ensure!(n > 0 && ids.len() >= n, "timed {n}: the split holds {} tokens", ids.len());
+    Ok(ids[..n].to_vec())
+}
+
+fn timed(model: &Qwen3, tok: &tokenizers::Tokenizer, which: &str, n_new: usize) -> anyhow::Result<serde_json::Value> {
+    let ids = timed_prompt(which, tok)?;
+    let g = model.generate_timed(&ids, n_new, ids.len())?;
+    let steps = g.tokens.len().saturating_sub(1);
+    println!(
+        "timed: prompt {} tokens (fingerprint {:016x}) first token in {:.3} s | {steps} decode steps in {:.3} s, {:.3} tok/s",
+        ids.len(),
+        llvq_llm::eval::token_fingerprint(&ids),
+        g.prompt_s,
+        g.decode_s,
+        steps as f64 / g.decode_s
+    );
+    println!("timed: output ids {:?}", g.tokens);
+    Ok(serde_json::json!({
+        "prompt": which,
+        "prompt_tokens": ids.len(),
+        "prompt_fingerprint": format!("{:016x}", llvq_llm::eval::token_fingerprint(&ids)),
+        "first_token_s": g.prompt_s,
+        "decode_s": g.decode_s,
+        "decode_steps": steps,
+        "output_ids": g.tokens,
+    }))
+}
+
+/// One WikiText-2 test window through two models in lockstep, each on its own
+/// caches, the true token fed at every step.
+fn lockstep(a: &Qwen3, b: &Qwen3, tok: &tokenizers::Tokenizer, len: usize, window: usize) -> anyhow::Result<()> {
+    use candle_core::D;
+    let text = llvq_llm::corpus::wikitext2_test()?;
+    let ids = tok.encode(text.as_str(), false).map_err(|e| anyhow::anyhow!("{e}"))?.get_ids().to_vec();
+    anyhow::ensure!(len >= 2 && ids.len() >= (window + 1) * len, "window {window} of {len}: the split holds {} tokens", ids.len());
+    let win = &ids[window * len..(window + 1) * len];
+    println!(
+        "lockstep: WikiText-2 test window {window} of {len} tokens (fingerprint {:016x}), arm a attention {} store {}, arm b attention {} store {}",
+        llvq_llm::eval::token_fingerprint(win),
+        a.attn_heads().label(),
+        a.kv_store().label(),
+        b.attn_heads().label(),
+        b.kv_store().label()
+    );
+    let (mut ca, mut cb) = (a.fresh_caches(), b.fresh_caches());
+    let (mut dmax, mut lmax, mut argdiff, mut bitdiff, mut nll) = (0f32, 0f32, 0usize, 0usize, [0f64; 2]);
+    let t0 = std::time::Instant::now();
+    for (offset, pair) in win.windows(2).enumerate() {
+        let la = a.step_logits(pair[0], offset, &mut ca)?;
+        let lb = b.step_logits(pair[0], offset, &mut cb)?;
+        let (ra, rb) = (la.i((0, 0))?, lb.i((0, 0))?);
+        let (aa, ab) = (ra.argmax(D::Minus1)?.to_scalar::<u32>()?, rb.argmax(D::Minus1)?.to_scalar::<u32>()?);
+        let d = (&ra - &rb)?.abs()?.max_all()?.to_scalar::<f32>()?;
+        let ma = ra.abs()?.max_all()?.to_scalar::<f32>()?;
+        let mb = rb.abs()?.max_all()?.to_scalar::<f32>()?;
+        let same = ra.to_vec1::<f32>()?.iter().map(|x| x.to_bits()).eq(rb.to_vec1::<f32>()?.iter().map(|x| x.to_bits()));
+        nll[0] -= llvq_llm::model::logp_of(&la, pair[1])?;
+        nll[1] -= llvq_llm::model::logp_of(&lb, pair[1])?;
+        dmax = dmax.max(d);
+        lmax = lmax.max(ma).max(mb);
+        argdiff += usize::from(aa != ab);
+        bitdiff += usize::from(!same);
+        println!(
+            "step {offset:>5} dlogit {d:.6e} argmax {aa} {ab} maxlogit {ma:.6e} {mb:.6e} bits {}",
+            if same { "same" } else { "differ" }
+        );
+    }
+    let steps = len - 1;
+    println!(
+        "lockstep: {steps} steps in {:.1} s | max |dlogit| {dmax:.6e} | steps whose argmax differs {argdiff} | steps whose logits differ in any bit {bitdiff} | largest |logit| {lmax:.6e} | ppl a {:.6} b {:.6}",
+        t0.elapsed().as_secs_f64(),
+        (nll[0] / steps as f64).exp(),
+        (nll[1] / steps as f64).exp()
+    );
     Ok(())
 }
 
@@ -204,7 +318,7 @@ fn ppl(path: &str, dtype: DType, windows: usize, len: usize, first: usize) -> an
 
 fn main() -> anyhow::Result<()> {
     let a: Vec<String> = std::env::args().skip(1).collect();
-    let usage = "usage: cpurun <sealed> <tetra|dense|phases|gate|ppl> [n_new | windows len]";
+    let usage = "usage: cpurun <sealed> <tetra|dense|phases|gate|ppl|timed|lockstep> [n_new | windows len | short|N n_new | config_b len window]";
     let path = a.first().ok_or_else(|| anyhow::anyhow!(usage))?;
     let arm = a.get(1).map(String::as_str).ok_or_else(|| anyhow::anyhow!(usage))?;
     let dtype = llvq_llm::eval::dtype(match arm {
@@ -222,6 +336,27 @@ fn main() -> anyhow::Result<()> {
         let windows = a.get(2).and_then(|s| s.parse().ok()).unwrap_or(4);
         let len = a.get(3).and_then(|s| s.parse().ok()).unwrap_or(512);
         return gate(path, dtype, windows, len);
+    }
+    if arm == "lockstep" {
+        let other = a.get(2).ok_or_else(|| anyhow::anyhow!(usage))?;
+        let len = a.get(3).and_then(|s| s.parse().ok()).unwrap_or(2048);
+        let window = a.get(4).and_then(|s| s.parse().ok()).unwrap_or(0);
+        let (ma, tok) = load_tetra(path, dtype)?;
+        let cfg_b = llvq_llm::served::Served::read(std::path::Path::new(other)).map_err(anyhow::Error::msg)?;
+        let (mb, _) = load_tetra_with(path, dtype, cfg_b)?;
+        return lockstep(&ma, &mb, &tok, len, window);
+    }
+    if arm == "timed" {
+        let which = a.get(2).ok_or_else(|| anyhow::anyhow!(usage))?;
+        let n_new: usize = a.get(3).and_then(|s| s.parse().ok()).unwrap_or(64);
+        let (model, tok) = load_tetra(path, dtype)?;
+        let out = timed(&model, &tok, which, n_new)?;
+        if let Ok(p) = std::env::var("LLVQ_RUN_DUMP") {
+            let out = serde_json::json!({ "model": path, "arm": arm, "attention": model.attn_heads().label(), "store": model.kv_store().label(), "dtype": llvq_llm::eval::dtype_name(dtype), "n_new": n_new, "run": out });
+            std::fs::write(&p, serde_json::to_vec_pretty(&out)?)?;
+            println!("dumped to {p}");
+        }
+        return Ok(());
     }
     let n_new: usize = a.get(2).and_then(|s| s.parse().ok()).unwrap_or(32);
     let t = std::time::Instant::now();
