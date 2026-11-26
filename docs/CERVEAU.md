@@ -20,7 +20,9 @@ added Q29 and the anomaly N8. A conjecture drawn from it was refuted at R6, and 
 map, added Q30. The operator closed the phase the same day: O15 is condensed and one belief joined the dropped ones.
 The same day the chain prefill was read at a served door on the development branch, and P2 is established for the
 4B's first token and its peak.
-68 claims: 17 established, 2 proved, 40 supported, 5 conjecture, 4 refuted.
+On 2026-11-26 a desk note read four repairs of Tetra's section caps through a calibrated model: C8 is added as a
+conjecture, one belief joined the dropped ones, and the operator closed the lead.
+69 claims: 17 established, 2 proved, 40 supported, 6 conjecture, 4 refuted.
 
 This document lists what we believe to be true about quantizing LLMs on the Leech lattice, each belief with its
 standing. It is not the served state ([`ETAT.md`](ETAT.md)), the history ([`HISTORIQUE.md`](HISTORIQUE.md)) or a plan
@@ -655,6 +657,20 @@ source. The sphere-covering bound for a shape-gain code of 47 + 1 bits reads MSE
 - Overturn: a 24-dimension fixed-rate code of 48 bits measured more than 0.60 dB under Tetra.
 - Checked: 2026-11-12.
 
+**C8.** On a Gaussian source, three further repairs of Tetra's per-section caps read no better than the 4-profile
+selector of C7. Width profiles under a prefix code read −0.19 to −0.20 dB and one word for two blocks −0.18 to
+−0.19, both at a 64 KiB rank table; pairing the six tetrads of a sextet per block reads −0.15 to −0.16 dB with the
+table unchanged at 16 KiB.
+- Standing: conjecture (*computed* by a direction-density model calibrated on two *measured* points, the ball at
+  −0.375 dB and the selector at −0.183; no candidate ran through an exact encoder). Scope: Gaussian N(0,1), 47 + 1
+  bits a block, members picked by a greedy search; the decoder cost of the pairing permutation is not counted.
+- Evidence: [geometrie-tetra-proxy](mesures/geometrie-tetra-proxy-2026-11-26.txt), sections 2 and 3. The same note reads Tetra's excess over
+  the ball as spread over blocks, the top 10 % carrying 41.8 % of it, so a sparse list of corrections does not
+  repair the cut. Its section 4 places the profiles and the shared budget in known art (AMR-WB+, V.34).
+- Overturn: an exact encoder that reads one of these members more than 0.05 dB outside its range, or a member at a
+  16 KiB table under −0.25 dB.
+- Checked: 2026-11-26. The operator closed the lead the same day; its reopening condition is in `ETAT.md` §6.
+
 ## S. How it scales with model size
 
 **S1.** The gap to FP16 shrinks with size: 6.77, 5.48 and 3.22 MMLU points, and 9.63, 4.62 and 3.26 GSM8K points, at
@@ -1149,6 +1165,7 @@ fast verifier, refused by the operator on 2026-11-14 as tinkering.
 | Group restores are sub-additive on the sealed 4B | 2026-11-12 | across groups only: all exceeds mlp + attn by +1.14 [+0.43, +1.85]. S predicted 0.77 [0.60, 0.95], measured 1.157 [0.973, 1.457], not resolved from 1; inside the MLP the ratio 0.90 [0.795, 1.031] is not resolved (same journal; Q10) |
 | The sealed 4B's low output contrast, a slope of 0.58, is its loss | 2026-11-14 | the slope is 0.81 when the answer is written and falls across the last block by a rescale; the ratio of contrast to noise does not move ([contrast-map-4b](mesures/contrast-map-4b-2026-11-14.txt), Q25) |
 | The blocks after the MMLU answer write could take fewer bits | 2026-11-14 | on GSM8K restoring them gains +4.32 [+2.46, +6.18], where MMLU reads +0.43 ([gsm8k-depth-restore-4b](mesures/gsm8k-depth-restore-4b-2026-11-14.txt), Q27) |
+| A cleverer cut of the 24 dimensions recovers the ball at a decoder cost near Tetra's | 2026-11-26 | the best of four repairs reads −0.21 dB against the ball's −0.375, in a model calibrated on two measured points ([geometrie-tetra-proxy](mesures/geometrie-tetra-proxy-2026-11-26.txt); C8) |
 
 ## Disagreements found between documents
 

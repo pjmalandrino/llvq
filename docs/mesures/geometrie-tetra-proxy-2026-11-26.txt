@@ -1,0 +1,127 @@
+THE TETRA CUT, FOUR REPAIRS READ THROUGH A CALIBRATED MODEL: NONE BEATS THE KNOWN SELECTOR (2026-11-26). $0.
+===========================================================================================================
+Verdict: the lead is closed by the operator ("non ferme et ajoute dans la base de connaissance"). Four repairs of
+Tetra's per-section caps were read on Gaussian blocks through a direction-density model calibrated on two measured
+points. The best one reads -0.21 dB against Tetra at 48 bits, where the 4-profile selector already measured reads
+-0.18 and the ball -0.375. One fact is new: pairing the six tetrads per block reads -0.16 dB with the rank table
+unchanged at 16 KiB, where the selector needs 64 KiB. A sparse list of corrections is dead: the excess is not
+concentrated. Three of the four repairs are known art.
+Nature: desk study in conversation. No job, no build, no model load, no cargo. Three numpy scripts on the Mac, 19 to
+  32 s each, 4 threads at nice 10, load average 2.4 before the first. Synthetic N(0,1) blocks only.
+Prereg: none. The model was chosen after two others missed their calibration, and both misses are reported below.
+  Every figure of section 3 is a model output, not a measurement of a code.
+Read: llvq-search/src/tetra/mod.rs and rank.rs; docs/mesures/innovation-tetra-v2-forme-2026-11-11.txt (the source of
+  every calibration target); f1b-retention-2026-09-04.txt; tetra-8b-2026-09-06.txt; docs/CERVEAU.md C6, C7, Q4.
+Labels: *measured* (a journal), *computed* (the scripts here, or arithmetic), *estimated* (judgement), *reported*
+  (a third party, URL given).
+Scripts and raw output: geometrie-tetra-proxy-2026-11-26-brut/, fingerprints in files.sha256.
+  proxy_overload.py   model 1, rejected: hard overload outside a shaping region
+  proxy_dir_sum.py    model 2, rejected: direction density summed over the members of a union
+  proxy_dir_max.py    model 3, kept: direction density, maximum over the members
+
+1. THE QUESTION
+---------------
+Tetra reads 0.375 dB above the ball of the paper's LLVQ on Gaussian blocks, MSE 0.08506 against 0.0780 a dimension
+(*measured*, innovation-tetra-v2-forme section 1). That is 0.375 / 6.02 x 24 = 1.5 bits of a 48-bit block
+(*computed*). About 0.30 dB of it sits in the three per-section row caps: the codebook is a product of three
+8-dimension sets where the source wants one 24-dimension ball. The same note measured two repairs. One budget shared
+by the three sections reads -0.30 dB for +25 to 40 % of decode instructions. A 2-bit selector among four width
+profiles, its candidate k, reads -0.183 dB for +3 to 5 % and a 64 KiB table.
+The operator asked whether a change of geometry could avoid the loss. Four repairs were proposed.
+  1. Prefix profiles. A prefix code of variable length, read by a count of leading zeros, picks the three index
+     widths. A profile of prefix length l has widths summing to 33 - l, so the word stays at 47 bits.
+  2. Tetrad pairings. The 24 coordinates split into six tetrads of a sextet. The union of any two tetrads is an
+     octad, so each of the 15 pairings is a trio with the same 64-state trellis. The encoder picks, per block, the
+     pairing that balances the three section energies; the decoder permutes six groups of four coordinates.
+  3. Pair words. One 96-bit word for two blocks, six sections under one prefix profile.
+  4. Sparse corrections. A side list repairs the worst blocks and leaves the served kernel and format v1 alone.
+
+2. THE MODEL, AND THE TWO THAT FAILED
+-------------------------------------
+The served code is shape-gain: the reconstruction is gain x y / |y|, so every lattice point of the codebook is a
+direction. A region of radial extent rho(u) along the unit direction u holds rho(u)^24 / (24 V0) points a unit of
+solid angle. The model takes the shape error of a block x as |x|^2 n(u)^(-2/23), with n(u) that density. A section of
+index width w has radius 2^((w - 11) / 8). Tetra is the product of radii (1, 2^(-1/8), 1): the middle section indexes
+2,048 rank vectors over both classes, the end sections 2,048 a class. Total dB uses the measured split of Tetra's
+0.08506, shape 0.07652 and gain 0.00854, with the gain part held constant.
+Calibration targets, both *measured* in innovation-tetra-v2-forme: the ball at -0.375 dB and k at -0.183 dB.
+
+  model                                     ball       k         verdict
+  measured                                  -0.375     -0.183
+  1. hard overload outside the region       -0.218     -0.316    rejected: k beats the ball, the wrong order
+  2. direction density, sum over members    -0.580     -0.380    rejected: factors 0.65 and 0.48 disagree
+  3. direction density, max over members    -0.580     -0.297    kept: factors 0.647 and 0.616
+
+Model 2 is wrong for a stated reason. The members of a union cut the same lattice, so a point two members hold is
+indexed twice and adds no direction. The density of a union is the maximum over its members, which is model 3.
+Model 3 overstates both targets by nearly one factor, 0.375 / 0.580 = 0.647 and 0.183 / 0.297 = 0.616 (*computed*).
+Section 3 multiplies every model figure by 0.62 to 0.65. Two points fix one factor and leave no point to test it.
+
+3. THE FOUR REPAIRS
+-------------------
+400,000 Gaussian blocks, seed 20261126, paired against Tetra on the same blocks (model SE 0.001 dB). The members of
+a union are picked by a greedy search under the Kraft sum, on 6,000 other blocks. All figures *computed*.
+
+  candidate (47 + 1 bits a block)                            model dB   calibrated dB      rank table
+  ball, the ceiling of the family                            -0.580     -0.375 measured    none
+  k, 4 profiles, 2-bit selector                              -0.297     -0.183 measured    64 KiB
+  1. prefix profiles, 15 profiles, widths up to 13           -0.311     -0.19 to -0.20     64 KiB
+  1. prefix profiles, 13 profiles, widths up to 12           -0.241     -0.15 to -0.16     32 KiB
+  2. tetrad pairings, 11 members over 8 pairings, w <= 11    -0.247     -0.15 to -0.16     16 KiB, unchanged
+  2. 8 pairings at widths (10, 10, 10), 3-bit selector       -0.118     -0.07 to -0.08     8 KiB
+  1 + 2, 12 members, widths up to 13                         -0.328     -0.20 to -0.21     64 KiB
+  3. pair word, 23 six-section profiles, widths 9 to 13      -0.289     -0.18 to -0.19     64 KiB
+
+Reading the table.
+- Prefix profiles add 0.01 to 0.02 dB to k. Fifteen profiles do what four hand-picked ones did. The profile family
+  is saturated near -0.2 dB, and the remaining 0.1 dB to the shared budget is not reached by power-of-two widths.
+- Tetrad pairings with widths up to 11 read about what k reads, with no row added to the table. This is the one new
+  fact. The 11-11 note named the 64 KiB table as k's speed risk (L1 room is worth up to 17.6 % of Tetra row speed,
+  banc-252). The permutation of six groups of four coordinates in the decoder was not counted in instructions.
+- Pairings alone at equal widths lose most of it: the three selector bits cost more than the balance returns.
+- A pair word reads what k reads applied to each block. Sharing the budget between two blocks adds nothing here.
+- The best figure, -0.21 dB, is 0.35 to 0.71 MMLU at 4B under the law of innovation-tetra-v2-forme section 3
+  (1.68 to 3.36 points a dB, *computed*), against that note's bar of +3.4. CERVEAU Q4 holds that under about 0.4 dB
+  a codebook change has not carried its sign to the model.
+
+Repair 4, concentration of Tetra's excess shape error over the ball, block by block (model 3, before calibration):
+  the top 1 % of blocks carry 7.0 % of the excess, the top 5 % carry 25.2 %, the top 10 % 41.8 %, the top 25 % 75.2 %.
+  Tetra is finer than the ball on 25.9 % of blocks.
+Half the excess needs corrections on more than 10 % of blocks. At 16 bits a correction and a position, that is over
+0.1 b/weight for under 0.2 dB (*estimated*), where 0.1 b/weight of plain rate is worth 0.6 dB. Repair 4 is dead.
+
+4. PRIOR ART
+------------
+- Repairs 1 and 3 are the multi-rate lattice quantizer of AMR-WB+: 8-dimension sub-vectors on the Gosset lattice
+  RE8, each with a codebook of variable size, the size sent as a unary code, under a fixed bit budget a frame
+  (*reported*: Xie and Adoul 1996; Ragot, Bessette and Lefebvre, ICASSP 2004; US patent 7,106,228,
+  https://image-ppubs.uspto.gov/dirsearch-public/print/downloadPdf/7106228).
+- The shared budget of the 11-11 note is shell mapping: one energy budget over several sub-constellations at a fixed
+  rate, 16 dimensions in the V.34 modem (*reported*: Laroia, Farvardin and Tretter 1994, US patent 5,388,124,
+  https://patents.google.com/patent/US5388124).
+- Repair 4 is the outlier list of SpQR and OWQ (ROADMAP-QUALITY row 18).
+- Repair 2: one web search on 2026-11-26 found no earlier use of the sextet pairings to shape a sectioned Leech
+  code. It returned the LLVQ paper itself (arXiv 2603.11021) and nothing closer. One search does not establish
+  novelty. The parts are classical: sextets, the group M24, permutation decoding of the Golay code.
+- The three-section trellis Tetra reads is Forney's coset-code construction of 1988.
+
+5. CLAIMS TOUCHED IN CERVEAU.md
+-------------------------------
+- C7 is confirmed and unchanged: nothing here sits under its -0.30 dB best member, and nothing leaves its bound.
+- C8 is added, standing conjecture: the figures of section 3.
+- Q4 is cited, not changed.
+- One belief is dropped: that a cleverer cut recovers the ball at Tetra's decoder cost.
+
+6. WHAT THIS NOTE DID NOT CHECK
+-------------------------------
+- No candidate ran through an exact encoder. The 11-11 scripts (v2shape.py, v2prof.py) lived in a session
+  scratchpad and were not used. A real code can sit on either side of the calibrated range.
+- The calibration is one factor from two points, with no third point to test it.
+- The greedy member search ran on 6,000 blocks and is not optimal; a better set can only improve repairs 1 to 3.
+- Real weight blocks, GPTQ residues and row scales. The only real-block control is block 0 of the 0.6B, where
+  rotated blocks read Gaussian (f1-encodeur-blocs-reels-2026-09-05).
+- One hypothesis stays untested. At 8B, Tetra read 3.91 MMLU points under Planes14 before row scales (*measured*,
+  tetra-8b-2026-09-06), about three times what 0.375 dB gives under the law. A per-section saturation rate above the
+  Gaussian one on deep-layer blocks would explain it. The sealed files hold the indices, so the rate is a file read.
+  The operator declined that read on 2026-11-26. It is the reopening condition of the row in ETAT.md section 6.
+- The instruction cost of the pairing permutation, and whether a 15-way selector decodes without a table.

@@ -1161,3 +1161,17 @@ O13, the number the long-context speed phase took on main the next day.
 - `docs/hub/qwen3-4b-sealed.md`, `qwen3-8b-sealed.md` and `qwen3-14b-sealed.md` are the merged cards byte for byte:
   9,831, 5,625 and 5,659 bytes (*measured*). The 9,774 bytes `docs/plan-transformers.md` gives for the 4B card is its
   size on 2026-10-20.
+
+
+## 2026-11-26. The Tetra cut: four repairs read through a model, the lead closed; nothing served changes, $0
+
+- The operator asked whether a change of geometry could avoid Tetra's 0.375 dB against the ball. Four repairs of
+  the per-section caps were read on Gaussian blocks through a direction-density model calibrated on the ball and on
+  the 4-profile selector (*computed*, [geometrie-tetra-proxy](mesures/geometrie-tetra-proxy-2026-11-26.txt)). Two earlier
+  models missed their calibration and are kept beside the journal.
+- None beats the selector by more than 0.03 dB: the best reads −0.21 dB. Pairing the six tetrads per block reads
+  −0.16 dB with the rank table unchanged at 16 KiB, which is the one new fact. A sparse list of corrections is dead,
+  because the excess is spread over blocks. Width profiles and the shared budget are known art (AMR-WB+, V.34).
+- The operator closed the lead ("non ferme et ajoute dans la base de connaissance") and declined the read of the
+  per-section saturation rate on a sealed file, which stays the reopening condition in `ETAT.md` §6. `CERVEAU.md`
+  gains C8 as a conjecture and one dropped belief. No prereg, no job, no model load.
