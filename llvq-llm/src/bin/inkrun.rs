@@ -95,6 +95,11 @@
 //! one launch a step for every (token, expert) pair of a layer (`batch`).
 //! CUDA and Metal (`resident::forward_rows_batched`); meant to be the same bits.
 //!
+//! `--moe-down sg|serial` (Metal): the fused one-row MoE call's `down` one
+//! simdgroup a slot or one simdgroup a row over the slots. Unset, the
+//! runtime's default (`fused_metal::MOE_DOWN_SG_DEFAULT`). The same bits
+//! (`tests/inkling_decode_kernels.rs`).
+//!
 //! `--moe-act fused|candle`: the activation between the launches of a
 //! resident layer's one-row experts in one launch (default), or through
 //! candle's operations as before. Same bits; `candle` is the reference.
@@ -185,6 +190,7 @@ struct Args {
     routing_on_device: bool,
     moe_act: bool,
     moe_rows_batch: bool,
+    moe_down_sg: Option<bool>,
     prefill_phases: bool,
     attn_bias_device: bool,
     moe_four: bool,
@@ -203,7 +209,7 @@ fn usage() -> ! {
          [--resident verified|none] [--require-layers N] [--logits-out <file>] [--prompt-key <key>] \
          [--prompt-len N] [--phases K] [--attn-chunk N] [--prefill-chunk N] [--kv-window full|bounded[=S]] [--peak-probe on] \
          [--rollback-gate on] [--prefill-rows 1|2|4|8] [--head bf16|int4 --head-table <file>] \
-         [--glue candle|fused] [--attn candle|fused|fused+scores] [--routing device|host] [--moe-act fused|candle] [--moe four|one] [--moe-rows chunk|batch] [--attn-bias host|device] [--prefill-phases on] [--events on|off] [--kernel-times on|off] [--routing-steps-out <file>] [--score-from N | --score-prompt on] \
+         [--glue candle|fused] [--attn candle|fused|fused+scores] [--routing device|host] [--moe-act fused|candle] [--moe four|one] [--moe-rows chunk|batch] [--moe-down sg|serial] [--attn-bias host|device] [--prefill-phases on] [--events on|off] [--kernel-times on|off] [--routing-steps-out <file>] [--score-from N | --score-prompt on] \
          [--nll-out <file>]"
     );
     std::process::exit(2)
@@ -302,6 +308,12 @@ fn parse() -> Result<Args> {
             Some("batch") => true,
             Some(o) => bail!("--moe-rows {o}: chunk or batch"),
         },
+        moe_down_sg: match take("moe-down").as_deref() {
+            None => None,
+            Some("sg") => Some(true),
+            Some("serial") => Some(false),
+            Some(o) => bail!("--moe-down {o}: sg or serial"),
+        },
         moe_four: match take("moe").as_deref() {
             None | Some("four") => true,
             Some("one") => false,
@@ -350,7 +362,7 @@ fn parse() -> Result<Args> {
 fn device(name: &str) -> Result<Device> {
     Ok(match name {
         "cpu" => Device::Cpu,
-        "metal" => Device::new_metal(0).context("Metal device (built with --features metal?)")?,
+        "metal" => llvq_llm::inkling::new_metal_device().context("Metal device (built with --features metal?)")?,
         "cuda" => Device::new_cuda(0).context("CUDA device (built with --features cuda?)")?,
         o => bail!("--device {o}: cpu, metal or cuda"),
     })
@@ -472,6 +484,10 @@ fn make_resident(model: &mut Inkling, args: &Args, dev: &Device) -> Result<Vec<V
         #[cfg(all(target_os = "macos", feature = "metal"))]
         Device::Metal(_) => {
             let rt = llvq_llm::inkling::resident_runtime(dev, args.prefill_rows)?;
+            if let Some(on) = args.moe_down_sg {
+                rt.set_moe_down_sg(on);
+            }
+            eprintln!("inkrun: fused MoE down {}", if rt.moe_down_sg() { "one simdgroup a slot" } else { "serial over the slots" });
             for (l, s) in model.make_resident(&args.layers, rt)? {
                 rows.push(json!({"layer": l, "experts": s.experts, "weights": s.weights, "file_bytes": s.file_bytes,
                     "uploaded_bytes": s.uploaded_bytes(), "word_bytes": s.word_bytes, "side_bytes": s.side_bytes,
@@ -561,7 +577,8 @@ fn main() -> Result<()> {
     if args.attn_bias_device {
         bail!("--attn-bias device: CUDA or Metal only");
     }
-    let provenance = json!({"prefill_rows": args.prefill_rows, "moe_rows": if args.moe_rows_batch { "batch" } else { "chunk" }, "attn_bias": if args.attn_bias_device { "device" } else { "host" }, "glue": model.glue().name(),
+    let provenance = json!({"prefill_rows": args.prefill_rows,
+        "moe_down": match args.moe_down_sg { None => "default", Some(true) => "sg", Some(false) => "serial" }, "moe_rows": if args.moe_rows_batch { "batch" } else { "chunk" }, "attn_bias": if args.attn_bias_device { "device" } else { "host" }, "glue": model.glue().name(),
         "head": if args.head_table.is_some() { "int4" } else { "bf16" }, "head_table": args.head_table,
         "bf16_head_on_device": model.has_bf16_head(), "attn": model.attn().name(),
         "routing_on_device": model.routing_on_device(), "moe": if args.moe_four { "four" } else { "one" }, "events": if args.events_off { "off" } else { "on" }, "moe_act": if args.moe_act { "fused" } else { "candle" },

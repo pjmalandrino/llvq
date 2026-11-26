@@ -373,7 +373,7 @@ fn source_of(name: &str) -> Result<&'static str> {
         "tv_tetra48_metal_lutdrf" => Ok(SRC_TETRA_ROWS_F32),
         "tv_emb_q4_metal_xf" => Ok(SRC_E4_XF),
         "moe_rot_metal" => Ok(SRC_MOE_ROT),
-        "moe_tetra_gu_metal" | "moe_tetra_down_metal" => Ok(SRC_MOE_TETRA),
+        "moe_tetra_gu_metal" | "moe_tetra_down_metal" | "moe_tetra_down_sg_metal" => Ok(SRC_MOE_TETRA),
         "moe_rows_lutdrf" | "moe_pairs_sum" => Ok(SRC_MOE_ROWS),
         other => candle_core::bail!("no Metal source carries {other}"),
     }
@@ -457,6 +457,9 @@ pub struct MetalRuntime {
     q4_rows: bool,
     /// Whether one-row rotations that fit stage in threadgroup memory ([`MetalTuning::rot_tg`]).
     rot_tg: bool,
+    /// Whether the fused MoE call's `down` runs one simdgroup a slot
+    /// (`moe_tetra_down_sg_metal`): the same bits ([`Self::set_moe_down_sg`]).
+    moe_down_sg: std::sync::atomic::AtomicBool,
     device: candle_core::MetalDevice,
     tables: MetalTables,
     tile: usize,
@@ -602,6 +605,7 @@ impl MetalRuntime {
             prefill_rows: 1,
             q4_rows: false,
             rot_tg: false,
+            moe_down_sg: std::sync::atomic::AtomicBool::new(MOE_DOWN_SG_DEFAULT),
             device: dev,
             tables,
             tile,
@@ -2094,6 +2098,7 @@ impl MetalRuntime {
             prefill_rows: 1,
             q4_rows: false,
             rot_tg: false,
+            moe_down_sg: std::sync::atomic::AtomicBool::new(MOE_DOWN_SG_DEFAULT),
             device: dev,
             tile,
             pipelines: RwLock::new(HashMap::new()),
@@ -3219,6 +3224,100 @@ kernel void moe_tetra_down_metal(const device uint*         slab           [[buf
         y[row] = out;
     }
 }
+
+/// `tetra48_dot_lut` reading its 24 activations from device memory: the
+/// served function's text but the pointer's address space (the twin of
+/// `tetra48_dot_lut_dev` in `llvq_tetra48_rows.metal`).
+inline float moe_dot_lut_dev(uint lo,
+                             uint hi16,
+                             F1rTables t,
+                             const device float* xb,
+                             const device float* gscale,
+                             const device float* invnorm)
+{
+    F1rV3Block b = f1r_v3_fetch(lo, hi16, t);
+    uint cs[3] = { b.c1, b.c2, b.c3 };
+    uint rs[3] = { b.row1, b.row2, b.row3 };
+    float acc = 0.0f;
+    float n2 = 0.0f;
+    for (uint sec = 0u; sec < 3u; ++sec) {
+        uint c = cs[sec];
+        uint row = rs[sec];
+        for (uint j = 0u; j < 8u; ++j) {
+            uint o = b.p + 2u * ((c >> j) & 1u);
+            uint rho = (row >> (4u * j)) & 15u;
+            float v = F1R_VAL[(o << 4) | rho];
+            n2 = fma(v, v, n2);
+            acc = fma(v, xb[TETRA48_ORDER[sec * 8u + j]], acc);
+        }
+    }
+    uint m = (uint(n2) >> 4) & (TETRA48_SHELLS - 1u);
+    uint g = (hi16 >> 15) & 1u;
+    return acc * gscale[g] * invnorm[m];
+}
+
+// moe_tetra_down_sg_metal: moe_tetra_down_metal with the selected experts
+// side by side. One threadgroup an output row, `nsel` simdgroups, simdgroup
+// kk the row of slot kk's expert: the same lane order and butterfly as the
+// served body, the activation read from device memory (the same floats), no
+// tile and no barrier in the loop. Each slot's weighted product goes to
+// threadgroup memory; lane 0 of simdgroup 0 adds them in ascending slot
+// order from +0, the served kernel's sum.
+kernel void moe_tetra_down_sg_metal(const device uint*         slab           [[buffer(0)]],
+                                    const device float*        slabf          [[buffer(1)]],
+                                    const device half*         slabh          [[buffer(2)]],
+                                    const device MoeExpertOff* off            [[buffer(3)]],
+                                    const device uint*         sel            [[buffer(4)]],
+                                    const device uint*         rows           [[buffer(5)]],
+                                    const device uchar*        prefixes       [[buffer(6)]],
+                                    const device ushort*       branches       [[buffer(7)]],
+                                    const device uchar*        suffixes       [[buffer(8)]],
+                                    const device float*        invnorm        [[buffer(9)]],
+                                    const device float*        xall           [[buffer(10)]],
+                                    device float*              y              [[buffer(11)]],
+                                    constant uint&             row_stride_u32 [[buffer(12)]],
+                                    constant uint&             nblocks        [[buffer(13)]],
+                                    constant uint&             tail_w         [[buffer(14)]],
+                                    constant uint&             d_out          [[buffer(15)]],
+                                    constant uint&             nsel           [[buffer(16)]],
+                                    uint row  [[threadgroup_position_in_grid]],
+                                    uint kk   [[simdgroup_index_in_threadgroup]],
+                                    uint lane [[thread_index_in_simdgroup]])
+{
+    threadgroup float part[32];
+    F1rTables tab = { rows, prefixes, branches, suffixes };
+    MoeExpertOff o = off[sel[kk]];
+    const device uint* words = slab + o.words[2];
+    const device float* gscale = slabf + o.gscale[2];
+    const device float* rscale = slabf + o.rscale[2];
+    const device half* tail = slabh + o.tail[2];
+    const device float* x = xall + kk * (nblocks * 24u + tail_w);
+    const device uint* wrow = words + row * row_stride_u32;
+    float acc = 0.0f;
+    for (uint j = lane; j < nblocks; j += 32u) {
+        uint lo, hi16;
+        f1r_load(wrow, j, lo, hi16);
+        acc += moe_dot_lut_dev(lo, hi16, tab, x + j * 24u, gscale, invnorm);
+    }
+    acc = warp_sum(acc);
+    if (lane == 0u) {
+        float tv = 0.0f;
+        const device float* xt = x + nblocks * 24u;
+        for (uint i = 0u; i < tail_w; ++i) {
+            tv = fma(float(tail[row * tail_w + i]), xt[i], tv);
+        }
+        float yv = fma(acc, rscale[row], tv);
+        part[kk] = yv * as_type<float>(sel[nsel + kk]);
+    }
+    threadgroup_barrier(mem_flags::mem_threadgroup);
+    if (kk == 0u && lane == 0u) {
+        float out = moe_zero_plus(part[0]);
+        for (uint i = 1u; i < nsel; ++i) {
+            out = out + part[i];
+        }
+        y[row] = out;
+    }
+}
 "#
     };
 }
@@ -3232,6 +3331,13 @@ const SRC_MOE_TETRA: &str = concat!(include_str!("../kernels/llvq_tetra48.metal"
 const MOE_OFF_WORDS: usize = 16;
 /// Routed experts a call can name: the bound of the `sel` buffer.
 pub const MOE_MAX_SELECTED: usize = 32;
+
+/// Whether a new runtime runs the fused MoE call's `down` one simdgroup a
+/// slot ([`MetalRuntime::set_moe_down_sg`]). On since 2026-11-26: every f32
+/// of the one-expert path (`tests/inkling_decode_kernels.rs`), the logits of
+/// 128 decode steps byte for byte, and a step 5.22 % shorter, median of 5
+/// alternated rounds [4.07, 10.58] (`docs/mesures/inkling-mac-decode-2026-11-26.txt`).
+pub const MOE_DOWN_SG_DEFAULT: bool = true;
 
 /// One record of an expert, on the host, as the resident loader reads it.
 pub struct MoeHostProj {
@@ -3363,6 +3469,18 @@ impl MetalRuntime {
     /// device-staged rotation. Any other tuning keeps the one-expert path.
     pub fn moe_fused_eligible(&self) -> bool {
         self.kernel == SERVED_TETRA && !self.half_io && !self.rot_tg
+    }
+
+    /// Run the fused MoE call's `down` one simdgroup a slot
+    /// (`moe_tetra_down_sg_metal`, `true`) or one simdgroup a row looping
+    /// over the slots (`moe_tetra_down_metal`). The same bits either way.
+    pub fn set_moe_down_sg(&self, on: bool) {
+        self.moe_down_sg.store(on, std::sync::atomic::Ordering::Relaxed);
+    }
+
+    /// Whether [`Self::set_moe_down_sg`] is on.
+    pub fn moe_down_sg(&self) -> bool {
+        self.moe_down_sg.load(std::sync::atomic::Ordering::Relaxed)
     }
 
     /// Upload a layer's experts into one placement heap outside candle's
@@ -3680,7 +3798,10 @@ impl CustomOp2 for MoeTetraOp<'_> {
         if !d_out.is_multiple_of(GROUP / LANES) {
             candle_core::bail!("moe products: d_out {d_out} is not a multiple of {} rows", GROUP / LANES);
         }
-        let (kname, out_len, shape) = if self.down {
+        let sg = self.down && self.rt.moe_down_sg();
+        let (kname, out_len, shape) = if sg {
+            ("moe_tetra_down_sg_metal", d_out, Shape::from((1, d_out)))
+        } else if self.down {
             ("moe_tetra_down_metal", d_out, Shape::from((1, d_out)))
         } else {
             ("moe_tetra_gu_metal", 2 * nsel * d_out, Shape::from((2, nsel, d_out)))
@@ -3709,16 +3830,31 @@ impl CustomOp2 for MoeTetraOp<'_> {
         set_param(&enc, 14, tw as u32);
         set_param(&enc, 15, d_out as u32);
         set_param(&enc, 16, nsel as u32);
-        enc.set_threadgroup_memory_length(0, self.rt.tile * llvq_core::DIM * DType::F32.size_in_bytes());
+        if !sg {
+            enc.set_threadgroup_memory_length(0, self.rt.tile * llvq_core::DIM * DType::F32.size_in_bytes());
+        }
         for b in [&*self.slab.slab, &*self.slab.offsets, sel.buffer(), &*t.rows, &*t.prefixes, &*t.branches, &*t.suffixes, &*t.invnorm, x.buffer()] {
             enc.use_resource(b, objc2_metal::MTLResourceUsage::Read);
         }
         enc.use_resource(&*out, objc2_metal::MTLResourceUsage::Write);
-        let rows = if self.down { d_out } else { 2 * nsel * d_out };
-        enc.dispatch_threads(
-            objc2_metal::MTLSize { width: rows * LANES, height: 1, depth: 1 },
-            objc2_metal::MTLSize { width: GROUP, height: 1, depth: 1 },
-        );
+        if sg {
+            // One threadgroup an output row, one simdgroup a selected slot.
+            let tg = nsel * LANES;
+            if tg > pipe.max_total_threads_per_threadgroup() {
+                candle_core::bail!("moe_tetra_down_sg_metal: {nsel} slots want {tg} threads, the pipeline allows {}",
+                    pipe.max_total_threads_per_threadgroup());
+            }
+            enc.dispatch_threads(
+                objc2_metal::MTLSize { width: d_out * tg, height: 1, depth: 1 },
+                objc2_metal::MTLSize { width: tg, height: 1, depth: 1 },
+            );
+        } else {
+            let rows = if self.down { d_out } else { 2 * nsel * d_out };
+            enc.dispatch_threads(
+                objc2_metal::MTLSize { width: rows * LANES, height: 1, depth: 1 },
+                objc2_metal::MTLSize { width: GROUP, height: 1, depth: 1 },
+            );
+        }
         Ok((MetalStorage::new(out, dev, out_len, DType::F32), shape))
     }
 }

@@ -430,6 +430,31 @@ pub fn cuda_events_off(_: &Device) -> Result<()> {
     candle_core::bail!("events off: a CUDA switch, on a CUDA build")
 }
 
+/// Plan item K2: compute encoders candle puts in one Metal command buffer on
+/// the device Inkling is served on (candle's default is 50). 30 shortens a
+/// decode step by 1.88 %, median of 5 alternated rounds [1.31, 3.52], logits
+/// byte for byte; every value from 5 to 1,000 reads within the spread of one
+/// run (`docs/mesures/inkling-mac-decode-2026-11-26.txt`).
+pub const METAL_COMPUTE_PER_BUFFER: &str = "30";
+
+/// The Metal device Inkling is served on, with [`METAL_COMPUTE_PER_BUFFER`].
+/// candle reads `CANDLE_METAL_COMPUTE_PER_BUFFER` once, when the device is
+/// made; a value already in the environment wins, and an unset variable is
+/// unset again afterwards, so no other device of the process sees it. Call it
+/// before the process starts reading its environment from other threads.
+pub fn new_metal_device() -> Result<Device> {
+    const VAR: &str = "CANDLE_METAL_COMPUTE_PER_BUFFER";
+    let unset = std::env::var_os(VAR).is_none();
+    if unset {
+        std::env::set_var(VAR, METAL_COMPUTE_PER_BUFFER);
+    }
+    let dev = Device::new_metal(0);
+    if unset {
+        std::env::remove_var(VAR);
+    }
+    dev
+}
+
 /// The runtime the resident experts launch through: the served tables and
 /// tile, with `prefill_rows` rows a prompt launch (1: one matvec a row, the
 /// path before P1; 2, 4 or 8: the f32 rows kernel).

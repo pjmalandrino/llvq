@@ -390,7 +390,7 @@ pub fn load_local(name: &ModelName, path: &Path) -> anyhow::Result<InkEngine> {
     eprintln!("llvq: loading {name} (inkling2, {}) on {}", path.display(), backend.label());
     let dev = match backend {
         Backend::Cuda => Device::new_cuda(0)?,
-        Backend::Metal => Device::new_metal(0)?,
+        Backend::Metal => llvq_llm::inkling::new_metal_device()?,
         Backend::Cpu => Device::Cpu,
     };
     let tok = tokenizers::Tokenizer::from_file(&local.tokenizer)

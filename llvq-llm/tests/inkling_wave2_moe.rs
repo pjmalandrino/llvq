@@ -435,7 +435,8 @@ fn d3_fused_is_one_row_at_model_shapes() {
     let lb = layer.take_launches();
     assert_eq!(first_difference(&b, &a), None, "forward, switch on against off");
     assert_eq!((la, lb), (40, 4), "lattice launches a call, one-expert path then fused");
-    assert!(rt.compiled_pipelines().contains(&"moe_tetra_down_metal"), "the fused kernels ran");
+    let down = if rt.moe_down_sg() { "moe_tetra_down_sg_metal" } else { "moe_tetra_down_metal" };
+    assert!(rt.compiled_pipelines().contains(&down), "the fused kernels ran");
 
     let mut rep = r.clone();
     rep.indices[0][1] = rep.indices[0][0];
