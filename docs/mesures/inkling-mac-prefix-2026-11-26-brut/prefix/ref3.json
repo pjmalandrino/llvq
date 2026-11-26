@@ -1,0 +1,22 @@
+{
+ "lines": 47,
+ "first_token_s": 178.09179592132568,
+ "last_s": 179.94894194602966,
+ "content": "",
+ "thinking": "The user asks: \"Do not call any tool. In one short sentence: what does section 21 of the policy ask for?\"\n\nNeed answer based on policy text. Section 21, logging, part 3.",
+ "tool_calls": [],
+ "final": {
+  "created_at": "2026-11-26T15:50:03.541528000Z",
+  "done": true,
+  "done_reason": "length",
+  "eval_count": 48,
+  "eval_duration": 2053799167,
+  "load_duration": 0,
+  "model": "inkling2:mini",
+  "prompt_eval_cached_count": 0,
+  "prompt_eval_count": 8791,
+  "prompt_eval_duration": 177873166417,
+  "total_duration": 179935885542
+ },
+ "errors": []
+}

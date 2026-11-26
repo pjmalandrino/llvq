@@ -126,7 +126,7 @@ start s8 "$OFF" 30 --prefix-cache off
 ask ref3 u3
 stop s8
 
-check cold-save "$O/pa.json" "$O/home" "$O/s1.server.log"
+check cold-save "$O/pa.json" "$O/pa.prefix-ls.txt" "$O/s1.server.log"
 check same P-a "$O/pa.json" "$O/ref1.json"
 check loaded P-c "$O/pc.json" "$O/ref3.json" "$O/s1.server.log" 0
 for i in 1 2 3; do check loaded "P-b$i" "$O/pb$i.json" "$O/ref2.json" "$O/s$((i + 1)).server.log" 0; done

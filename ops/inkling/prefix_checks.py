@@ -103,8 +103,9 @@ def read(path):
 
 
 def answer(s):
-    """What a client reads of the turn: the text and the calls."""
-    return json.dumps({"content": s.get("content"), "tool_calls": s.get("tool_calls")}, sort_keys=True)
+    """What a client reads of the turn: the reasoning, the text and the calls (48 tokens often end in the reasoning)."""
+    return json.dumps({"thinking": s.get("thinking"), "content": s.get("content"), "tool_calls": s.get("tool_calls")},
+                      sort_keys=True)
 
 
 def counts(s):
@@ -114,7 +115,7 @@ def counts(s):
 
 def answered(s):
     return "_unreadable" not in s and not s.get("errors") and s.get("final") is not None and \
-        bool(s.get("content") or s.get("tool_calls"))
+        bool(s.get("content") or s.get("thinking") or s.get("tool_calls"))
 
 
 def prefix_files(home):
@@ -124,10 +125,10 @@ def prefix_files(home):
 
 def check(name, *a):
     if name == "cold-save":
-        # P-a: <stream json> <home> <server log>
-        s, home, log = read(a[0]), a[1], open(a[2], errors="replace").read()
+        # P-a: <stream json> <`ls -l` of the prefix directory taken right after P-a> <server log>
+        s, log = read(a[0]), open(a[2], errors="replace").read()
         n, cached, pe = counts(s)
-        files = prefix_files(home)
+        files = [x.split()[-1] for x in open(a[1]).read().splitlines() if x.endswith(".llvqprefix")]
         saved = [x for x in log.splitlines() if "prefix cache: saved" in x]
         ok = answered(s) and cached == 0 and len(files) == 1 and f"-{B:08d}-" in files[0] and len(saved) == 1 \
             and f"saved {B} tokens" in saved[0]

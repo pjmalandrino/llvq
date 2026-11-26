@@ -1,0 +1,80 @@
+== M1 a different stored token accepted by the comparison
+   llvq-runtime/src/prefix.rs: 1 site(s)
+   exit 101
+   test prefix::tests::options_parse_or_refuse_by_name ... ok
+   test prefix::tests::the_save_point_is_the_last_piece_boundary_of_the_static_block ... ok
+   test prefix::tests::a_file_of_another_key_is_refused_naming_the_field ... ok
+   test prefix::tests::a_damaged_file_is_refused_by_name ... FAILED
+   test prefix::tests::a_saved_prefix_is_found_verified_and_loaded_back ... ok
+   test prefix::tests::the_least_recently_used_files_go_past_the_cap ... ok
+   thread 'prefix::tests::a_damaged_file_is_refused_by_name' (12835190) panicked at llvq-runtime/src/prefix.rs:594:50:
+   test result: FAILED. 5 passed; 1 failed; 0 ignored; 0 measured; 36 filtered out; finished in 0.08s
+   verdict: KILLED (red)
+== M2 integrity check skipped
+   llvq-runtime/src/prefix.rs: 1 site(s)
+   exit 101
+   test prefix::tests::the_save_point_is_the_last_piece_boundary_of_the_static_block ... ok
+   test prefix::tests::options_parse_or_refuse_by_name ... ok
+   test prefix::tests::a_file_of_another_key_is_refused_naming_the_field ... ok
+   test prefix::tests::a_damaged_file_is_refused_by_name ... FAILED
+   test prefix::tests::a_saved_prefix_is_found_verified_and_loaded_back ... ok
+   test prefix::tests::the_least_recently_used_files_go_past_the_cap ... ok
+   thread 'prefix::tests::a_damaged_file_is_refused_by_name' (12835653) panicked at llvq-runtime/src/prefix.rs:582:50:
+   test result: FAILED. 5 passed; 1 failed; 0 ignored; 0 measured; 36 filtered out; finished in 0.09s
+   verdict: KILLED (red)
+== M2b integrity check skipped, seen by the server test
+   llvq-runtime/src/prefix.rs: 1 site(s)
+   exit 101
+   test a_short_static_block_is_not_saved ... ok
+   test the_switch_off_writes_and_loads_nothing ... ok
+   test a_static_block_is_read_once_across_conversations_and_restarts ... FAILED
+   thread 'a_static_block_is_read_once_across_conversations_and_restarts' (12836458) panicked at llvq-runtime/tests/inkling_prefix.rs:233:5:
+   test result: FAILED. 2 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.10s
+   verdict: KILLED (red)
+== M3 save point moved by one piece
+   llvq-runtime/src/prefix.rs: 1 site(s)
+   exit 101
+   test prefix::tests::options_parse_or_refuse_by_name ... ok
+   test prefix::tests::the_save_point_is_the_last_piece_boundary_of_the_static_block ... FAILED
+   test prefix::tests::a_file_of_another_key_is_refused_naming_the_field ... ok
+   test prefix::tests::a_damaged_file_is_refused_by_name ... ok
+   test prefix::tests::a_saved_prefix_is_found_verified_and_loaded_back ... ok
+   test prefix::tests::the_least_recently_used_files_go_past_the_cap ... ok
+   thread 'prefix::tests::the_save_point_is_the_last_piece_boundary_of_the_static_block' (12837016) panicked at llvq-runtime/src/prefix.rs:508:9:
+   test result: FAILED. 5 passed; 1 failed; 0 ignored; 0 measured; 36 filtered out; finished in 0.08s
+   verdict: KILLED (red)
+== M4 a setting (kv_slack) removed from the key comparison
+   llvq-runtime/src/prefix.rs: 1 site(s)
+   exit 101
+   test prefix::tests::options_parse_or_refuse_by_name ... ok
+   test prefix::tests::the_save_point_is_the_last_piece_boundary_of_the_static_block ... ok
+   test prefix::tests::a_file_of_another_key_is_refused_naming_the_field ... FAILED
+   test prefix::tests::a_damaged_file_is_refused_by_name ... ok
+   test prefix::tests::a_saved_prefix_is_found_verified_and_loaded_back ... ok
+   test prefix::tests::the_least_recently_used_files_go_past_the_cap ... ok
+   thread 'prefix::tests::a_file_of_another_key_is_refused_naming_the_field' (12837477) panicked at llvq-runtime/src/prefix.rs:625:54:
+   test result: FAILED. 5 passed; 1 failed; 0 ignored; 0 measured; 36 filtered out; finished in 0.08s
+   verdict: KILLED (red)
+== M5 a loaded slot's buffers sized to what it holds, not to the saved capacity
+   llvq-llm/src/inkling/layers.rs: 1 site(s)
+   exit 101
+   test a_state_of_other_settings_or_damaged_is_refused ... ok
+   test a_loaded_state_reads_on_bit_for_bit_cpu ... FAILED
+   test metal::a_state_written_over_live_rings_metal ... ok
+   test metal::a_loaded_state_reads_on_bit_for_bit_metal ... FAILED
+   thread 'a_loaded_state_reads_on_bit_for_bit_cpu' (12842817) panicked at llvq-llm/tests/inkling_prefix_state.rs:247:5:
+   thread 'metal::a_loaded_state_reads_on_bit_for_bit_metal' (12842819) panicked at llvq-llm/tests/inkling_prefix_state.rs:247:5:
+   test result: FAILED. 2 passed; 2 failed; 0 ignored; 0 measured; 0 filtered out; finished in 4.18s
+   verdict: KILLED (red)
+== M5b M5 with the test's byte round-trip assertion removed: does the bit comparison alone see it?
+   llvq-llm/src/inkling/layers.rs: 1 site(s); llvq-llm/tests/inkling_prefix_state.rs: 1 site(s) (the assertion)
+   exit 0
+   test a_loaded_state_reads_on_bit_for_bit_cpu ... cut at 32 of 70: 0 of 78 rows differ, state 72264 bytes
+   cut at 48 of 70: 0 of 78 rows differ, state 80520 bytes
+   cut at 64 of 70: 0 of 78 rows differ, state 88776 bytes
+   test a_state_of_other_settings_or_damaged_is_refused ... ok
+   test metal::a_loaded_state_reads_on_bit_for_bit_metal ... cut at 32 of 70: 0 of 78 rows differ, state 72264 bytes
+   cut at 48 of 70: 0 of 78 rows differ, state 80520 bytes
+   test metal::a_state_written_over_live_rings_metal ... state over live rings: 0 of 6 steps differ
+   test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 20.28s
+   verdict: SURVIVED (green)

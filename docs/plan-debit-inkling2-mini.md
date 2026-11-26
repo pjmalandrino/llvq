@@ -10,7 +10,8 @@ stays *estimated* until §0 names it. Of the prompt items (§4) the 8-row path a
 bit for bit. On 2026-11-26 the Metal twins of the two CUDA prompt levers (batched experts, bias on the device) were
 built bit for bit and gained nothing measurable: on Metal the read is the lattice kernel's arithmetic and the
 attention products, not launches (`docs/mesures/inkling-mac-prompt-2026-11-26.txt`). P3 pays only with more rows an
-expert a call than pieces of 512 give; P3 to P7 are not started.
+expert a call than pieces of 512 give; P3 to P6 are not started. P7, the prefix cache on disk of the server, is in
+and on by default on Metal (§0).
 
 ## 0. State on 2026-11-23 (*measured*, Mac, Metal, 32-token prompt, three rounds a line)
 
@@ -33,7 +34,8 @@ expert a call than pieces of 512 give; P3 to P7 are not started.
 | prompt, score bias on the device (MSL twin of `attn_bias_rows`) | done, `inkrun --attn-bias device`, not a default | A | no gain at 2,000 or 9,000 tokens (2026-11-26) |
 | `down` of the fused MoE call, one simdgroup a selected expert | done, default on Metal | A | 5.22 % a step, median of 5 rounds (2026-11-26) |
 | K2, 30 encoders a command buffer on the Inkling Metal device | done, default on Metal | A | 1.88 % a step, median of 5 rounds; its effect on the prompt's read is open (2026-11-26) |
-| D8, D9, D5 ring, P3 to P7 | not started | | |
+| P7, the cache after a static block saved to disk and loaded by a new conversation or a restarted server | done, `llvq serve`, default on Metal, `--prefix-cache off` | A | 8,791-token prompt, static block of 8,704 tokens loaded: first token 3.90 s, median of 3 [3.62, 4.57], against 155 to 202 s cold; 1.41 GB on disk a static block (2026-11-26, `docs/mesures/inkling-mac-prefix-2026-11-26.txt`) |
+| D8, D9, D5 ring, P3 to P6 | not started | | |
 
 Class B was read on one WikiText-2 window for each switch and on three for the whole stack; the journal has the
 figures. The switches are not defaults: making one a default is the operator's decision.
@@ -169,7 +171,7 @@ Four notes.
 | P3 | Each expert a visit uses is decoded once into a transient dense tile and applied to all its rows by a plain product. One decode an expert a visit, instead of one a row. At one row the fused kernel stays. | `resident.rs:254-277`, a decode-only kernel | ours; the source decodes once a tile of 32 rows (`fast_kernels.py:2372-2681`, `2860-2918`) | B | 255,000 launches become about 18,000 decodes at 2,048 tokens; 28 s becomes 3 to 6 s | transient, 32 MB an expert in f32 |
 | P4 | Attention of the prompt in one kernel, bias and mask inside, no score tensor. | `layers.rs:366-424` | `fast_kernels.py:4284-4534` | B | with P3, a 9,000-token prompt in 10 to 30 s | removes the score tensor |
 | P5 | Prefix reuse across requests: a snapshot of the 4 convolution states at the end of each turn (3.8 MB), the cache cut back to it when the next prompt starts with the same tokens. | `InklingCache`, `llvq-runtime/src/engine.rs:672` | ours; the source rereads the whole prompt | A | an agent's long prompt is read once a session, not once a request | 3.8 MB a snapshot |
-| P7 | The cache after a static system prompt saved to disk, and loaded when a new session starts with the same tokens. | `llvq-runtime` store | ours | A | the first request of a session skips the read | disk only: 0.9 GB for 9,000 tokens with D5's ring |
+| P7 | The cache after a static system prompt saved to disk, and loaded when a new session starts with the same tokens. | `llvq-runtime/src/prefix.rs`, `llvq-llm/src/inkling/snapshot.rs` | ours | A | the first request of a session skips the read: done, 3.90 s instead of 155 to 202 s (§0) | disk only: 1.41 GB for 8,704 tokens, keys and values in f32 |
 | P6 | Draft by n-gram lookup in the prompt, accepted only where it equals the greedy token. | `llvq-runtime` | `generate.py:46-247` | A once P1 holds | pays only when the answer copies the prompt, which code agents do | none; needs S3 |
 
 Three notes.
