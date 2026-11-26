@@ -1,0 +1,5 @@
+inkrun: dense weights on metal in 2.1 s
+inkrun: fused MoE down one simdgroup a slot
+inkrun: 24 layers resident in 16.3 s: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23]
+inkrun: prefill of 9000 tokens in 174.69 s
+inkrun: 32 tokens, median step 0.049 s, equal to the reference: None (first mismatch None), report docs/mesures/inkling-mac-decode-2026-11-26-brut/kp-c50-1.json

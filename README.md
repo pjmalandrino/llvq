@@ -41,26 +41,37 @@ card: the kernel decodes and multiplies the routed experts' rows in a few launch
 
 | | NVIDIA L40S | NVIDIA L4 | Apple M3 Max, Metal |
 |---|---|---|---|
-| decode after a 32-token prompt | 72.2 tok/s | 36.9 tok/s | 27.7 tok/s |
+| decode after a 32-token prompt | 72.2 tok/s | 36.9 tok/s | 30.1 tok/s |
 | decode after a 2,000-token prompt | 67.9 tok/s | not measured | 26.2 tok/s |
-| decode after a 9,000-token prompt | 62.1 tok/s | 31.2 tok/s | not measured |
+| decode after a 9,000-token prompt | 62.1 tok/s | 31.2 tok/s | 22.7 tok/s |
 | device memory after load | 8.39 GB | 8.13 GB | 8.03 GB |
-| peak device memory reading a 9,000-token prompt | 12.0 GB | 11.5 GB | not measured |
-| time to read a 9,000-token prompt | 23.9 s | 77.1 s | not measured |
+| peak device memory reading a 9,000-token prompt | 12.0 GB | 11.5 GB | 11.4 GB |
+| time to read a 9,000-token prompt | 23.9 s | 77.1 s | 140 s |
+| first token of a new session, 8,704-token static block already read once | not measured | not measured | 3.9 s |
 
 - Size: 8.15 GB to download, 2.47 bits per parameter for the whole text model, tables included, *computed* from
   the files. The native model is 19.5 GB.
 - Quality: KL 0.0880 nats against the native model on WikiText-2. GSM8K, first 200 problems: 191 through the dense
   reference path and 186 through the fused kernels, not separated (p = 0.18). The native model was not run through
   our GSM8K harness.
-- All *measured* on 2026-11-22 to 2026-11-24, batch 1; journals in
+- All *measured* on 2026-11-22 to 2026-11-26, batch 1; journals in
   [inkling-cuda-ttft](docs/mesures/inkling-cuda-ttft-2026-11-24.txt) and, for the Mac,
-  [inkling-debit-boucle](docs/mesures/inkling-debit-boucle-2026-11-22.txt); history in
+  [inkling-mac-serve](docs/mesures/inkling-mac-serve-2026-11-26.txt),
+  [inkling-mac-prompt](docs/mesures/inkling-mac-prompt-2026-11-26.txt),
+  [inkling-mac-decode](docs/mesures/inkling-mac-decode-2026-11-26.txt) and
+  [inkling-mac-prefix](docs/mesures/inkling-mac-prefix-2026-11-26.txt); history in
   [`docs/data/inkling-stats.csv`](docs/data/inkling-stats.csv). The three machines are not to be divided by one another.
-- The Mac column is the bench binary on a 64 GB M3 Max, measured before the long-prompt work: its prompt path has
-  none of it yet, and the runtime has not served Inkling 2 Mini on a Mac.
+- The Mac column is a 64 GB M3 Max, and every change behind it keeps the logits bit for bit. `llvq serve --local`
+  serves the model there since 2026-11-26: 13 of 13 checks, 28.5 tok/s on a short turn. The 32-token row is the
+  median of 3 runs [29.99, 30.18] with that day's decode defaults; the 2,000- and 9,000-token rows were read
+  before them. The 9,000-token read is the median of 4 runs [134, 149]. Over the same day that read ranged from
+  109 to 305 s for the same code, and the cause is not known.
 - Not done: no run on a 16 GB consumer card, no vision tower, no comparison with other 2-bit files of this model
-  through this engine. Reading a long prompt for the first time is slow; a follow-up turn reuses the cache.
+  through this engine. Reading a long prompt for the first time is slow; a follow-up turn reuses the cache. On a
+  Mac the cache after a long system prompt and its tools is also saved to disk, so a new session that starts with
+  the same tokens has its first token in 3.9 s [3.62, 4.57] instead of 155 to 202 s (`llvq serve --prefix-cache`,
+  1.41 GB a saved block, off on CUDA where it has not run). The prompt of that test is synthetic: no coding-agent
+  client was run.
 
 ## Results on Qwen3
 
@@ -142,8 +153,8 @@ llvq serve                            # OpenAI and Ollama routes on 127.0.0.1:11
 | Linux x86_64, NVIDIA | driver 550 or newer, a card of compute capability 8.9 or newer (RTX 40 series, L4, L40S and later), glibc 2.35 (Ubuntu 22.04), OpenSSL 3 |
 | macOS, Apple Silicon | nothing else |
 
-Through the runtime, Inkling 2 Mini has been run on NVIDIA cards only; on a Mac it was measured in the bench
-binary, at 27.7 tok/s.
+Through the runtime, Inkling 2 Mini has been run on NVIDIA cards and, since 2026-11-26, on a 64 GB M3 Max, at
+28.5 tok/s on a short turn.
 
 The files are on the Hugging Face Hub, in two collections:
 [LLVQ Tetra - Thinking Machines](https://huggingface.co/collections/Pier-Jean/llvq-tetra-thinking-machines) and [LLVQ Tetra - Qwen](https://huggingface.co/collections/Pier-Jean/llvq-tetra-qwen).

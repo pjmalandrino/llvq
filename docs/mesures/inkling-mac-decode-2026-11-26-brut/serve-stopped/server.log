@@ -1,0 +1,8 @@
+llvq: inkling2:mini registered from /Users/pjmalandrino/.llvq/models/sha256-1e9314dba89332cb1af444619dc5d31a2a1ed6a50a1112e0ca2b8fc55bb6bfd3/inkling.json
+   /\
+  //\\
+ ///\\\    tetra
+////\\\\
+llvq 0.1.3 (a0177c6c6140) serving on http://127.0.0.1:11436, backend metal, store docs/mesures/inkling-mac-decode-2026-11-26-brut/serve/home
+chat in the browser: http://127.0.0.1:11436/
+llvq: loading inkling2:mini (inkling2, /Users/pjmalandrino/.llvq/models/sha256-1e9314dba89332cb1af444619dc5d31a2a1ed6a50a1112e0ca2b8fc55bb6bfd3/inkling.json) on metal

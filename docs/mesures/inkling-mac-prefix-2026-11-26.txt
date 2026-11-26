@@ -1,0 +1,124 @@
+INKLING 2 MINI ON THE MAC, THE PREFIX CACHE ON DISK OF THE SERVER, 2026-11-26 (lot 4)
+
+RESULT
+  A new conversation with the same 8,770-token static block (system prompt and 15 tools) gets its first token after
+  3.90 s, median of 3 restarted servers [3.62, 4.57], instead of 155 to 202 s for the same prompt read cold today
+  (*measured*, `llvq serve --local`, M3 Max, Metal, 8,791-token prompts). On the server that wrote the file, a new
+  conversation gets it after 3.84 s. The answer at temperature 0 is the answer of a server without the cache, in all
+  five comparisons. The logits of the real model read from a loaded state at 8,704 tokens are the cold read's byte for
+  byte (sha256 0140733a..., the `b9000` reference, two runs). The price: a 1.41 GB file a static block on disk, 1.66 s
+  added to the first read to write it, about 1 s to check and load it. Metal peak and process footprint do not rise.
+  Every correctness check passes: P-a to P-f 15 of 15 (P-a after a check fix, E7), the 13 of `serve-mac.sh`.
+  Prereg: proofs/preregistration-inkling-mac-prefix-2026-11-26.md (commit 271d66f, OpenTimestamps). Deviations:
+  -ECARTS.md beside it (E1 to E8). Raw files: inkling-mac-prefix-2026-11-26-brut/. Code: commits d7d903d, 4d74299.
+
+THE DESIGN AS BUILT
+  The save point is `b`, the last multiple of 512 tokens inside the static block. The block's end `L` is the common
+  prefix of the request's ids and of the ids rendered from its leading system messages alone (same tools, same
+  effort); here L is about 8,770 and b = 8,704. The first read is cut at b, which is a boundary of its 512-token
+  pieces, so the read keeps its cuts and its bits; the state is written there, and the read goes on.
+  The file (`llvq-runtime/src/prefix.rs`): magic, a JSON header with the key (format, family, model file sha256,
+  sha256 of the running executable, backend, stack, piece, score rows, slot slack, where the bias is built), the
+  tokens 0..b, the cache state (`llvq-llm/src/inkling/snapshot.rs`: per slot len, base, capacity, bound, keys and
+  values held in their stored dtype, the four convolution states read back from the rings), then a digest: the sha256
+  of the sha256 of each 64 MiB chunk (E1). Written to a temporary file in `<store>/prefix/`, mode 0600, then renamed.
+  The load takes the longest file whose name carries this key and the sha256 of the prompt's first b tokens, with b
+  past what memory keeps; checks the key field by field, the stored tokens one by one and the digest; then loads into
+  a new cache (the old one dropped first). A refusal is logged by name and the prompt is read as without the cache.
+  `llvq serve --prefix-cache on|off` (default on for Metal only) and `--prefix-cache-max` (default 4G, least recently
+  used first). On a CPU build or a candle stack, `on` is refused by name; on CUDA it compiles and can be turned on.
+
+THE GATES
+  Same bits, tiny model (`llvq-llm/tests/inkling_prefix_state.rs`, 4 tests pass): a 70-token prompt read in pieces
+  of 16, scores in chunks of 8, sliding slots bounded (window 4, slack 2), cut at 32, 48 and 64, state written,
+  loaded, rest read, 8 greedy steps: 0 of 78 rows differ, on the CPU and on Metal with the served stack (fused glue,
+  fused+scores). A state written while both rings hold the convolution states, after 3 one-row steps: 0 of 6 steps
+  differ. A state of other settings (full slots into a bounded model), cut short, or with a bad magic: refused.
+  Same bits, real model (`inkrun --save-at 8704 --state-file`, the 9,000-token prompt of lot 1, stack and arm B of
+  the earlier lots): logits sha256 0140733aceb0789513f4c76dc922b6401b2f919c96f11d018adafb492fcdf226, equal to
+  `b9000`, on d7d903d (gate-b8704) and on 4d74299 with the peak probe (gate2-b8704-peak); same 32 tokens.
+  Mutants (mutants.py, mutants.log; one site each, applied by count, restored by git checkout), on d7d903d:
+    M1 a stored token that differs accepted (the comparison stops one token short)   red: a_damaged_file_is_refused_by_name
+    M2 the integrity check skipped                                                   red: the unit test, and the server test (M2b)
+    M3 the save point moved by one piece                                             red: the_save_point_... test
+    M4 a setting (kv_slack) dropped from the key comparison                          red: a_file_of_another_key_...
+    M5 loaded buffers sized to the rows held, not the saved capacity                 red, but by the byte round trip only
+  M5b, M5 with the test's round-trip assertion removed, stays green: on the tiny model the extra masked keys a
+  different capacity leaves do not change a logit bit. The bit comparison alone does not see M5; the round trip does.
+  The sites of M2 and M5 moved in 4d74299; on the final code all five (and M2b) are red again, one site each
+  (mutants-final.log). M5b is in mutants-d7d903d.log.
+  Server tests with a scripted model (`llvq-runtime/tests/inkling_prefix.rs`, 3 pass): save, load in a new
+  conversation and after a restart, refusal of a damaged file then a new save, no load after a changed system
+  prompt, nothing written with the switch off, nothing saved under 1,024 tokens. Unit tests of the module: 7 pass.
+
+THE SERVER, P-a TO P-f (`ops/inkling/serve-prefix-mac.sh`, `prefix/`, binary 4d74299, eight servers in turn)
+  check   server               request                       first token   cached   reading
+  P-a     s1 cold store        static + u1                   165.80 s      0        file written, 1 file, b 8,704 (PASS, E7)
+  P-c     s1, same server      static + u3, new conversation 3.84 s        8,704    same answer as s8 (PASS)
+  P-b1    s2 restarted         static + u2                   3.90 s        8,704    same answer as s7 (PASS)
+  P-b2    s3 restarted         static + u2                   4.57 s        8,704    same (PASS)
+  P-b3    s4 restarted         static + u2                   3.62 s        8,704    same (PASS)
+  P-d     s5, 1 byte damaged   static + u2                   155.11 s      0        refused by name ("its sha256 does
+                                                                                    not hold: the file is damaged"),
+                                                                                    same answer, file written again (PASS)
+  P-e     s6                   one word changed + u2         156.99 s      0        no load, a second file (PASS)
+  P-f     s7, s8, switch off   u1, u2 / u3                   201.71, 177.56 / 178.09 s   0   no prefix directory (PASS)
+  Correctness 15 of 15 after E7 (the run's own summary said 14 and 1 FAIL, summary-run.txt). The 48-token answers end
+  inside the reasoning block; the comparison covers reasoning, text and calls (E8).
+  Inside the 3.90 s of P-b: the load, 0.96 to 1.03 s (of which the check 0.60 to 0.70 s), then the 87 tokens after
+  b and the user message (prompt_eval 2.45 to 3.33 s with the load), then the first decode step.
+  On d7d903d (one sha256 stream, E1) the save took 3.81 s and the load 3.49 s, of which 3.17 s of check.
+
+THE 13 CHECKS OF serve-mac.sh (cache on by default)
+  On d7d903d (serve13/): 13 PASS, 0 FAIL. The repeated 8,791-token prompt (e2), read cold in full until now, loads
+  the file: first token 7.13 s against 305.24 s for e1 in a slow window; its reading check now passes. The follow-up
+  e3 reads 20 tokens. The answer cut by its cap is still not reused (the reading FAIL the code predicts).
+  On the final code, 4d74299 (serve13b/): 13 PASS, 0 FAIL. e1 read cold, first token 141.43 s; the file saved in
+  1.71 s; e2 loads it in 0.86 s and gives its first token after 3.31 s; e3 reads 20 tokens. One reading FAIL is
+  left, e3-reuse-answer (the answer cut by its cap); e2-repeat-reuse, a FAIL in every earlier lot, now passes.
+
+AGAINST THE SIGNED PREDICTIONS
+  prediction                                     measured                                       inside
+  F1 file 0.4 to 0.8 GB at b = 8,704             1.41 GB (1,413,197,101 bytes)                   no, above: keys and
+                                                                                                values are f32 here, and a
+                                                                                                bounded slot holds 2,048 to
+                                                                                                3,072 positions (E3)
+  F2 P-b first token 3 to 12 s; P(< 8 s) 0.6     3.90 s [3.62, 4.57], median of 3                 yes; under 8 s
+  F3 save adds under 3 s to the first read       1.65, 1.67, 1.67 s (final); 3.81 s (d7d903d)     yes on the final code
+  F4 P-c in F2's range                           3.84 s                                          yes
+  F5 Metal peak unchanged +-0.1 GB               inkrun peak 11.18 GB against 11.42 for b9000     no, 0.24 GB lower;
+                                                 (after the prompt 9.81 against 10.71)            not higher
+  F5 process footprint during the write          15 GB peak in P-a, 15 in P-d and 14 in the       no rise seen at
+                                                 references without the cache (1 s samples)      footprint's 1 GB grain
+  Why F5 reads lower: the loaded cache is made in tight allocations, where the cold read's slots grew by half and
+  left larger buffers in candle's Metal pool. One run each; not a property claimed beyond this run.
+
+COLD READS AND CANDLE_METAL_COMPUTE_PER_BUFFER (first token of an 8,791-token prompt read cold, server, one each)
+  compute per buffer 30 (lot 3 default, unset): 165.80 (P-a), 156.99 (P-e), 178.09 (ref3); median 165.80
+  compute per buffer 50:                        155.11 (P-d), 201.71 (ref1), 177.56 (ref2); median 177.56
+  Same window, servers alternated, 16:29 to 16:50; ref2 followed ref1 on the same server. The two medians are 7 %
+  apart inside a 30 % spread: these six reads do not separate the two values. Outside this table, the same cold read
+  took 305.24 s at 16:12 (serve13 e1) and inkrun read 9,000 tokens in 253.01 s at 16:04 and 149.67 s at 16:26.
+  Each `.machine` line carries load, GPU and `pmset -g therm`: load 2.6 to 4.0; pmset recorded no thermal or
+  performance warning and no CPU power limit in any line; the GPU read 92 to 96 % at the start of six servers, right
+  after the previous one stopped, and 18 to 24 % at the other three. The cause of the slow windows is still not known.
+
+WHAT THE READING DOES NOT SAY
+  Nothing about a static block that changes inside its first b tokens (a date in the system prompt, say): it loads
+  nothing, as P-e shows, and a new file is written for each version. The cap of 4 GiB holds two such files.
+  Nothing about CUDA: off by default, type-checked only (linux-check.log).
+  The in-memory path is unchanged: a new conversation on a server whose memory still holds 0..b (after a load) rolls
+  back in memory, as before this lot. That rollback is not shown to give a cold read's bits when a bounded slot has
+  moved its base since b (M5b suggests the extra masked keys change nothing; it was not measured on the real model).
+
+CLAIMS TOUCHED IN CERVEAU.md
+  A4 is added, standing supported: 3.90 s [3.62, 4.57] against 155 to 202 s, and the logits bit for bit.
+  N9 is added to the anomalies: this journal's cold reads, 305 s included, are part of its range.
+
+AFTER THE REVIEW BEFORE THE MERGE (2026-11-26, commit 404e6a0)
+  The key gained `files_sha256`: every file under the model's parts, as its canonical path, its size and its
+  modification time. The key had carried the sha256 of the local file alone, which files sealed again at the same
+  paths, or two releases of a pulled set, leave unchanged: a state saved by other weights would have been loaded.
+  Files written before that commit are refused by name, on the key. A temporary file left by a write that never
+  ended is removed by the eviction once it is an hour old. No measurement was run again: the read after a load is
+  the code the gates above ran.

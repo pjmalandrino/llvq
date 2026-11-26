@@ -1,0 +1,7 @@
+2026-11-26 13:32:20 load1 3.83 gpu 3% memfree 81% 
+prompt 9000 read in 135.31 s; step median 0.0540 s = 18.51 tok/s; GB after load 8.03, after the prompt 10.57, end 10.57; peak {'kind': 'largest allocated size read after a layer visit, before and after a drain', 'prefill': 11418304512, 'whole_run': 11418304512}; all_equal None
+0140733aceb0789513f4c76dc922b6401b2f919c96f11d018adafb492fcdf226  docs/mesures/inkling-mac-prompt-2026-11-26-brut/fin-b9000-peak.logits.f32
+2026-11-26 13:35:41 load1 3.13 gpu 0% memfree 81% 
+prompt 9000 read in 117.86 s; step median 0.0571 s = 17.50 tok/s; GB after load 8.03, after the prompt 11.59, end 11.60; peak {'kind': 'largest allocated size read after a layer visit, before and after a drain', 'prefill': 12924846080, 'whole_run': 12924846080}; all_equal None
+0140733aceb0789513f4c76dc922b6401b2f919c96f11d018adafb492fcdf226  docs/mesures/inkling-mac-prompt-2026-11-26-brut/fin-batchbias9000-peak.logits.f32
+arms: all done

@@ -1,0 +1,11 @@
+    Checking llvq-core v0.1.0 (/Users/pjmalandrino/Documents/Pro/workspace/poc/llvq/.claude/worktrees/mac-inkling/llvq-core)
+   Compiling llvq-llm v0.1.0 (/Users/pjmalandrino/Documents/Pro/workspace/poc/llvq/.claude/worktrees/mac-inkling/llvq-llm)
+    Checking clap_builder v4.6.7
+    Checking llvq-search v0.1.0 (/Users/pjmalandrino/Documents/Pro/workspace/poc/llvq/.claude/worktrees/mac-inkling/llvq-search)
+   Compiling llvq-runtime v0.1.3 (/Users/pjmalandrino/Documents/Pro/workspace/poc/llvq/.claude/worktrees/mac-inkling/llvq-runtime)
+    Checking llvq-quant v0.1.0 (/Users/pjmalandrino/Documents/Pro/workspace/poc/llvq/.claude/worktrees/mac-inkling/llvq-quant)
+    Checking clap v4.6.7
+    Checking llvq-artifact v0.1.0 (/Users/pjmalandrino/Documents/Pro/workspace/poc/llvq/.claude/worktrees/mac-inkling/llvq-artifact)
+    Checking llvq-cuda v0.1.0 (/Users/pjmalandrino/Documents/Pro/workspace/poc/llvq/.claude/worktrees/mac-inkling/llvq-cuda)
+    Checking llvq-bench v0.1.0 (/Users/pjmalandrino/Documents/Pro/workspace/poc/llvq/.claude/worktrees/mac-inkling/llvq-bench)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 14.97s

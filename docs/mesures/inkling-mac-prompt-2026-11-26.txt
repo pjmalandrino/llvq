@@ -1,0 +1,119 @@
+INKLING 2 MINI ON THE MAC, THE READ OF A LONG PROMPT, 2026-11-26
+
+RESULT
+  No step of this lot shortens the read on the Mac. A 9,000-token prompt is still read in 140.4 s, median of four
+  runs of the unchanged path [134.15, 149.47], and a 2,000-token prompt in 23.69 s [23.27, 24.10] without one slow
+  outlier at 42.83 s (*measured*, M3 Max, Metal, the long-prompt settings of the morning). The peak stays 11.42 GB.
+  Two steps keep every bit, and neither moves the read beyond the spread of the runs:
+    the experts' rows of a layer visit in a few launches (Metal twin of the CUDA batched read): 768 lattice launches
+    for 2,000 tokens instead of 356,398, and 3,456 for 9,000 instead of 1,605,064; 131.22 s against 134.15 at 9,000
+    tokens in the same window;
+    the score bias built on the device (MSL twin of `attn_bias_rows`): 24.21 s against 24.10 at 2,000 tokens.
+  The reason is in the profile and the kernel benches: on Metal the read is bound by the arithmetic of the 8-row
+  lattice kernel (about 1 TFLOP/s) and by candle's attention products, not by the launches. The CUDA levers removed
+  launches; there are almost none to remove here.
+  Prereg: proofs/preregistration-inkling-mac-prompt-2026-11-26.md (commit a78a6ce, OpenTimestamps). Deviations:
+  -ECARTS.md beside it. Raw files: inkling-mac-prompt-2026-11-26-brut/. Every figure is one run unless said.
+
+WHERE THE TIME GOES (step 1, `inkrun --prefill-phases on`, arm B, *measured*: prof2000.json, prof9000.json)
+  part                          2,000 tokens        9,000 tokens
+  experts (moe)                 15.82 s   56.0 %    70.69 s   44.7 %
+  scores, bias, softmax         5.68      20.1      54.89     34.7
+  attention products            2.58      9.1       10.56     6.7
+  norms, gates, residuals       2.12      7.5       9.30      5.9
+  cache copies (repeat_kv)      0.80      2.8       7.16      4.5
+  convolutions                  0.92      3.2       4.41      2.8
+  routing, embed, head          0.34      1.2       1.08      0.6
+  total                         28.26               158.09
+  The device is drained at every mark, so a part with many marks is inflated; the totals run 20 % and 13 % above an
+  unprobed read (23.49 and 140.4). The bias is built inside the score statement and is charged there.
+
+WHAT THE EXPERTS COST (kernel benches on synthetic codes at the model's shapes, *measured*, kernels-*.log)
+  One launch of the 8-row kernel `tv_tetra48_metal_lutdrf`, 1,152 x 2,304: 7.5 us at 1 row, 27.2 us at 8 rows,
+  2.8 us more a row; 1.56 TFLOP/s at 8 rows. The decode of a block is shared by the rows; the rows themselves cost.
+  One layer visit of a 512-token piece (4,096 pairs, 568 chunks), stage by stage, the device drained around each:
+  gather and cast 1.34 ms, input rotation 0.60, gate and up 42.35, down rotation 0.33, down 20.52; the whole
+  batched call 64.88 ms against 73.96 for the general path. The lattice products are 97 % of it.
+  Two variants of the rows kernel, bit for bit too, did not pay and were removed:
+    the chunk's rows staged in threadgroup memory: slower at every size, 45.09 ms for gate and up at 8 rows a
+    threadgroup, 63.10 at 16, 68.92 at 32, against 38.23 unstaged in the same run (kernels-5.log);
+    two output rows a simdgroup, each activation read once for both: 83.63 ms against 87.19 for gate and up in a
+    window where the GPU ran slow (kernels-6.log); the end-to-end runs did not tell it from the plain kernel.
+  So loads of the activation are not the bound; the multiply-adds and the decode are.
+  candle's f32 product at the same shapes (plan item P3, decode once and multiply; mutants-2.log): 92.4 us for
+  32 rows against 4 launches of 27.2 us for the rows kernel, 147.3 us for 256 rows (9.23 TFLOP/s) against 32
+  launches. P3 pays only with many rows an expert a call. With pieces of 512 tokens an expert gets about 32 rows a
+  visit, where the product alone costs what the lattice kernel costs, before the decode is paid. P3 was not built.
+
+THE STEPS (*measured*, seconds of the prompt's read; each step's arms in one window, reference beside it)
+  step                                  2,000 tokens            9,000 tokens                 class  logits sha256
+  reference, arm B                      24.10 / 23.27 / 42.83*  139.37 / 134.15 / 141.42 / 149.47   -   6c05fabd... / 01407333...
+  + bias on the device (s1)             24.21                   169.02 (GPU 55 % at start)   A      equal
+  + experts batched (s2)                22.56                   131.22                       A      equal
+  + experts batched, bias on device (s2) 20.72                  131.09                       A      equal
+  + both and two rows a simdgroup (s3)  31.25                   154.83 / 135.00              A      equal
+  + experts batched (s3)                28.23                   -                            A      equal
+  * s3-ref2000 read 42.83 s with load and GPU idle at its start; reported as read, nothing rests on it.
+  The logits of every arm equal the morning's b2000 and b9000 byte for byte: 21 files, two digests
+  (logits.sha256). The 32 tokens after the prompt are the morning's in every arm.
+  The rule kept a step whose gain at 9,000 tokens exceeds 5 %. None does: the best pairing in one window is -2.3 %
+  (s2), and the spread of the four reference reads is 11 %. Nothing became a default; the runtime is unchanged.
+
+MEMORY (*measured*, `--peak-probe on`, one run each)
+  arm B, 9,000 tokens: peak 11.418 GB (11.42 in the morning), 10.57 GB after the prompt.
+  experts batched and bias on the device: peak 12.925 GB, 11.59 GB after the prompt: the pair buffers of a
+  1,024-token block (`resident::BATCH_TOKENS`) add 1.5 GB at the peak.
+
+DECODE AFTER THE PROMPT (not this lot's object; *measured* in the same runs)
+  After 9,000 tokens: 22.79, 23.56, 22.66, 22.45 tok/s in the reference arms, median 22.73, where the morning read
+  19.80 on the same code. After 2,000 tokens: 26.44, 26.64. The morning's 19.80 is the low end of a spread, not a
+  property of the path: this lot changed nothing in the decode.
+
+AGAINST THE SIGNED PREDICTIONS
+  quantity                                        predicted          measured                    inside
+  Q1 2,000 tokens, experts                        50 to 75 %         56.0 %                      yes
+  Q1 2,000 tokens, scores and bias                5 to 20 %          20.1 %                      no, just above
+  Q1 9,000 tokens, experts                        30 to 55 %         44.7 %                      yes
+  Q1 9,000 tokens, scores and bias                30 to 55 %         34.7 %                      yes
+  Q2 9,000-token read at the end of the lot       70 to 110 s        140.4 s (median of 4)       no
+  Q2 probability 0.5 of being under 110 s         -                  not under                   -
+  Q3 2,000-token read at the end of the lot       13 to 19 s         23.69 s (median of 2)       no
+  Q4 peak at 9,000 tokens                         at most 12.5 GB    11.42 GB (default path)     yes
+  The profile was read right; the gains were not. Q2 and Q3 assumed the CUDA levers carry to Metal.
+
+THE CODE (branch debit/inkling-mac-2026-11-26; none of it is on by default)
+  `llvq-llm/src/inkling/attn_bias.rs`: the module covers CUDA and Metal; the MSL kernel writes
+  `rel[clamp(d)] * keep + mask` with the product and the sum rounded apart (`fp contract(off)`, safe math).
+  `layers::score_bias_host` is the host path, public as the reference. `inkrun --attn-bias device` on Metal.
+  `llvq-llm/src/fused_metal.rs`: `moe_rows_lutdrf` (the body of `tv_tetra48_metal_lutdrf`, pointers from the slab,
+  one chunk of at most 8 rows of one expert a threadgroup) and `moe_pairs_sum` (each token's rows times their
+  weights, ascending expert order, from +0); `MetalRuntime::moe_rotate_pairs` runs the one-row path's `moe_rot_metal`
+  over all the pairs. `ResidentExperts::forward_rows_batched` puts them together; `inkrun --moe-rows batch` on Metal.
+  Tests: `tests/inkling_attn_bias.rs` (7 shapes up to 24 x 128 x 9,000, every bit, masks and signed zeros) and
+  `tests/inkling_moe_rows.rs` (128 synthetic experts at the model's shapes, 2 to 1,100 tokens, skewed routings,
+  small layers with tails, 1 to 12 experts a token: every f32 of the general path). Mutants, each seen red with its
+  site counted (one site each): the window bound `<` made `<=` in the MSL bias (20 elements differ); `a * gs * inv`
+  made `a * (gs * inv)` in `moe_rows_lutdrf`; the token sum run in descending expert order (mutants-1.log,
+  mutants-2.log). On the code as committed: those two files, `inkling_wave2_moe` and `inkling_wave3_attn` pass
+  (tests-final.log). `cargo clippy --all-targets` on llvq-llm and llvq-runtime with `metal`: zero warnings. The CUDA
+  half (the bias module now serves both backends): `ops/check-linux-cuda.sh clippy -p llvq-llm -p llvq-runtime
+  --features llvq-llm/cuda --all-targets`, zero warnings (linux-check.log). Not run on a card.
+
+WHAT THE READING DOES NOT SAY
+  That the batched experts or the device bias are useless on Metal: they are about 2 % at 9,000 tokens in the
+  window where both arms ran, under the spread, and one probed pair read 117.86 s against 135.31 for arm B. A
+  claim either way needs more rounds than this lot ran.
+  Where the scores' 35 % at 9,000 tokens can go without changing values. They are candle's products and softmax
+  over chunks of 128 rows; the bias is a small part (no gain from moving it). Shortening the key range a row sees
+  changes the softmax's reduction, so it is class B (plan item P4).
+  The server's first token: not re-read, the runtime did not change (E2).
+
+WHAT IS LEFT, AND WHERE THE TIME IS
+  The read is the lattice kernel's arithmetic (experts, about 45 to 55 %) and the attention products (scores and
+  products, about 30 to 40 % at 9,000 tokens). On this Mac both are class B work: P3 needs more rows an expert a
+  call than pieces of 512 give, so it trades against the peak; P4, one prompt-attention kernel with the bias and the
+  mask inside, is what reaches the scores. P5 and P7 (read a prompt once a session) remove the wait without a kernel.
+
+CLAIMS TOUCHED IN CERVEAU.md
+  A3 is added, standing supported: the launches (1,605,064 to 3,456) and the two kernel rates (1.56 and 9.23
+  TFLOP/s) are this journal's. Its three alternated rounds are step 0 of inkling-mac-decode-2026-11-26.txt.

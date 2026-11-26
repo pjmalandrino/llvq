@@ -1,0 +1,9 @@
+2026-11-26 10:43:30
+llvq [1867]: 64-bit    Footprint: 14 GB (16384 bytes per page)
+  10 GB        0 B        27 MB       2284    IOAccelerator (graphics)
+ 162 MB        0 B          0 B         32    Owned physical footprint (unmapped) (graphics)
+ 640 KB        0 B          0 B         14    IOAccelerator
+  14 GB    1323 MB       138 MB       5458    TOTAL
+    phys_footprint: 14 GB
+    phys_footprint_peak: 15 GB
+{"models":[{"name":"inkling2:mini","model":"inkling2:mini","size":1366330064,"digest":"a86d86840a9ed8bca3b07c25e0e826f263bac9e4f86a735eb391dccf17f80760","details":{"parent_model":"","format":"llvq","family":"inkling2","families":["inkling2"],"parameter_size":"","quantization_level":"Tetra  b/param"},"expires_at":"9999-12-31T23:59:59.000000000Z","size_vram":1366330064,"context_length":32768,"llvq":{"state":"ready","backend":"metal","config":"inkling.json","queue":0,"busy":false,"error":null,"batch_pool_bytes":0}}]}

@@ -1,0 +1,8 @@
+2026-11-26 16:29:17 s1 cpb 30 load1 3.22 gpu 24% memfree 74% therm [Note: No thermal warning level has been recorded;Note: No performance warning level has been recorded;Note: No CPU power status has been recorded]
+2026-11-26 16:32:35 s2 cpb 30 load1 3.23 gpu 94% memfree 74% therm [Note: No thermal warning level has been recorded;Note: No performance warning level has been recorded;Note: No CPU power status has been recorded]
+2026-11-26 16:33:02 s3 cpb 30 load1 3.35 gpu 95% memfree 71% therm [Note: No thermal warning level has been recorded;Note: No performance warning level has been recorded;Note: No CPU power status has been recorded]
+2026-11-26 16:33:30 s4 cpb 30 load1 3.92 gpu 90% memfree 71% therm [Note: No thermal warning level has been recorded;Note: No performance warning level has been recorded;Note: No CPU power status has been recorded]
+2026-11-26 16:33:57 s5 cpb 50 load1 3.88 gpu 18% memfree 71% therm [Note: No thermal warning level has been recorded;Note: No performance warning level has been recorded;Note: No CPU power status has been recorded]
+2026-11-26 16:36:56 s6 cpb 30 load1 3.30 gpu 96% memfree 72% therm [Note: No thermal warning level has been recorded;Note: No performance warning level has been recorded;Note: No CPU power status has been recorded]
+2026-11-26 16:39:56 s7 cpb 50 load1 2.83 gpu 95% memfree 71% therm [Note: No thermal warning level has been recorded;Note: No performance warning level has been recorded;Note: No CPU power status has been recorded]
+2026-11-26 16:46:42 s8 cpb 30 load1 2.61 gpu 92% memfree 74% therm [Note: No thermal warning level has been recorded;Note: No performance warning level has been recorded;Note: No CPU power status has been recorded]

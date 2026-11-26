@@ -1,0 +1,45 @@
+llvq version 0.1.3 (4d74299f7b3e)
+== s1: home home, compute per buffer 30, flags [] ==
+2026-11-26 16:29:17 s1 cpb 30 load1 3.22 gpu 24% memfree 74% therm [Note: No thermal warning level has been recorded;Note: No performance warning level has been recorded;Note: No CPU power status has been recorded]
+pa: first token 165.79689598083496 s, prompt 8791, cached 0, read 165.54 s, content ''
+files after P-a: 6b4f0ed7cd87d65d-00008704-c7adec5e8c13cd35f4e45f13ac9167de.llvqprefix
+pc: first token 3.8447067737579346 s, prompt 8791, cached 8704, read 2.66 s, content ''
+== s2: home home, compute per buffer 30, flags [] ==
+2026-11-26 16:32:35 s2 cpb 30 load1 3.23 gpu 94% memfree 74% therm [Note: No thermal warning level has been recorded;Note: No performance warning level has been recorded;Note: No CPU power status has been recorded]
+pb1: first token 3.9021990299224854 s, prompt 8791, cached 8704, read 2.68 s, content ''
+== s3: home home, compute per buffer 30, flags [] ==
+2026-11-26 16:33:02 s3 cpb 30 load1 3.35 gpu 95% memfree 71% therm [Note: No thermal warning level has been recorded;Note: No performance warning level has been recorded;Note: No CPU power status has been recorded]
+pb2: first token 4.568392992019653 s, prompt 8791, cached 8704, read 3.33 s, content ''
+== s4: home home, compute per buffer 30, flags [] ==
+2026-11-26 16:33:30 s4 cpb 30 load1 3.92 gpu 90% memfree 71% therm [Note: No thermal warning level has been recorded;Note: No performance warning level has been recorded;Note: No CPU power status has been recorded]
+pb3: first token 3.6221659183502197 s, prompt 8791, cached 8704, read 2.45 s, content ''
+damaged one byte at offset 706598550 of 1413197101
+== s5: home home, compute per buffer 50, flags [] ==
+2026-11-26 16:33:57 s5 cpb 50 load1 3.88 gpu 18% memfree 71% therm [Note: No thermal warning level has been recorded;Note: No performance warning level has been recorded;Note: No CPU power status has been recorded]
+pd: first token 155.1122269630432 s, prompt 8791, cached 0, read 154.17 s, content ''
+== s6: home home, compute per buffer 30, flags [] ==
+2026-11-26 16:36:56 s6 cpb 30 load1 3.30 gpu 96% memfree 72% therm [Note: No thermal warning level has been recorded;Note: No performance warning level has been recorded;Note: No CPU power status has been recorded]
+pe: first token 156.9852261543274 s, prompt 8791, cached 0, read 156.76 s, content ''
+== s7: home home-off, compute per buffer 50, flags [--prefix-cache off] ==
+2026-11-26 16:39:56 s7 cpb 50 load1 2.83 gpu 95% memfree 71% therm [Note: No thermal warning level has been recorded;Note: No performance warning level has been recorded;Note: No CPU power status has been recorded]
+ref1: first token 201.71040892601013 s, prompt 8791, cached 0, read 200.99 s, content ''
+ref2: first token 177.5623791217804 s, prompt 8791, cached 0, read 177.35 s, content ''
+== s8: home home-off, compute per buffer 30, flags [--prefix-cache off] ==
+2026-11-26 16:46:42 s8 cpb 30 load1 2.61 gpu 92% memfree 74% therm [Note: No thermal warning level has been recorded;Note: No performance warning level has been recorded;Note: No CPU power status has been recorded]
+ref3: first token 178.09179592132568 s, prompt 8791, cached 0, read 177.87 s, content ''
+FAIL P-a-cold-save [correctness] prompt 8791, cached 0, read 165.54 s, files ['6b4f0ed7cd87d65d-00008704-2a0c05fa1199ae17e2fe51c6d6005017.llvqprefix', '6b4f0ed7cd87d65d-00008704-c7adec5e8c13cd35f4e45f13ac9167de.llvqprefix'], log ['llvq: prefix cache: saved 8704 tokens, 1413197101 bytes, in 1.65 s: 6b4f0ed7cd87d65d-00008704-c7adec5e8c13cd35f4e45f13ac9167de.llvqprefix'] | 165.80 s
+PASS P-a-same-answer [correctness] answer '{"content": "", "thinking": "The user asks: \\"Do not call any tool. In one short sentence: what does section 7 of the po' against '{"content": "", "thinking": "The user asks: \\"Do not call any tool. In one short sentence: what does section 7 of the po'
+PASS P-c-loaded [correctness] prompt 8791, cached 8704 (at least 8704), read 2.66 s, log ['llvq: prefix cache: loaded 8704 tokens from 6b4f0ed7cd87d65d-00008704-c7adec5e8c13cd35f4e45f13ac9167de.llvqprefix in 0.95 s (checked in 0.60 s)'] | 3.84 s
+PASS P-c-same-answer [correctness] answer '{"content": "", "thinking": "The user asks: \\"Do not call any tool. In one short sentence: what does section 21 of the p' against the server without the cache '{"content": "", "thinking": "The user asks: \\"Do not call any tool. In one short sentence: what does section 21 of the p'
+PASS P-b1-loaded [correctness] prompt 8791, cached 8704 (at least 8704), read 2.68 s, log ['llvq: prefix cache: loaded 8704 tokens from 6b4f0ed7cd87d65d-00008704-c7adec5e8c13cd35f4e45f13ac9167de.llvqprefix in 0.99 s (checked in 0.70 s)'] | 3.90 s
+PASS P-b1-same-answer [correctness] answer '{"content": "", "thinking": "The user asks: \\"Do not call any tool. In one short sentence: what does section 12 of the p' against the server without the cache '{"content": "", "thinking": "The user asks: \\"Do not call any tool. In one short sentence: what does section 12 of the p'
+PASS P-b2-loaded [correctness] prompt 8791, cached 8704 (at least 8704), read 3.33 s, log ['llvq: prefix cache: loaded 8704 tokens from 6b4f0ed7cd87d65d-00008704-c7adec5e8c13cd35f4e45f13ac9167de.llvqprefix in 1.03 s (checked in 0.70 s)'] | 4.57 s
+PASS P-b2-same-answer [correctness] answer '{"content": "", "thinking": "The user asks: \\"Do not call any tool. In one short sentence: what does section 12 of the p' against the server without the cache '{"content": "", "thinking": "The user asks: \\"Do not call any tool. In one short sentence: what does section 12 of the p'
+PASS P-b3-loaded [correctness] prompt 8791, cached 8704 (at least 8704), read 2.45 s, log ['llvq: prefix cache: loaded 8704 tokens from 6b4f0ed7cd87d65d-00008704-c7adec5e8c13cd35f4e45f13ac9167de.llvqprefix in 0.96 s (checked in 0.68 s)'] | 3.62 s
+PASS P-b3-same-answer [correctness] answer '{"content": "", "thinking": "The user asks: \\"Do not call any tool. In one short sentence: what does section 12 of the p' against the server without the cache '{"content": "", "thinking": "The user asks: \\"Do not call any tool. In one short sentence: what does section 12 of the p'
+PASS P-d-damaged-refused [correctness] prompt 8791, cached 0, read 154.17 s, log ['llvq: prefix cache: 6b4f0ed7cd87d65d-00008704-c7adec5e8c13cd35f4e45f13ac9167de.llvqprefix refused, the prompt is read without it: its sha256 does not hold: the file is damaged'] | 155.11 s
+PASS P-d-same-answer [correctness] answer '{"content": "", "thinking": "The user asks: \\"Do not call any tool. In one short sentence: what does section 12 of the p' against '{"content": "", "thinking": "The user asks: \\"Do not call any tool. In one short sentence: what does section 12 of the p'
+PASS P-e-changed-no-load [correctness] prompt 8791, cached 0, read 156.76 s, loads [] | 156.99 s
+PASS P-f-off [correctness] cached [0, 0], prefix dir exists False, log ['llvq: inkling2:mini: prefix cache: off']
+PASS P-f-off [correctness] cached [0], prefix dir exists False, log ['llvq: inkling2:mini: prefix cache: off']
+correctness: 14 PASS, 1 FAIL ['P-a-cold-save']

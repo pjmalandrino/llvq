@@ -1,0 +1,6 @@
+1795707203.3  phys_footprint: 11 GB
+1795707204.4  phys_footprint: 13 GB
+1795707205.5  phys_footprint: 13 GB
+1795707206.6  phys_footprint: 13 GB
+1795707207.7  phys_footprint: 13 GB
+1795707208.8  phys_footprint: 13 GB

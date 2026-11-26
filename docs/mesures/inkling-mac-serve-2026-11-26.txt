@@ -1,0 +1,88 @@
+INKLING 2 MINI SERVED ON THE MAC, AND THE LONG-PROMPT SETTINGS ON METAL, 2026-11-26
+
+RESULT
+  `llvq serve` serves Inkling 2 Mini on this Mac (M3 Max, 64 GB, Metal) on its first complete try: 13 correctness
+  checks of 13, a tool call and its follow-up, loaded in 23.0 s (*measured*). The first token of an 8,791-token
+  prompt comes after 145.0 s, and the server's process holds 14 GB after it (`footprint`, peak 15 GB).
+  Through `inkrun`, decode after the 32-token prompt reads 26.66 tok/s, the figure of 2026-11-23 (27.70) within the
+  spread of three rounds. The long-prompt settings, now on Metal (pieces of 512 tokens, scores in chunks of 128 rows,
+  sliding slots bounded with a slack of 1,024, the score bias on the host), read 2,000 tokens in 23.49 s against
+  25.96 s without them, with the same 32 tokens after. They read 9,000 tokens in 148.66 s with an 11.42 GB peak;
+  decode after them falls to 19.80 tok/s.
+  Prereg: `proofs/preregistration-inkling-mac-serve-2026-11-26.md` (commit 31125bd, OpenTimestamps). Deviations:
+  `-ECARTS.md` beside it. Raw files: `inkling-mac-serve-2026-11-26-brut/`. Every figure is one run unless said.
+
+THE CODE (branch debit/inkling-mac-2026-11-26, commit 4c6a53b)
+  `llvq-runtime/src/inkling.rs`: `long_prompt(backend, fused)` turns the three settings on for a fused stack on CUDA
+  and on Metal; the bias kernel `attn_bias` stays CUDA only, so Metal builds the bias on the host. The CUDA path does
+  what it did. The load line says where the bias is built.
+  Tests: `long_prompt_settings_follow_the_stack_not_only_cuda` (runtime) and
+  `long_prompt_settings_track_one_call_metal` (`llvq-llm/tests/inkling_wave3_attn.rs`): the tiny model on Metal,
+  served attention and fused glue, 70 tokens in pieces of 16, scores by 8 rows, slots bounded with a slack of 2,
+  against one call over full slots, then 16 steps; worst relative gap 2.5e-6, argmax equal on 86 rows of 86, every
+  sliding slot bounded with its oldest positions dropped. Two mutants, each seen red: the slot base dropped in
+  `forward_dense` (`let pos = offset;`, one site), and Metal mapped to `Off` in `long_prompt`.
+  Tests run: runtime lib 6, `inkling_server` 4, `inkling_tools` 5 (1 ignored, needs data), `llvq-llm` lib 8
+  (pieces, bounded slots, rollback), `inkling_wave1` 7 (Metal included), `inkling_wave3_attn` 7: all pass.
+  `cargo clippy --all-targets` on both crates with `metal`: zero warnings. The CUDA half was not type-checked here.
+
+CORRECTNESS GATE (*measured*, not timed)
+  `inkrun`, 32-token prompt of `lot4-coord/tokens.json`, text checkpoint with its BF16 head:
+    no switch (the configuration that wrote the reference)    32 tokens equal to the reference   5.71 tok/s
+    whole stack, checkpoint's head                            32 tokens equal to the reference   20.69 tok/s
+  `llvq serve --local` on the store copy of `inkling2:mini` (Hub revision 697661e3, slim file set), driven by
+  `ops/inkling/serve-mac.sh` with the checks of `ops/inkling/serve_checks.py` (backend expected: metal):
+  13 PASS, 0 FAIL. Reading checks: two FAIL, the same two the card read and for the same reasons (a repeated prompt of
+  one segment is read again in full; the follow-up's cached count equals the first prompt, the 64-token answer cut by
+  its cap is not reused). The long prompt's reasoning names section 7 and its rule; its 64 tokens end inside the
+  reasoning block (cap 64), as on the card.
+
+THE READINGS (*measured*; machine state written before each run in `<arm>.machine`, load1 2.1 to 3.7, GPU idle)
+  arm                         prompt   read      tok/s read   decode after    GB after load  after prompt  peak
+  decode, 3 rounds            32       0.77 s    41           26.66 [24.50, 27.99]  8.03     8.17          -
+  A, main as it is            2,000    25.96 s   77.0         26.21           8.03           9.51          11.07
+  B, the three settings       2,000    23.49 s   85.2         26.16           8.03           9.70          10.48
+  B                           9,000    148.66 s  60.5         19.80           8.03           10.71         11.42
+  GB: Metal `currentAllocatedSize`. The peak is a second run with `--peak-probe on` (largest allocated size after
+  any layer visit, before and after a drain); its logits are the unprobed run's byte for byte in the three pairs, so
+  the probe changes the time and nothing else. The probed 9,000-token read took 248.51 s.
+  Decode is the median step of 32 greedy steps. For the 32-token prompt, the median of three rounds in separate
+  processes, 45 s apart, with the range of the three; one run each for the long prompts.
+  A against B at 2,000 tokens: the same 32 tokens; the logits differ, largest gap 1.17 (the CUDA reading gave 1.77).
+  At 2,000 tokens a bounded slot drops nothing (window 1,024 plus slack 1,024): B differs from A by its pieces and its
+  score chunks only.
+
+THE RUNTIME (*measured* by the server unless said, run of 10:40 to 10:48)
+  load 23.0 s; after it the process footprint is 11 GB, of which 7.66 GB of Metal buffers (`footprint`, IOAccelerator);
+  /api/ps reports 1.37 GB, the checkpoint file only.
+  short turns: 26.9 and 27.1 tok/s generation (`eval_count` over `eval_duration`, 54 and 42 tokens).
+  8,791-token prompt: first token after 145.03 s; the 64 tokens after it in 2.93 s, 21.8 tok/s (*computed* from the
+  stream's timestamps). Footprint after it 14 GB (10 GB of Metal buffers), peak 15 GB.
+  The same prompt again: first token after 244.23 s, with load1 6 to 8 from other processes (machine busy).
+  Follow-up turn: 8,791 of 8,811 tokens reused, 20 read in 2.05 s.
+
+AGAINST THE SIGNED PREDICTIONS (Claude Fable 5.2)
+  quantity                                         predicted          measured                    inside
+  P1 llvq serves Inkling at the first complete try  probability 0.6    13 of 13                    yes (it did)
+  P2 decode after 32 tokens                         26 to 29 tok/s     26.66                       yes
+  P3 arm A, 2,000 tokens, read                      22 to 27 s         25.96 s                     yes
+  P3 arm B against A                                within +-15 %      -9.5 %                      yes
+  P3 same 32 tokens in A and B                      probability 0.8    the same                    yes
+  P4 arm B, 9,000 tokens, read                      90 to 200 s        148.66 s                    yes
+  P4 peak Metal memory                              12 to 18 GB        11.42 GB                    no, lower
+  P4 decode after it                                21 to 26 tok/s     19.80                       no, slower
+
+WHAT THE READINGS SAY
+  The prompt read slows with its length: 85 tok/s at 2,000 tokens, 60 at 9,000 (*computed*). On CUDA the score
+  bias on the host was the step that grew with the square of the length; Metal still builds it on the host, so it is
+  the first suspect, *estimated*: no phase profile ran here.
+  Decode after 9,000 tokens is 25 % slower than after 2,000 (0.0505 against 0.0382 s a step); the fastest steps read
+  0.043 s. The four full-attention layers hold every position, and the one-row score kernel reads them all.
+  Memory stays low on the Mac: 9.5 to 10.7 GB after a prompt of 2,000 or 9,000 tokens, 8.03 GB after load. The
+  12.87 GB of 2026-11-22 after 2,000 tokens predate the fix of the convolution state (CUDA journal of 2026-11-24).
+
+WHAT THIS DOES NOT SAY
+  Where the time of a 9,000-token prompt goes on Metal: no `--prefill-phases` run. Whether the server's first token
+  at 9,000 tokens moves with the settings: the server ran with them only, there is no server arm without. The
+  quality of a long prompt in pieces on Metal: no perplexity was read here (CUDA: -0.042 %, inside the band). The
+  CUDA path after this change: not run on a card. The second long request of the server ran on a busy machine.

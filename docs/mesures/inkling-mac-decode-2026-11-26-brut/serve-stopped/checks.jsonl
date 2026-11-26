@@ -1,0 +1,1 @@
+{"check": "a-models", "kind": "correctness", "pass": true, "detail": "GET /v1/models lists ['inkling2:mini']", "seconds": null}

@@ -1,0 +1,46 @@
+    Finished `release` profile [optimized] target(s) in 0.16s
+     Running tests/inkling_moe_rows.rs (target/release/deps/inkling_moe_rows-9340d99c32c22c9d)
+
+running 4 tests
+test batched_rows_are_the_general_path_at_model_shapes ... FAILED
+test batched_rows_are_the_general_path_on_small_layers ... FAILED
+test batched_rows_need_the_rows_kernel ... ok
+test batched_rows_stage_times ... ignored, times the GPU; run under the guard's lock
+
+failures:
+
+---- batched_rows_are_the_general_path_at_model_shapes stdout ----
+
+thread 'batched_rows_are_the_general_path_at_model_shapes' (12034625) panicked at llvq-llm/tests/inkling_moe_rows.rs:148:5:
+assertion `left == right` failed: 2 tokens, k 8, skew false
+  left: Some((0, 0.00048449388, 0.00048449385))
+ right: None
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+---- batched_rows_are_the_general_path_on_small_layers stdout ----
+
+thread 'batched_rows_are_the_general_path_on_small_layers' (12034660) panicked at llvq-llm/tests/inkling_moe_rows.rs:148:5:
+assertion `left == right` failed: 29 tokens, k 5, skew true
+  left: Some((1, 1.0941544e-5, 1.0941543e-5))
+ right: None
+
+
+failures:
+    batched_rows_are_the_general_path_at_model_shapes
+    batched_rows_are_the_general_path_on_small_layers
+
+test result: FAILED. 1 passed; 2 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.47s
+
+error: test failed, to rerun pass `-p llvq-llm --test inkling_moe_rows`
+    Finished `release` profile [optimized] target(s) in 0.14s
+     Running tests/inkling_prefill_rows_bench.rs (target/release/deps/inkling_prefill_rows_bench-3fee577be5f3af1d)
+
+running 1 test
+candle f32 matmul [32, 2304] x [2304, 1152]: 92.4 us, 1.84 TFLOP/s
+candle f32 matmul [32, 1152] x [1152, 2304]: 47.2 us, 3.60 TFLOP/s
+candle f32 matmul [64, 2304] x [2304, 1152]: 82.4 us, 4.12 TFLOP/s
+candle f32 matmul [256, 2304] x [2304, 1152]: 147.3 us, 9.23 TFLOP/s
+test dense_product_cost_at_expert_shapes ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 1 filtered out; finished in 0.39s
+

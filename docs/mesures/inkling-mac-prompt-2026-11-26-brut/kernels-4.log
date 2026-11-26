@@ -1,0 +1,9 @@
+4096 pairs, 568 chunks, hidden 2304, inter 1152
+gather + f16: 1.34 ms
+rotation in: 0.60 ms
+gate and up: 42.35 ms
+rotation down: 0.33 ms
+down: 20.52 ms
+whole batched call: 64.88 ms
+general path: 73.96 ms
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 3 filtered out; finished in 4.66s

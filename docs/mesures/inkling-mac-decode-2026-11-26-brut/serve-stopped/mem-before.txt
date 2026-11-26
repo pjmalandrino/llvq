@@ -1,0 +1,6 @@
+2026-11-26 15:13:46
+llvq [87419]: 64-bit    Footprint: 4080 KB (16384 bytes per page)
+4080 KB    2960 KB          0 B       2701    TOTAL
+    phys_footprint: 4112 KB
+    phys_footprint_peak: 4112 KB
+{"models":[]}

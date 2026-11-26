@@ -1,0 +1,134 @@
+INKLING 2 MINI ON THE MAC, THE DECODE, 2026-11-26 (lot 3)
+
+RESULT
+  Two steps keep every bit and shorten a decode step; both are now the Metal default. `down` of the fused MoE call
+  with one simdgroup a selected expert: 5.22 % a step, median of 5 alternated rounds [4.07, 10.58], 1.77 ms. The
+  command-buffer cadence at 30 encoders a buffer (plan item K2) on top of it: 1.88 % [1.31, 3.52], 0.63 ms. The
+  rotations staged in threadgroup memory did not gain in the kernel bench and were removed. The final default decodes
+  30.12 tok/s after a 32-token prompt [29.99, 30.18], 3 runs, against 26.66 [24.50, 27.99]
+  this morning, with 8.028 GB after the load as before. K2 has a doubt attached on the prompt's read (see THE
+  PROMPT UNDER K2): one round of two read 29 % slower with it.
+  Step 0, the prompt arm of lot 2 (experts batched and bias on the device) read again at 9,000 tokens: its median is
+  18 % faster, but one round of three went the other way, so by the rule fixed before the runs it stays off.
+  Every figure *measured*, M3 Max, Metal, `inkrun`, release build. Prereg:
+  proofs/preregistration-inkling-mac-decode-2026-11-26.md (commit a0177c6, OpenTimestamps). Deviations: -ECARTS.md
+  beside it. Raw files: inkling-mac-decode-2026-11-26-brut/ (the *.logits.f32 stay out of git; logits.sha256 pins
+  them).
+
+STEP 0: THE PROMPT ARM OF LOT 2 READ AGAIN (9,000 tokens, `s0-*`, `step0.sh`)
+  A = arm B of lot 2 (default path), B = A plus `--moe-rows batch --attn-bias device`. Alternated A, B three times,
+  no peak probe, each arm started with load under 6, GPU under 10 % and the guard free (`run_quiet.sh`).
+  round   A, read in    B, read in    B / A
+  1       133.54 s      109.03 s      0.816
+  2       136.60        140.38        1.028
+  3       164.71        119.69        0.727
+  Median B / A 0.816 [0.727, 1.028]. All six logits files have the sha256 01407333..., the 32 tokens are equal.
+  The rule (coordinating session, before the runs): kept if the median gain exceeds 5 % AND the three rounds go the
+  same way. The median passes, the direction does not: the arm stays off and the runtime is unchanged on this point.
+  The reference itself spans 133.5 to 164.7 s on a quiet machine, a 23 % spread. A verdict on this arm needs more
+  rounds than three, or a quieter clock; it is not a property this lot could settle. Decode after the prompt in the
+  same runs: 22.71 to 23.79 tok/s, both arms.
+
+STEP 2: ROTATIONS OF THE FUSED MoE CALL IN THREADGROUP MEMORY (kernel bench, `kbench-1.log`)
+  `moe_rot_tg_metal`, the body of `rot_apply_tg_metal` with each expert's tables: bit for bit with the served kernel
+  (twin test, `twins-1.log`). 400 chained launches, 7 rounds, synthetic experts at the model's shapes:
+    input rotation, n 2,304       12.14 us served, 11.75 variant
+    down rotation, n 1,152        9.80 us, 9.83
+    whole fused call              225.57 us, 225.51
+  No gain: the stages in device memory already sit in cache at these sizes. Not wired, removed from the code (E1).
+
+STEP 3: `down` ONE SIMDGROUP A SLOT (`moe_tetra_down_sg_metal`)
+  One threadgroup an output row, one simdgroup a selected expert, the activation read from device memory with no tile
+  and no barrier in the loop; each weighted product in threadgroup memory, summed by one lane in ascending slot order
+  from +0, the served kernel's two roundings. Kernel bench (same run): 87.53 us served, 58.62 variant (x1.49); the
+  whole call 225.57 to 194.88 us. 48 fused calls a step, so 1.47 ms a step *computed*.
+  In the model, 5 alternated rounds, 128 timed steps a run (`d3-*`):
+  round   reference         variant           gain
+  1       42.23 ms 23.68    40.11 ms 24.93    +5.30 %   2.13 ms
+  2       39.56    25.28    35.78    27.95    +10.58    3.78
+  3       35.77    27.96    34.00    29.42    +5.22     1.77
+  4       35.08    28.51    33.70    29.67    +4.07     1.37
+  5       35.10    28.49    33.70    29.68    +4.16     1.40
+  (ms a step, then tok/s, median of each run's 128 steps)
+  Median +5.22 % [+4.07, +10.58], 5 of 5 faster. 129 tokens equal, logits sha256 1edb8d95... in all ten runs.
+  Kept, and the default (`fused_metal::MOE_DOWN_SG_DEFAULT`). The reference's own drift (23.7 to 28.5 tok/s over the
+  first rounds) is why the rounds alternate.
+  Gate: `tests/inkling_decode_kernels.rs`, every f32 of the one-expert path at the model's shapes (24 routings of 8
+  of 128 experts) and on two small layers, one with tails, 1 to 12 experts a call. Mutants, each with its site
+  counted (one site each) and seen red on both tests (`mutants-1.log`): the slots summed in descending order; slot
+  kk's product times the weight of slot kk + 1. Tests on the code as committed: `inkling_decode_kernels` and
+  `inkling_wave2_moe` pass (`tests-final.log`; the D3 test now names whichever down kernel the default runs).
+
+STEP 1: K2, `CANDLE_METAL_COMPUTE_PER_BUFFER` (`k2s-*`, then `k2-*`)
+  Screening, one run each, ms a step (down still serial, E2):
+  default 35.14 and 35.22 (first and last); 5: 35.95; 10: 34.94; 20: 34.72; 30: 34.40; 40: 35.28; 75: 35.35;
+  100: 35.21; 200: 35.14; 500: 35.72; 1,000: 36.85. Flat inside the spread of one run; logits equal in all 12.
+  30 in 5 alternated rounds against the new default (down one simdgroup a slot):
+  round   reference         30                gain
+  1       34.31 ms 29.14    33.14 ms 30.17    +3.52 %   1.17 ms
+  2       34.06    29.36    33.43    29.91    +1.88     0.63
+  3       33.82    29.57    33.37    29.97    +1.34     0.45
+  4       33.93    29.47    33.11    30.20    +2.49     0.82
+  5       33.86    29.53    33.43    29.92    +1.31     0.44
+  Median +1.88 % [+1.31, +3.52], 5 of 5 faster, logits equal. Kept: `inkling::new_metal_device` sets the variable
+  while the device of `inkrun` and of the runtime's Inkling load is made (E7). 10 and 20 were not taken through the
+  rounds (E3).
+
+FINAL DEFAULT (`fin-r*`, both steps on, no flag)
+  Three runs, 128 timed steps each, after the 32-token prompt: 33.35, 33.13, 33.20 ms a step, so 29.99, 30.18 and
+  30.12 tok/s; median 30.12 [29.99, 30.18]. Same 129 tokens and logits sha256 (1edb8d95...) as every run of the lot.
+  Metal memory after the load 8.028 GB, at the end 8.161 GB, both as in every run of the lot.
+  Against this morning's 26.66 [24.50, 27.99] (lot 1, three runs of 32 steps): +13 %. The reference arms of this lot
+  also drifted from 23.7 to 29.6 tok/s over the afternoon, so the steps are read from the alternated rounds, not
+  from that difference.
+
+THE SERVER (`ops/inkling/serve-mac.sh`, `serve/`)
+  On both defaults, `target/release/llvq` of this branch: 13 PASS, 0 FAIL (correctness). The reading checks give the
+  morning's two FAIL for the morning's reasons (a repeated prompt of one segment is read again in full; the answer
+  cut by its cap is not reused). Short turns: 28.57 and 28.49 tok/s (eval_count over eval_duration, 54 and 42
+  tokens) against 26.92 and 27.10 this morning, one turn each. Physical footprint 11 GB loaded, 15 GB peak, as this
+  morning. The 8,791-token prompt: first token after 169.24 s, against 145.03 s this morning; the repeat 254.74 s
+  against 244.23. One reading each, in a window where the whole machine ran slower (next section).
+
+AGAINST THE SIGNED PREDICTIONS
+  prediction                                        measured                                  inside
+  D1 K2: 0 to 1.5 ms a step; P(> 0.5 ms) 0.4        0.63 ms [0.44, 1.17]                      yes; above 0.5
+  D2 rotations: 0 to 1.0 ms; P(> 0.3 ms) 0.5        about 0.02 ms *computed* from the bench   yes, at the floor
+  D3 down: 0.3 to 1.5 ms; P(> 0.5 ms) 0.5           1.77 ms [1.37, 3.78]                      no, above
+  D4 end of lot: 27 to 29.5 tok/s; P(>= 28) 0.5     30.12 tok/s [29.99, 30.18]                no, above; 28 reached
+  D5 memory after load 8.03 GB +-0.05               8.028 GB in every run                     yes
+
+THE CODE (branch debit/inkling-mac-2026-11-26)
+  `llvq-llm/src/fused_metal.rs`: `moe_tetra_down_sg_metal` and `moe_dot_lut_dev` appended to the unit of the fused
+  MoE kernels; `MetalRuntime::set_moe_down_sg`, default `MOE_DOWN_SG_DEFAULT = true`. `inkrun --moe-down sg|serial`.
+  `llvq-llm/src/inkling/mod.rs`: `new_metal_device` and `METAL_COMPUTE_PER_BUFFER`, used by `inkrun` and by
+  `llvq-runtime/src/inkling.rs` (`load_local`).
+  `cargo clippy --all-targets` on llvq-llm and llvq-runtime with `metal`: zero warnings (clippy.log). The shared code
+  type-checked for Linux: `ops/check-linux-cuda.sh clippy -p llvq-llm -p llvq-runtime --features llvq-llm/cuda
+  --all-targets`, zero warnings (linux-check.log). Not run on a card.
+
+WHAT IS NOT DONE
+  K2 at 10 and 20 in rounds (E3). The prompt's read was not re-timed with the two defaults: `down` is a one-row path,
+  the prompt's pieces take the rows path, and K2 is a launch cadence. The server's long prompt and its first token are
+  in the 13 checks above, not timed against a reference.
+  Where the step's time is now (33.2 ms): the fused MoE call is about 194.9 us x 48 = 9.4 ms *computed* from the
+  kernel bench, gate and up the largest part of it; the attention's products about 10 ms and the fused glue about
+  9 ms (*estimated*, drained profile of the study, not re-read here). The remaining class-A items of the study are the
+  glue's loads (item 4) and gate and up of one row in one simdgroup (item 5).
+
+THE PROMPT UNDER K2 (`kp-*`, `k2prompt.sh`; outside the prereg, run because of the server's 169 s)
+  Arm B of lot 2 at 9,000 tokens, both defaults of this lot, cadence 50 (candle's, set by the variable) against 30:
+  round   cadence 50        cadence 30        30 / 50
+  1       174.69 s          225.23 s          1.289
+  2       168.83            168.26            0.997
+  Logits equal (01407333...). Every run started with load under 3 and GPU at 6 to 7 %, but the window was slow as a
+  whole: decode after the prompt read 19.6 to 22.7 tok/s against 22.7 to 23.8 at noon, and a browser renderer held
+  half a core. Two rounds that disagree say nothing either way. K2 stays the default because the prereg's rule is on
+  the decode step and it passed; whether 30 slows the prompt's read is open, and the cost of that doubt is written
+  here, not hidden. Reverting it is one line (`METAL_COMPUTE_PER_BUFFER`), or one variable at launch.
+
+DEVIATIONS: proofs/preregistration-inkling-mac-decode-2026-11-26-ECARTS.md (E1 to E8).
+
+CLAIMS TOUCHED IN CERVEAU.md
+  A3 is added, standing supported: the three rounds of step 0 (0.816, 1.028, 0.727) are this journal's.
+  N9 is added to the anomalies: the cold reads of step 0 and of the K2 prompt arms are part of its 109 to 305 s.

@@ -1,0 +1,71 @@
+llvq version 0.1.3 (31125bd15382)
+{"version":"0.1.3","commit":"31125bd15382"}
+== (a) GET /v1/models ==
+PASS a-models [correctness] GET /v1/models lists ['inkling2:mini']
+== load: an empty /api/chat ==
+PASS load [correctness] HTTP 200, done_reason 'load', load_duration 23.0 s | 22.96 s
+PASS ps-loaded [correctness] state 'ready', backend 'metal', error None, size_vram 1366330064, 'panicked' in the server log: False
+== (b) a short chat, not streamed ==
+PASS b-chat [correctness] HTTP 200, finish 'stop', content 'Paris', usage {'prompt_tokens': 25, 'completion_tokens': 41, 'total_tokens': 66} | 2.32 s
+== (c) a streamed chat ==
+PASS c-stream [correctness] [DONE] True, chunks 46, finish 'length', errors [], prompt_tokens 26, completion_tokens 48, first chunk 0.019510984420776367 s, first token 0.808664083480835 s, content 'one, two, three, four' | 0.81 s
+== (d) a tool call and its follow-up, OpenAI route ==
+PASS d1-tool-call [correctness] HTTP 200, finish 'tool_calls', calls [{'id': 'call-8ef3c61d74f80003', 'type': 'function', 'function': {'name': 'get_weather', 'arguments': '{"city": "Paris"}'}}], usage {'prompt_tokens': 143, 'completion_tokens': 54, 'total_tokens': 197} | 3.83 s
+PASS d1-city [reading] city 'Paris'
+PASS d2-tool-followup [correctness] [DONE] True, chunks 38, finish 'stop', errors [], prompt_tokens 207, completion_tokens 42, first chunk 0.01869797706604004 s, first token 0.86478590965271 s, content 'Right now in Paris, it’s 18°C with clear skies.' | 0.86 s
+PASS d2-uses-result [reading] the answer names the 18 degrees of the result
+== (d) the same pair on /api/chat, which reports what the cache held ==
+PASS n1-native-tool-call [correctness] HTTP 200, calls [{'function': {'arguments': {'city': 'Paris'}, 'name': 'get_weather'}}], prompt_eval_count 143, cached 0, eval_count 54 | 3.73 s
+PASS n2-followup [correctness] HTTP 200, content 'Right now in Paris, it’s 18°C with clear skies.', done_reason 'stop' | 2.27 s
+PASS n2-reuse-prompt [reading] cached 175 of 207; the first request's prompt was 143 tokens; read 32 tokens in 0.72 s
+PASS n2-reuse-answer [reading] the answer the cache held was reused too when cached > 143
+== (e) a first prompt of about 9,000 tokens, then the same again, then a follow-up ==
+PASS e1-long [correctness] [DONE] True, chunks 65, finish 'length', errors [], prompt_tokens 8791, completion_tokens 64, first chunk 0.019328832626342773 s, first token 145.03491878509521 s, content '' | 145.03 s
+PASS e1-prompt-size [reading] prompt_tokens 8791, about 9,000 asked
+PASS e2-long [correctness] [DONE] True, chunks 65, finish 'length', errors [], prompt_tokens 8791, completion_tokens 64, first chunk 0.02162003517150879 s, first token 244.22841024398804 s, content '' | 244.23 s
+PASS e2-prompt-size [reading] prompt_tokens 8791, about 9,000 asked
+FAIL e2-repeat-reuse [reading] first token of the repeat over the first: 1.683928341462874; inkling.rs reads a repeated prompt of one segment again in full, so FAIL here is what the code predicts, not a fault
+PASS e3-followup [correctness] HTTP 200, content 'No.', done_reason 'stop' | 6.91 s
+PASS e3-reuse-prompt [reading] cached 8791 of 8811; the first request's prompt was 8791 tokens; read 20 tokens in 2.05 s
+FAIL e3-reuse-answer [reading] the answer the cache held was reused too when cached > 8791
+== (f) the end ==
+PASS ps-end [correctness] state 'ready', backend 'metal', error None, size_vram 1366330064, 'panicked' in the server log: False
+INFO mem-before.txt: 2026-11-26 10:40:22
+llvq [1867]: 64-bit    Footprint: 4192 KB (16384 bytes per page)
+4192 KB    2976 KB          0 B       2704    TOTAL
+    phys_footprint: 4224 KB
+    phys_footprint_peak: 4224 KB
+{"models":[]}
+INFO mem-loaded.txt: 2026-11-26 10:40:45
+llvq [1867]: 64-bit    Footprint: 11 GB (16384 bytes per page)
+7657 MB        0 B       176 KB        542    IOAccelerator (graphics)
+ 160 MB        0 B          0 B         20    Owned physical footprint (unmapped) (graphics)
+ 208 KB        0 B          0 B          5    IOAccelerator
+  11 GB    1312 MB       114 MB       3616    TOTAL
+    phys_footprint: 11 GB
+    phys_footprint_peak: 11 GB
+{"models":[{"name":"inkling2:mini","model":"inkling2:mini","size":1366330064,"digest":"a86d86840a9ed8bca3b07c25e0e826f263bac9e4f86a735eb391dccf17f80760","details":{"parent_model":"","format":"llvq","family":"inkling2","families":["inkling2"],"parameter_size":"","quantization_level":"Tetra  b/param"},"expires_at":"9999-12-31T23:59:59.000000000Z","size_vram":1366330064,"context_length":32768,"llvq":{"state":"ready","backend":"metal","config":"inkling.json","queue":0,"busy":false,"error":null,"batch_pool_bytes":0}}]}
+INFO mem-after-long.txt: 2026-11-26 10:43:30
+llvq [1867]: 64-bit    Footprint: 14 GB (16384 bytes per page)
+  10 GB        0 B        27 MB       2284    IOAccelerator (graphics)
+ 162 MB        0 B          0 B         32    Owned physical footprint (unmapped) (graphics)
+ 640 KB        0 B          0 B         14    IOAccelerator
+  14 GB    1323 MB       138 MB       5458    TOTAL
+    phys_footprint: 14 GB
+    phys_footprint_peak: 15 GB
+{"models":[{"name":"inkling2:mini","model":"inkling2:mini","size":1366330064,"digest":"a86d86840a9ed8bca3b07c25e0e826f263bac9e4f86a735eb391dccf17f80760","details":{"parent_model":"","format":"llvq","family":"inkling2","families":["inkling2"],"parameter_size":"","quantization_level":"Tetra  b/param"},"expires_at":"9999-12-31T23:59:59.000000000Z","size_vram":1366330064,"context_length":32768,"llvq":{"state":"ready","backend":"metal","config":"inkling.json","queue":0,"busy":false,"error":null,"batch_pool_bytes":0}}]}
+INFO mem-after.txt: 2026-11-26 10:47:45
+llvq [1867]: 64-bit    Footprint: 12 GB (16384 bytes per page)
+  10 GB        0 B        20 MB       2845    IOAccelerator (graphics)
+ 160 MB        0 B          0 B         20    Owned physical footprint (unmapped) (graphics)
+ 640 KB        0 B          0 B         14    IOAccelerator
+  12 GB    1323 MB       246 MB       6000    TOTAL
+    phys_footprint: 12 GB
+    phys_footprint_peak: 15 GB
+{"models":[{"name":"inkling2:mini","model":"inkling2:mini","size":1366330064,"digest":"a86d86840a9ed8bca3b07c25e0e826f263bac9e4f86a735eb391dccf17f80760","details":{"parent_model":"","format":"llvq","family":"inkling2","families":["inkling2"],"parameter_size":"","quantization_level":"Tetra  b/param"},"expires_at":"9999-12-31T23:59:59.000000000Z","size_vram":1366330064,"context_length":32768,"llvq":{"state":"ready","backend":"metal","config":"inkling.json","queue":0,"busy":false,"error":null,"batch_pool_bytes":0}}]}
+llvq: loading inkling2:mini (inkling2, /Users/pjmalandrino/.llvq/models/sha256-1e9314dba89332cb1af444619dc5d31a2a1ed6a50a1112e0ca2b8fc55bb6bfd3/inkling.json) on metal
+llvq: inkling2:mini: template: no chat_template.jinja beside the tokenizer; inkchat renders sha256 53a9035f32559457
+llvq: inkling2:mini: tables: embed b7e9979f589a8a84, unembed cb26ce0c6145d35d
+llvq: inkling2:mini: prompt: pieces of 512 tokens, scores in chunks of 128 rows, sliding slots bounded with a slack of 1024, bias on the host
+llvq: inkling2:mini: stack fused, 24 layers resident, glue fused, attention fused+scores
+correctness: 13 PASS, 0 FAIL []

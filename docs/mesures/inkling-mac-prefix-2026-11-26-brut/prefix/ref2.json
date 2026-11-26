@@ -1,0 +1,22 @@
+{
+ "lines": 47,
+ "first_token_s": 177.5623791217804,
+ "last_s": 179.62884092330933,
+ "content": "",
+ "thinking": "The user asks: \"Do not call any tool. In one short sentence: what does section 12 of the policy ask for?\"\n\nNeed answer based on policy text. Section 12, backups, part 2",
+ "tool_calls": [],
+ "final": {
+  "created_at": "2026-11-26T15:46:42.169700000Z",
+  "done": true,
+  "done_reason": "length",
+  "eval_count": 48,
+  "eval_duration": 2257072667,
+  "load_duration": 0,
+  "model": "inkling2:mini",
+  "prompt_eval_cached_count": 0,
+  "prompt_eval_count": 8791,
+  "prompt_eval_duration": 177349397958,
+  "total_duration": 179615333583
+ },
+ "errors": []
+}

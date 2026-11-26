@@ -144,6 +144,25 @@ greedy unless the request names a temperature. A conversation is read again only
 turn that changed: the cache keeps a mark at each turn and rolls back to it. Raw prompts are
 refused.
 
+The prefix cache keeps on disk the model's cache after a long static block, the system prompt and
+the tools, so a new conversation or a restarted server does not read it again. It is saved once,
+at the last 512-token boundary of that block, and loaded by any prompt that starts with the same
+tokens; the logits are those of a read from the start, bit for bit. On a 64 GB M3 Max the first
+token of a new session over an 8,704-token block comes after 3.9 s [3.62, 4.57] instead of 155 to
+202 s (*measured*, `docs/mesures/inkling-mac-prefix-2026-11-26.txt`).
+
+- `llvq serve --prefix-cache on|off`: on by default on Metal, off on CUDA and on the CPU, where
+  it has not run. `--prefix-cache-max SIZE` caps the directory, 4G by default, and the least
+  recently used files go first.
+- The files are in `<LLVQ_HOME>/prefix/`, mode 0600, 1.41 GB for 8,704 tokens. Each holds the
+  tokens of the block it saves, so a system prompt is on disk in that form: turn the cache off
+  where that is not wanted.
+- A file is loaded only by the build, the model files and the settings that wrote it, and only
+  when its sha256 holds. Anything else is refused by name in the server's log and the prompt is
+  read in full. A block under 1,024 tokens is not saved.
+- A system prompt that changes inside its first tokens, a date for instance, loads nothing and
+  writes a new file.
+
 opencode, with the configuration shape its version 1.18.20 reads (`opencode.json`):
 
 ```json

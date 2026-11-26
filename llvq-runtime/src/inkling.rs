@@ -31,6 +31,12 @@
 //! - An answer cut by its cap, by a stop string, by a client that left, or by
 //!   a turn the template's parser refuses, is dropped from the cache: the
 //!   next request reads it again as the client renders it.
+//! - The prefix cache on disk ([`crate::prefix`], `llvq serve --prefix-cache`):
+//!   the first read of a prompt whose static block (system prompt and tools)
+//!   is long saves the cache at the last piece boundary of that block; a later
+//!   prompt that starts with the same tokens, in a new conversation or after a
+//!   restart, loads it instead of reading them. The read after a load cuts the
+//!   prompt where a read from 0 does, so its logits are those of a read from 0.
 
 use crate::chat::{self, Msg, Role, Scan};
 use crate::engine::{nanos, total, EngineInfo, Event, Job, Prompt, State, Stats, DEFAULT_TOP_P};
@@ -203,6 +209,15 @@ pub trait TurnLm {
     fn rollback(&mut self, m: &Self::Mark) -> anyhow::Result<()>;
     /// An empty cache.
     fn reset(&mut self);
+    /// Write the cache's whole state, for the prefix cache. Not every model can.
+    fn save_state(&self, _w: &mut dyn std::io::Write) -> anyhow::Result<()> {
+        anyhow::bail!("this model does not write its cache")
+    }
+    /// Replace the cache by a state [`Self::save_state`] wrote, reading all of
+    /// it. On an error the cache may hold anything: the caller resets it.
+    fn load_state(&mut self, _r: &mut dyn std::io::Read) -> anyhow::Result<()> {
+        anyhow::bail!("this model does not read a cache")
+    }
 }
 
 struct InklingLm {
@@ -233,6 +248,17 @@ impl TurnLm for InklingLm {
     fn reset(&mut self) {
         self.cache = self.model.new_cache();
     }
+
+    fn save_state(&self, w: &mut dyn std::io::Write) -> anyhow::Result<()> {
+        Ok(self.cache.write_state(w)?)
+    }
+
+    fn load_state(&mut self, r: &mut dyn std::io::Read) -> anyhow::Result<()> {
+        // The old cache goes first, so the device never holds both.
+        self.cache = self.model.new_cache();
+        self.cache = self.model.read_cache(r)?;
+        Ok(())
+    }
 }
 
 #[allow(unused_variables, clippy::match_single_binding)]
@@ -257,13 +283,36 @@ fn make_resident(model: &mut llvq_llm::inkling::Inkling, layers: &Path, dev: &De
 /// CUDA a prompt's rows through the experts in one launch a step
 /// (`Inkling::set_moe_batch_rows`, byte-identical values). Returns the lines
 /// the load prints.
-/// Tokens of a prompt one forward call reads on CUDA.
+/// Tokens of a prompt one forward call reads, on CUDA and on Metal.
 const PROMPT_PIECE: usize = 512;
-/// Query rows of one attention score tensor on CUDA.
+/// Query rows of one attention score tensor, on CUDA and on Metal.
 const SCORE_ROWS: usize = 128;
 /// Positions past its window a bounded sliding slot keeps, and so the deepest
 /// rollback it accepts.
 const KV_SLACK: usize = 1024;
+
+/// Whether a model loaded on `backend` reads a long prompt with the settings
+/// above, and where its score bias is built.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum LongPrompt {
+    /// One call a prompt, every position in every slot (the candle stack, the CPU).
+    Off,
+    /// The pieces, the chunked scores and the bounded slots, the bias built on
+    /// the host (Metal: `attn_bias` is a CUDA kernel).
+    BiasOnHost,
+    /// The same, the bias built on the card (`attn_bias::set_on_device`).
+    BiasOnCard,
+}
+
+/// The three settings depend on no device: they cut a prompt's calls, its
+/// score tensors and its sliding slots. Only the bias kernel is CUDA's.
+fn long_prompt(backend: Backend, fused: bool) -> LongPrompt {
+    match (backend, fused) {
+        (Backend::Cuda, true) => LongPrompt::BiasOnCard,
+        (Backend::Metal, true) => LongPrompt::BiasOnHost,
+        _ => LongPrompt::Off,
+    }
+}
 
 /// The model on the CPU: `experts_cpu::load_served`, the load `inkcpu`
 /// measures. One stack whatever the local file's `stack` says: the attention
@@ -325,18 +374,24 @@ fn load_model(l: &LocalModel, dev: &Device) -> anyhow::Result<(llvq_llm::inkling
         model.set_moe_batch_rows(true);
         lines.push("experts: a prompt's rows in one launch a step".into());
     }
-    if fused && matches!(dev, Device::Cuda(_)) {
-        // The long-prompt settings measured on 2026-11-24 (9,000 tokens: 12.0 GB at the peak against 19.5, read
-        // in 23.85 s against 55.89 on an L40S). The pieces change values inside the perplexity band (-0.042 %);
-        // the bounded slots and the chunked scores add no difference. The slack is what a rollback may undo: an
-        // answer longer than it is read again from the start (`Worker::back_to`).
+    let backend = if dev.is_cuda() { Backend::Cuda } else { Backend::Metal };
+    let long = long_prompt(backend, fused);
+    if long != LongPrompt::Off {
+        // The long-prompt settings measured on CUDA on 2026-11-24 (9,000 tokens: 12.0 GB at the peak against
+        // 19.5, read in 23.85 s against 55.89 on an L40S), and on Metal on 2026-11-26
+        // (`docs/mesures/inkling-mac-serve-2026-11-26.txt`). The pieces change values inside the perplexity band
+        // (-0.042 %); the bounded slots and the chunked scores add no difference. The slack is what a rollback
+        // may undo: an answer longer than it is read again from the start (`Worker::back_to`).
         model.set_prefill_piece(PROMPT_PIECE);
         model.set_attn_chunk(SCORE_ROWS);
         model.set_kv_window(Some(KV_SLACK));
         #[cfg(all(target_os = "linux", feature = "cuda"))]
-        llvq_llm::inkling::attn_bias::set_on_device(Some(dev))?;
+        if long == LongPrompt::BiasOnCard {
+            llvq_llm::inkling::attn_bias::set_on_device(Some(dev))?;
+        }
+        let bias = if long == LongPrompt::BiasOnCard { "bias on the card" } else { "bias on the host" };
         lines.push(format!(
-            "prompt: pieces of {PROMPT_PIECE} tokens, scores in chunks of {SCORE_ROWS} rows, sliding slots bounded with a slack of {KV_SLACK}, bias on the card"
+            "prompt: pieces of {PROMPT_PIECE} tokens, scores in chunks of {SCORE_ROWS} rows, sliding slots bounded with a slack of {KV_SLACK}, {bias}"
         ));
     }
     let resident = model.substituted_layers();
@@ -354,14 +409,91 @@ fn load_model(l: &LocalModel, dev: &Device) -> anyhow::Result<(llvq_llm::inkling
     Ok((model, lines))
 }
 
+/// What identifies the files a local model loads, for the prefix cache's key:
+/// the sha256 of every file under its parts, each as its part, its canonical
+/// path, its size and its modification time, in the order of the paths. The
+/// local file's own digest does not identify them: files sealed again keep
+/// their paths, and a pulled set writes the same local file for two releases.
+/// Nothing of a file is read, so 8 GB of weights cost a few hundred `stat`.
+pub fn files_id(l: &LocalModel) -> anyhow::Result<String> {
+    use sha2::{Digest, Sha256};
+    fn walk(p: &Path, out: &mut Vec<(PathBuf, u64, u128)>) -> anyhow::Result<()> {
+        let m = std::fs::metadata(p).map_err(|e| anyhow::anyhow!("{}: {e}", p.display()))?;
+        if m.is_dir() {
+            for e in std::fs::read_dir(p).map_err(|e| anyhow::anyhow!("{}: {e}", p.display()))? {
+                walk(&e?.path(), out)?;
+            }
+            return Ok(());
+        }
+        let at = m.modified()?.duration_since(SystemTime::UNIX_EPOCH).map_or(0, |d| d.as_nanos());
+        out.push((p.to_path_buf(), m.len(), at));
+        Ok(())
+    }
+    let mut h = Sha256::new();
+    for (what, p) in l.paths() {
+        let root = std::fs::canonicalize(p).map_err(|e| anyhow::anyhow!("{what} {}: {e}", p.display()))?;
+        let mut files = Vec::new();
+        walk(&root, &mut files)?;
+        files.sort();
+        for (path, len, at) in files {
+            h.update(format!("{what}\0{}\0{len}\0{at}\n", path.display()));
+        }
+    }
+    Ok(h.finalize().iter().map(|b| format!("{b:02x}")).collect())
+}
+
+/// The prefix cache of a model loaded on `backend` from the local file
+/// `path`, in `<store>/prefix`, as the options of `llvq serve` ask: on by
+/// default on Metal only, refused by name when asked for on a load without the
+/// long-prompt settings (its save point is a boundary of their pieces).
+fn prefix_cache(
+    store: &Store,
+    path: &Path,
+    local: &LocalModel,
+    backend: Backend,
+    fused: bool,
+    long: LongPrompt,
+) -> anyhow::Result<Option<crate::prefix::PrefixCache>> {
+    let o = crate::prefix::options();
+    let on = o.enabled.unwrap_or(backend == Backend::Metal);
+    if !on {
+        return Ok(None);
+    }
+    if long == LongPrompt::Off {
+        anyhow::ensure!(
+            o.enabled != Some(true),
+            "--prefix-cache on: the prefix cache saves at a boundary of the prompt's pieces, and this load ({}, stack {}) \
+             reads a prompt in one call; it serves the fused stack on Metal or CUDA",
+            backend.label(),
+            if fused { "fused" } else { "candle" }
+        );
+        return Ok(None);
+    }
+    let exe = std::env::current_exe()?;
+    let key = crate::prefix::Key {
+        format: crate::prefix::FORMAT,
+        family: FAMILY.into(),
+        model_sha256: crate::store::sha256_file(path)?,
+        files_sha256: files_id(local)?,
+        build_sha256: crate::store::sha256_file(&exe)?,
+        backend: backend.label().into(),
+        stack: if fused { "fused" } else { "candle" }.into(),
+        prompt_piece: PROMPT_PIECE,
+        score_rows: SCORE_ROWS,
+        kv_slack: KV_SLACK,
+        bias: if long == LongPrompt::BiasOnCard { "card" } else { "host" }.into(),
+    };
+    Ok(Some(crate::prefix::PrefixCache::new(store.root().join("prefix"), o.max_bytes, key)))
+}
+
 /// Load the model a local file names, on this build's device.
-pub fn load_local(name: &ModelName, path: &Path) -> anyhow::Result<InkEngine> {
+pub fn load_local(name: &ModelName, path: &Path, store: &Store) -> anyhow::Result<InkEngine> {
     let local = LocalModel::read(path)?;
     let backend = Backend::of_build();
     eprintln!("llvq: loading {name} (inkling2, {}) on {}", path.display(), backend.label());
     let dev = match backend {
         Backend::Cuda => Device::new_cuda(0)?,
-        Backend::Metal => Device::new_metal(0)?,
+        Backend::Metal => llvq_llm::inkling::new_metal_device()?,
         Backend::Cpu => Device::Cpu,
     };
     let tok = tokenizers::Tokenizer::from_file(&local.tokenizer)
@@ -386,15 +518,26 @@ pub fn load_local(name: &ModelName, path: &Path) -> anyhow::Result<InkEngine> {
             &llvq_llm::inkchat::TEMPLATE_SHA256[..16]
         ),
     }];
+    let fused = !dev.is_cpu() && local.fused().map_err(anyhow::Error::msg)?;
+    let prefix = prefix_cache(store, path, &local, backend, fused, long_prompt(backend, fused))?;
     let (model, mut lines) = load_model(&local, &dev)?;
     first.append(&mut lines);
+    first.push(match &prefix {
+        Some(p) => format!(
+            "prefix cache: on, in {}, cap {:.1} GiB, key {}",
+            p.dir().display(),
+            p.max_bytes() as f64 / (1u64 << 30) as f64,
+            p.key().id()
+        ),
+        None => "prefix cache: off".into(),
+    });
     let lines = first;
     for l in &lines {
         eprintln!("llvq: {name}: {l}");
     }
     let lm = InklingLm { cache: model.new_cache(), model };
     let config = path.file_name().map(|f| f.to_string_lossy().into_owned());
-    Ok(InkEngine::new(lm, chat, local.context.unwrap_or(DEFAULT_CONTEXT), backend.label(), config))
+    Ok(InkEngine::with_prefix(lm, chat, local.context.unwrap_or(DEFAULT_CONTEXT), backend.label(), config, prefix))
 }
 
 // ---------------------------------------------------------------------------
@@ -413,7 +556,19 @@ impl InkEngine {
     /// The engine over `lm`, with the template of `chat`, serving `context`
     /// positions. `backend` and `config` are what `/api/ps` shows.
     pub fn new<M: TurnLm + 'static>(lm: M, chat: InkChat, context: usize, backend: &str, config: Option<String>) -> Self {
-        InkEngine(Box::new(Worker { lm, chat, context, backend: backend.into(), config, held: Vec::new() }))
+        Self::with_prefix(lm, chat, context, backend, config, None)
+    }
+
+    /// [`Self::new`] with the prefix cache `prefix` ([`crate::prefix`]).
+    pub fn with_prefix<M: TurnLm + 'static>(
+        lm: M,
+        chat: InkChat,
+        context: usize,
+        backend: &str,
+        config: Option<String>,
+        prefix: Option<crate::prefix::PrefixCache>,
+    ) -> Self {
+        InkEngine(Box::new(Worker { lm, chat, context, backend: backend.into(), config, held: Vec::new(), prefix }))
     }
 }
 
@@ -466,6 +621,7 @@ struct Worker<M: TurnLm> {
     backend: String,
     config: Option<String>,
     held: Vec<Held<M::Mark>>,
+    prefix: Option<crate::prefix::PrefixCache>,
 }
 
 fn refusal(status: u16, message: impl Into<String>) -> Event {
@@ -506,6 +662,28 @@ pub fn pieces(spans: &[Range<usize>], from: usize, end: usize) -> Vec<Range<usiz
         }
     }
     out
+}
+
+/// Where the static block of a prompt ends: the length of the common prefix
+/// of `ids` (the rendering of `msgs`) and of the rendering of the leading
+/// system messages of `msgs` alone, with the same tools and effort. `None`
+/// when every message is a system one, or when that rendering is refused.
+pub fn static_end(chat: &InkChat, msgs: &[Json], tools: &[Json], effort: &Json, ids: &[u32]) -> Option<usize> {
+    let k = msgs.iter().take_while(|m| m.get("role").and_then(Json::as_str) == Some("system")).count();
+    if k == msgs.len() {
+        return None;
+    }
+    let r = chat.render(&msgs[..k], tools, Some(effort)).ok()?;
+    Some(crate::prefix::common_prefix(ids, &r.ids))
+}
+
+/// Whether a prompt of `len` ids whose first piece ends at `first_cut` (its
+/// first assistant turn, or its end) can be cut at `b` with the pieces of a
+/// read from 0 unchanged: `b` is a boundary of the forward pieces of `piece`
+/// tokens, and the rest of that first piece is not a lone token (a lone last
+/// token joins the piece before it, `llvq_llm::inkling::prefill_pieces`).
+pub fn cut_keeps_pieces(b: usize, piece: usize, first_cut: usize, len: usize) -> bool {
+    piece > 0 && b > 0 && b.is_multiple_of(piece) && b < len && (first_cut == b || first_cut >= b + 2)
 }
 
 /// The ids the template renders for the assistant message a client sends
@@ -724,6 +902,32 @@ impl<M: TurnLm> Worker<M> {
             (kept, from, base)
         };
         let _ = kept;
+        // The prefix cache: a saved state longer than what memory keeps is loaded in its place.
+        let first_cut = pieces(&r.assistant_spans, 0, r.ids.len()).first().map_or(r.ids.len(), |p| p.end);
+        let n_ids = r.ids.len();
+        let fits = |b: usize, piece: usize| cut_keeps_pieces(b, piece, first_cut, n_ids);
+        // Whether the read from `from` cuts the prompt where a read from 0 does: what a save needs.
+        let mut aligned = from == 0;
+        let (from, base) = match self.prefix.clone() {
+            Some(pc) => match self.load_prefix(pc.clone(), &r.ids, from, &|b| fits(b, pc.piece())) {
+                Some(b) => {
+                    aligned = true;
+                    (b, b)
+                }
+                None if self.held.is_empty() && self.lm.held() == 0 => {
+                    aligned = true;
+                    (0, 0)
+                }
+                None => (from, base),
+            },
+            None => (from, base),
+        };
+        let save_at = match (&self.prefix, aligned) {
+            (Some(pc), true) => static_end(&self.chat, &msgs, &tools, &eff, &r.ids)
+                .and_then(|l| pc.save_point(l))
+                .filter(|&b| b > from && fits(b, pc.piece())),
+            _ => None,
+        };
         let room = limit.saturating_sub(base + (r.ids.len() - from) + 1);
         if room == 0 {
             send(refusal(
@@ -746,8 +950,20 @@ impl<M: TurnLm> Worker<M> {
         let t_prompt = Instant::now();
         let mut logits = None;
         for p in pieces(&r.assistant_spans, from, r.ids.len()) {
+            // The save point cuts the piece it falls in; the forward pieces stay those of the read without it.
+            let parts = match save_at {
+                Some(s) if p.start < s && s < p.end => vec![p.start..s, s..p.end],
+                _ => vec![p.clone()],
+            };
+            for q in parts {
+                logits = Some(self.lm.feed(&r.ids[q])?);
+                if let (Some(s), Some(pc)) = (save_at, &self.prefix) {
+                    if self.lm.held() == s {
+                        self.save_prefix(pc, &r.ids, s);
+                    }
+                }
+            }
             let ids = &r.ids[p];
-            logits = Some(self.lm.feed(ids)?);
             self.held.push(Held { keys: vec![ids.to_vec()], len: self.lm.held(), mark: self.lm.mark() });
         }
         let mut logits = logits.ok_or_else(|| anyhow::anyhow!("nothing of the prompt was fed"))?;
@@ -822,6 +1038,64 @@ impl<M: TurnLm> Worker<M> {
             None => self.drop_answer()?,
         }
         Ok(())
+    }
+
+    /// Load the longest saved prefix of `ids` longer than `keep`, the tokens
+    /// the cache in memory keeps of them, and that `fits`. Its length, the
+    /// cache then holding it as one held segment; `None` with nothing changed
+    /// when there is none or every one is refused, or with the cache emptied
+    /// when a load failed half way. Every refusal goes to the log by name.
+    fn load_prefix(&mut self, pc: crate::prefix::PrefixCache, ids: &[u32], keep: usize, fits: &dyn Fn(usize) -> bool) -> Option<usize> {
+        for f in pc.find(ids, keep, fits) {
+            let t = Instant::now();
+            let v = match pc.verify(&f, ids) {
+                Ok(v) => v,
+                Err(e) => {
+                    eprintln!("llvq: prefix cache: {} refused, the prompt is read without it: {e:#}", f.name());
+                    continue;
+                }
+            };
+            let t_verify = t.elapsed();
+            self.lm.reset();
+            self.held.clear();
+            match pc.load(&v, &mut |r| self.lm.load_state(r)) {
+                Ok(()) if self.lm.held() == f.b => {
+                    self.held.push(Held { keys: vec![ids[..f.b].to_vec()], len: f.b, mark: self.lm.mark() });
+                    eprintln!(
+                        "llvq: prefix cache: loaded {} tokens from {} in {:.2} s (checked in {:.2} s)",
+                        f.b,
+                        f.name(),
+                        t.elapsed().as_secs_f64(),
+                        t_verify.as_secs_f64()
+                    );
+                    return Some(f.b);
+                }
+                Ok(()) => {
+                    eprintln!("llvq: prefix cache: {} loaded {} positions, not {}; the prompt is read from its start", f.name(), self.lm.held(), f.b);
+                }
+                Err(e) => {
+                    eprintln!("llvq: prefix cache: {} failed to load, the prompt is read from its start: {e:#}", f.name());
+                }
+            }
+            self.lm.reset();
+            self.held.clear();
+            return None;
+        }
+        None
+    }
+
+    /// Save the cache, which holds `ids[..b]`, as a prefix. A failure is
+    /// logged and costs nothing else.
+    fn save_prefix(&self, pc: &crate::prefix::PrefixCache, ids: &[u32], b: usize) {
+        let t = Instant::now();
+        match pc.save(ids, b, &mut |w| self.lm.save_state(w)) {
+            Ok((path, bytes)) => eprintln!(
+                "llvq: prefix cache: saved {b} tokens, {bytes} bytes, in {:.2} s: {}",
+                t.elapsed().as_secs_f64(),
+                path.file_name().map(|f| f.to_string_lossy().into_owned()).unwrap_or_default()
+            ),
+            Err(e) => eprintln!("llvq: prefix cache: the save of {b} tokens failed, nothing kept: {e:#}"),
+        }
     }
 
     /// Back to the end of the prompt: the answer is not kept.
@@ -921,6 +1195,15 @@ mod tests {
     }
 
     #[test]
+    fn long_prompt_settings_follow_the_stack_not_only_cuda() {
+        assert_eq!(long_prompt(Backend::Cuda, true), LongPrompt::BiasOnCard);
+        assert_eq!(long_prompt(Backend::Metal, true), LongPrompt::BiasOnHost);
+        assert_eq!(long_prompt(Backend::Cuda, false), LongPrompt::Off);
+        assert_eq!(long_prompt(Backend::Metal, false), LongPrompt::Off);
+        assert_eq!(long_prompt(Backend::Cpu, true), LongPrompt::Off);
+    }
+
+    #[test]
     fn pieces_cut_at_every_assistant_turn() {
         let spans = [4..7, 9..12];
         assert_eq!(pieces(&spans, 0, 15), vec![0..4, 4..7, 7..9, 9..12, 12..15]);
@@ -936,6 +1219,60 @@ mod tests {
         assert_eq!(effort(Some("high"), false), Json::str("high"));
         assert_eq!(effort(Some("0.5"), false), Json::Float(0.5));
         assert_eq!(effort(Some("0"), false), Json::Int("0".into()));
+    }
+
+    /// A local file over real files: a config, a checkpoint, a tokenizer, and
+    /// two directories with one file each.
+    fn local_set(dir: &Path) -> LocalModel {
+        for d in ["textonly", "layers/L00", "native", "tables"] {
+            std::fs::create_dir_all(dir.join(d)).unwrap();
+        }
+        // One modification time for every file of every set: two sets then differ by their paths alone.
+        let stamp = SystemTime::UNIX_EPOCH + Duration::from_secs(1_700_000_000);
+        for f in ["textonly/config.json", "textonly/model.safetensors", "layers/L00/codes.bin", "native/tokenizer.json", "tables/embed.q4"] {
+            std::fs::write(dir.join(f), f.as_bytes()).unwrap();
+            std::fs::File::options().write(true).open(dir.join(f)).unwrap().set_modified(stamp).unwrap();
+        }
+        let p = dir.join("inkling.json");
+        std::fs::write(
+            &p,
+            r#"{"name": "inkling2-mini:local", "family": "inkling2", "config": "textonly/config.json",
+                "checkpoint": "textonly/model.safetensors", "layers": "layers", "tokenizer": "native/tokenizer.json",
+                "tables": "tables"}"#,
+        )
+        .unwrap();
+        LocalModel::read(&p).unwrap()
+    }
+
+    #[test]
+    fn the_files_id_follows_every_part_and_not_the_local_file_alone() {
+        let root = std::env::temp_dir().join(format!("llvq-files-id-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        let (a, b) = (root.join("a"), root.join("b"));
+        let la = local_set(&a);
+        let id = files_id(&la).unwrap();
+        assert_eq!(files_id(&la).unwrap(), id, "the same files give another id");
+        // the same local file, byte for byte, over another copy of the files: another id
+        let lb = local_set(&b);
+        assert_eq!(std::fs::read(a.join("inkling.json")).unwrap(), std::fs::read(b.join("inkling.json")).unwrap());
+        assert_ne!(files_id(&lb).unwrap(), id, "two sets with one local file share an id");
+        // a file of each part written again, its path kept: another id each time
+        let mut seen = vec![id];
+        for f in ["textonly/config.json", "textonly/model.safetensors", "layers/L00/codes.bin", "native/tokenizer.json", "tables/embed.q4"] {
+            std::fs::write(a.join(f), format!("{f} sealed again")).unwrap();
+            let now = files_id(&la).unwrap();
+            assert!(!seen.contains(&now), "{f} written again and the id did not move");
+            seen.push(now);
+        }
+        // the same bytes at a later time: another id (the content is not read)
+        let f = a.join("layers/L00/codes.bin");
+        let later = SystemTime::now() + Duration::from_secs(5);
+        std::fs::File::options().write(true).open(&f).unwrap().set_modified(later).unwrap();
+        assert!(!seen.contains(&files_id(&la).unwrap()), "a later modification time and the id did not move");
+        // a part that is gone is an error that names it
+        std::fs::remove_dir_all(a.join("tables")).unwrap();
+        assert!(format!("{:#}", files_id(&la).unwrap_err()).contains("tables"));
+        let _ = std::fs::remove_dir_all(&root);
     }
 
     #[test]

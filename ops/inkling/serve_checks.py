@@ -14,6 +14,8 @@ import sys
 import time
 
 MODEL = os.environ.get("MODEL", "inkling2-mini:local")
+# The backend /api/ps must report: cuda on the card job, metal on the Mac (ops/inkling/serve-mac.sh).
+BACKEND = os.environ.get("BACKEND", "cuda")
 O = os.environ.get("O", ".")
 
 WEATHER = {
@@ -316,7 +318,7 @@ def check(name, *files):
         log = open(files[1], errors="replace").read() if os.path.exists(files[1]) else ""
         m = [x for x in r.get("models", []) if x.get("name") == MODEL]
         st = (m[0].get("llvq") or {}) if m else {}
-        ok = st.get("state") == "ready" and st.get("backend") == "cuda" and "panicked" not in log
+        ok = st.get("state") == "ready" and st.get("backend") == BACKEND and "panicked" not in log
         record(name, "correctness", ok, f"state {st.get('state')!r}, backend {st.get('backend')!r}, "
                f"error {st.get('error')!r}, size_vram {m[0].get('size_vram') if m else None}, "
                f"'panicked' in the server log: {'panicked' in log}")

@@ -1,0 +1,20 @@
+2026-11-26 10:49:13 load1 3.74 gpu 4% memfree 79% 
+prompt 32 read in 0.77 s; step median 0.0408 s = 24.50 tok/s; GB after load 8.03, after the prompt 8.17, end 8.17; peak {}; all_equal False
+2026-11-26 10:50:18 load1 3.13 gpu 17% memfree 78% 
+prompt 32 read in 0.77 s; step median 0.0375 s = 26.66 tok/s; GB after load 8.03, after the prompt 8.17, end 8.17; peak {}; all_equal False
+2026-11-26 10:51:21 load1 3.10 gpu 9% memfree 79% 
+prompt 32 read in 0.78 s; step median 0.0357 s = 27.99 tok/s; GB after load 8.03, after the prompt 8.17, end 8.17; peak {}; all_equal False
+2026-11-26 10:52:24 load1 3.25 gpu 0% memfree 80% 
+prompt 2000 read in 25.96 s; step median 0.0382 s = 26.21 tok/s; GB after load 8.03, after the prompt 9.51, end 9.09; peak {}; all_equal None
+2026-11-26 10:53:51 load1 3.31 gpu 0% memfree 80% 
+prompt 2000 read in 23.49 s; step median 0.0382 s = 26.16 tok/s; GB after load 8.03, after the prompt 9.70, end 9.55; peak {}; all_equal None
+2026-11-26 10:55:17 load1 2.61 gpu 0% memfree 80% 
+prompt 2000 read in 25.75 s; step median 0.0519 s = 19.26 tok/s; GB after load 8.03, after the prompt 10.04, end 10.04; peak {'kind': 'largest allocated size read after a layer visit, before and after a drain', 'prefill': 11065556992, 'whole_run': 11065556992}; all_equal None
+2026-11-26 10:56:45 load1 2.40 gpu 15% memfree 80% 
+prompt 2000 read in 23.91 s; step median 0.0536 s = 18.65 tok/s; GB after load 8.03, after the prompt 9.72, end 9.72; peak {'kind': 'largest allocated size read after a layer visit, before and after a drain', 'prefill': 10478780416, 'whole_run': 10478780416}; all_equal None
+arm B 2,000: peak 10.48 GB, after the prompt 9.70 GB
+2026-11-26 10:58:12 load1 2.13 gpu 0% memfree 81% 
+prompt 9000 read in 148.66 s; step median 0.0505 s = 19.80 tok/s; GB after load 8.03, after the prompt 10.71, end 10.52; peak {}; all_equal None
+2026-11-26 11:01:43 load1 2.19 gpu 3% memfree 81% 
+prompt 9000 read in 248.51 s; step median 0.2064 s = 4.84 tok/s; GB after load 8.03, after the prompt 10.57, end 10.57; peak {'kind': 'largest allocated size read after a layer visit, before and after a drain', 'prefill': 11418304512, 'whole_run': 11418304512}; all_equal None
+timed: all done

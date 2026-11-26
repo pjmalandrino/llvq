@@ -1,0 +1,56 @@
+PASS a-models [correctness] GET /v1/models lists ['inkling2:mini']
+PASS load [correctness] HTTP 200, done_reason 'load', load_duration 19.9 s | 19.95 s
+PASS ps-loaded [correctness] state 'ready', backend 'metal', error None, size_vram 1366330064, 'panicked' in the server log: False
+PASS b-chat [correctness] HTTP 200, finish 'stop', content 'Paris', usage {'prompt_tokens': 25, 'completion_tokens': 41, 'total_tokens': 66} | 2.12 s
+PASS c-stream [correctness] [DONE] True, chunks 46, finish 'length', errors [], prompt_tokens 26, completion_tokens 48, first chunk 0.019266128540039062 s, first token 0.7862749099731445 s, content 'one, two, three, four' | 0.79 s
+PASS d1-tool-call [correctness] HTTP 200, finish 'tool_calls', calls [{'id': 'call-a32746e6ea280003', 'type': 'function', 'function': {'name': 'get_weather', 'arguments': '{"city": "Paris"}'}}], usage {'prompt_tokens': 143, 'completion_tokens': 54, 'total_tokens': 197} | 3.60 s
+PASS d1-city [reading] city 'Paris'
+PASS d2-tool-followup [correctness] [DONE] True, chunks 38, finish 'stop', errors [], prompt_tokens 207, completion_tokens 42, first chunk 0.01908707618713379 s, first token 0.8430380821228027 s, content 'Right now in Paris, it’s 18°C with clear skies.' | 0.84 s
+PASS d2-uses-result [reading] the answer names the 18 degrees of the result
+PASS n1-native-tool-call [correctness] HTTP 200, calls [{'function': {'arguments': {'city': 'Paris'}, 'name': 'get_weather'}}], prompt_eval_count 143, cached 0, eval_count 54 | 3.71 s
+PASS n2-followup [correctness] HTTP 200, content 'Right now in Paris, it’s 18°C with clear skies.', done_reason 'stop' | 2.21 s
+PASS n2-reuse-prompt [reading] cached 175 of 207; the first request's prompt was 143 tokens; read 32 tokens in 0.75 s
+PASS n2-reuse-answer [reading] the answer the cache held was reused too when cached > 143
+PASS e1-long [correctness] [DONE] True, chunks 65, finish 'length', errors [], prompt_tokens 8791, completion_tokens 64, first chunk 0.02957010269165039 s, first token 141.43166613578796 s, content '' | 141.43 s
+PASS e1-prompt-size [reading] prompt_tokens 8791, about 9,000 asked
+PASS e2-long [correctness] [DONE] True, chunks 65, finish 'length', errors [], prompt_tokens 8791, completion_tokens 64, first chunk 0.8877708911895752 s, first token 3.3116228580474854 s, content '' | 3.31 s
+PASS e2-prompt-size [reading] prompt_tokens 8791, about 9,000 asked
+PASS e2-repeat-reuse [reading] first token of the repeat over the first: 0.023415002796247975; inkling.rs reads a repeated prompt of one segment again in full, so FAIL here is what the code predicts, not a fault
+PASS e3-followup [correctness] HTTP 200, content 'No.', done_reason 'stop' | 5.44 s
+PASS e3-reuse-prompt [reading] cached 8791 of 8811; the first request's prompt was 8791 tokens; read 20 tokens in 1.70 s
+FAIL e3-reuse-answer [reading] the answer the cache held was reused too when cached > 8791
+PASS ps-end [correctness] state 'ready', backend 'metal', error None, size_vram 1366330064, 'panicked' in the server log: False
+INFO mem-before.txt: 2026-11-26 16:50:37
+llvq [12819]: 64-bit    Footprint: 4080 KB (16384 bytes per page)
+4080 KB    3008 KB          0 B       2701    TOTAL
+    phys_footprint: 4112 KB
+    phys_footprint_peak: 4112 KB
+{"models":[]}
+INFO mem-loaded.txt: 2026-11-26 16:50:57
+llvq [12819]: 64-bit    Footprint: 11 GB (16384 bytes per page)
+7656 MB        0 B       368 KB        545    IOAccelerator (graphics)
+ 160 MB        0 B          0 B         20    Owned physical footprint (unmapped) (graphics)
+ 160 KB        0 B          0 B          4    IOAccelerator
+  11 GB    1312 MB       114 MB       3633    TOTAL
+    phys_footprint: 11 GB
+    phys_footprint_peak: 11 GB
+{"models":[{"name":"inkling2:mini","model":"inkling2:mini","size":1366330064,"digest":"a86d86840a9ed8bca3b07c25e0e826f263bac9e4f86a735eb391dccf17f80760","details":{"parent_model":"","format":"llvq","family":"inkling2","families":["inkling2"],"parameter_size":"","quantization_level":"Tetra  b/param"},"expires_at":"9999-12-31T23:59:59.000000000Z","size_vram":1366330064,"context_length":32768,"llvq":{"state":"ready","backend":"metal","config":"inkling.json","queue":0,"busy":false,"error":null,"batch_pool_bytes":0}}]}
+INFO mem-after-long.txt: 2026-11-26 16:53:37
+llvq [12819]: 64-bit    Footprint: 14 GB (16384 bytes per page)
+  10 GB        0 B        21 MB       2169    IOAccelerator (graphics)
+ 165 MB        0 B          0 B         52    Owned physical footprint (unmapped) (graphics)
+ 592 KB        0 B          0 B         13    IOAccelerator
+  14 GB    1323 MB       134 MB       5379    TOTAL
+    phys_footprint: 14 GB
+    phys_footprint_peak: 16 GB
+{"models":[{"name":"inkling2:mini","model":"inkling2:mini","size":1366330064,"digest":"a86d86840a9ed8bca3b07c25e0e826f263bac9e4f86a735eb391dccf17f80760","details":{"parent_model":"","format":"llvq","family":"inkling2","families":["inkling2"],"parameter_size":"","quantization_level":"Tetra  b/param"},"expires_at":"9999-12-31T23:59:59.000000000Z","size_vram":1366330064,"context_length":32768,"llvq":{"state":"ready","backend":"metal","config":"inkling.json","queue":0,"busy":false,"error":null,"batch_pool_bytes":0}}]}
+INFO mem-after.txt: 2026-11-26 16:53:49
+llvq [12819]: 64-bit    Footprint: 13 GB (16384 bytes per page)
+9452 MB        0 B        14 MB       2841    IOAccelerator (graphics)
+ 160 MB        0 B          0 B         20    Owned physical footprint (unmapped) (graphics)
+ 640 KB        0 B          0 B         14    IOAccelerator
+  13 GB    1323 MB       128 MB       6024    TOTAL
+    phys_footprint: 13 GB
+    phys_footprint_peak: 16 GB
+{"models":[{"name":"inkling2:mini","model":"inkling2:mini","size":1366330064,"digest":"a86d86840a9ed8bca3b07c25e0e826f263bac9e4f86a735eb391dccf17f80760","details":{"parent_model":"","format":"llvq","family":"inkling2","families":["inkling2"],"parameter_size":"","quantization_level":"Tetra  b/param"},"expires_at":"9999-12-31T23:59:59.000000000Z","size_vram":1366330064,"context_length":32768,"llvq":{"state":"ready","backend":"metal","config":"inkling.json","queue":0,"busy":false,"error":null,"batch_pool_bytes":0}}]}
+correctness: 13 PASS, 0 FAIL []

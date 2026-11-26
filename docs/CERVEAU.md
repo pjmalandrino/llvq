@@ -24,7 +24,9 @@ On 2026-11-26 three journals at $0 on OVH's Olala v1.0 mini 7A1B, an MoE outside
 and Q31; none of them is measured on a served object.
 On 2026-11-26 a desk note read four repairs of Tetra's section caps through a calibrated model: C10 is added as a
 conjecture, one belief joined the dropped ones, and the operator closed the lead.
-72 claims: 17 established, 2 proved, 43 supported, 6 conjecture, 4 refuted.
+On 2026-11-26 four lots at $0 served Inkling 2 Mini on an M3 Max: A3 and A4 are added, both supported, and the
+anomaly N9.
+74 claims: 17 established, 2 proved, 45 supported, 6 conjecture, 4 refuted.
 
 This document lists what we believe to be true about quantizing LLMs on the Leech lattice, each belief with its
 standing. It is not the served state ([`ETAT.md`](ETAT.md)), the history ([`HISTORIQUE.md`](HISTORIQUE.md)) or a plan
@@ -910,6 +912,26 @@ and its prototype decodes 93.9 tok/s on an M3 Max where mlx-lm's 4-bit 4B decode
 - Overturn: an x86 run.
 - Checked: 2026-11-12.
 
+**A3.** On an M3 Max the read of a long prompt by Inkling 2 Mini does not follow the number of launches: reading
+the experts' rows in 3,456 lattice launches instead of 1,605,064 at 9,000 tokens, with the score bias on the device,
+reads 0.816, 1.028 and 0.727 of the default over three alternated rounds, the logits bit for bit. The rows kernel
+runs at 1.56 TFLOP/s at 8 rows where candle's f32 product reaches 9.23 at 256 rows.
+- Standing: supported. Scope: Inkling 2 Mini, one M3 Max, pieces of 512 tokens; the arm is off by default because
+  one round of three went against it, and N9 bounds what three rounds can resolve.
+- Evidence: [inkling-mac-prompt](mesures/inkling-mac-prompt-2026-11-26.txt),
+  [inkling-mac-decode](mesures/inkling-mac-decode-2026-11-26.txt) step 0.
+- Overturn: alternated rounds on a quiet machine that put the batched arm more than 5 % ahead in every round.
+- Checked: 2026-11-26.
+
+**A4.** The cache of Inkling 2 Mini saved at a 512-token piece boundary and loaded into a new cache gives the logits
+of a read from position 0, bit for bit, and the first token of a new session over an 8,704-token static block comes
+after 3.90 s [3.62, 4.57] instead of 155 to 202 s.
+- Standing: supported. Scope: one M3 Max, Metal, a synthetic prompt with a long system prompt and tools, three
+  restarted servers; no coding-agent client, nothing on CUDA.
+- Evidence: [inkling-mac-prefix](mesures/inkling-mac-prefix-2026-11-26.txt).
+- Overturn: a client whose static block never repeats token for token, or a loaded state whose logits differ.
+- Checked: 2026-11-26.
+
 ## Anomalies
 
 A measured fact that no claim explains. They are the starting points of the explanation route of
@@ -925,6 +947,7 @@ A measured fact that no claim explains. They are the starting points of the expl
 | N6 | The sealed 4B's four answer logits regress on FP16's with slope 0.58: it keeps 58 % of the contrast between the options, where AWQ 4B keeps 0.96. Across the 17 full-split 4B files with every projection quantized the slope runs from 0.22 to 0.58 and the noise from 1.20 to 1.77 a logit. No zero-bit correction raised the slope by more than 6 %, and two cases where perplexity improved and MMLU fell (Q5, Q14) are cases where the slope fell more than the noise. | [recherche-qualite2-r0-contraste](mesures/recherche-qualite2-r0-contraste-2026-11-14.txt) (*computed* on *measured* dumps); Q7, Q8. | Nothing an encoder can lay out, on what is read so far. What a band of the stream gives back follows the deviation energy it held, by variance (Q29 and its reading) and, within a factor of about 2, by a Fisher of running text or of MMLU answers (Q30); the sensitive directions are not shared across inputs. Q25 places the loss before the write, Q29 in the first twelve blocks' MLP and at the context positions. Not read: another depth, GSM8K, the published two-sided objective itself. |
 | N7 | On the sealed 4B the blocks after the MMLU answer write carry little of the MMLU loss and at least their share of the GSM8K loss: restoring layers 25 to 35 gains +0.43 [+0.11, +0.77] on MMLU and +4.32 [+2.46, +6.18] on GSM8K. | Q25, Q27, Q28. | Whether anything but the error a problem meets places the GSM8K loss. The two windows repair mostly the same problems (Q28) and both gains contain their even rate: the reading that generation uses every block about evenly, and that MMLU cannot see the last eleven (Q25, Q26), is not rejected. A finer GSM8K window whose interval excludes its even rate would reopen it. |
 | N8 | FP16's attention outputs, written in place of the sealed ones at blocks 0 to 11 of the sealed 4B with its MLP running on, take MMLU from 66.32 to 53.68 % on 570 questions, −12.63 [−16.41, −8.85]. FP16's MLP outputs with the sealed attention running on take it to 69.30 %, and both together give FP16's stream bit for bit. | Q29; [patch-map-4b](mesures/patch-map-4b-2026-11-15.txt), arm attn_0-11. | Why the sealed MLP of the first blocks does worse on FP16's attention than on its own: whether the row scales trained end to end tie the two branches, or the arm breaks something else. |
+| N9 | One M3 Max reads the same 9,000-token prompt through Inkling 2 Mini in 109 to 305 s over one day, same code and same logits. No thermal limit was recorded at the start of the slow reads. | A3; [inkling-mac-decode](mesures/inkling-mac-decode-2026-11-26.txt), [inkling-mac-prefix](mesures/inkling-mac-prefix-2026-11-26.txt). | What slows the read: another client of the GPU, memory, or the reader itself. Until it is known no difference under 30 % on that read is resolved. |
 
 ## Open questions
 

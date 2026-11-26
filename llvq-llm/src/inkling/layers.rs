@@ -610,10 +610,16 @@ pub fn experts_forward(
 /// 1249-1268) plus the causal mask, and for a sliding layer the window (keys
 /// at distance `>= window` masked).
 fn score_bias(rel_logits: &Tensor, offset: usize, s: usize, extent: usize, window: Option<usize>) -> Result<Tensor> {
-    #[cfg(all(target_os = "linux", feature = "cuda"))]
+    #[cfg(ink_glue)]
     if let Some(b) = super::attn_bias::bias(rel_logits, offset, s, extent, window)? {
         return Ok(b);
     }
+    score_bias_host(rel_logits, offset, s, extent, window)
+}
+
+/// [`score_bias`] through the host tables, whatever the device kernel's
+/// switch: the reference `super::attn_bias` is gated against.
+pub fn score_bias_host(rel_logits: &Tensor, offset: usize, s: usize, extent: usize, window: Option<usize>) -> Result<Tensor> {
     let (heads, t, _) = rel_logits.dims3()?;
     let dev = rel_logits.device();
     let mut idx = Vec::with_capacity(t * s);
@@ -1038,6 +1044,136 @@ impl SlotCache {
         let (nkv, d, _) = k.dims3()?;
         let from = self.kept_from(b);
         self.relocate(from, b.settled_capacity(), nkv, d, &k)
+    }
+
+    /// Write the slot's state in the format of [`super::snapshot`]: what it
+    /// holds, its buffers' capacity and bound, and the four convolution
+    /// states, the rings read back as [`Self::mark`] reads them. Nothing
+    /// changes.
+    pub fn write_state(&self, w: &mut dyn std::io::Write) -> Result<()> {
+        use super::snapshot::{put_tensor_bytes, put_u64, put_u8};
+        put_u64(w, self.len as u64)?;
+        put_u64(w, self.base as u64)?;
+        put_u64(w, self.min_capacity as u64)?;
+        put_u64(w, self.capacity() as u64)?;
+        match self.bound {
+            None => put_u8(w, 0)?,
+            Some(b) => {
+                put_u8(w, 1)?;
+                put_u64(w, b.window as u64)?;
+                put_u64(w, b.slack as u64)?;
+            }
+        }
+        match (&self.k_buf, &self.v_buf) {
+            (Some(k), Some(v)) => {
+                put_u8(w, 1)?;
+                let (nkv, d, _) = k.dims3()?;
+                let held = self.held();
+                put_u64(w, nkv as u64)?;
+                put_u64(w, d as u64)?;
+                put_u64(w, held as u64)?;
+                put_tensor_bytes(w, &k.narrow(2, 0, held)?)?;
+                put_tensor_bytes(w, &v.narrow(1, 0, held)?)?;
+            }
+            _ => put_u8(w, 0)?,
+        }
+        for c in self.conv_states()? {
+            let block = match &c {
+                ConvState::Empty => None,
+                ConvState::Block(t) => Some(t.clone()),
+                ConvState::Ring { rows, .. } => c.block(rows.len() + 1)?,
+            };
+            match block {
+                None => put_u8(w, 0)?,
+                Some(t) => {
+                    put_u8(w, 1)?;
+                    let (rows, cols) = t.dims2()?;
+                    put_u64(w, rows as u64)?;
+                    put_u64(w, cols as u64)?;
+                    put_tensor_bytes(w, &t)?;
+                }
+            }
+        }
+        Ok(())
+    }
+
+    /// Load into this slot, empty and as the model made it, a state that
+    /// [`Self::write_state`] wrote: refused by name when the state's bound is
+    /// not this slot's, the slot unchanged. The buffers are made on `dev`.
+    pub fn read_state(&mut self, r: &mut dyn std::io::Read, dev: &Device) -> Result<()> {
+        use super::snapshot::{get_padded, get_tensor_bytes, get_u8, get_usize};
+        if self.len > 0 || self.k_buf.is_some() {
+            candle_core::bail!("slot state: loaded into a slot that holds {} positions", self.len);
+        }
+        let len = get_usize(r, "len")?;
+        let base = get_usize(r, "base")?;
+        let min_capacity = get_usize(r, "min_capacity")?;
+        let capacity = get_usize(r, "capacity")?;
+        let bound = match get_u8(r)? {
+            0 => None,
+            1 => Some(KvBound { window: get_usize(r, "window")?, slack: get_usize(r, "slack")? }),
+            o => candle_core::bail!("slot state: bound flag {o}"),
+        };
+        if bound != self.bound {
+            candle_core::bail!("slot state: the state's bound {bound:?} is not this slot's {:?}", self.bound);
+        }
+        if base > len {
+            candle_core::bail!("slot state: base {base} past len {len}");
+        }
+        let held = len - base;
+        let bufs = match get_u8(r)? {
+            0 => None,
+            1 => {
+                let nkv = get_usize(r, "kv_heads")?;
+                let d = get_usize(r, "head_dim")?;
+                let h = get_usize(r, "held")?;
+                if h != held || capacity < held {
+                    candle_core::bail!("slot state: {h} positions held of {held}, in buffers of {capacity}");
+                }
+                // Each buffer in one allocation, the held rows at row 0, zeros past them.
+                let kb = get_padded(r, nkv * d, held, 1, capacity, dev)?.reshape((nkv, d, capacity))?;
+                let vb = get_padded(r, nkv, held, d, capacity, dev)?;
+                Some((kb, vb))
+            }
+            o => candle_core::bail!("slot state: buffer flag {o}"),
+        };
+        if bufs.is_none() && (held > 0 || capacity > 0) {
+            candle_core::bail!("slot state: {held} positions held and no buffers");
+        }
+        let mut conv: [ConvState; 4] = Default::default();
+        for c in conv.iter_mut() {
+            *c = match get_u8(r)? {
+                0 => ConvState::Empty,
+                1 => {
+                    let rows = get_usize(r, "conv rows")?;
+                    let cols = get_usize(r, "conv cols")?;
+                    ConvState::Block(get_tensor_bytes(r, &[rows, cols], dev)?)
+                }
+                o => candle_core::bail!("slot state: convolution flag {o}"),
+            };
+        }
+        let [conv_k, conv_v, conv_attn, conv_mlp] = conv;
+        let (k_buf, v_buf) = match bufs {
+            Some((k, v)) => (Some(k), Some(v)),
+            None => (None, None),
+        };
+        *self = SlotCache {
+            k_buf,
+            v_buf,
+            len,
+            base,
+            bound,
+            min_capacity,
+            conv_k,
+            conv_v,
+            conv_attn,
+            conv_mlp,
+            #[cfg(ink_glue)]
+            fused: None,
+            #[cfg(ink_glue)]
+            attn: None,
+        };
+        Ok(())
     }
 }
 

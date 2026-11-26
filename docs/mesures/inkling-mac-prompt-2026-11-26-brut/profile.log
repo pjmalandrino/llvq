@@ -1,0 +1,5 @@
+2026-11-26 11:20:13 load1 3.44 gpu 1% memfree 77% 
+prompt 2000 read in 28.26 s; step median 0.0381 s = 26.23 tok/s; GB after load 8.03, after the prompt 9.85, end 9.70; peak {}; all_equal None
+2026-11-26 11:21:46 load1 3.15 gpu 0% memfree 76% 
+prompt 9000 read in 158.09 s; step median 0.0428 s = 23.34 tok/s; GB after load 8.03, after the prompt 10.77, end 10.58; peak {}; all_equal None
+profile: all done
