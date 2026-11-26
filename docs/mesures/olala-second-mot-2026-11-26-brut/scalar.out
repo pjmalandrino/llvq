@@ -1,0 +1,6 @@
+best fixed-rate scalar quantizer, 2 bits, Gaussian: 0.11773   Shannon bound at 2 bits: 0.06250
+best fixed-rate scalar quantizer, 3 bits, Gaussian: 0.03458   Shannon bound at 3 bits: 0.01562
+best fixed-rate scalar quantizer, 4 bits, Gaussian: 0.00950   Shannon bound at 4 bits: 0.00391
+second word on 20 % of the routed experts: 2.49 GB, 2.94 b/param
+second word on 50 % of the routed experts: 2.90 GB, 3.43 b/param
+second word on 100 % of the routed experts: 3.59 GB, 4.24 b/param

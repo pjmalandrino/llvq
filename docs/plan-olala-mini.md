@@ -90,6 +90,12 @@ section 5). At the 131,072 calibration tokens of the sealed recipe, about 8 % of
 than the 768 columns of their second matrix (*computed* from that census, on a text that is not the calibration
 corpus). The Inkling encode met 28 % of such cells and took no fallback.
 
+**A second word buys what a better code cannot.** At 48 bits a block the code is within 0.60 dB of any
+24-dimension rival ([`CERVEAU.md`](CERVEAU.md) C7), so its error at 2 bits is close to final. A second Tetra word
+on the residual takes the error from 0.085 to 0.0074 at 4.00 bits a weight, under int4 g128's 0.0100 at 4.25
+(*measured*, [olala-second-mot](mesures/olala-second-mot-2026-11-26.txt)). Under the proxy, a second word on the
+busiest 20 % of the experts halves the KL to bf16, from 0.125 to 0.061. The format holds one word a block today.
+
 The noise proxy is not an encoded file. It ignores the Hessian, which is the whole of what GPTQ uses, and by
 [`MODES.md`](MODES.md) a gain projected through a proxy is not a result. It ranks the parts of the model and
 bounds nothing.
@@ -113,7 +119,9 @@ alternatives stand below it.
 | experts on the lattice, everything else bf16 | 4.79 | 4.05 | larger than the smallest public file |
 | the Inkling recipe: experts on the lattice, ends in int4, the rest bf16 | 4.00 | 3.38 | a safe first arm |
 | **the proposed recipe** | **2.61** | **2.21** | the target |
-| the proposed recipe with the busiest 20 % of experts in int4 | 2.97 | 2.51 | the fallback if the gate fails; a rule on usage, not on a type |
+| the proposed recipe with a second Tetra word on the busiest 20 % of experts | 2.94 | 2.49 | the fallback if the gate fails; a format change |
+| the same on the busiest 50 % | 3.43 | 2.90 | |
+| the same on every routed expert | 4.24 | 3.59 | the size of the smallest public file |
 | every matrix on the lattice | 2.35 | 1.99 | ruled out by the dense-path noise arm unless GPTQ changes the picture |
 
 The embedding and the head were not put under noise, so their int4 form rests on the three Qwen3 files and on
@@ -137,8 +145,9 @@ reports 0.0587 and 88.8 %. The honest reading tonight is that this gate is hard.
 experts alone at a KL near 0.16 on our text, and on Inkling the real encode of the experts at 2.04 bits read 0.083
 on the whole model and did not beat the public ladder ([whole-model](mesures/inkling2-mini-whole-model-2026-11-22.txt)).
 Three levers stand between the proxy and the gate, none measured on this model: GPTQ against real Hessians, trained
-row scales, which gained 1.7 to 3.3 MMLU points on the Qwen3 files, and the usage rule of section 4. The fallback
-target is the same gate at 2.97 b/param, still 32 % under the smallest public file. The task target comes after the
+row scales, which gained 1.7 to 3.3 MMLU points on the Qwen3 files, and a second word on the busiest experts
+(section 3). The fallback target is the same gate at 2.94 b/param, 2.49 GB, still 33 % under the smallest public
+file. The task target comes after the
 gate: within 3 points of bf16 on the five tasks `solfird` scored, where the NVFP4 build lost 1.6 and a 4-bit GGUF
 4.2, with the share of answers that run out of context reported beside every score.
 
@@ -176,7 +185,8 @@ arm: experts only, then the int4 parts, then the whole recipe. Read the 3.72 GB 
 by converting our reconstruction to GGUF or by loading theirs into the PyTorch forward. The prereg states the gate
 of section 5 before the first number. Two to four agent-days (*estimated*, with no measured basis).
 
-**O2. The levers, if O1 misses.** In order of cost: the usage rule for the busiest experts; a floor for experts
+**O2. The levers, if O1 misses.** In order of cost: a second word on the busiest experts, first as a dense
+reconstruction and only then as a format; a floor for experts
 under their column count; the spike layers, where the choice is between a data-free encode, f64 Hessians, and OVH's
 own rewrite that normalises the branch output at layers 1, 7 and 23; trained row scales, which need an adapter in
 `ops/llvqtune` and a card.
@@ -219,8 +229,8 @@ tool calls.
 | decision | default if silent |
 |---|---|
 | open O1, the quality gate at $0 | not opened |
-| the rate to aim at: 2.61 b/param, or 2.97 with the usage rule from the start | 2.61, the fallback only after a miss |
-| whether a rule on expert usage is inside the ruling of 2026-11-12 on per-model changes | not used |
+| the rate to aim at: 2.61 b/param, or 2.94 with a second word on the busiest experts from the start | 2.61, the fallback only after a miss |
+| a second word a block as a format and kernel change | not built; read as a dense reconstruction only |
 | a spend cap for O3 and for row scales | no paid job |
 | wait for the 128K version before any paid work | no wait for O1, wait for the rest |
 | Olala as a served family, O5 and O6 | not started |
