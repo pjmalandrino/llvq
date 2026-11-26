@@ -619,6 +619,7 @@ mod tests {
             prefill: prefill.map(str::to_string),
             decode_cache: None,
             batch: None,
+            metal_kernels: None,
             note: None,
         };
         crate::served::Served::of(f, "c.json".into()).expect("resolves")

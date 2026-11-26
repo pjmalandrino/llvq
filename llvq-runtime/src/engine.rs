@@ -146,18 +146,10 @@ impl Loader for DeviceLoader {
             Backend::Cpu => DType::F32,
             Backend::Cuda | Backend::Metal => DType::F16,
         };
-        let mut f = llvq_llm::served::load_resolved(
-            path_s,
-            &device,
-            dtype,
-            cfg.layout,
-            cfg.embed,
-            cfg.rot_share,
-            cfg.fuse,
-            cfg.kv,
-            cfg.int4_layout(),
-            Some("the llvq library"),
-        )?;
+        // The config whole, its Metal kernels included: `Served::apply`
+        // below refuses a model whose runtime does not launch the kernels
+        // its config names.
+        let mut f = llvq_llm::served::load_served(&cfg, path_s, &device, dtype, Some("the llvq library"))?;
         let decoder = cfg.serve(&mut f.model, &device)?;
         let mut lines = decoder.lines().to_vec();
         // The install's provenance (4E's module and sha256, the chain arm, the

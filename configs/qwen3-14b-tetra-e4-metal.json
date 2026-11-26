@@ -1,0 +1,10 @@
+{
+  "layout": "tetra48",
+  "embed": "q4",
+  "rot_share": "1",
+  "fuse": "0",
+  "kv": "f16",
+  "attention": "grouped",
+  "metal_kernels": "lutd+h+pq",
+  "note": "PENDING its gates (proofs/preregistration-servi-au-bit-2026-11-26.md, part A)."
+}

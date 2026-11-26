@@ -145,6 +145,14 @@ pub struct ServedFile {
     /// See [`BatchServe`].
     #[serde(default)]
     pub batch: Option<BatchFile>,
+    /// The Metal kernels this config serves, spelled as the `bin/metalrun`
+    /// arm that measured them (`"lutd+h+pq"`). Absent is
+    /// `MetalTuning::default()`, what every config before 2026-11-26 served.
+    /// A config that names it is a Metal config: refused off Metal, and the
+    /// one kind of config through which Metal serves the grouped form. See
+    /// [`MetalKernels`].
+    #[serde(default)]
+    pub metal_kernels: Option<String>,
     /// Free text, carried so a config can say what object it belongs to. Read
     /// by nothing and printed with the rest.
     #[serde(default)]
@@ -227,8 +235,55 @@ pub struct Served {
     pub decode_cache: DecodeCache,
     /// The batched decode, when the config names one.
     pub batch: Option<BatchServe>,
+    /// The Metal kernels the config names; `Default` when it names none.
+    pub metal_kernels: MetalKernels,
     pub path: PathBuf,
     pub note: Option<String>,
+}
+
+/// The Metal kernels a served config names, in `metal_kernels`.
+///
+/// A closed list: a name enters it once `bin/metalrun` has gated its kernels
+/// bit for bit against the served ones on the sealed files it serves. The
+/// spelling is the bench's arm, read by `fused_metal::MetalTuning::parse_arm`,
+/// so the arm a journal timed is the one a config serves.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MetalKernels {
+    /// `MetalTuning::default()`: `tv_tetra48_metal_lut`, f32 io, one prompt
+    /// row a launch. What an absent field means.
+    Default,
+    /// `lutd+h+pq`: the Tetra matvec `tv_tetra48_metal_lutd`, the half-io
+    /// twins, and the prefill kernels of 8 rows a launch for the Tetra and the
+    /// int4 records (`metal-nuit-2026-11-06` M2, M8, M9, M10: 253 of 253
+    /// records bit for bit on the 4B; `qwen-metal-servi-2026-11-26` for the
+    /// 8B and the 14B).
+    LutdHPq,
+}
+
+impl MetalKernels {
+    /// The names a config may write.
+    pub const NAMES: [&'static str; 1] = ["lutd+h+pq"];
+
+    /// Absent is [`MetalKernels::Default`]; any other spelling, the empty
+    /// one included, is refused with the list.
+    pub fn parse(v: Option<&str>) -> Result<Self, String> {
+        match v {
+            None => Ok(Self::Default),
+            Some("lutd+h+pq") => Ok(Self::LutdHPq),
+            Some(other) => Err(format!(
+                "metal_kernels {other:?}: a config names one of {:?}, or leaves the key out for the default                  Metal kernels",
+                Self::NAMES
+            )),
+        }
+    }
+
+    /// The `bin/metalrun` arm, `None` for the default kernels.
+    pub fn arm(self) -> Option<&'static str> {
+        match self {
+            Self::Default => None,
+            Self::LutdHPq => Some("lutd+h+pq"),
+        }
+    }
 }
 
 /// The decode engine a served config names.
@@ -756,6 +811,16 @@ impl Served {
         if decode_cache == DecodeCache::Int8 && f.batch.is_some() {
             return Err("decode_cache \"int8\" beside batch: the batch pool holds binary16 caches.".into());
         }
+        let metal_kernels = MetalKernels::parse(f.metal_kernels.as_deref())?;
+        if metal_kernels != MetalKernels::Default && (decode != Decode::Eager || f.batch.is_some()) {
+            return Err(format!(
+                "metal_kernels {:?} beside decode {:?}{}: the field names the kernels of the eager engine on \
+                 Metal, which carries neither 4E nor the batch. Write a config of its own for the card.",
+                metal_kernels.arm().unwrap_or_default(),
+                decode.label(),
+                if f.batch.is_some() { " and a batch" } else { "" }
+            ));
+        }
         let prefill_form = Prefill::parse(f.prefill.as_deref())?;
         if prefill_form == Prefill::Chain {
             if decode != Decode::Persistent || rows != Rows4e::V9 {
@@ -840,6 +905,7 @@ impl Served {
             prefill_form,
             decode_cache,
             batch,
+            metal_kernels,
             path,
             note: f.note,
         })
@@ -899,6 +965,12 @@ impl Served {
             Prefill::Eager => decode,
             Prefill::Chain => format!("{decode}, prefill chain (tree pass {CHAIN_ARM}, {CHAIN_ROWS} rows a launch)"),
         };
+        // Named only when the config names Metal kernels, so every line an
+        // earlier config printed reads as it did.
+        let decode = match self.metal_kernels.arm() {
+            None => decode,
+            Some(arm) => format!("{decode}, Metal kernels {arm}"),
+        };
         format!(
             "served config: {} (layout {}, embed {}, rot_share {}, fuse {}, kv {}, \
              attention {attention} on {}{decode}){note}",
@@ -914,15 +986,19 @@ impl Served {
 
     /// The served attention form against the device it would run on.
     ///
-    /// `Grouped` is measured on one card, the L40S, through three runs of
-    /// 2026-10-30 and 2026-11-01. On Metal it has never run: no throughput, no
-    /// perplexity, and no comparison of what Metal's own matmuls round to. The
-    /// form is backend-independent code in `model.rs`, which is exactly why a
-    /// silent acceptance would be easy and wrong — it would serve on the Mac a
-    /// form whose tolerance gate was passed on an NVIDIA card.
+    /// `Grouped` is licensed on the card by a tolerance (L40S, 2026-10-30 and
+    /// 2026-11-01). On Metal it returned the expanded form's logits bit for
+    /// bit (`metal-nuit-2026-11-06` M3 and M5 on the 4B,
+    /// `qwen-metal-servi-2026-11-26` on the 8B and the 14B), and the operator
+    /// served it there on 2026-11-26. Metal accepts it only from a config that
+    /// names its Metal kernels: those configs exist for the objects that
+    /// passed that identity gate, and a card config that writes `grouped` was
+    /// never read against Metal's rounding. The kernel form stays refused on
+    /// Metal: no T8 of it there has been granted.
     ///
-    /// So: refused by name, with the measurement that would lift the refusal.
-    /// `metal` is handed in rather than read from a device so the refusal is
+    /// A config that names Metal kernels is refused off Metal: on a card the
+    /// grouped form is a tolerance, not an identity, and the 8B and 14B never
+    /// ran it there. `metal` is handed in rather than read from a device so the refusal is
     /// testable on a machine that has no Metal device, and so this function
     /// stays pure like the rest of this module.
     pub fn check_device(&self, metal: bool) -> Result<(), String> {
@@ -949,8 +1025,17 @@ impl Served {
                 self.path.display(),
             ));
         }
+        if self.metal_kernels != MetalKernels::Default && !metal {
+            return Err(format!(
+                "{}: metal_kernels {:?} off Metal. This is a Metal config; serve the object with its card or CPU \
+                 config.",
+                self.path.display(),
+                self.metal_kernels.arm().unwrap_or_default(),
+            ));
+        }
         match (self.attention, metal) {
             (AttnHeads::Expanded, _) | (_, false) => Ok(()),
+            (AttnHeads::Grouped, true) if self.metal_kernels != MetalKernels::Default => Ok(()),
             (AttnHeads::Kernel, true) => Err(format!(
                 "{}: attention \"kernel\" on Metal. kernels/attn_dec.metal returns the \
                  canonical replay's bits (tests/attn_metal.rs), but no T8 of the form on Metal \
@@ -959,11 +1044,11 @@ impl Served {
                 self.path.display(),
             )),
             (form, true) => Err(format!(
-                "{}: attention {:?} on Metal. Its +-0.12 % tolerance was measured on an \
-                 L40S (gqa-ppl-2026-11-01); on Metal the grouped form read bit for bit \
-                 with the expanded one over 49,140 decode steps (metal-nuit-2026-11-06), \
-                 and serving it there is the operator's decision, not yet taken. Serve \
-                 this object with the expanded form; bin/metalrun measures the others.",
+                "{}: attention {:?} on Metal from a config that names no Metal kernels. Its +-0.12 % \
+                 tolerance was measured on an L40S (gqa-ppl-2026-11-01); Metal serves the grouped form \
+                 only through a Metal config, one that names its kernels in metal_kernels and exists for \
+                 an object that read bit for bit with the expanded form on Metal (qwen3-*-tetra-e4-metal.json). \
+                 Serve this object with its Metal config or the expanded form; bin/metalrun measures the others.",
                 self.path.display(),
                 form.label(),
             )),
@@ -983,6 +1068,7 @@ impl Served {
         device: &candle_core::Device,
     ) -> Result<(), String> {
         self.check_device(device.is_metal())?;
+        self.check_metal_kernels(model, device)?;
         if self.decode == Decode::Persistent {
             check_persistent_object(model.config()).map_err(|e| format!("{}: {e}", self.path.display()))?;
         }
@@ -990,6 +1076,40 @@ impl Served {
             check_chain_object(model.config()).map_err(|e| format!("{}: {e}", self.path.display()))?;
         }
         self.apply_form(model, device)
+    }
+
+    /// On Metal, under a config that names its kernels: the runtime under
+    /// `model` launches those kernels. A door that loaded through
+    /// [`load_resolved`], which knows nothing of the field, is refused here
+    /// by name instead of serving the default kernels under a config that
+    /// says otherwise. Nothing is checked under the default, so the bench's
+    /// arms keep their own kernels under the older configs.
+    pub fn check_metal_kernels(
+        &self,
+        model: &crate::model::Qwen3,
+        device: &candle_core::Device,
+    ) -> Result<(), String> {
+        if self.metal_kernels == MetalKernels::Default || !device.is_metal() {
+            return Ok(());
+        }
+        #[cfg(all(target_os = "macos", feature = "metal"))]
+        {
+            let want = crate::fused_metal::MetalTuning::of_served(self.metal_kernels).map_err(|e| e.to_string())?;
+            match crate::fused_metal::tuning_of(model) {
+                Some(got) if got == want => Ok(()),
+                got => Err(format!(
+                    "{}: the config names the Metal kernels {:?} ({want:?}) and the loaded model launches {got:?}. \
+                     Load it through served::load_served, which hands the config's kernels to the loader.",
+                    self.path.display(),
+                    self.metal_kernels.arm().unwrap_or_default(),
+                )),
+            }
+        }
+        #[cfg(not(all(target_os = "macos", feature = "metal")))]
+        {
+            let _ = model;
+            Err(format!("{}: a Metal device in a build without the Metal backend", self.path.display()))
+        }
     }
 
     /// [`Self::apply`] without the device refusal: the measurement door of
@@ -1104,6 +1224,31 @@ pub fn load_resolved(
              or on the CPU (Device::Cpu) in any build"
         )
     }
+}
+
+/// The served object as `cfg` names it: [`load_resolved`] with every field
+/// of the config, the Metal kernels included. The door a runtime that reads
+/// a config whole calls (`llvq-runtime`, `bin/metalrun`'s `cfg:` arms).
+pub fn load_served(
+    cfg: &Served,
+    path: &str,
+    device: &candle_core::Device,
+    dtype: candle_core::DType,
+    origin: Option<&str>,
+) -> candle_core::Result<crate::fused::FusedSealed> {
+    #[cfg(all(target_os = "macos", feature = "metal"))]
+    {
+        if device.is_metal() && cfg.metal_kernels != MetalKernels::Default {
+            let tuning = crate::fused_metal::MetalTuning::of_served(cfg.metal_kernels)?;
+            if cfg.int4_layout() != crate::fused::Int4Layout::Served {
+                candle_core::bail!("int4 layout {} on Metal: the tiled order is 4E v9's, a CUDA kernel", cfg.int4_layout().name());
+            }
+            return crate::fused_metal::load_resolved_tuned(
+                path, device, dtype, cfg.layout, cfg.embed, cfg.rot_share, cfg.fuse, cfg.kv, origin, Some(tuning),
+            );
+        }
+    }
+    load_resolved(path, device, dtype, cfg.layout, cfg.embed, cfg.rot_share, cfg.fuse, cfg.kv, cfg.int4_layout(), origin)
 }
 
 /// [`load_resolved`]'s measurement door: the layout, the embedding mode and
