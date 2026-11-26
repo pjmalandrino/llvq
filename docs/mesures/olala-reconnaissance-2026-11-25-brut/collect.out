@@ -1,0 +1,41 @@
+exp085             top1 agree  84.5%  KL~0.1303 (top-64 mass 0.912)  dNLL +0.0701 ± 0.0136  n=2044
+exp085_s77         top1 agree  84.9%  KL~0.1276 (top-64 mass 0.912)  dNLL +0.0733 ± 0.0145  n=2044
+exp085_dense010    top1 agree  82.2%  KL~0.1772 (top-64 mass 0.912)  dNLL +0.0741 ± 0.0169  n=2044
+Cnew_o0            top1 agree  81.3%  KL~0.2204 (top-64 mass 0.912)  dNLL +0.1417 ± 0.0181  n=2044
+exp010             top1 agree  94.3%  KL~0.0200 (top-64 mass 0.912)  dNLL +0.0130 ± 0.0069  n=2044
+exp040             top1 agree  89.4%  KL~0.0659 (top-64 mass 0.912)  dNLL +0.0344 ± 0.0102  n=2044
+all085             top1 agree  65.2%  KL~0.8329 (top-64 mass 0.912)  dNLL +0.8229 ± 0.0369  n=2044
+d_inproj           top1 agree  85.4%  KL~0.1036 (top-64 mass 0.912)  dNLL +0.0770 ± 0.0127  n=2044
+d_mixerproj        top1 agree  81.0%  KL~0.1815 (top-64 mass 0.912)  dNLL +0.1328 ± 0.0163  n=2044
+d_shared           top1 agree  79.9%  KL~0.2345 (top-64 mass 0.912)  dNLL +0.1980 ± 0.0200  n=2044
+d_attn             top1 agree  85.3%  KL~0.1189 (top-64 mass 0.912)  dNLL +0.0486 ± 0.0133  n=2044
+d_latent           top1 agree  84.8%  KL~0.1380 (top-64 mass 0.912)  dNLL +0.0800 ± 0.0142  n=2044
+d_router           top1 agree  92.4%  KL~0.0207 (top-64 mass 0.912)  dNLL +0.0072 ± 0.0056  n=2044
+d_router010        top1 agree  96.2%  KL~0.0069 (top-64 mass 0.912)  dNLL +0.0091 ± 0.0032  n=2044
+exp085_o2048       top1 agree  87.4%  KL~0.1199 (top-64 mass 0.930)  dNLL +0.0791 ± 0.0124  n=2044
+C_o2048            top1 agree  82.3%  KL~0.2137 (top-64 mass 0.930)  dNLL +0.1931 ± 0.0166  n=2044
+exp085_o4096       top1 agree  76.3%  KL~0.1730 (top-64 mass 0.883)  dNLL +0.1078 ± 0.0162  n=2044
+C_o4096            top1 agree  70.8%  KL~0.2916 (top-64 mass 0.883)  dNLL +0.2626 ± 0.0204  n=2044
+exp085_o6144       top1 agree  75.5%  KL~0.2101 (top-64 mass 0.880)  dNLL +0.1610 ± 0.0194  n=2044
+C_o6144            top1 agree  68.1%  KL~0.3886 (top-64 mass 0.880)  dNLL +0.3417 ± 0.0250  n=2044
+Cbig_o2048         top1 agree  84.3%  KL~0.1680 (top-64 mass 0.930)  dNLL +0.1064 ± 0.0154  n=2044
+router010_o2048    top1 agree  96.0%  KL~0.0061 (top-64 mass 0.930)  dNLL -0.0003 ± 0.0030  n=2044
+latent010_o2048    top1 agree  94.4%  KL~0.0184 (top-64 mass 0.930)  dNLL +0.0146 ± 0.0055  n=2044
+C_s77_o2048        top1 agree  81.6%  KL~0.2263 (top-64 mass 0.930)  dNLL +0.1740 ± 0.0190  n=2044
+POOLED exp085: windows 4 n=8176 dNLL +0.1045 ± 0.0078  ppl x1.110  top1 80.9%  KL~0.1583
+POOLED C: windows 4 n=8176 dNLL +0.2348 ± 0.0102  ppl x1.265  top1 75.6%  KL~0.2786
+route2 mean tokens/expert 288.0 zero 4 / 9216  under 72 (quarter of mean): 792  over 1152 (4x mean): 129
+ per-layer zeros [0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 3, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+ per-layer max share of tokens for one expert [0.1, 0.1, 0.11, 0.09, 0.1, 0.11, 0.09, 0.08, 0.07, 0.07, 0.08, 0.19, 0.11, 0.22, 0.06, 0.12, 0.1, 0.16, 0.2, 0.17, 0.19, 0.1, 0.12, 0.26, 0.22, 0.11, 0.14, 0.16, 0.1, 0.14, 0.14, 0.1, 0.16, 0.1, 0.17, 0.12]
+ per-layer experts under 72 tokens [2, 2, 3, 9, 5, 4, 8, 0, 0, 0, 0, 24, 4, 21, 0, 28, 8, 30, 44, 28, 42, 9, 27, 65, 83, 25, 28, 28, 28, 42, 31, 16, 38, 33, 36, 41]
+ margin p1/p10/p50 at layers 0,1,17,35 [['1.2e-06', '1.3e-05', '2.0e-04'], ['0.0e+00', '1.2e-06', '2.5e-05'], ['8.6e-05', '8.8e-04', '6.4e-03'], ['3.1e-05', '3.8e-04', '2.8e-03']]
+route3 mean tokens/expert 288.0 zero 6 / 9216  under 72 (quarter of mean): 764  over 1152 (4x mean): 116
+ per-layer zeros [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 4, 0, 0, 0, 0, 2, 0, 0, 0, 0, 0, 0]
+ per-layer max share of tokens for one expert [0.06, 0.05, 0.07, 0.07, 0.08, 0.09, 0.09, 0.05, 0.06, 0.05, 0.05, 0.12, 0.09, 0.26, 0.05, 0.11, 0.1, 0.14, 0.19, 0.16, 0.19, 0.08, 0.18, 0.28, 0.23, 0.11, 0.12, 0.17, 0.12, 0.12, 0.13, 0.12, 0.2, 0.13, 0.14, 0.14]
+ per-layer experts under 72 tokens [2, 1, 2, 9, 4, 5, 4, 0, 0, 0, 0, 18, 4, 16, 0, 28, 8, 29, 30, 22, 38, 9, 22, 62, 78, 27, 29, 27, 29, 45, 42, 17, 38, 36, 37, 46]
+ margin p1/p10/p50 at layers 0,1,17,35 [['9.5e-07', '1.1e-05', '1.7e-04'], ['0.0e+00', '9.5e-07', '2.0e-05'], ['9.2e-05', '9.4e-04', '6.7e-03'], ['4.4e-05', '4.2e-04', '3.0e-03']]
+pooled 24,576 tokens: zero 1  corr of counts between halves 0.879
+ share of (layer, expert) cells that would see under 384 tokens at 131,072 tokens, scaling counts x5.33: 0.0265; layers 2-35 only: 0.0278
+ share of (layer, expert) cells that would see under 768 tokens at 131,072 tokens, scaling counts x5.33: 0.0793; layers 2-35 only: 0.0836
+ share of (layer, expert) cells that would see under 1536 tokens at 131,072 tokens, scaling counts x5.33: 0.2271; layers 2-35 only: 0.2379
+ same, layers 0 and 1 under 768: [0.008, 0.004]

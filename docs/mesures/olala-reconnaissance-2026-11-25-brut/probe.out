@@ -1,0 +1,28 @@
+layers.17.mlp.experts.experts.f32 rows 4608 x 384 rot true: rel MSE (energy-weighted) 0.08518  median row 0.08478  p99 row 0.09836  worst row 0.10766    8.8s
+layers.17.mlp.experts.output_experts.f32 rows 4608 x 768 rot true: rel MSE (energy-weighted) 0.08518  median row 0.08502  p99 row 0.09391  worst row 0.10289    16.9s
+layers.35.mlp.experts.experts.f32 rows 4608 x 384 rot true: rel MSE (energy-weighted) 0.08482  median row 0.08453  p99 row 0.09753  worst row 0.11055    8.2s
+layers.5.mlp.experts.experts.f32 rows 4608 x 384 rot true: rel MSE (energy-weighted) 0.08468  median row 0.08438  p99 row 0.09750  worst row 0.10340    8.4s
+layers.0.mlp.experts.experts.f32 rows 4608 x 384 rot true: rel MSE (energy-weighted) 0.08457  median row 0.08439  p99 row 0.09719  worst row 0.10656    8.3s
+layers.0.mlp.experts.output_experts.f32 rows 4608 x 768 rot true: rel MSE (energy-weighted) 0.10162  median row 0.10445  p99 row 0.16797  worst row 0.26390    14.9s
+layers.1.mlp.experts.experts.f32 rows 4608 x 384 rot true: rel MSE (energy-weighted) 0.08676  median row 0.08465  p99 row 0.09746  worst row 0.10689    8.1s
+layers.1.mlp.experts.output_experts.f32 rows 4608 x 768 rot true: rel MSE (energy-weighted) 0.08854  median row 0.10670  p99 row 0.15371  worst row 0.23563    14.9s
+layers.17.mlp.shared_experts.fc_1.f32 rows 1536 x 1536 rot true: rel MSE (energy-weighted) 0.08526  median row 0.08517  p99 row 0.09147  worst row 0.09340    11.5s
+layers.17.mlp.shared_experts.fc_2.f32 rows 1536 x 1536 rot true: rel MSE (energy-weighted) 0.08522  median row 0.08516  p99 row 0.09113  worst row 0.09527    10.9s
+layers.17.mlp.down_proj.f32 rows 384 x 1536 rot true: rel MSE (energy-weighted) 0.08526  median row 0.08533  p99 row 0.09206  worst row 0.09477    2.8s
+layers.17.mlp.up_proj.f32 rows 1536 x 384 rot true: rel MSE (energy-weighted) 0.08513  median row 0.08499  p99 row 0.09844  worst row 0.10414    2.9s
+layers.17.mlp.moe_gate.f32 rows 256 x 1536 rot true: rel MSE (energy-weighted) 0.08537  median row 0.08515  p99 row 0.09262  worst row 0.09431    1.8s
+layers.17.mixer_proj.f32 rows 1536 x 3072 rot true: rel MSE (energy-weighted) 0.08535  median row 0.08527  p99 row 0.08955  worst row 0.09118    22.9s
+layers.17.mixer.in_proj.f32 rows 4608 x 1536 rot true: rel MSE (energy-weighted) 0.08538  median row 0.08527  p99 row 0.09131  worst row 0.09440    34.3s
+layers.1.mixer.in_proj.f32 rows 4608 x 1536 rot true: rel MSE (energy-weighted) 0.08626  median row 0.08496  p99 row 0.09103  worst row 0.09633    34.0s
+layers.7.mixer.in_proj.f32 rows 4608 x 1536 rot true: rel MSE (energy-weighted) 0.08893  median row 0.08501  p99 row 0.09136  worst row 0.12621    33.7s
+layers.1.mixer_proj.f32 rows 1536 x 3072 rot true: rel MSE (energy-weighted) 0.09347  median row 0.09141  p99 row 0.11548  worst row 0.14111    19.0s
+layers.4.mixer.c_q.f32 rows 4608 x 1536 rot true: rel MSE (energy-weighted) 0.08539  median row 0.08529  p99 row 0.09130  worst row 0.09375    31.1s
+layers.4.gate_proj.f32 rows 4608 x 1536 rot true: rel MSE (energy-weighted) 0.08505  median row 0.08497  p99 row 0.09109  worst row 0.09530    30.8s
+gauss384.f32 rows 2304 x 384 rot true: rel MSE (energy-weighted) 0.08476  median row 0.08434  p99 row 0.09750  worst row 0.10459    4.0s
+gauss768.f32 rows 2304 x 768 rot true: rel MSE (energy-weighted) 0.08521  median row 0.08496  p99 row 0.09409  worst row 0.10243    7.8s
+layers.1.mlp.experts.output_experts.f32 rows 4608 x 768 rot false: rel MSE (energy-weighted) 0.25743  median row 0.23223  p99 row 0.65001  worst row 0.85375    26.4s
+layers.1.mixer_proj.f32 rows 1536 x 3072 rot false: rel MSE (energy-weighted) 0.23790  median row 0.22955  p99 row 0.46564  worst row 0.55523    41.2s
+layers.17.mlp.experts.experts.f32 rows 4608 x 384 rot false: rel MSE (energy-weighted) 0.08537  median row 0.08504  p99 row 0.09802  worst row 0.10635    15.5s
+13.5797 GB
+
+[exited with code 0]
