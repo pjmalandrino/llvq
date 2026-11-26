@@ -610,10 +610,16 @@ pub fn experts_forward(
 /// 1249-1268) plus the causal mask, and for a sliding layer the window (keys
 /// at distance `>= window` masked).
 fn score_bias(rel_logits: &Tensor, offset: usize, s: usize, extent: usize, window: Option<usize>) -> Result<Tensor> {
-    #[cfg(all(target_os = "linux", feature = "cuda"))]
+    #[cfg(ink_glue)]
     if let Some(b) = super::attn_bias::bias(rel_logits, offset, s, extent, window)? {
         return Ok(b);
     }
+    score_bias_host(rel_logits, offset, s, extent, window)
+}
+
+/// [`score_bias`] through the host tables, whatever the device kernel's
+/// switch: the reference `super::attn_bias` is gated against.
+pub fn score_bias_host(rel_logits: &Tensor, offset: usize, s: usize, extent: usize, window: Option<usize>) -> Result<Tensor> {
     let (heads, t, _) = rel_logits.dims3()?;
     let dev = rel_logits.device();
     let mut idx = Vec::with_capacity(t * s);

@@ -86,10 +86,14 @@
 //! host first as before. Same logits, bit for bit; `host` is the reference.
 //! A run that dumps its routing reads it back in either case.
 //!
+//! `--attn-bias host|device`: a prompt's score bias built from host tables
+//! (default) or by `inkling::attn_bias` on the device (CUDA and Metal), the
+//! same bits.
+//!
 //! `--moe-rows chunk|batch`: a prompt's rows through the resident experts one
 //! expert and one chunk at a time (`chunk`, the default and the reference), or
 //! one launch a step for every (token, expert) pair of a layer (`batch`).
-//! CUDA only; meant to be the same bits.
+//! CUDA and Metal (`resident::forward_rows_batched`); meant to be the same bits.
 //!
 //! `--moe-act fused|candle`: the activation between the launches of a
 //! resident layer's one-row experts in one launch (default), or through
@@ -551,11 +555,11 @@ fn main() -> Result<()> {
     model.set_moe_act(args.moe_act);
     model.set_moe_four_launches(args.moe_four);
     model.set_moe_batch_rows(args.moe_rows_batch);
-    #[cfg(all(target_os = "linux", feature = "cuda"))]
+    #[cfg(any(all(target_os = "linux", feature = "cuda"), all(target_os = "macos", feature = "metal")))]
     llvq_llm::inkling::attn_bias::set_on_device(args.attn_bias_device.then_some(&dev))?;
-    #[cfg(not(all(target_os = "linux", feature = "cuda")))]
+    #[cfg(not(any(all(target_os = "linux", feature = "cuda"), all(target_os = "macos", feature = "metal"))))]
     if args.attn_bias_device {
-        bail!("--attn-bias device: CUDA only");
+        bail!("--attn-bias device: CUDA or Metal only");
     }
     let provenance = json!({"prefill_rows": args.prefill_rows, "moe_rows": if args.moe_rows_batch { "batch" } else { "chunk" }, "attn_bias": if args.attn_bias_device { "device" } else { "host" }, "glue": model.glue().name(),
         "head": if args.head_table.is_some() { "int4" } else { "bf16" }, "head_table": args.head_table,

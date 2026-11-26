@@ -46,7 +46,7 @@ use super::config::InklingConfig;
 use super::layers::{ExpertSource, MoeSource, Routing};
 use crate::fused::{FusedLayout, HostStream, RotationTables, Transcoder};
 use crate::fused_metal::{
-    MetalMoeSlab, MetalRotation, MetalRuntime, MetalTetraProj, MoeHostExpert, MoeHostProj, MOE_MAX_SELECTED,
+    MetalMoeSlab, MetalRotation, MetalRuntime, MetalTetraProj, MoeHostExpert, MoeHostProj, MoeRowsMats, MOE_MAX_SELECTED,
 };
 
 /// The tile the served Metal door uses (`fused_metal::load_resolved_tuned`).
@@ -133,7 +133,14 @@ pub struct ResidentExperts {
     act: std::sync::OnceLock<Option<super::moe_act::MoeAct>>,
     /// Whether the fused path uses that launch ([`Self::set_fused_act`]).
     fused_act: bool,
+    /// A prompt's rows go through [`Self::forward_rows_batched`] when it
+    /// applies (`set_batch_rows`): the same bits as [`Self::forward_general`].
+    batch_rows: bool,
 }
+
+/// Tokens one block of [`ResidentExperts::forward_rows_batched`] takes: its
+/// pair buffers stay near 300 MB at 8 experts a token whatever the call.
+pub const BATCH_TOKENS: usize = 1024;
 
 /// Whether the fused one-row path runs its activation through
 /// `super::moe_act` by default. Set from its class A gate, green on
@@ -322,7 +329,7 @@ impl ResidentExperts {
         };
         stats.seconds_upload += t.elapsed().as_secs_f64();
         stats.experts = experts.len();
-        Ok(Self { layer, rt, dev: dev.clone(), experts, stats, launches: AtomicUsize::new(0), slab, fused: FUSED_DEFAULT, act: std::sync::OnceLock::new(), fused_act: FUSED_ACT_DEFAULT })
+        Ok(Self { layer, rt, dev: dev.clone(), experts, stats, launches: AtomicUsize::new(0), slab, fused: FUSED_DEFAULT, act: std::sync::OnceLock::new(), fused_act: FUSED_ACT_DEFAULT, batch_rows: false })
     }
 
     /// Upload `hosts` into one placement heap and wrap the aliases.
@@ -349,7 +356,7 @@ impl ResidentExperts {
             stats,
             launches: AtomicUsize::new(0),
             slab: Some(slab),
-            fused: FUSED_DEFAULT, act: std::sync::OnceLock::new(), fused_act: FUSED_ACT_DEFAULT,
+            fused: FUSED_DEFAULT, act: std::sync::OnceLock::new(), fused_act: FUSED_ACT_DEFAULT, batch_rows: false,
         })
     }
 
@@ -364,7 +371,7 @@ impl ResidentExperts {
             stats: UploadStats::default(),
             launches: AtomicUsize::new(0),
             slab: None,
-            fused: FUSED_DEFAULT, act: std::sync::OnceLock::new(), fused_act: FUSED_ACT_DEFAULT,
+            fused: FUSED_DEFAULT, act: std::sync::OnceLock::new(), fused_act: FUSED_ACT_DEFAULT, batch_rows: false,
         }
     }
 
@@ -473,6 +480,11 @@ impl ResidentExperts {
     /// same order; the one-row path only skips the copies that the row
     /// bookkeeping needs for several rows.
     pub fn forward(&self, x: &Tensor, routing: &Routing, cfg: &InklingConfig) -> Result<Tensor> {
+        if self.batch_rows && routing.indices.len() >= 2 {
+            if let Some(y) = self.forward_rows_batched(x, routing, cfg)? {
+                return Ok(y);
+            }
+        }
         if routing.indices.len() == 1 && x.dim(0)? == 1 {
             if self.fused {
                 if let Some(y) = self.forward_one_row_fused(x, routing, cfg)? {
@@ -677,6 +689,149 @@ impl ResidentExperts {
     }
 }
 
+impl ResidentExperts {
+    /// Send a prompt's rows through [`Self::forward_rows_batched`] (`true`)
+    /// or one expert and one chunk at a time (`false`, the default and the
+    /// reference).
+    pub fn set_batch_rows(&mut self, on: bool) {
+        self.batch_rows = on;
+    }
+
+    /// The layer's slab, for the benches of the batched path.
+    pub fn slab(&self) -> Option<&MetalMoeSlab> {
+        self.slab.as_ref()
+    }
+
+    /// Whether [`Self::forward_rows_batched`] can run on this layer.
+    pub fn batch_rows_available(&self) -> bool {
+        self.slab.as_ref().and_then(MetalMoeSlab::shape).is_some() && self.rt.moe_rows_eligible()
+    }
+
+    /// Several rows in a few launches for the whole layer, the Metal twin of
+    /// `resident_cuda`'s `forward_rows_batched` (`fused_metal.rs`, section
+    /// "A prompt's rows through the resident experts"). Every (token,
+    /// expert) pair is a row, sorted by expert then token as
+    /// [`Self::forward_general`] visits them; its chunks of at most
+    /// `prefill_rows` rows of one expert are the general path's; the
+    /// activation is candle's on every row at once (elementwise, so the same
+    /// bits); each token's weighted rows are added in ascending expert order
+    /// from +0, as the `index_add` calls add them. The values are meant to be
+    /// the general path's, bit for bit. `None` when the path does not apply:
+    /// no slab or another tuning, a token naming an expert twice, routings of
+    /// unequal length. The caller then runs the general path.
+    pub fn forward_rows_batched(&self, x: &Tensor, routing: &Routing, cfg: &InklingConfig) -> Result<Option<Tensor>> {
+        let Some(slab) = self.slab.as_ref() else {
+            return Ok(None);
+        };
+        let Some(shape) = slab.shape() else {
+            return Ok(None);
+        };
+        let t_rows = routing.indices.len();
+        let k_sel = routing.indices.first().map_or(0, Vec::len);
+        if !self.rt.moe_rows_eligible()
+            || t_rows < 2
+            || k_sel == 0
+            || shape.inter != cfg.intermediate_size
+            || x.dims() != [t_rows, shape.hidden]
+            || routing.indices.iter().zip(&routing.weights).any(|(i, w)| i.len() != k_sel || w.len() != k_sel)
+        {
+            return Ok(None);
+        }
+        let mut owns: Vec<Vec<(u32, f32)>> = Vec::with_capacity(t_rows);
+        for (t, (idx, w)) in routing.indices.iter().zip(&routing.weights).enumerate() {
+            let mut own: Vec<(u32, f32)> = idx.iter().copied().zip(w.iter().copied()).collect();
+            own.sort_by_key(|p| p.0);
+            if own.windows(2).any(|p| p[0].0 == p[1].0) {
+                return Ok(None);
+            }
+            if let Some(&(e, _)) = own.iter().find(|p| p.0 as usize >= self.experts.len()) {
+                candle_core::bail!("token {t}: expert {e} of a layer of {}", self.experts.len());
+            }
+            owns.push(own);
+        }
+        let xd = x.to_device(&self.dev)?.to_dtype(DType::F32)?.contiguous()?;
+        let mut parts: Vec<Tensor> = Vec::with_capacity(t_rows.div_ceil(BATCH_TOKENS));
+        let mut t0 = 0;
+        while t0 < t_rows {
+            let tb = BATCH_TOKENS.min(t_rows - t0);
+            parts.push(self.rows_block(slab, &xd, &owns[t0..t0 + tb], t0, cfg)?);
+            self.bump(4);
+            t0 += tb;
+        }
+        drop(xd);
+        let out = if parts.len() == 1 { parts.pop().expect("one block") } else { Tensor::cat(&parts, 0)? };
+        out.to_device(x.device()).map(Some)
+    }
+
+    /// One block of [`Self::forward_rows_batched`]: the tokens `t0..t0 +
+    /// owns.len()` of `xd` (f32 `[T, H]` on the device), `owns` their experts
+    /// in ascending order. f32 `[owns.len(), H]`.
+    fn rows_block(
+        &self,
+        slab: &MetalMoeSlab,
+        xd: &Tensor,
+        owns: &[Vec<(u32, f32)>],
+        t0: usize,
+        cfg: &InklingConfig,
+    ) -> Result<Tensor> {
+        let k_sel = owns.first().map_or(0, Vec::len);
+        // (expert, token in the block, weight, rank of the expert among the token's own)
+        let mut pairs: Vec<(u32, u32, f32, u32)> = Vec::with_capacity(owns.len() * k_sel);
+        for (t, own) in owns.iter().enumerate() {
+            for (rank, &(e, wt)) in own.iter().enumerate() {
+                pairs.push((e, t as u32, wt, rank as u32));
+            }
+        }
+        pairs.sort_by_key(|p| (p.0, p.1));
+        let n = pairs.len();
+        let rows = self.rt.prefill_rows().max(1);
+        let mut chunks: Vec<u32> = vec![];
+        let mut start = 0;
+        while start < n {
+            let e = pairs[start].0;
+            let mut end = start;
+            while end < n && end - start < rows && pairs[end].0 == e {
+                end += 1;
+            }
+            chunks.extend([e, start as u32, (end - start) as u32]);
+            start = end;
+        }
+        // Each token's pair rows and weights, in ascending expert order (its rank).
+        let mut tp = vec![0u32; owns.len() * k_sel];
+        let mut tw = vec![0f32; owns.len() * k_sel];
+        for (i, p) in pairs.iter().enumerate() {
+            let at = p.1 as usize * k_sel + p.3 as usize;
+            tp[at] = i as u32;
+            tw[at] = p.2;
+        }
+        let dev = &self.dev;
+        let pair_expert = Tensor::from_vec(pairs.iter().map(|p| p.0).collect::<Vec<_>>(), n, dev)?;
+        let pair_token = Tensor::from_vec(pairs.iter().map(|p| t0 as u32 + p.1).collect::<Vec<_>>(), n, dev)?;
+        let n_chunks = chunks.len() / 3;
+        let chunks = Tensor::from_vec(chunks, 3 * n_chunks, dev)?;
+        let tp = Tensor::from_vec(tp, owns.len() * k_sel, dev)?;
+        let tw = Tensor::from_vec(tw, owns.len() * k_sel, dev)?;
+        // The rows the general path gathers, cast to f16 as `rotate_rows` casts them.
+        let xs = xd.index_select(&pair_token, 0)?.to_dtype(DType::F16)?;
+        let xr = self.rt.moe_rotate_pairs(slab, false, &xs, &pair_expert)?;
+        drop(xs);
+        let gu = self.rt.moe_rows(slab, MoeRowsMats::GateUp, &xr, &chunks)?;
+        drop(xr);
+        let (g, u) = (gu.get(0)?, gu.get(1)?);
+        // line 771: softcap(gate) * sigmoid(gate) * softcap(up)
+        let act = softcap(&g, cfg.mlp_gate_softcap)?
+            .mul(&candle_nn::ops::sigmoid(&g)?)?
+            .mul(&softcap(&u, cfg.mlp_up_softcap)?)?
+            .contiguous()?;
+        drop((g, u, gu));
+        let ar = self.rt.moe_rotate_pairs(slab, true, &act.to_dtype(DType::F16)?, &pair_expert)?;
+        drop(act);
+        let y = self.rt.moe_rows(slab, MoeRowsMats::Down, &ar, &chunks)?.get(0)?;
+        drop(ar);
+        self.rt.moe_pairs_sum(&y, &tp, &tw, k_sel)
+    }
+}
+
 /// `Inkling2LoopSoftcap`, lines 751-757 (`super::layers::softcap` is private).
 fn softcap(x: &Tensor, cap: f64) -> Result<Tensor> {
     (x / cap)?.tanh()? * cap
@@ -709,6 +864,10 @@ impl MoeSource for ResidentExperts {
 
     fn set_fused_act(&mut self, on: bool) {
         ResidentExperts::set_fused_act(self, on)
+    }
+
+    fn set_batch_rows(&mut self, on: bool) {
+        ResidentExperts::set_batch_rows(self, on)
     }
 }
 

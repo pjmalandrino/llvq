@@ -32,7 +32,7 @@ pub mod moe_act;
 pub mod tables;
 #[cfg(all(target_os = "macos", feature = "metal"))]
 pub mod resident;
-#[cfg(all(target_os = "linux", feature = "cuda"))]
+#[cfg(ink_glue)]
 pub mod attn_bias;
 #[cfg(all(target_os = "linux", feature = "cuda"))]
 pub mod resident_cuda;
