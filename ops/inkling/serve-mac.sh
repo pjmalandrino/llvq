@@ -14,7 +14,8 @@ REPO=$(cd "$(dirname "$0")/../.." && pwd)
 C=$REPO/ops/inkling/serve_checks.py
 mkdir -p "$O"
 [ -z "$(ls -A "$O")" ] || { echo "refused: $O is not empty" >&2; exit 1; }
-if env | grep -q '^LLVQ_'; then echo 'refused: LLVQ_* set in the environment' >&2; exit 1; fi
+# LLVQ_THREADS is the guard's (~/.llvq-guard/heavy.sh): it sizes the CPU pool, not the served object.
+if env | grep '^LLVQ_' | grep -qv '^LLVQ_THREADS='; then echo 'refused: LLVQ_* set in the environment' >&2; exit 1; fi
 cp "$C" "$O/serve_checks.py"
 MODEL=$(python3 -I -c 'import json, sys; print(json.load(open(sys.argv[1]))["name"])' "$MODEL_FILE")
 export O MODEL BACKEND=metal
