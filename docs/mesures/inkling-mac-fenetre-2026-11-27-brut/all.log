@@ -1,0 +1,89 @@
+[heavy] 01:18:28 waiting for: lotG: job3 clippy + cargo test llvq-llm debug + mutant | wrapper=16524 pgid=16526 | since 2026-11-27 01:18:08
+[heavy] 01:18:58 waiting for: lotG: job3 clippy + cargo test llvq-llm debug + mutant | wrapper=16524 pgid=16526 | since 2026-11-27 01:18:08
+[heavy] 01:19:28 waiting for: lotG: job3 clippy + cargo test llvq-llm debug + mutant | wrapper=16524 pgid=16526 | since 2026-11-27 01:18:08
+[heavy] 01:19:58 waiting for: lotG: job3 clippy + cargo test llvq-llm debug + mutant | wrapper=16524 pgid=16526 | since 2026-11-27 01:18:08
+[heavy] 01:20:28 waiting for: lotG: job3 clippy + cargo test llvq-llm debug + mutant | wrapper=16524 pgid=16526 | since 2026-11-27 01:18:08
+[heavy] 01:20:58 waiting for: lotG: job3 clippy + cargo test llvq-llm debug + mutant | wrapper=16524 pgid=16526 | since 2026-11-27 01:18:08
+[heavy] 01:21:28 waiting for: lotG: job3 clippy + cargo test llvq-llm debug + mutant | wrapper=16524 pgid=16526 | since 2026-11-27 01:18:08
+[heavy] 01:21:58 waiting for: lotG: job3 clippy + cargo test llvq-llm debug + mutant | wrapper=16524 pgid=16526 | since 2026-11-27 01:18:08
+[heavy] 01:22:28 waiting for: lotG: job3 clippy + cargo test llvq-llm debug + mutant | wrapper=16524 pgid=16526 | since 2026-11-27 01:18:08
+[heavy] 01:22:58 waiting for: lotG: job3 clippy + cargo test llvq-llm debug + mutant | wrapper=16524 pgid=16526 | since 2026-11-27 01:18:08
+[heavy] 01:23:28 waiting for: lotG: job3 clippy + cargo test llvq-llm debug + mutant | wrapper=16524 pgid=16526 | since 2026-11-27 01:18:08
+[heavy] 01:23:58 waiting for: lotG: job3 clippy + cargo test llvq-llm debug + mutant | wrapper=16524 pgid=16526 | since 2026-11-27 01:18:08
+[heavy] 01:24:28 waiting for: lotG: job3 clippy + cargo test llvq-llm debug + mutant | wrapper=16524 pgid=16526 | since 2026-11-27 01:18:08
+[heavy] 01:24:58 waiting for: lotG: job3 clippy + cargo test llvq-llm debug + mutant | wrapper=16524 pgid=16526 | since 2026-11-27 01:18:08
+[heavy] 01:25:28 waiting for: lotG: job3 clippy + cargo test llvq-llm debug + mutant | wrapper=16524 pgid=16526 | since 2026-11-27 01:18:08
+all: start 2026-11-27 01:25:58 at bde0ed30770e0375737da3f0c6dbd50822ae4dc4; tree: 
+all: linux check rc=0
+cb7d8d9eb5fe473936ca0a51ce3114cb172e09f7ecce0b1cc1e7e209d98109e9  target/lotd/inkrun
+2026-11-27 01:26:40 load1 2.40 gpu 1% memfree 78% 
+prompt 9000 read in 117.11 s; step median 0.0416 s = 24.02 tok/s; GB after load 8.03, after the prompt 10.54, end 10.50; attn_window narrow
+56abc1234ceef58d219932f6ceb37f98d1ea5a916f7647b57e808ffc1ee8d440  docs/mesures/inkling-mac-fenetre-2026-11-27-brut/dii-arm9000.logits.f32
+arms: all done
+2026-11-27 01:29:43 load1 2.23 gpu 0% memfree 79% 
+prompt 2000 read in 36.99 s; step median 0.0470 s = 21.27 tok/s; GB after load 8.03, after the prompt 9.63, end 9.55; attn_window narrow
+3c2c0a6e5a01ace3eac2ee26b30241168398eca0eb85727da10a9a042248a0d3  docs/mesures/inkling-mac-fenetre-2026-11-27-brut/dii-arm2000.logits.f32
+arms: all done
+2026-11-27 01:31:22 load1 2.04 gpu 0% memfree 80% 
+prompt 9000 read in 143.52 s; step median 0.0412 s = 24.25 tok/s; GB after load 8.03, after the prompt 10.62, end 10.49; attn_window full
+0140733aceb0789513f4c76dc922b6401b2f919c96f11d018adafb492fcdf226  docs/mesures/inkling-mac-fenetre-2026-11-27-brut/t9-ref0.logits.f32
+2026-11-27 01:34:48 load1 2.12 gpu 0% memfree 80% 
+prompt 9000 read in 112.67 s; step median 0.0416 s = 24.04 tok/s; GB after load 8.03, after the prompt 10.54, end 10.50; attn_window narrow
+56abc1234ceef58d219932f6ceb37f98d1ea5a916f7647b57e808ffc1ee8d440  docs/mesures/inkling-mac-fenetre-2026-11-27-brut/t9-arm0.logits.f32
+2026-11-27 01:37:43 load1 2.36 gpu 0% memfree 80% 
+prompt 9000 read in 131.58 s; step median 0.0412 s = 24.25 tok/s; GB after load 8.03, after the prompt 10.62, end 10.49; attn_window full
+0140733aceb0789513f4c76dc922b6401b2f919c96f11d018adafb492fcdf226  docs/mesures/inkling-mac-fenetre-2026-11-27-brut/t9-ref1.logits.f32
+2026-11-27 01:40:56 load1 2.11 gpu 0% memfree 80% 
+prompt 9000 read in 112.38 s; step median 0.0417 s = 24.01 tok/s; GB after load 8.03, after the prompt 10.54, end 10.50; attn_window narrow
+56abc1234ceef58d219932f6ceb37f98d1ea5a916f7647b57e808ffc1ee8d440  docs/mesures/inkling-mac-fenetre-2026-11-27-brut/t9-arm1.logits.f32
+2026-11-27 01:43:51 load1 2.04 gpu 0% memfree 80% 
+prompt 9000 read in 131.39 s; step median 0.0412 s = 24.26 tok/s; GB after load 8.03, after the prompt 10.62, end 10.49; attn_window full
+0140733aceb0789513f4c76dc922b6401b2f919c96f11d018adafb492fcdf226  docs/mesures/inkling-mac-fenetre-2026-11-27-brut/t9-ref2.logits.f32
+2026-11-27 01:47:05 load1 2.11 gpu 0% memfree 80% 
+prompt 9000 read in 112.46 s; step median 0.0416 s = 24.06 tok/s; GB after load 8.03, after the prompt 10.54, end 10.50; attn_window narrow
+56abc1234ceef58d219932f6ceb37f98d1ea5a916f7647b57e808ffc1ee8d440  docs/mesures/inkling-mac-fenetre-2026-11-27-brut/t9-arm2.logits.f32
+2026-11-27 01:50:00 load1 1.79 gpu 11% memfree 78% 
+prompt 9000 read in 131.59 s; step median 0.0413 s = 24.23 tok/s; GB after load 8.03, after the prompt 10.62, end 10.49; attn_window full
+0140733aceb0789513f4c76dc922b6401b2f919c96f11d018adafb492fcdf226  docs/mesures/inkling-mac-fenetre-2026-11-27-brut/t9-ref3.logits.f32
+2026-11-27 01:53:14 load1 2.83 gpu 0% memfree 80% 
+prompt 9000 read in 112.44 s; step median 0.0416 s = 24.05 tok/s; GB after load 8.03, after the prompt 10.54, end 10.50; attn_window narrow
+56abc1234ceef58d219932f6ceb37f98d1ea5a916f7647b57e808ffc1ee8d440  docs/mesures/inkling-mac-fenetre-2026-11-27-brut/t9-arm3.logits.f32
+2026-11-27 01:56:09 load1 1.88 gpu 0% memfree 80% 
+prompt 9000 read in 131.36 s; step median 0.0413 s = 24.24 tok/s; GB after load 8.03, after the prompt 10.62, end 10.49; attn_window full
+0140733aceb0789513f4c76dc922b6401b2f919c96f11d018adafb492fcdf226  docs/mesures/inkling-mac-fenetre-2026-11-27-brut/t9-ref4.logits.f32
+2026-11-27 01:59:22 load1 1.70 gpu 0% memfree 80% 
+prompt 9000 read in 112.32 s; step median 0.0416 s = 24.06 tok/s; GB after load 8.03, after the prompt 10.54, end 10.50; attn_window narrow
+56abc1234ceef58d219932f6ceb37f98d1ea5a916f7647b57e808ffc1ee8d440  docs/mesures/inkling-mac-fenetre-2026-11-27-brut/t9-arm4.logits.f32
+arms: all done
+2026-11-27 02:02:17 load1 1.87 gpu 0% memfree 80% 
+prompt 2000 read in 23.01 s; step median 0.0374 s = 26.76 tok/s; GB after load 8.03, after the prompt 9.70, end 9.55; attn_window full
+6c05fabdb48f29102686f9cd2aba51776f7a0f310701c4d1e02985e7b34a0fd7  docs/mesures/inkling-mac-fenetre-2026-11-27-brut/t2-ref0.logits.f32
+2026-11-27 02:03:42 load1 2.12 gpu 0% memfree 80% 
+prompt 2000 read in 21.82 s; step median 0.0370 s = 27.00 tok/s; GB after load 8.03, after the prompt 9.63, end 9.55; attn_window narrow
+3c2c0a6e5a01ace3eac2ee26b30241168398eca0eb85727da10a9a042248a0d3  docs/mesures/inkling-mac-fenetre-2026-11-27-brut/t2-arm0.logits.f32
+2026-11-27 02:05:06 load1 2.26 gpu 0% memfree 80% 
+prompt 2000 read in 23.13 s; step median 0.0374 s = 26.75 tok/s; GB after load 8.03, after the prompt 9.70, end 9.55; attn_window full
+6c05fabdb48f29102686f9cd2aba51776f7a0f310701c4d1e02985e7b34a0fd7  docs/mesures/inkling-mac-fenetre-2026-11-27-brut/t2-ref1.logits.f32
+2026-11-27 02:06:31 load1 2.44 gpu 0% memfree 80% 
+prompt 2000 read in 21.81 s; step median 0.0371 s = 26.97 tok/s; GB after load 8.03, after the prompt 9.63, end 9.55; attn_window narrow
+3c2c0a6e5a01ace3eac2ee26b30241168398eca0eb85727da10a9a042248a0d3  docs/mesures/inkling-mac-fenetre-2026-11-27-brut/t2-arm1.logits.f32
+2026-11-27 02:07:54 load1 2.08 gpu 0% memfree 80% 
+prompt 2000 read in 23.07 s; step median 0.0373 s = 26.78 tok/s; GB after load 8.03, after the prompt 9.70, end 9.55; attn_window full
+6c05fabdb48f29102686f9cd2aba51776f7a0f310701c4d1e02985e7b34a0fd7  docs/mesures/inkling-mac-fenetre-2026-11-27-brut/t2-ref2.logits.f32
+2026-11-27 02:09:19 load1 2.17 gpu 0% memfree 80% 
+prompt 2000 read in 21.82 s; step median 0.0371 s = 26.93 tok/s; GB after load 8.03, after the prompt 9.63, end 9.55; attn_window narrow
+3c2c0a6e5a01ace3eac2ee26b30241168398eca0eb85727da10a9a042248a0d3  docs/mesures/inkling-mac-fenetre-2026-11-27-brut/t2-arm2.logits.f32
+2026-11-27 02:10:43 load1 1.70 gpu 0% memfree 80% 
+prompt 2000 read in 23.17 s; step median 0.0375 s = 26.69 tok/s; GB after load 8.03, after the prompt 9.70, end 9.55; attn_window full
+6c05fabdb48f29102686f9cd2aba51776f7a0f310701c4d1e02985e7b34a0fd7  docs/mesures/inkling-mac-fenetre-2026-11-27-brut/t2-ref3.logits.f32
+2026-11-27 02:12:07 load1 2.51 gpu 0% memfree 80% 
+prompt 2000 read in 21.86 s; step median 0.0371 s = 26.94 tok/s; GB after load 8.03, after the prompt 9.63, end 9.55; attn_window narrow
+3c2c0a6e5a01ace3eac2ee26b30241168398eca0eb85727da10a9a042248a0d3  docs/mesures/inkling-mac-fenetre-2026-11-27-brut/t2-arm3.logits.f32
+2026-11-27 02:13:31 load1 1.88 gpu 0% memfree 80% 
+prompt 2000 read in 23.06 s; step median 0.0373 s = 26.81 tok/s; GB after load 8.03, after the prompt 9.70, end 9.55; attn_window full
+6c05fabdb48f29102686f9cd2aba51776f7a0f310701c4d1e02985e7b34a0fd7  docs/mesures/inkling-mac-fenetre-2026-11-27-brut/t2-ref4.logits.f32
+2026-11-27 02:14:56 load1 1.87 gpu 0% memfree 80% 
+prompt 2000 read in 21.92 s; step median 0.0371 s = 26.97 tok/s; GB after load 8.03, after the prompt 9.63, end 9.55; attn_window narrow
+3c2c0a6e5a01ace3eac2ee26b30241168398eca0eb85727da10a9a042248a0d3  docs/mesures/inkling-mac-fenetre-2026-11-27-brut/t2-arm4.logits.f32
+arms: all done
+all: done 2026-11-27 02:15:35

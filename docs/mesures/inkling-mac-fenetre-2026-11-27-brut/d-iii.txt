@@ -1,0 +1,38 @@
+== 9000 tokens
+  t9-ref0 (discarded): read 143.52 s, decode 24.25 tok/s, GB after prompt 10.62, peak footprint 14.56 GB, max RSS 10.92 GB, logits 0140733a; before: load1 2.04 gpu 0% memfree 80%
+  t9-arm0 (discarded): read 112.67 s, decode 24.04 tok/s, GB after prompt 10.54, peak footprint 14.78 GB, max RSS 10.91 GB, logits 56abc123; before: load1 2.12 gpu 0% memfree 80%
+  t9-ref1 (timed): read 131.58 s, decode 24.25 tok/s, GB after prompt 10.62, peak footprint 14.57 GB, max RSS 10.93 GB, logits 0140733a; before: load1 2.36 gpu 0% memfree 80%
+  t9-arm1 (timed): read 112.38 s, decode 24.01 tok/s, GB after prompt 10.54, peak footprint 14.82 GB, max RSS 10.95 GB, logits 56abc123; before: load1 2.11 gpu 0% memfree 80%
+  pair 1: arm / reference 0.8541
+  t9-ref2 (timed): read 131.39 s, decode 24.26 tok/s, GB after prompt 10.62, peak footprint 14.56 GB, max RSS 10.93 GB, logits 0140733a; before: load1 2.04 gpu 0% memfree 80%
+  t9-arm2 (timed): read 112.46 s, decode 24.06 tok/s, GB after prompt 10.54, peak footprint 14.79 GB, max RSS 10.92 GB, logits 56abc123; before: load1 2.11 gpu 0% memfree 80%
+  pair 2: arm / reference 0.8559
+  t9-ref3 (timed): read 131.59 s, decode 24.23 tok/s, GB after prompt 10.62, peak footprint 14.56 GB, max RSS 10.92 GB, logits 0140733a; before: load1 1.79 gpu 11% memfree 78%
+  t9-arm3 (timed): read 112.44 s, decode 24.05 tok/s, GB after prompt 10.54, peak footprint 14.79 GB, max RSS 10.92 GB, logits 56abc123; before: load1 2.83 gpu 0% memfree 80%
+  pair 3: arm / reference 0.8545
+  t9-ref4 (timed): read 131.36 s, decode 24.24 tok/s, GB after prompt 10.62, peak footprint 14.56 GB, max RSS 10.92 GB, logits 0140733a; before: load1 1.88 gpu 0% memfree 80%
+  t9-arm4 (timed): read 112.32 s, decode 24.06 tok/s, GB after prompt 10.54, peak footprint 14.82 GB, max RSS 10.95 GB, logits 56abc123; before: load1 1.70 gpu 0% memfree 80%
+  pair 4: arm / reference 0.8551
+  read, reference: 131.48 [131.36, 131.59] s; arm: 112.41 [112.32, 112.46] s
+  pair ratios: median 0.8548 [0.8541, 0.8559]
+  decode after the prompt, reference: 24.25 [24.23, 24.26] tok/s; arm: 24.06 [24.01, 24.06] tok/s
+  peak footprint, reference: 14.56 [14.56, 14.57] GB; arm: 14.80 [14.79, 14.82] GB
+== 2000 tokens
+  t2-ref0 (discarded): read 23.01 s, decode 26.76 tok/s, GB after prompt 9.70, peak footprint 12.29 GB, max RSS 10.79 GB, logits 6c05fabd; before: load1 1.87 gpu 0% memfree 80%
+  t2-arm0 (discarded): read 21.82 s, decode 27.00 tok/s, GB after prompt 9.63, peak footprint 12.31 GB, max RSS 10.74 GB, logits 3c2c0a6e; before: load1 2.12 gpu 0% memfree 80%
+  t2-ref1 (timed): read 23.13 s, decode 26.75 tok/s, GB after prompt 9.70, peak footprint 12.28 GB, max RSS 10.74 GB, logits 6c05fabd; before: load1 2.26 gpu 0% memfree 80%
+  t2-arm1 (timed): read 21.81 s, decode 26.97 tok/s, GB after prompt 9.63, peak footprint 12.21 GB, max RSS 10.73 GB, logits 3c2c0a6e; before: load1 2.44 gpu 0% memfree 80%
+  pair 1: arm / reference 0.9431
+  t2-ref2 (timed): read 23.07 s, decode 26.78 tok/s, GB after prompt 9.70, peak footprint 12.24 GB, max RSS 10.70 GB, logits 6c05fabd; before: load1 2.08 gpu 0% memfree 80%
+  t2-arm2 (timed): read 21.82 s, decode 26.93 tok/s, GB after prompt 9.63, peak footprint 12.24 GB, max RSS 10.76 GB, logits 3c2c0a6e; before: load1 2.17 gpu 0% memfree 80%
+  pair 2: arm / reference 0.9457
+  t2-ref3 (timed): read 23.17 s, decode 26.69 tok/s, GB after prompt 9.70, peak footprint 12.34 GB, max RSS 10.76 GB, logits 6c05fabd; before: load1 1.70 gpu 0% memfree 80%
+  t2-arm3 (timed): read 21.86 s, decode 26.94 tok/s, GB after prompt 9.63, peak footprint 12.33 GB, max RSS 10.77 GB, logits 3c2c0a6e; before: load1 2.51 gpu 0% memfree 80%
+  pair 3: arm / reference 0.9437
+  t2-ref4 (timed): read 23.06 s, decode 26.81 tok/s, GB after prompt 9.70, peak footprint 12.24 GB, max RSS 10.72 GB, logits 6c05fabd; before: load1 1.88 gpu 0% memfree 80%
+  t2-arm4 (timed): read 21.92 s, decode 26.97 tok/s, GB after prompt 9.63, peak footprint 12.28 GB, max RSS 10.79 GB, logits 3c2c0a6e; before: load1 1.87 gpu 0% memfree 80%
+  pair 4: arm / reference 0.9505
+  read, reference: 23.10 [23.06, 23.17] s; arm: 21.84 [21.81, 21.92] s
+  pair ratios: median 0.9447 [0.9431, 0.9505]
+  decode after the prompt, reference: 26.77 [26.69, 26.81] tok/s; arm: 26.96 [26.93, 26.97] tok/s
+  peak footprint, reference: 12.26 [12.24, 12.34] GB; arm: 12.26 [12.21, 12.33] GB

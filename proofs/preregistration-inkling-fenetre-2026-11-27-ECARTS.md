@@ -11,3 +11,9 @@ also give their digests, so the build is checked against the morning's.
 
 F3. Gate D-i also runs on the CPU under the candle attention, where the steps go through the narrowed path too. The
 prereg names the tiny model only; this is one more device, not a change to the gate.
+
+F4. Gate D-ii ran the arm once at each length before D-iii, in the same guarded job; D-iii then ran its own pairs.
+The arm's digests of D-ii and of the five D-iii arms at each length are the same.
+
+F5. Part E was not run: the decode's score kernel reads the window only (`attn_scores.rs` line 193), so E is void,
+as the prereg foresees. The two E predictions are not measured.
