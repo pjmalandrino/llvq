@@ -648,6 +648,43 @@ pub fn score_bias_host(rel_logits: &Tensor, offset: usize, s: usize, extent: usi
 /// 0.44 GB in f32.
 pub const DEFAULT_ATTN_CHUNK: usize = 512;
 
+/// Whether the scores of a sliding layer read, chunk by chunk, only the keys
+/// the chunk's rows can see ([`set_window_scores`]).
+static WINDOW_SCORES: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// Chunks scored over their visible keys only, since the process started.
+static WINDOW_SCORE_CHUNKS: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+
+/// Score each chunk of a sliding layer's query rows over the keys its rows
+/// can see (`true`), or over every key the slot holds, the keys outside the
+/// window masked to minus infinity (`false`, the default). For a process:
+/// `inkrun --attn-window narrow` turns it on, and `llvq serve --attn-window
+/// narrow`, hidden and off by default, on Metal under the fused stack. The
+/// dropped keys have probability exactly zero, so each row's value is the
+/// same in exact arithmetic; the device's sums run over shorter rows, so the
+/// bits are not meant to be the same (prereg `inkling-fenetre-2026-11-27`).
+/// The full layers and the one-row score kernel are not touched.
+pub fn set_window_scores(on: bool) {
+    WINDOW_SCORES.store(on, std::sync::atomic::Ordering::Relaxed);
+}
+
+/// Whether [`set_window_scores`] is on.
+pub fn window_scores() -> bool {
+    WINDOW_SCORES.load(std::sync::atomic::Ordering::Relaxed)
+}
+
+/// Chunks the narrowed path has scored since the process started: what a
+/// test reads to see that the switch reached the scores.
+pub fn window_score_chunks() -> usize {
+    WINDOW_SCORE_CHUNKS.load(std::sync::atomic::Ordering::Relaxed)
+}
+
+/// The first key a query row at `pos` sees in a sliding layer of `window`
+/// keys: the mask of [`score_bias`] keeps distances `0..window`.
+fn first_visible(pos: usize, window: usize) -> usize {
+    (pos + 1).saturating_sub(window)
+}
+
 /// `[kv_heads, T, d]` repeated to `[kv_heads * rep, T, d]`, head `h` reading kv head `h / rep` (lines 99-108).
 fn repeat_kv(x: &Tensor, rep: usize) -> Result<Tensor> {
     if rep == 1 {
@@ -1333,6 +1370,9 @@ impl AttnWeights {
         t: usize,
         chunk: usize,
     ) -> Result<Tensor> {
+        if self.sliding && window_scores() {
+            return self.scores_window(cfg, q, kt, v, rel_logits, sinks, offset, s, t, chunk);
+        }
         let dev = q.device();
         let (nh, nkv, hd) = (self.heads, self.kv_heads, self.head_dim);
         let window = if self.sliding { Some(cfg.sliding_window_size) } else { None };
@@ -1360,6 +1400,77 @@ impl AttnWeights {
                 let probs =
                     candle_nn::ops::softmax_last_dim(&Tensor::cat(&[&scores, &sc], 2)?.contiguous()?)?.narrow(2, 0, s)?;
                 parts.push(probs.contiguous()?.matmul(&v)?.transpose(0, 1)?.reshape((n, nh * hd))?);
+                r0 += n;
+            }
+            Ok(if parts.len() == 1 { parts.pop().expect("one part") } else { Tensor::cat(&parts, 0)? })
+        })?;
+        mark(dev, Phase::AttnScores)?;
+        Ok(a)
+    }
+
+    /// [`Self::scores`] of a sliding layer under [`set_window_scores`]: each
+    /// chunk of query rows reads the keys and values from the first one its
+    /// first row sees to its last row's own, and its bias is built for that
+    /// range. One copy a call, as the full path makes, of the keys any row of
+    /// the call sees (from the first row's first visible key to the last
+    /// position held, fewer than the slot holds), keys row-major `[nh, S, hd]`
+    /// like the values: each chunk's range is then a view of both copies that
+    /// the products read in place, the keys as a transposed operand, with no
+    /// copy a chunk.
+    #[allow(clippy::too_many_arguments)]
+    fn scores_window(
+        &self,
+        cfg: &InklingConfig,
+        q: &Tensor,
+        kt: &Tensor,
+        v: &Tensor,
+        rel_logits: &Tensor,
+        sinks: impl FnOnce() -> Result<Tensor>,
+        offset: usize,
+        s: usize,
+        t: usize,
+        chunk: usize,
+    ) -> Result<Tensor> {
+        let dev = q.device();
+        let (nh, nkv, hd) = (self.heads, self.kv_heads, self.head_dim);
+        let w = cfg.sliding_window_size;
+        let rep = nh / nkv;
+        // The rows sit at `offset..offset + t` and the last of them is the last key held.
+        if offset + t != s {
+            candle_core::bail!("window scores: {t} rows from position {offset} in a slot of {s} positions");
+        }
+        let from = first_visible(offset, w);
+        let span = s - from;
+        let (keys, vals) = timed(ATTN_CACHE, || -> Result<(Tensor, Tensor)> {
+            let k = kt.narrow(2, from, span)?.transpose(1, 2)?;
+            Ok((repeat_kv(&k, rep)?.contiguous()?, repeat_kv(&v.narrow(1, from, span)?, rep)?.contiguous()?))
+        })?;
+        mark(dev, Phase::CacheCopies)?;
+        let sinks = sinks()?;
+        let a = timed(ATTN_SCORES, || -> Result<Tensor> {
+            let rows = if chunk == 0 { t } else { chunk.min(t) };
+            let mut parts = Vec::with_capacity(t.div_ceil(rows));
+            let mut r0 = 0;
+            while r0 < t {
+                let n = rows.min(t - r0);
+                let (qc, rc, sc) = if n == t {
+                    (q.clone(), rel_logits.clone(), sinks.clone())
+                } else {
+                    (q.narrow(1, r0, n)?.contiguous()?, rel_logits.narrow(1, r0, n)?, sinks.narrow(1, r0, n)?)
+                };
+                // Keys `lo..hi` of the copies: from the first key row `p0` sees to row `p0 + n - 1`'s own.
+                let p0 = offset + r0;
+                let lo = first_visible(p0, w) - from;
+                let len = p0 + n - from - lo;
+                let kc = keys.narrow(1, lo, len)?.transpose(1, 2)?; // [nh, hd, len]
+                let vc = vals.narrow(1, lo, len)?; // [nh, len, hd]
+                // The bias reads distances only: the first row counted from the first key of the range.
+                let bias = score_bias(&rc, p0 - (from + lo), len, self.rel_extent, Some(w))?;
+                let scores = (qc.matmul(&kc)? * (hd as f64).powf(-0.5))?.add(&bias)?;
+                let probs =
+                    candle_nn::ops::softmax_last_dim(&Tensor::cat(&[&scores, &sc], 2)?.contiguous()?)?.narrow(2, 0, len)?;
+                parts.push(probs.contiguous()?.matmul(&vc)?.transpose(0, 1)?.reshape((n, nh * hd))?);
+                WINDOW_SCORE_CHUNKS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
                 r0 += n;
             }
             Ok(if parts.len() == 1 { parts.pop().expect("one part") } else { Tensor::cat(&parts, 0)? })

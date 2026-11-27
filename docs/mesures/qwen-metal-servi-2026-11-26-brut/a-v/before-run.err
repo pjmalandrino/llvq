@@ -1,0 +1,5 @@
+
+prompt: 23 tokens (0 cached) in 0.27 s
+answer: 38 tokens in 0.69 s, 55.0 tok/s (this client's rate, not a measurement)
+end: stop
+run exit 0

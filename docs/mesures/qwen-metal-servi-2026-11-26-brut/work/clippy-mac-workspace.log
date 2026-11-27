@@ -1,0 +1,29 @@
+    Checking llvq-cuda v0.1.0 (/Users/pjmalandrino/Documents/Pro/workspace/poc/llvq/.claude/worktrees/mac-inkling/llvq-cuda)
+   Compiling llvq-llm v0.1.0 (/Users/pjmalandrino/Documents/Pro/workspace/poc/llvq/.claude/worktrees/mac-inkling/llvq-llm)
+   Compiling foreign-types-macros v0.2.4
+    Checking malloc_buf v0.0.6
+    Checking bitflags v1.3.2
+    Checking foreign-types-shared v0.3.1
+    Checking core-graphics-types v0.1.3
+    Checking foreign-types v0.5.0
+    Checking objc v0.2.7
+    Checking block v0.1.6
+   Compiling llvq-runtime v0.1.3 (/Users/pjmalandrino/Documents/Pro/workspace/poc/llvq/.claude/worktrees/mac-inkling/llvq-runtime)
+    Checking metal v0.29.0
+    Checking llvq-metal v0.1.0 (/Users/pjmalandrino/Documents/Pro/workspace/poc/llvq/.claude/worktrees/mac-inkling/llvq-metal)
+warning: unused import: `GlueKind`
+  --> llvq-llm/tests/inkling_window.rs:26:35
+   |
+26 | use llvq_llm::inkling::{AttnKind, GlueKind, Inkling, InklingCache, LayerExperts, LoadOptions};
+   |                                   ^^^^^^^^
+   |
+   = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: `llvq-llm` (test "inkling_window") generated 1 warning (run `cargo clippy --fix --test "inkling_window" -p llvq-llm -- ` to apply 1 suggestion)
+    Checking llvq-bench v0.1.0 (/Users/pjmalandrino/Documents/Pro/workspace/poc/llvq/.claude/worktrees/mac-inkling/llvq-bench)
+    Checking llvq-artifact v0.1.0 (/Users/pjmalandrino/Documents/Pro/workspace/poc/llvq/.claude/worktrees/mac-inkling/llvq-artifact)
+    Checking llvq-quant v0.1.0 (/Users/pjmalandrino/Documents/Pro/workspace/poc/llvq/.claude/worktrees/mac-inkling/llvq-quant)
+    Checking llvq-search v0.1.0 (/Users/pjmalandrino/Documents/Pro/workspace/poc/llvq/.claude/worktrees/mac-inkling/llvq-search)
+    Checking llvq-core v0.1.0 (/Users/pjmalandrino/Documents/Pro/workspace/poc/llvq/.claude/worktrees/mac-inkling/llvq-core)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 18.11s
+rc=0

@@ -1,0 +1,12 @@
+s1 loaded in 5.1 s
+pa: first token 140.98690390586853 s, prompt 2316, cached 0, read 140.42 s, content ''
+s2 loaded in 5.0 s
+pb1: first token 20.38576889038086 s, prompt 2316, cached 2048, read 19.26 s, content ''
+s3 loaded in 5.0 s
+pb2: first token 20.328387022018433 s, prompt 2316, cached 2048, read 19.24 s, content ''
+s4 loaded in 4.9 s
+pb3: first token 20.307238817214966 s, prompt 2316, cached 2048, read 19.24 s, content ''
+s5 loaded in 4.9 s
+ref: first token 139.95780730247498 s, prompt 2316, cached 0, read 139.42 s, content ''
+s6 loaded in 4.9 s
+pd: first token 144.9527189731598 s, prompt 2316, cached 0, read 144.07 s, content ''

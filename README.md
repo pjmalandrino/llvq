@@ -70,8 +70,11 @@ card: the kernel decodes and multiplies the routed experts' rows in a few launch
   through this engine. Reading a long prompt for the first time is slow; a follow-up turn reuses the cache. On a
   Mac the cache after a long system prompt and its tools is also saved to disk, so a new session that starts with
   the same tokens has its first token in 3.9 s [3.62, 4.57] instead of 155 to 202 s (`llvq serve --prefix-cache`,
-  1.41 GB a saved block, off on CUDA where it has not run). The prompt of that test is synthetic: no coding-agent
-  client was run.
+  1.41 GB a saved block, on by default on Metal and on the CPU, off on CUDA where it has not run). On the Mac's CPU
+  the same cache takes the first token of a 2,316-token prompt from 140.99 s to 20.33 s, and a prompt sent again
+  whole gets its first token after 0.159 s instead of 2.687 on Metal
+  ([inkling-cpu-prefix-held](docs/mesures/inkling-cpu-prefix-held-2026-11-26.txt)). The prompt of that test is
+  synthetic: no coding-agent client was run.
 
 ## Results on Qwen3
 
@@ -176,8 +179,9 @@ cargo build --release -p llvq-runtime --features cuda    # Linux; --features met
 target/release/llvq pull qwen3:4b
 ```
 
-On CUDA the runtime serves the v9 configs, greedy only. On a Mac it runs the Rust Metal engine; the faster MLX door
-for the 4B is `ops/llvq-mlx chat` ([`docs/plan-metal-debit.md`](docs/plan-metal-debit.md)).
+On CUDA the runtime serves the v9 configs, greedy only. On a Mac it runs the Rust Metal engine, with the grouped
+attention and the kernels `lutd+h+pq` for the three Qwen3 sizes since 2026-11-26, bit for bit with the expanded form;
+the faster MLX door for the 4B is `ops/llvq-mlx chat` ([`docs/plan-metal-debit.md`](docs/plan-metal-debit.md)).
 
 Perplexity of the 4B (12.5834 on an L40S, token fingerprint `3f1baca9033bf251`):
 

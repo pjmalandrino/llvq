@@ -836,3 +836,65 @@ fn a_prompt_in_pieces_gives_what_one_call_gives_on_the_cpu() {
     assert!(gap < 1e-4, "gap {gap:.3e}");
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+/// The prefix cache of `llvq serve` on the CPU stack (gate B-i of
+/// `proofs/preregistration-servi-au-bit-2026-11-26.md`): the tiny served file
+/// set loaded by `experts_cpu::load_served`, at the tiny model's scale of the
+/// long-prompt settings that load sets (pieces of 16 tokens, scores in chunks
+/// of 8 rows, sliding slots bounded with a slack of 2). A prompt read to `b`,
+/// its state written, loaded into a new cache, then the rest read and 8 greedy
+/// steps: every logit equal bit for bit to the read without the cut, and the
+/// loaded cache writes the bytes it was loaded from.
+#[test]
+fn a_loaded_state_reads_on_bit_for_bit_on_the_cpu_stack() {
+    let bits = |t: &Tensor| -> Vec<Vec<u32>> { rows_of(t).iter().map(|r| r.iter().map(|x| x.to_bits()).collect()).collect() };
+    let state = |c: &llvq_llm::inkling::InklingCache| {
+        let mut v = Vec::new();
+        c.write_state(&mut v).unwrap();
+        v
+    };
+    let dir = temp_dir("prefix");
+    let (cfg, _) = write_file_set(&dir);
+    let mut m = load(&dir);
+    assert_eq!(m.attn(), AttnKind::Cpu);
+    m.set_prefill_piece(16);
+    m.set_attn_chunk(8);
+    m.set_kv_window(Some(2));
+    let v = cfg.unpadded_vocab_size;
+    let ids: Vec<u32> = (0..70u32).map(|i| (i * 13 + 7) % v as u32).collect();
+    let steps = |c: &mut llvq_llm::inkling::InklingCache, last: &[u32]| -> Vec<Vec<u32>> {
+        let mut prev: Vec<f32> = last.iter().map(|&x| f32::from_bits(x)).collect();
+        let mut out = vec![];
+        for _ in 0..8 {
+            let pos = c.len();
+            let l = m.step(argmax(&prev) as u32, pos, c).unwrap().reshape((1, v)).unwrap();
+            let b = bits(&l).remove(0);
+            prev = b.iter().map(|&x| f32::from_bits(x)).collect();
+            out.push(b);
+        }
+        out
+    };
+    let mut whole = m.new_cache();
+    let mut want = bits(&m.forward_pieces(&ids, &mut whole, true).unwrap());
+    let last = want.last().unwrap().clone();
+    want.extend(steps(&mut whole, &last));
+    for b in [32, 48, 64] {
+        let mut first = m.new_cache();
+        let mut got = bits(&m.forward_pieces(&ids[..b], &mut first, true).unwrap());
+        let saved = state(&first);
+        drop(first);
+        let mut loaded = m.read_cache(&mut saved.as_slice()).unwrap();
+        assert_eq!(state(&loaded), saved, "the loaded cache does not write the state it was loaded from");
+        assert_eq!((loaded.len(), loaded.tokens()), (b, &ids[..b]));
+        got.extend(bits(&m.forward_pieces(&ids[b..], &mut loaded, true).unwrap()));
+        let last = got.last().unwrap().clone();
+        got.extend(steps(&mut loaded, &last));
+        let differing = got.iter().zip(&want).filter(|(a, b)| a != b).count();
+        println!("cpu stack, cut at {b} of {}: {differing} of {} rows differ, state {} bytes", ids.len(), want.len(), saved.len());
+        assert_eq!(got.len(), want.len());
+        assert_eq!(differing, 0, "cut at {b}: {differing} rows differ from the read without the cut");
+        assert!(loaded.slots().iter().any(|s| s.is_bounded()), "no bounded slot: the arm does not test the bound");
+        assert!(loaded.slots().iter().any(|s| s.base() > 0), "no slot dropped a position before the cut");
+    }
+    let _ = std::fs::remove_dir_all(&dir);
+}

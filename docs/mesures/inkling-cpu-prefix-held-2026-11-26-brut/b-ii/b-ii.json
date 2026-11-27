@@ -1,0 +1,49 @@
+{
+  "b": 2048,
+  "cut": {
+    "load_s": 0.121795625,
+    "logits_sha256": "ec40910e9234ff035e7e7a0130a0d1672239522f4fd4e8277b28d99120af53a1",
+    "rest_s": 39.083618041,
+    "save_s": 0.51906375,
+    "state_bytes": 809155432,
+    "to_b_s": 118.451789,
+    "tokens": [
+      149879,
+      149878,
+      175906,
+      196993,
+      196981,
+      151349,
+      158414,
+      149933
+    ]
+  },
+  "equal": true,
+  "ids_file": "/Users/pjmalandrino/Documents/Pro/workspace/poc/llvq/.claude/worktrees/mac-inkling/docs/mesures/inkling-cpu-prefix-held-2026-11-26-brut/../inkling-mac-prefix-2026-11-26-brut/long.json",
+  "load_lines": [
+    "tables: embed b7e9979f589a8a84, unembed cb26ce0c6145d35d",
+    "cpu: neon SIMD on 6 threads | weights packed | experts 6.17 GB + rotations 0.089 GB on 24 layers, read in 3.0 s",
+    "cpu: attention cpu | BF16 1.29 GB + f32 0.00 GB, int4 embedding 0.26 GB, int4 head 0.26 GB",
+    "prompt: pieces of 512 tokens, scores in chunks of 128 rows, sliding slots bounded with a slack of 1024"
+  ],
+  "load_s": 6.599521541,
+  "model_dir": "/Users/pjmalandrino/.llvq/models/sha256-1e9314dba89332cb1af444619dc5d31a2a1ed6a50a1112e0ca2b8fc55bb6bfd3",
+  "prompt_tokens": 2600,
+  "steps": 8,
+  "straight": {
+    "logits_sha256": "ec40910e9234ff035e7e7a0130a0d1672239522f4fd4e8277b28d99120af53a1",
+    "prompt_s": 163.177906458,
+    "tokens": [
+      149879,
+      149878,
+      175906,
+      196993,
+      196981,
+      151349,
+      158414,
+      149933
+    ]
+  },
+  "threads": "6",
+  "vocab": 200058
+}

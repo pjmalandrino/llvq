@@ -1,0 +1,24 @@
+mutants: start 2026-11-27 05:05:10 at 82ec459db6599e3ebfd2bb0be8d71706274c2488
+=== mutant key-arm-constant: 1 site(s) replaced: 'attn_window: window.label().into(),' -> 'attn_window: AttnWindow::Full.label().into(),'
+=== mutant key-arm-constant: test exit 101
+test inkling::tests::a_prefix_key_names_the_attention_window_that_wrote_it ... FAILED
+assertion `left == right` failed
+test result: FAILED. 53 passed; 1 failed; 1 ignored; 0 measured; 0 filtered out; finished in 17.84s
+error: test failed, to rerun pass `-p llvq-runtime --lib`
+=== mutant key-arm-constant: llvq-runtime/src/inkling.rs restored, clean
+=== mutant parsed-not-applied: 1 site(s) replaced: '(AttnWindow::Narrow, Backend::Metal, true) => Ok(true),' -> '(AttnWindow::Narrow, Backend::Metal, true) => Ok(false),'
+=== mutant parsed-not-applied: test exit 101
+test inkling::tests::narrow_turns_the_window_on_on_metal_fused_and_is_refused_elsewhere ... FAILED
+assertion failed: window_scores_for(AttnWindow::Narrow, Backend::Metal, true).unwrap()
+test result: FAILED. 53 passed; 1 failed; 1 ignored; 0 measured; 0 filtered out; finished in 17.58s
+error: test failed, to rerun pass `-p llvq-runtime --lib`
+=== mutant parsed-not-applied: llvq-runtime/src/inkling.rs restored, clean
+mutants: done; tree: []
+=== tests in debug on the committed tree 2026-11-27 05:05:51
+cargo test -p llvq-runtime rc=0
+cargo test -p llvq-runtime --features metal rc=0
+cargo test -p llvq-llm --features metal rc=0
+docs/mesures/inkling-mac-fenetre-runtime-2026-11-27-brut/tests-runtime.log: 14 'test result:' lines, 120 passed, 0 failed, 3 ignored
+docs/mesures/inkling-mac-fenetre-runtime-2026-11-27-brut/tests-runtime-metal.log: 14 'test result:' lines, 120 passed, 0 failed, 3 ignored
+docs/mesures/inkling-mac-fenetre-runtime-2026-11-27-brut/tests-llm-metal.log: 116 'test result:' lines, 760 passed, 0 failed, 73 ignored
+mutants+tests: done 2026-11-27 05:25:57

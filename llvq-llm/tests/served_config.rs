@@ -12,8 +12,8 @@ use llvq_llm::fused::{EmbedMode, FuseMode, FusedLayout};
 use llvq_llm::kvq::{AttnHeads, KvMode, KvStore, GROW_CHUNK};
 use llvq_llm::rotplan::RotShare;
 use llvq_llm::served::{
-    check_env, check_persistent_object, check_removed, Decode, Rows4e, Served, ServedFile, BELOW_THE_DOOR,
-    MEASUREMENT_MODES, REMOVED,
+    check_env, check_persistent_object, check_removed, Decode, MetalKernels, Rows4e, Served, ServedFile,
+    BELOW_THE_DOOR, MEASUREMENT_MODES, REMOVED,
 };
 use std::path::PathBuf;
 
@@ -31,6 +31,7 @@ fn served() -> ServedFile {
         prefill: None,
         decode_cache: None,
         batch: None,
+        metal_kernels: None,
         note: Some("Qwen3-4B, Tetra + 36 v_proj int4 g128".into()),
     }
 }
@@ -454,8 +455,8 @@ fn an_absent_attention_field_is_the_published_form() {
     let r = Served::of(f, PathBuf::from("old.json")).expect("resolves");
     assert_eq!((r.attention, r.store), (AttnHeads::Expanded, KvStore::Cat));
 
-    // And on disk: every shipped config except the grouped, kernel, 4E and
-    // batch ones is expanded; every one but the 4E configs decodes on the
+    // And on disk: every shipped config except the grouped, Metal, kernel,
+    // 4E and batch ones is expanded; every one but the 4E configs decodes on the
     // eager path.
     let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../configs");
     let mut expanded = 0;
@@ -469,7 +470,9 @@ fn an_absent_attention_field_is_the_published_form() {
         let r = Served::of(f, path.clone()).expect("resolves");
         let four_e = name.contains("-4e");
         assert_eq!(r.decode, if four_e { Decode::Persistent } else { Decode::Eager }, "{name}");
-        match (name.contains("grouped"), name.contains("kernel") || four_e || name.contains("-batch")) {
+        // The Metal configs of 2026-11-26 serve the grouped form on Metal.
+        let grouped = name.contains("grouped") || name.ends_with("-metal.json");
+        match (grouped, name.contains("kernel") || four_e || name.contains("-batch")) {
             (true, _) => assert_eq!(r.attention, AttnHeads::Grouped, "{name}"),
             (false, true) => assert_eq!(r.attention, AttnHeads::Kernel, "{name}"),
             (false, false) => {
@@ -567,35 +570,90 @@ fn an_attention_the_file_cannot_serve_is_refused() {
     }
 }
 
-/// 🚨 The grouped form has never run on Metal, so a Metal build refuses it.
+/// 🚨 Metal serves the grouped form only from a config that names its Metal
+/// kernels.
 ///
 /// The form is backend-independent code in `model.rs`, which is exactly what
-/// makes a silent acceptance easy: the Mac would serve a form whose tolerance
-/// gate was passed on an L40S, with no throughput, no perplexity and no
-/// reading of Metal's own rounding. The predicate is handed in, so this runs
-/// on a machine with no Metal device.
+/// makes a silent acceptance easy: the Mac would serve a card config whose
+/// tolerance gate was passed on an L40S. On Metal the form read bit for bit
+/// with the expanded one, and the configs that serve it there are the ones
+/// that name `metal_kernels`, written for the objects that passed that gate.
+/// The card's grouped config stays refused on Metal, by name. The predicate
+/// is handed in, so this runs on a machine with no Metal device.
 #[test]
-fn the_grouped_form_is_refused_on_metal_and_named_in_the_refusal() {
+fn the_grouped_form_is_served_on_metal_only_through_a_metal_config() {
     let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../configs");
     let path = dir.join("qwen3-4b-tetra-e4-grouped.json");
     let g = Served::of(Served::read_file(&path).expect("parses"), path).expect("resolves");
 
-    let e = g.check_device(true).expect_err("grouped on Metal is refused");
+    let e = g.check_device(true).expect_err("the card's grouped config is refused on Metal");
     assert!(e.contains("Metal"), "{e}");
     assert!(e.contains("grouped"), "the message names the form: {e}");
-    assert!(e.contains("gqa-ppl-2026-11-01"), "and the measurement that would lift it: {e}");
+    assert!(e.contains("gqa-ppl-2026-11-01"), "and where its tolerance was measured: {e}");
+    assert!(e.contains("metal_kernels"), "and what a Metal config names: {e}");
     assert!(
         e.contains("qwen3-4b-tetra-e4-grouped.json"),
         "and which config asked for it: {e}"
     );
     g.check_device(false).expect("grouped on a card is what was measured");
 
-    // The expanded form is the Mac's served path and stays accepted.
+    // The Metal configs: grouped, their kernels named, accepted on Metal and
+    // refused anywhere else.
+    for t in ["4b", "8b", "14b"] {
+        let path = dir.join(format!("qwen3-{t}-tetra-e4-metal.json"));
+        let m = Served::of(Served::read_file(&path).expect("parses"), path).expect("resolves");
+        assert_eq!(m.attention, AttnHeads::Grouped, "{t}");
+        assert_eq!(m.metal_kernels, MetalKernels::LutdHPq, "{t}");
+        m.check_device(true).unwrap_or_else(|e| panic!("{t}: {e}"));
+        let e = m.check_device(false).expect_err("a Metal config off Metal");
+        assert!(e.contains("metal_kernels") && e.contains("off Metal"), "{e}");
+        assert!(m.provenance().contains("Metal kernels lutd+h+pq"), "{}", m.provenance());
+        // Its object fields are the expanded config's: the same object.
+        let old = Served::read_file(&dir.join(format!("qwen3-{t}-tetra-e4.json"))).expect("parses");
+        let new = Served::read_file(&dir.join(format!("qwen3-{t}-tetra-e4-metal.json"))).expect("parses");
+        assert_eq!(
+            ServedFile { attention: None, metal_kernels: None, note: None, ..new },
+            ServedFile { note: None, ..old },
+            "{t}"
+        );
+    }
+
+    // The expanded form is served everywhere, with or without named kernels.
     let s = of(served()).expect("resolves");
     s.check_device(true).expect("expanded on Metal is the published path");
     s.check_device(false).expect("expanded on a card too");
+    let k = of(ServedFile { metal_kernels: Some("lutd+h+pq".into()), ..served() }).expect("resolves");
+    k.check_device(true).expect("expanded with named kernels on Metal");
 }
 
+/// The kernel form stays refused on Metal, even from a config that names its
+/// Metal kernels: no T8 of it there has been granted.
+#[test]
+fn the_kernel_form_stays_refused_on_metal_beside_named_kernels() {
+    let f = ServedFile { attention: Some("kernel".into()), metal_kernels: Some("lutd+h+pq".into()), ..served() };
+    let e = of(f).expect("resolves").check_device(true).expect_err("kernel on Metal");
+    assert!(e.contains("kernel") && e.contains("no T8 of the form on Metal"), "{e}");
+}
+
+/// `metal_kernels`: absent is the default kernels, one closed list of names,
+/// the empty string and a typo refused, and never beside 4E or a batch.
+#[test]
+fn metal_kernels_reads_a_closed_list() {
+    assert_eq!(of(served()).unwrap().metal_kernels, MetalKernels::Default);
+    assert!(!of(served()).unwrap().provenance().contains("Metal kernels"), "an older config's line reads as it did");
+    assert_eq!(
+        of(ServedFile { metal_kernels: Some("lutd+h+pq".into()), ..served() }).unwrap().metal_kernels,
+        MetalKernels::LutdHPq
+    );
+    for bad in ["", " ", "lutd", "lutd+h+pq+r", "lut", "LUTD+H+PQ", "lutd+pq+h"] {
+        let e = of(ServedFile { metal_kernels: Some(bad.into()), ..served() }).expect_err(bad);
+        assert!(e.contains("metal_kernels") && e.contains("lutd+h+pq"), "{bad:?}: {e}");
+    }
+    let e = of(ServedFile { metal_kernels: Some("lutd+h+pq".into()), ..four_e() }).expect_err("4E");
+    assert!(e.contains("metal_kernels") && e.contains("persistent"), "{e}");
+    assert_eq!(MetalKernels::Default.arm(), None);
+    assert_eq!(MetalKernels::LutdHPq.arm(), Some("lutd+h+pq"));
+}
 
 // ---- the decode engine (2026-11-05) ----------------------------------------
 
@@ -613,6 +671,7 @@ fn four_e() -> ServedFile {
         prefill: None,
         decode_cache: None,
         batch: None,
+        metal_kernels: None,
         note: None,
     }
 }

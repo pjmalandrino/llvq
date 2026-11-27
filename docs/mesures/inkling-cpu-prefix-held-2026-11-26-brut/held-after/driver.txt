@@ -1,0 +1,11 @@
+a0: first token 132.12085604667664 s, prompt 8791, cached 0, read 131.91 s, content ''
+a1: first token 0.16477012634277344 s, prompt 8791, cached 8791, read 0.00 s, content ''
+a2: first token 0.15816783905029297 s, prompt 8791, cached 8791, read 0.00 s, content ''
+a3: first token 0.1565701961517334 s, prompt 8791, cached 8791, read 0.00 s, content ''
+a4: first token 0.15921998023986816 s, prompt 8791, cached 8791, read 0.00 s, content ''
+c0: first token 0.8958861827850342 s, prompt 36, cached 0, read 0.78 s, content ''
+c1: first token 0.14143681526184082 s, prompt 36, cached 36, read 0.00 s, content ''
+c2: first token 0.13801312446594238 s, prompt 36, cached 36, read 0.00 s, content ''
+c3: first token 0.13551712036132812 s, prompt 36, cached 36, read 0.00 s, content ''
+c4: first token 0.14096522331237793 s, prompt 36, cached 36, read 0.00 s, content ''
+done 2026-11-26 22:24:18

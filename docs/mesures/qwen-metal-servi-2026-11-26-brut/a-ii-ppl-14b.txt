@@ -1,0 +1,17 @@
+start 2026-11-26 21:31:59 loadavg { 3.05 3.35 3.79 } | System-wide memory free percentage: 79%
+environment: no LLVQ_* or CANDLE_* variable
+binary  /Users/pjmalandrino/Documents/Pro/workspace/poc/llvq/.claude/worktrees/mac-inkling/docs/mesures/qwen-metal-servi-2026-11-26-brut/work/metalrun-1e35fa1b sha256 2fba57590ed8cccd746d39f30d83a3dc6bd9ce55b58611cca42e3260ed2fdaf4
+object  /Users/pjmalandrino/q8b-14b-sealed-2026-09-23/qwen3-14b-sealed.bin sha256 61db37fe7ce8e6a57c5c59f257319c796574981ecb5e450a02c73dd3c17e2ca0
+config  configs/qwen3-14b-tetra-e4.json sha256 833aec4c3a213c81e2f475acb0a643c4caf0cd7180d2bdb3c561618331032f78
+served config: configs/qwen3-14b-tetra-e4.json (layout tetra48, embed q4, rot_share 1, fuse 0, kv f16, attention expanded on cat) — Qwen3-14B paper-2 object, sealed 2026-09-23: Tetra with dclm-edu calibration and trained row scales, v_proj + o_proj + down_proj@10-28 as int4 g128 records, both untied tables stored int4 g64 in the file (qwen3-14b-sealed.bin). fuse is 0 because Tetra carries no segmented kernel, not because fusion was declined.
+machine Apple M3 Max | Note: No thermal warning level has been recorded | Note: No performance warning level has been recorded | Note: No CPU power status has been recorded
+load    GPU Some(0) % busy, other processes 118 % CPU
+arm lutd+h+pq: loading with MetalTuning { q4_tile_cols: 2048, tetra_kernel: "tv_tetra48_metal_lutd", q4_prefetch: false, half_io: true, prefill_rows: 8, q4_rows: true, rot_tg: false }
+metal: tetra matvec tv_tetra48_metal_lutd | int4 99 records, 19 through tv_q4_metal_tiled at 2048 columns a tile, 80 untiled | int4 row loop served | io half (in-kernel casts, tv_q4_pf.metal and llvq_tetra48_rows.metal) | prefill 8 rows a launch, Tetra (tv_tetra48_metal_lutdr) and int4 (tv_q4_metal_rows) | rotation device (served)
+embedding: q4 g64 (metalrun), 2 tables (model.embed_tokens.weight + lm_head.weight), 875.2 MB on the card (int4 777.9 + scales/biases 97.2)
+total expected on the device: 5.04 GB (projections 4.17 + carried 0.88)
+arm lutd+h+pq    loaded in   8.1 s | host count 5.044 GB | 4.606 GB of weights a token | attention expanded on cat
+ppl: wikitext2 test, 1 windows of 2048 from the start (299078 tokens in the split, span sha256 942f9f56dff7c8d099cda59e3439e87bf9646019220263793e333a4724d8e44d), grouped against expanded, decode path in lockstep; a TOLERANCE reading, never a served decision
+  window  1: ppl expanded 7.099703 grouped 7.099703, grouped / expanded - 1 = +0.0000 %, top-1 agreement 2047/2047, max |dlogit| 0.000e0, 276 s elapsed
+ppl over 1 windows: expanded 7.099703, grouped 7.099703, pooled grouped / expanded - 1 = +0.0000 %; per window median +0.0000 % [+0.0000 ; +0.0000]; top-1 agreement 2047/2047 = 100.000 %; max |dlogit| 0.000e0
+exit 0 end 2026-11-26 21:36:59

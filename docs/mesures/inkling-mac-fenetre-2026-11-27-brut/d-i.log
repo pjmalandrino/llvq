@@ -1,0 +1,24 @@
+[heavy] 00:13:01 waiting for: lotA: serve-mac.sh 13 Inkling checks | wrapper=96862 pgid=96864 | since 2026-11-27 00:11:35
+[heavy] 00:13:31 waiting for: lotA: serve-mac.sh 13 Inkling checks | wrapper=96862 pgid=96864 | since 2026-11-27 00:11:35
+[heavy] 00:14:01 waiting for: lotA: serve-mac.sh 13 Inkling checks | wrapper=96862 pgid=96864 | since 2026-11-27 00:11:35
+[heavy] 00:14:31 waiting for: lotA: serve-mac.sh 13 Inkling checks | wrapper=96862 pgid=96864 | since 2026-11-27 00:11:35
+   Compiling llvq-llm v0.1.0 (/Users/pjmalandrino/Documents/Pro/workspace/poc/llvq/.claude/worktrees/mac-inkling/llvq-llm)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 11.54s
+     Running tests/inkling_window.rs (target/debug/deps/inkling_window-227c047e4f3cfe5d)
+
+running 2 tests
+cpu piece 0 chunk 0 slack None: worst relative gap 9.862653e-7; argmax equal 86 of 86; bit for bit 70; narrowed chunks 340
+cpu piece 16 chunk 8 slack Some(2): worst relative gap 2.4660226e-6; argmax equal 86 of 86; bit for bit 3; narrowed chunks 500
+cpu piece 16 chunk 5 slack Some(0): worst relative gap 2.3508196e-6; argmax equal 86 of 86; bit for bit 3; narrowed chunks 680
+cpu piece 7 chunk 3 slack Some(1): worst relative gap 2.0276211e-6; argmax equal 86 of 86; bit for bit 6; narrowed chunks 920
+cpu piece 0 chunk 9 slack None: worst relative gap 2.1495719e-6; argmax equal 86 of 86; bit for bit 3; narrowed chunks 480
+test window_scores_track_full_scores_cpu ... ok
+metal piece 0 chunk 0 slack None: worst relative gap 0e0; argmax equal 86 of 86; bit for bit 86; narrowed chunks 20
+metal piece 16 chunk 8 slack Some(2): worst relative gap 2.729732e-6; argmax equal 86 of 86; bit for bit 26; narrowed chunks 180
+metal piece 16 chunk 5 slack Some(0): worst relative gap 2.2468228e-6; argmax equal 86 of 86; bit for bit 1; narrowed chunks 360
+metal piece 7 chunk 3 slack Some(1): worst relative gap 2.895309e-6; argmax equal 86 of 86; bit for bit 3; narrowed chunks 600
+metal piece 0 chunk 9 slack None: worst relative gap 2.0653144e-6; argmax equal 86 of 86; bit for bit 1; narrowed chunks 160
+test window_scores_track_full_scores_metal ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 40.45s
+

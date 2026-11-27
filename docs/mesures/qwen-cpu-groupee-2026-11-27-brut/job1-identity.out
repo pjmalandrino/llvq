@@ -1,0 +1,66 @@
+[heavy] 00:17:03 waiting for: lotA: cargo test debug llvq-llm+llvq-runtime metal | wrapper=97817 pgid=98681 | since 2026-11-27 00:16:03
+[heavy] 00:17:33 waiting for: lotA: cargo test debug llvq-llm+llvq-runtime metal | wrapper=97817 pgid=98681 | since 2026-11-27 00:16:03
+[heavy] 00:18:03 waiting for: lotA: cargo test debug llvq-llm+llvq-runtime metal | wrapper=97817 pgid=98681 | since 2026-11-27 00:16:03
+[heavy] 00:18:33 waiting for: lotA: cargo test debug llvq-llm+llvq-runtime metal | wrapper=97817 pgid=98681 | since 2026-11-27 00:16:03
+[heavy] 00:19:03 waiting for: lotA: cargo test debug llvq-llm+llvq-runtime metal | wrapper=97817 pgid=98681 | since 2026-11-27 00:16:03
+[heavy] 00:19:33 waiting for: lotA: cargo test debug llvq-llm+llvq-runtime metal | wrapper=97817 pgid=98681 | since 2026-11-27 00:16:03
+[heavy] 00:20:03 waiting for: lotA: cargo test debug llvq-llm+llvq-runtime metal | wrapper=97817 pgid=98681 | since 2026-11-27 00:16:03
+[heavy] 00:20:33 waiting for: lotA: cargo test debug llvq-llm+llvq-runtime metal | wrapper=97817 pgid=98681 | since 2026-11-27 00:16:03
+[heavy] 00:21:03 waiting for: lotA: cargo test debug llvq-llm+llvq-runtime metal | wrapper=97817 pgid=98681 | since 2026-11-27 00:16:03
+[heavy] 00:21:33 waiting for: lotA: cargo test debug llvq-llm+llvq-runtime metal | wrapper=97817 pgid=98681 | since 2026-11-27 00:16:03
+[heavy] 00:22:03 waiting for: lotA: cargo test debug llvq-llm+llvq-runtime metal | wrapper=97817 pgid=98681 | since 2026-11-27 00:16:03
+[heavy] 00:22:33 waiting for: lotA: cargo test debug llvq-llm+llvq-runtime metal | wrapper=97817 pgid=98681 | since 2026-11-27 00:16:03
+[heavy] 00:23:03 waiting for: lotA: cargo test debug llvq-llm+llvq-runtime metal | wrapper=97817 pgid=98681 | since 2026-11-27 00:16:03
+[heavy] 00:23:34 waiting for: lotA: cargo test debug llvq-llm+llvq-runtime metal | wrapper=97817 pgid=98681 | since 2026-11-27 00:16:03
+[heavy] 00:24:04 waiting for: lotA: cargo test debug llvq-llm+llvq-runtime metal | wrapper=97817 pgid=98681 | since 2026-11-27 00:16:03
+[heavy] 00:24:34 waiting for: lotA: cargo test debug llvq-llm+llvq-runtime metal | wrapper=97817 pgid=98681 | since 2026-11-27 00:16:03
+[heavy] 00:25:04 waiting for: lotA: cargo test debug llvq-llm+llvq-runtime metal | wrapper=97817 pgid=98681 | since 2026-11-27 00:16:03
+[heavy] 00:25:34 waiting for: lotA: cargo test debug llvq-llm+llvq-runtime metal | wrapper=97817 pgid=98681 | since 2026-11-27 00:16:03
+[heavy] 00:26:04 waiting for: lotA: cargo test debug llvq-llm+llvq-runtime metal | wrapper=97817 pgid=98681 | since 2026-11-27 00:16:03
+[heavy] 00:26:34 waiting for: lotA: cargo test debug llvq-llm+llvq-runtime metal | wrapper=97817 pgid=98681 | since 2026-11-27 00:16:03
+[heavy] 00:27:04 waiting for: lotA: cargo test debug llvq-llm+llvq-runtime metal | wrapper=97817 pgid=98681 | since 2026-11-27 00:16:03
+[heavy] 00:27:34 waiting for: lotA: cargo test debug llvq-llm+llvq-runtime metal | wrapper=97817 pgid=98681 | since 2026-11-27 00:16:03
+[heavy] 00:28:04 waiting for: lotA: cargo test debug llvq-llm+llvq-runtime metal | wrapper=97817 pgid=98681 | since 2026-11-27 00:16:03
+[heavy] 00:28:34 waiting for: lotA: cargo test debug llvq-llm+llvq-runtime metal | wrapper=97817 pgid=98681 | since 2026-11-27 00:16:03
+[heavy] 00:29:04 waiting for: lotA: cargo test debug llvq-llm+llvq-runtime metal | wrapper=97817 pgid=98681 | since 2026-11-27 00:16:03
+[heavy] 00:29:34 waiting for: lotA: cargo test debug llvq-llm+llvq-runtime metal | wrapper=97817 pgid=98681 | since 2026-11-27 00:16:03
+[heavy] 00:30:04 waiting for: lotA: cargo test debug llvq-llm+llvq-runtime metal | wrapper=97817 pgid=98681 | since 2026-11-27 00:16:03
+[heavy] 00:30:34 waiting for: lotA: cargo test debug llvq-llm+llvq-runtime metal | wrapper=97817 pgid=98681 | since 2026-11-27 00:16:03
+[heavy] 00:31:04 waiting for: lotA: cargo test debug llvq-llm+llvq-runtime metal | wrapper=97817 pgid=98681 | since 2026-11-27 00:16:03
+[heavy] 00:31:34 waiting for: lotA: cargo test debug llvq-llm+llvq-runtime metal | wrapper=97817 pgid=98681 | since 2026-11-27 00:16:03
+[heavy] 00:32:04 waiting for: lotA: cargo test debug llvq-llm+llvq-runtime metal | wrapper=97817 pgid=98681 | since 2026-11-27 00:16:03
+[heavy] 00:32:34 waiting for: lotA: cargo test debug llvq-llm+llvq-runtime metal | wrapper=97817 pgid=98681 | since 2026-11-27 00:16:03
+[heavy] 00:33:04 waiting for: lotA: cargo test debug llvq-llm+llvq-runtime metal | wrapper=97817 pgid=98681 | since 2026-11-27 00:16:03
+[heavy] 00:33:34 waiting for: lotA: cargo test debug llvq-llm+llvq-runtime metal | wrapper=97817 pgid=98681 | since 2026-11-27 00:16:03
+[heavy] 00:34:04 waiting for: lotA: cargo test debug llvq-llm+llvq-runtime metal | wrapper=97817 pgid=98681 | since 2026-11-27 00:16:03
+[waitload] 2026-11-27 00:34:35 load { 4.38 4.76 4.90 } | System-wide memory free percentage: 80%
+== build 2026-11-27 00:34:35
+   Compiling candle-transformers v0.9.2
+   Compiling hf-hub v0.4.3
+   Compiling llvq-cuda v0.1.0 (/Users/pjmalandrino/Documents/Pro/workspace/poc/llvq/.claude/worktrees/qwen-cpu/llvq-cuda)
+    Finished `release` profile [optimized] target(s) in 2m 01s
+/Users/pjmalandrino/Documents/Pro/workspace/poc/llvq/.claude/worktrees/qwen-cpu/docs/mesures/qwen-cpu-groupee-2026-11-27-brut/tlim.sh: line 11:  4909 Terminated: 15          sleep "$secs"
+e5109be82a9353a718688956496555dba8a66ab5d143ef64806f05d61eee96ca  target/release/cpurun
+[waitload] 2026-11-27 00:36:36 load { 3.06 4.13 4.63 } | System-wide memory free percentage: 80%
+== G-i lockstep 2026-11-27 00:36:36 load { 3.06 4.13 4.63 }
+       8938082838554  cycles elapsed
+          5191226816  peak memory footprint
+/Users/pjmalandrino/Documents/Pro/workspace/poc/llvq/.claude/worktrees/qwen-cpu/docs/mesures/qwen-cpu-groupee-2026-11-27-brut/tlim.sh: line 11:  8458 Terminated: 15          sleep "$secs"
+[waitload] 2026-11-27 00:46:59 load { 5.43 5.40 5.15 } | System-wide memory free percentage: 80%
+== G-ii exp short 256 2026-11-27 00:46:59 load { 5.43 5.40 5.15 }
+loaded form: attention expanded store cat
+timed: prompt 5 tokens (fingerprint 4fd22932e1a93676) first token in 0.286 s | 255 decode steps in 29.536 s, 8.633 tok/s
+[waitload] 2026-11-27 00:47:31 load { 5.75 5.47 5.18 } | System-wide memory free percentage: 80%
+== G-ii exp 2048 64 2026-11-27 00:47:31 load { 5.75 5.47 5.18 }
+loaded form: attention expanded store cat
+timed: prompt 2048 tokens (fingerprint 93950fb3b58d41b6) first token in 128.999 s | 63 decode steps in 15.086 s, 4.176 tok/s
+[waitload] 00:49:57 load 6.02 > 6, waiting
+[waitload] 2026-11-27 00:50:27 load { 4.46 5.31 5.18 } | System-wide memory free percentage: 80%
+== G-ii grp short 256 2026-11-27 00:50:27 load { 4.46 5.31 5.18 }
+loaded form: attention grouped store grow(256)
+timed: prompt 5 tokens (fingerprint 4fd22932e1a93676) first token in 0.281 s | 255 decode steps in 27.369 s, 9.317 tok/s
+[waitload] 2026-11-27 00:50:57 load { 5.39 5.45 5.23 } | System-wide memory free percentage: 80%
+== G-ii grp 2048 64 2026-11-27 00:50:57 load { 5.39 5.45 5.23 }
+loaded form: attention grouped store grow(256)
+timed: prompt 2048 tokens (fingerprint 93950fb3b58d41b6) first token in 131.525 s | 63 decode steps in 9.675 s, 6.511 tok/s
+== done 2026-11-27 00:53:21

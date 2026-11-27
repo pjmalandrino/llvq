@@ -1,0 +1,116 @@
+INKLING 2 MINI ON THE MAC, THE SLIDING LAYERS SCORE THE WINDOW ONLY, 2026-11-27
+
+RESULT
+  A 9,000-token prompt is read in 112.41 s with the arm against 131.48 s without it, medians of four alternated
+  pairs [112.32, 112.46] and [131.36, 131.59]; the pair ratio is x0.855 [0.854, 0.856] (*measured*, M3 Max, Metal,
+  arm B of inkling-mac-prompt-2026-11-26). A 2,000-token prompt: 21.84 s [21.81, 21.92] against 23.10 s [23.06,
+  23.17], x0.945 [0.943, 0.951].
+  The arm is class B. Its logits differ from the reference's at both lengths (max |dlogit| 6.41 at 9,000 tokens,
+  1.50 at 2,000, largest logit 29.5 and 29.7); the argmax of every compared row and the 32 tokens after the prompt
+  are the reference's at both lengths. Gate D-i holds on the tiny model (worst relative gap 2.9e-6).
+  The rule keeps the arm in the code, off: identity gate held (D-i, same argmax, same 32 tokens), gain 14.5 % at
+  9,000 tokens, over the 5 % bar. Nothing became a default; the runtime is unchanged (`inkrun --attn-window narrow`).
+  Part E is void: the decode's score kernel already reads the window only (below).
+  Prereg: proofs/preregistration-inkling-fenetre-2026-11-27.md (commit 70871f2, OpenTimestamps). Deviations:
+  -ECARTS.md beside it. Raw files: inkling-mac-fenetre-2026-11-27-brut/.
+
+WHAT CHANGED (commits bde0ed3, c000fbd)
+  `llvq-llm/src/inkling/layers.rs`: `set_window_scores` (a switch for a process, off by default) and
+  `AttnWeights::scores_window`. With the switch on, `scores` of a sliding layer hands over to it; the full layers
+  (5, 11, 17, 23) keep `scores` as it was. Each chunk of query rows reads the keys and values from the first key its
+  first row sees (`first_visible`, `(pos + 1).saturating_sub(window)`, the mask of `score_bias`) to its last row's
+  own position; the bias is built for that range, the first row's position counted from the range's first key.
+  How it narrows: once a call, then per chunk. One copy a call, as today's path makes one, of the keys any row of
+  the call sees: from the first row's first visible key to the last key held (1,535 keys for a piece of 512 in a
+  settled slot, against the 2,560 the slot holds, *computed*). The keys go row-major `[heads, S, d]` like the
+  values, so a chunk's range is a view of each copy that candle's products read in place (the keys as a transposed
+  operand, the mlx gemm's `nt` form); no copy is added a chunk. A chunk of 128 rows reads at most 1,151 keys
+  (*computed*).
+  `llvq-llm/src/bin/inkrun.rs`: `--attn-window full|narrow`, default `full`; the report's provenance names it.
+  `llvq-llm/tests/inkling_window.rs`: gate D-i. `llvq-runtime` is not touched.
+  Tree before the identity gates: `git status --short llvq-llm llvq-runtime configs` empty (all.log, first line).
+
+THE GATES
+  D-i, tiny model (12 layers, window 4, extent 6, full layers among them), 70-token prompt then 16 steps fed the
+  reference's tokens, arm on against arm off, five settings (piece, score chunk, slack): (0, 0, full), (16, 8, 2),
+  (16, 5, 0), (7, 3, 1), (0, 9, full); bounded slots whose first key held is past position 0 in the three bounded
+  settings. Worst relative gap 2.9e-6 on Metal (`AttnKind::FusedScores`, fused glue) and 2.5e-6 on the CPU (candle
+  attention, the steps narrowed too); argmax equal on 86 rows of 86 in all ten runs; the narrowed path ran in each
+  (its chunk counter). Bound 1e-4: holds (d-i.log).
+  D-ii, real model, against the digests of 2026-11-26 (compare.py; dii-9000.txt, dii-2000.txt):
+    length   arm sha256     reference      bit for bit   max |dlogit|   largest |logit|   argmax moved   32 tokens
+    9,000    56abc123...    01407333...    0 of 32       6.41           29.49             none           same
+    2,000    3c2c0a6e...    6c05fabd...    0 of 32       1.50           29.68             none           same
+  Not class A. Row 0 (the last prompt row) already differs by 0.73 at 9,000 tokens, mean |dlogit| 0.16. The arm's
+  bits repeat: six runs at each length give one digest each, and the five reference runs of this lot's binary give
+  the morning's two digests (logits.sha256), so the build matches the reference's.
+  The size of the gap is that of the other class B changes of this model: read in pieces against one call, the
+  largest gap was 1.17 at 2,000 tokens on this Mac (inkling-mac-serve-2026-11-26) and 1.77 / 8.69 at 2,000 / 9,000
+  on the L40S (inkling-cuda-ttft-2026-11-24), where the drift jumps once a routing flips to other experts
+  (inkling-cuda-glue-attn-2026-11-23). This lot did not record the routing, so the flip is the likely reading, not
+  a measured one.
+  D-iii, alternated pairs, reference first, 45 s apart, one guarded job, load1 1.7 to 2.8 and GPU 0 to 11 % before
+  each run (d-iii.txt, <arm>.json, <arm>.log, <arm>.machine):
+    length   pair 1   pair 2   pair 3   pair 4   median ratio           read, reference         read, arm
+    9,000    0.8541   0.8559   0.8545   0.8551   0.855 [0.854, 0.856]   131.48 [131.36, 131.59] 112.41 [112.32, 112.46]
+    2,000    0.9431   0.9457   0.9437   0.9505   0.945 [0.943, 0.951]   23.10 [23.06, 23.17]    21.84 [21.81, 21.92]
+  The discarded pairs: 143.52 / 112.67 s and 23.01 / 21.82 s. The D-ii runs read 117.11 s and 36.99 s; the second
+  started with load 2.2 and the GPU idle and decoded at 21.27 tok/s against 26.9 in the pairs: a slow run, reported
+  as read, nothing rests on it.
+  Memory (*measured*): `/usr/bin/time -l` peak footprint at 9,000 tokens 14.80 GB [14.79, 14.82] for the arm
+  against 14.56 [14.56, 14.57]; at 2,000 tokens 12.26 [12.21, 12.33] against 12.26 [12.24, 12.34]. Metal allocated
+  after the prompt (inkrun's report): 10.54 GB against 10.62 at 9,000, 9.63 against 9.70 at 2,000.
+  Decode after the prompt, not this lot's object, same runs: 24.06 tok/s [24.01, 24.06] against 24.25 [24.23,
+  24.26] after 9,000 tokens; 26.96 [26.93, 26.97] against 26.77 [26.69, 26.81] after 2,000.
+
+PART E, THE DECODE: VOID
+  After a long prompt a bounded sliding slot holds more than the window: it keeps `window + slack` = 2,048 positions
+  and grows to `window + 2 * slack` = 3,072 before it drops its oldest (`KvBound::retain`, `settled_capacity` in
+  layers.rs). The served decode does not read them: the one-row score kernel of `--attn fused+scores` takes only the
+  visible keys, `llvq-llm/src/inkling/attn_scores.rs` line 193,
+    let lo = window.map_or(0, |w| (pos + 1).saturating_sub(w));
+  and its loops run from `a.lo` over `a.nvis` keys (lines 140 and 171). E has nothing to remove; no E run was made.
+
+MUTANTS (mutants.log; each an in-place replacement on the committed layers.rs, the sites counted, the file
+restored by git checkout and checked clean)
+  mutant                                   site  test inkling_window              worst gap, first red setting
+  the visible range starts one key late    1     red on CPU and Metal (101)       1.40 (CPU, one call), 1.42 (Metal)
+    `(pos + 1).saturating_sub(window)` made `(pos + 2)...` in `first_visible`
+  the bias built for the unshifted range   1     red on CPU and Metal (101)       1.84 (piece 16, chunk 8, slack 2)
+    `p0 - (from + lo)` made `p0 - from`
+  the full layers narrowed as if sliding   1     red on CPU and Metal (101)       1.39 (CPU), 1.41 (Metal), one call
+    `self.sliding && window_scores()` made `window_scores()`
+  On the committed file the same test passes (2 of 2). One weak point is seen: on Metal, the setting of one call
+  over full slots does not catch the first mutant (gap 0, the 86 rows bit for bit), since a prompt read from
+  position 0 in one chunk has no row whose first visible key moves; the other settings catch it.
+  Lints on the committed tree: `cargo clippy -p llvq-llm --features metal --all-targets` 0 warnings
+  (clippy-final.log); `ops/check-linux-cuda.sh clippy -p llvq-llm --features cuda --all-targets` 0 warnings
+  (linux-check-final.log). The first Linux check flagged `GlueKind` unused in the test off Metal (linux-check.log),
+  fixed in c000fbd.
+  `cargo test -p llvq-llm --features metal` in debug on the committed tree: 116 `test result:` lines, 760 passed,
+  0 failed, 73 ignored (tests-debug.log).
+
+AGAINST THE SIGNED PREDICTIONS
+  prediction                                          predicted                  measured                        inside
+  D bits: the digests differ (65 %)                   differ                     differ at both lengths          yes
+  D max |dlogit|                                      at most 2e-3 (85 %)        6.41 at 9,000, 1.50 at 2,000    no
+  D same argmax at every compared row (85 %)          same                       same, 32 of 32 at both          yes
+  D same 32 tokens at both lengths (85 %)             same                       same                            yes
+  D read of 9,000 tokens, ratio                       x0.87 [0.80 ; 0.94]        x0.855 [0.854, 0.856]           yes
+  D read of 9,000 tokens, seconds                     about 140 to about 122     131.48 to 112.41                -
+  D read of 2,000 tokens, ratio                       x0.95 [0.91 ; 1.00]        x0.945 [0.943, 0.951]           yes
+  D peak footprint                                    not higher, 0 to 0.3 lower +0.24 GB at 9,000, equal at 2,000  no
+  E decode after 9,000 tokens                         22.7 to 25.0 tok/s         not run, E void                 -
+  E decode after 5 tokens                             within 1 %                 not run, E void                 -
+  The prediction on the size of the logit gap missed by three orders of magnitude: it carried the tiny model's
+  drift to a model whose routing turns a small drift into another set of experts. The peak prediction missed at
+  9,000 tokens by the `time -l` reading, while the allocation after the prompt is 0.08 GB lower.
+
+WHAT THE READING DOES NOT SAY
+  That the arm keeps quality: equal greedy tokens over 32 steps on two prompts is the prereg's gate, not a
+  perplexity band. Serving it would need the band the other class B switches carry; not run.
+  Why the peak footprint rises 0.24 GB at 9,000 tokens. The copies a call are smaller and the score tensors of a
+  chunk too; candle's buffer pool now holds buffers of other sizes, which may be it (*estimated*, not traced).
+  That the gain holds on CUDA or the CPU, or with other piece and chunk sizes: one stack, one machine, arm B only.
+  The runtime: unchanged, its first token not re-read.
+  The share of the 19.1 s saved that is scores and copies: no profile run (`--prefill-phases`) in this lot.

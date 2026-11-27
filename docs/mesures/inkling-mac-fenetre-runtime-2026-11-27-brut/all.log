@@ -1,0 +1,65 @@
+215534ff70ccbc7a18466c5dcebaced67a44dc2e356a7571893ee53bfcada468  docs/mesures/inkling-mac-fenetre-runtime-2026-11-27-brut/work/u1.req.json
+4d5168bba62a777fe72fe93283418ebf75cb6be3ee52311e5c327281b86a4c81  docs/mesures/inkling-mac-fenetre-runtime-2026-11-27-brut/work/chat.req.json
+all: start 2026-11-27 04:24:16 at 82ec459db6599e3ebfd2bb0be8d71706274c2488
+1f47ffcc194a770b0215020ef003a0264db4118549d75a587f7dd793f60a5a53  target/loth/llvq-before
+2e5865277d25cf82193886a941fa7cbeaaf808fb7174606691ff80f060759c2f  target/loth/llvq
+== hi-before: llvq-before, home home-hi-before, flags [--prefix-cache off] ==
+2026-11-27 04:24:16 hi-before load1 3.23 gpu 0% memfree 81% therm [Note: No thermal warning level has been recorded;Note: No performance warning level has been recorded;Note: No CPU power status has been recorded]
+hi-before.u1: first token 132.736713886261 s, prompt 8791, cached 0, read 132.56 s, eval 48, errors []
+hi-before.chat: first token 0.8801589012145996 s, prompt 36, cached 0, read 0.76 s, eval 48, errors []
+== hi-after: llvq, home home-hi-after, flags [--prefix-cache off] ==
+2026-11-27 04:27:40 hi-after load1 1.42 gpu 0% memfree 82% therm [Note: No thermal warning level has been recorded;Note: No performance warning level has been recorded;Note: No CPU power status has been recorded]
+hi-after.u1: first token 140.75746607780457 s, prompt 8791, cached 0, read 140.60 s, eval 48, errors []
+hi-after.chat: first token 0.8776488304138184 s, prompt 36, cached 0, read 0.76 s, eval 48, errors []
+== p0-full: llvq, home home-p0-full, flags [--prefix-cache off --attn-window full] ==
+2026-11-27 04:31:09 p0-full load1 2.79 gpu 0% memfree 83% therm [Note: No thermal warning level has been recorded;Note: No performance warning level has been recorded;Note: No CPU power status has been recorded]
+p0-full.u1: first token 128.26237392425537 s, prompt 8791, cached 0, read 128.09 s, eval 48, errors []
+p0-full.chat: first token 0.8829677104949951 s, prompt 36, cached 0, read 0.76 s, eval 48, errors []
+== p0-narrow: llvq, home home-p0-narrow, flags [--prefix-cache off --attn-window narrow] ==
+2026-11-27 04:34:25 p0-narrow load1 1.85 gpu 0% memfree 83% therm [Note: No thermal warning level has been recorded;Note: No performance warning level has been recorded;Note: No CPU power status has been recorded]
+p0-narrow.u1: first token 109.26640295982361 s, prompt 8791, cached 0, read 109.09 s, eval 48, errors []
+p0-narrow.chat: first token 0.8841872215270996 s, prompt 36, cached 0, read 0.76 s, eval 48, errors []
+== p1-full: llvq, home home-p1-full, flags [--prefix-cache off --attn-window full] ==
+2026-11-27 04:37:22 p1-full load1 2.48 gpu 0% memfree 83% therm [Note: No thermal warning level has been recorded;Note: No performance warning level has been recorded;Note: No CPU power status has been recorded]
+p1-full.u1: first token 127.40247201919556 s, prompt 8791, cached 0, read 127.23 s, eval 48, errors []
+p1-full.chat: first token 0.8813197612762451 s, prompt 36, cached 0, read 0.76 s, eval 48, errors []
+== p1-narrow: llvq, home home-p1-narrow, flags [--prefix-cache off --attn-window narrow] ==
+2026-11-27 04:40:37 p1-narrow load1 2.35 gpu 0% memfree 83% therm [Note: No thermal warning level has been recorded;Note: No performance warning level has been recorded;Note: No CPU power status has been recorded]
+p1-narrow.u1: first token 109.24338030815125 s, prompt 8791, cached 0, read 109.07 s, eval 48, errors []
+p1-narrow.chat: first token 0.8823349475860596 s, prompt 36, cached 0, read 0.76 s, eval 48, errors []
+== p2-full: llvq, home home-p2-full, flags [--prefix-cache off --attn-window full] ==
+2026-11-27 04:43:34 p2-full load1 2.27 gpu 0% memfree 83% therm [Note: No thermal warning level has been recorded;Note: No performance warning level has been recorded;Note: No CPU power status has been recorded]
+p2-full.u1: first token 127.30555200576782 s, prompt 8791, cached 0, read 127.13 s, eval 48, errors []
+p2-full.chat: first token 0.882392168045044 s, prompt 36, cached 0, read 0.76 s, eval 48, errors []
+== p2-narrow: llvq, home home-p2-narrow, flags [--prefix-cache off --attn-window narrow] ==
+2026-11-27 04:46:49 p2-narrow load1 2.23 gpu 0% memfree 83% therm [Note: No thermal warning level has been recorded;Note: No performance warning level has been recorded;Note: No CPU power status has been recorded]
+p2-narrow.u1: first token 109.30598711967468 s, prompt 8791, cached 0, read 109.13 s, eval 48, errors []
+p2-narrow.chat: first token 0.8853540420532227 s, prompt 36, cached 0, read 0.76 s, eval 48, errors []
+== p3-full: llvq, home home-p3-full, flags [--prefix-cache off --attn-window full] ==
+2026-11-27 04:49:46 p3-full load1 1.75 gpu 0% memfree 83% therm [Note: No thermal warning level has been recorded;Note: No performance warning level has been recorded;Note: No CPU power status has been recorded]
+p3-full.u1: first token 127.42372918128967 s, prompt 8791, cached 0, read 127.20 s, eval 48, errors []
+p3-full.chat: first token 0.8789868354797363 s, prompt 36, cached 0, read 0.76 s, eval 48, errors []
+== p3-narrow: llvq, home home-p3-narrow, flags [--prefix-cache off --attn-window narrow] ==
+2026-11-27 04:53:01 p3-narrow load1 2.27 gpu 0% memfree 83% therm [Note: No thermal warning level has been recorded;Note: No performance warning level has been recorded;Note: No CPU power status has been recorded]
+p3-narrow.u1: first token 109.16792798042297 s, prompt 8791, cached 0, read 108.99 s, eval 48, errors []
+p3-narrow.chat: first token 0.8833968639373779 s, prompt 36, cached 0, read 0.76 s, eval 48, errors []
+== iv1-full: llvq, home home-iv-a, flags [] ==
+2026-11-27 04:55:58 iv1-full load1 2.46 gpu 0% memfree 84% therm [Note: No thermal warning level has been recorded;Note: No performance warning level has been recorded;Note: No CPU power status has been recorded]
+iv1-full.u1: first token 129.3867290019989 s, prompt 8791, cached 0, read 129.20 s, eval 48, errors []
+iv1-full.chat: first token 0.8760690689086914 s, prompt 36, cached 0, read 0.76 s, eval 48, errors []
+iv1-full prefix dir: 3021bebaae25d928-00008704-c7adec5e8c13cd35f4e45f13ac9167de.llvqprefix
+== iv2-narrow: llvq, home home-iv-a, flags [--attn-window narrow] ==
+2026-11-27 04:59:15 iv2-narrow load1 2.05 gpu 0% memfree 83% therm [Note: No thermal warning level has been recorded;Note: No performance warning level has been recorded;Note: No CPU power status has been recorded]
+iv2-narrow.u1: first token 110.59969687461853 s, prompt 8791, cached 0, read 110.41 s, eval 48, errors []
+iv2-narrow.chat: first token 0.8798990249633789 s, prompt 36, cached 0, read 0.76 s, eval 48, errors []
+iv2-narrow prefix dir: 3021bebaae25d928-00008704-c7adec5e8c13cd35f4e45f13ac9167de.llvqprefix
+iv2-narrow prefix dir: 899dbf19dcdcea04-00008704-c7adec5e8c13cd35f4e45f13ac9167de.llvqprefix
+keys: full 3021bebaae25d928, narrow 899dbf19dcdcea04
+home iv-b before iv3: 899dbf19dcdcea04-00008704-c7adec5e8c13cd35f4e45f13ac9167de.llvqprefix
+== iv3-full: llvq, home home-iv-b, flags [] ==
+2026-11-27 05:02:14 iv3-full load1 3.22 gpu 0% memfree 83% therm [Note: No thermal warning level has been recorded;Note: No performance warning level has been recorded;Note: No CPU power status has been recorded]
+iv3-full.u1: first token 128.89147782325745 s, prompt 8791, cached 0, read 128.71 s, eval 48, errors []
+iv3-full.chat: first token 0.8809468746185303 s, prompt 36, cached 0, read 0.76 s, eval 48, errors []
+iv3-full prefix dir: 3021bebaae25d928-00008704-c7adec5e8c13cd35f4e45f13ac9167de.llvqprefix
+iv3-full prefix dir: 899dbf19dcdcea04-00008704-c7adec5e8c13cd35f4e45f13ac9167de.llvqprefix
+all: done 2026-11-27 05:04:46

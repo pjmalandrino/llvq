@@ -1,0 +1,22 @@
+{
+ "lines": 47,
+ "first_token_s": 144.9527189731598,
+ "last_s": 157.33771085739136,
+ "content": "",
+ "thinking": "The user asks: \"Do not call any tool. In one short sentence: what does section 9 of the policy ask for?\"\n\nNeed answer based on policy text. Section 9, data, part 1:",
+ "tool_calls": [],
+ "final": {
+  "created_at": "2026-11-26T20:26:03.456563000Z",
+  "done": true,
+  "done_reason": "length",
+  "eval_count": 48,
+  "eval_duration": 12937437291,
+  "load_duration": 0,
+  "model": "inkling2:mini",
+  "prompt_eval_cached_count": 0,
+  "prompt_eval_count": 2316,
+  "prompt_eval_duration": 144074320875,
+  "total_duration": 157328470875
+ },
+ "errors": []
+}

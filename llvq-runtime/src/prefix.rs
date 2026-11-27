@@ -134,7 +134,7 @@ pub struct Key {
     pub build_sha256: String,
     /// `metal`, `cuda` or `cpu`.
     pub backend: String,
-    /// `fused` or `candle`.
+    /// `fused` or `candle` on a GPU, `cpu` on the CPU.
     pub stack: String,
     /// Tokens of a prompt one forward call reads.
     pub prompt_piece: usize,
@@ -142,8 +142,26 @@ pub struct Key {
     pub score_rows: usize,
     /// Positions past its window a bounded sliding slot keeps.
     pub kv_slack: usize,
-    /// Where the attention's score bias is built: `host` or `card`.
+    /// Where the attention's score bias is built: `host` or `card`. On the CPU
+    /// the host is the device, and `host` is what it builds.
     pub bias: String,
+    /// The arm of `llvq serve --attn-window`: `full` or `narrow`. A file
+    /// written before the field reads as `full`, and a key of `full` writes
+    /// no field, so its bytes and its [`Key::id`] are the ones it had before
+    /// the switch.
+    #[serde(default = "full_window", skip_serializing_if = "is_full_window")]
+    pub attn_window: String,
+}
+
+/// The arm a key without `attn_window` was written under.
+pub const FULL_WINDOW: &str = "full";
+
+fn full_window() -> String {
+    FULL_WINDOW.into()
+}
+
+fn is_full_window(w: &str) -> bool {
+    w == FULL_WINDOW
 }
 
 impl Key {
@@ -515,6 +533,7 @@ mod tests {
             score_rows: 128,
             kv_slack: 1024,
             bias: "host".into(),
+            attn_window: FULL_WINDOW.into(),
         }
     }
 
@@ -689,8 +708,11 @@ mod tests {
             ("score_rows", Key { score_rows: 64, ..k.clone() }),
             ("kv_slack", Key { kv_slack: 256, ..k.clone() }),
             ("bias", Key { bias: "card".into(), ..k.clone() }),
+            ("attn_window", Key { attn_window: "narrow".into(), ..k.clone() }),
         ];
-        assert_eq!(variants.len(), serde_json::to_value(&k).unwrap().as_object().unwrap().len(), "a field of the key is not tested");
+        // The key of `full` writes no `attn_window`: count the fields on a key that writes them all.
+        let every = Key { attn_window: "narrow".into(), ..k.clone() };
+        assert_eq!(variants.len(), serde_json::to_value(&every).unwrap().as_object().unwrap().len(), "a field of the key is not tested");
         for (field, other) in variants {
             let b = PrefixCache::new(d.clone(), DEFAULT_MAX_BYTES, other);
             assert!(b.find(&p, 0, &|_| true).is_empty(), "{field}: another key's file found by name");
@@ -737,6 +759,33 @@ mod tests {
         assert!(new.exists(), "a write that may still run was removed");
         assert!(kept.exists());
         let _ = std::fs::remove_dir_all(&d);
+    }
+
+    #[test]
+    fn the_key_of_the_full_window_has_the_bytes_it_had_before_the_switch() {
+        // The JSON the key of `key()` serialized to before `attn_window` existed, field for field.
+        let before = format!(
+            r#"{{"format":{FORMAT},"family":"inkling2","model_sha256":"{}","files_sha256":"{}","build_sha256":"{}","backend":"metal","stack":"fused","prompt_piece":512,"score_rows":128,"kv_slack":1024,"bias":"host"}}"#,
+            "a".repeat(64),
+            "f".repeat(64),
+            "b".repeat(64)
+        );
+        let k = key();
+        assert_eq!(serde_json::to_string(&k).unwrap(), before);
+        assert_eq!(k.id(), hex(&Sha256::digest(before.as_bytes()))[..16].to_string());
+        // A header written before the field reads as `full`, and is the same key.
+        let old: Key = serde_json::from_str(&before).unwrap();
+        assert_eq!(old.attn_window, FULL_WINDOW);
+        assert_eq!(old, k);
+        // `narrow` writes the field, and its key is another.
+        let narrow = Key { attn_window: "narrow".into(), ..k.clone() };
+        let j = serde_json::to_string(&narrow).unwrap();
+        assert!(j.ends_with(r#","attn_window":"narrow"}"#), "{j}");
+        assert_ne!(narrow.id(), k.id());
+        assert_eq!(serde_json::from_str::<Key>(&j).unwrap(), narrow);
+        let d = k.differing(&narrow);
+        assert_eq!(d.len(), 1, "{d:?}");
+        assert!(d[0].starts_with("attn_window "), "{d:?}");
     }
 
     #[test]

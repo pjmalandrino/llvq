@@ -1,0 +1,143 @@
+[heavy] 21:16:21 waiting for: lotBC: B-iii CPU server prefix checks | wrapper=44068 pgid=48388 | since 2026-11-26 21:16:06
+[heavy] 21:16:51 waiting for: lotBC: B-iii CPU server prefix checks | wrapper=44068 pgid=48388 | since 2026-11-26 21:16:06
+[heavy] 21:17:22 waiting for: lotBC: B-iii CPU server prefix checks | wrapper=44068 pgid=48388 | since 2026-11-26 21:16:06
+[heavy] 21:17:52 waiting for: lotBC: B-iii CPU server prefix checks | wrapper=44068 pgid=48388 | since 2026-11-26 21:16:06
+[heavy] 21:18:22 waiting for: lotBC: B-iii CPU server prefix checks | wrapper=44068 pgid=48388 | since 2026-11-26 21:16:06
+[heavy] 21:18:52 waiting for: lotBC: B-iii CPU server prefix checks | wrapper=44068 pgid=48388 | since 2026-11-26 21:16:06
+[heavy] 21:19:22 waiting for: lotBC: B-iii CPU server prefix checks | wrapper=44068 pgid=48388 | since 2026-11-26 21:16:06
+[heavy] 21:19:52 waiting for: lotBC: B-iii CPU server prefix checks | wrapper=44068 pgid=48388 | since 2026-11-26 21:16:06
+[heavy] 21:20:22 waiting for: lotBC: B-iii CPU server prefix checks | wrapper=44068 pgid=48388 | since 2026-11-26 21:16:06
+[heavy] 21:20:52 waiting for: lotBC: B-iii CPU server prefix checks | wrapper=44068 pgid=48388 | since 2026-11-26 21:16:06
+[heavy] 21:21:22 waiting for: lotBC: B-iii CPU server prefix checks | wrapper=44068 pgid=48388 | since 2026-11-26 21:16:06
+[heavy] 21:21:52 waiting for: lotBC: B-iii CPU server prefix checks | wrapper=44068 pgid=48388 | since 2026-11-26 21:16:06
+[heavy] 21:22:22 waiting for: lotBC: B-iii CPU server prefix checks | wrapper=44068 pgid=48388 | since 2026-11-26 21:16:06
+[heavy] 21:22:52 waiting for: lotBC: B-iii CPU server prefix checks | wrapper=44068 pgid=48388 | since 2026-11-26 21:16:06
+[heavy] 21:23:22 waiting for: lotBC: B-iii CPU server prefix checks | wrapper=44068 pgid=48388 | since 2026-11-26 21:16:06
+[heavy] 21:23:52 waiting for: lotBC: B-iii CPU server prefix checks | wrapper=44068 pgid=48388 | since 2026-11-26 21:16:06
+[heavy] 21:24:22 waiting for: lotBC: B-iii CPU server prefix checks | wrapper=44068 pgid=48388 | since 2026-11-26 21:16:06
+[heavy] 21:24:52 waiting for: lotBC: B-iii CPU server prefix checks | wrapper=44068 pgid=48388 | since 2026-11-26 21:16:06
+[heavy] 21:25:22 waiting for: lotBC: B-iii CPU server prefix checks | wrapper=44068 pgid=48388 | since 2026-11-26 21:16:06
+[heavy] 21:25:52 waiting for: lotBC: B-iii CPU server prefix checks | wrapper=44068 pgid=48388 | since 2026-11-26 21:16:06
+[heavy] 21:26:22 waiting for: lotA: cargo test llvq-runtime lib metal | wrapper=45144 pgid=53150 | since 2026-11-26 21:26:07
+[heavy] 21:26:52 waiting for: lotA: clippy metal | wrapper=53330 pgid=53332 | since 2026-11-26 21:26:44
+[heavy] 21:27:22 waiting for: lotA: build metalrun 1e35fa1b | wrapper=53869 pgid=53872 | since 2026-11-26 21:27:20
+[heavy] 21:27:52 waiting for: lotA: build metalrun 1e35fa1b | wrapper=53869 pgid=53872 | since 2026-11-26 21:27:20
+[heavy] 21:28:22 waiting for: lotA: A-i gate 4B | wrapper=53984 pgid=53986 | since 2026-11-26 21:28:13
+[heavy] 21:28:52 waiting for: lotA: A-i gate 8b | wrapper=54094 pgid=54096 | since 2026-11-26 21:28:35
+[heavy] 21:29:22 waiting for: lotA: A-i gate 14b | wrapper=54197 pgid=54199 | since 2026-11-26 21:28:56
+[heavy] 21:29:52 waiting for: lotA: A-ii ppl 8b | wrapper=54321 pgid=54326 | since 2026-11-26 21:29:38
+[heavy] 21:30:22 waiting for: lotA: A-ii ppl 8b | wrapper=54321 pgid=54326 | since 2026-11-26 21:29:38
+[heavy] 21:30:52 waiting for: lotA: A-ii ppl 8b | wrapper=54321 pgid=54326 | since 2026-11-26 21:29:38
+[heavy] 21:31:22 waiting for: lotA: A-ii ppl 8b | wrapper=54321 pgid=54326 | since 2026-11-26 21:29:38
+[heavy] 21:31:52 waiting for: lotA: A-ii ppl 8b | wrapper=54321 pgid=54326 | since 2026-11-26 21:29:38
+[heavy] 21:32:22 waiting for: lotA: A-ii ppl 14b | wrapper=54630 pgid=54632 | since 2026-11-26 21:31:59
+[heavy] 21:32:52 waiting for: lotA: A-ii ppl 14b | wrapper=54630 pgid=54632 | since 2026-11-26 21:31:59
+[heavy] 21:33:22 waiting for: lotA: A-ii ppl 14b | wrapper=54630 pgid=54632 | since 2026-11-26 21:31:59
+[heavy] 21:33:52 waiting for: lotA: A-ii ppl 14b | wrapper=54630 pgid=54632 | since 2026-11-26 21:31:59
+[heavy] 21:34:22 waiting for: lotA: A-ii ppl 14b | wrapper=54630 pgid=54632 | since 2026-11-26 21:31:59
+[heavy] 21:34:52 waiting for: lotA: A-ii ppl 14b | wrapper=54630 pgid=54632 | since 2026-11-26 21:31:59
+[heavy] 21:35:22 waiting for: lotA: A-ii ppl 14b | wrapper=54630 pgid=54632 | since 2026-11-26 21:31:59
+[heavy] 21:35:52 waiting for: lotA: A-ii ppl 14b | wrapper=54630 pgid=54632 | since 2026-11-26 21:31:59
+[heavy] 21:36:22 waiting for: lotA: A-ii ppl 14b | wrapper=54630 pgid=54632 | since 2026-11-26 21:31:59
+[heavy] 21:36:52 waiting for: lotA: A-ii ppl 14b | wrapper=54630 pgid=54632 | since 2026-11-26 21:31:59
+[heavy] 21:37:22 waiting for: lotA: A-iv 4b-short | wrapper=55363 pgid=55365 | since 2026-11-26 21:37:16
+[heavy] 21:37:52 waiting for: lotA: A-iv 4b-short | wrapper=55363 pgid=55365 | since 2026-11-26 21:37:16
+[heavy] 21:38:22 waiting for: lotA: A-iv 4b-short | wrapper=55363 pgid=55365 | since 2026-11-26 21:37:16
+[heavy] 21:38:52 waiting for: lotA: A-iv 4b-short | wrapper=55363 pgid=55365 | since 2026-11-26 21:37:16
+[heavy] 21:39:22 waiting for: lotA: A-iv 4b-long | wrapper=55840 pgid=55842 | since 2026-11-26 21:38:59
+[heavy] 21:39:52 waiting for: lotA: A-iv 4b-long | wrapper=55840 pgid=55842 | since 2026-11-26 21:38:59
+[heavy] 21:40:22 waiting for: lotA: A-iv 4b-long | wrapper=55840 pgid=55842 | since 2026-11-26 21:38:59
+[heavy] 21:40:52 waiting for: lotA: A-iv 4b-long | wrapper=55840 pgid=55842 | since 2026-11-26 21:38:59
+[heavy] 21:41:22 waiting for: lotA: A-iv 4b-long | wrapper=55840 pgid=55842 | since 2026-11-26 21:38:59
+[heavy] 21:41:52 waiting for: lotA: A-iv 4b-long | wrapper=55840 pgid=55842 | since 2026-11-26 21:38:59
+[heavy] 21:42:22 waiting for: lotA: A-iv 4b-long | wrapper=55840 pgid=55842 | since 2026-11-26 21:38:59
+[heavy] 21:42:52 waiting for: lotA: A-iv 4b-long | wrapper=55840 pgid=55842 | since 2026-11-26 21:38:59
+[heavy] 21:43:23 waiting for: lotA: A-iv 4b-long | wrapper=55840 pgid=55842 | since 2026-11-26 21:38:59
+[heavy] 21:43:53 waiting for: lotA: A-iv 4b-long | wrapper=55840 pgid=55842 | since 2026-11-26 21:38:59
+[heavy] 21:44:23 waiting for: lotA: A-iv 4b-long | wrapper=55840 pgid=55842 | since 2026-11-26 21:38:59
+[heavy] 21:44:53 waiting for: lotA: A-iv 4b-long | wrapper=55840 pgid=55842 | since 2026-11-26 21:38:59
+[heavy] 21:45:23 waiting for: lotA: A-iv 4b-long | wrapper=55840 pgid=55842 | since 2026-11-26 21:38:59
+[heavy] 21:45:53 waiting for: lotA: A-iv 4b-long | wrapper=55840 pgid=55842 | since 2026-11-26 21:38:59
+[heavy] 21:46:23 waiting for: lotA: A-iv 4b-long | wrapper=55840 pgid=55842 | since 2026-11-26 21:38:59
+[heavy] 21:46:53 waiting for: lotA: A-iv 4b-long | wrapper=55840 pgid=55842 | since 2026-11-26 21:38:59
+[heavy] 21:47:23 waiting for: lotA: A-iv 4b-long | wrapper=55840 pgid=55842 | since 2026-11-26 21:38:59
+[heavy] 21:47:53 waiting for: lotA: A-iv 4b-long | wrapper=55840 pgid=55842 | since 2026-11-26 21:38:59
+[heavy] 21:48:23 waiting for: lotA: A-iv 4b-long | wrapper=55840 pgid=55842 | since 2026-11-26 21:38:59
+[heavy] 21:48:53 waiting for: lotA: A-iv 4b-long | wrapper=55840 pgid=55842 | since 2026-11-26 21:38:59
+[heavy] 21:49:23 waiting for: lotA: A-iv 4b-long | wrapper=55840 pgid=55842 | since 2026-11-26 21:38:59
+[heavy] 21:49:53 waiting for: lotA: A-iv 4b-long | wrapper=55840 pgid=55842 | since 2026-11-26 21:38:59
+[heavy] 21:50:23 waiting for: lotA: A-iv 4b-long | wrapper=55840 pgid=55842 | since 2026-11-26 21:38:59
+[heavy] 21:50:53 waiting for: lotA: A-iv 8b-short | wrapper=57805 pgid=57807 | since 2026-11-26 21:50:31
+[heavy] 21:51:23 waiting for: lotA: A-iv 8b-short | wrapper=57805 pgid=57807 | since 2026-11-26 21:50:31
+[heavy] 21:51:53 waiting for: lotA: A-iv 8b-short | wrapper=57805 pgid=57807 | since 2026-11-26 21:50:31
+[heavy] 21:52:23 waiting for: lotA: A-iv 8b-long | wrapper=58249 pgid=58251 | since 2026-11-26 21:51:57
+[heavy] 21:52:53 waiting for: lotA: A-iv 8b-long | wrapper=58249 pgid=58251 | since 2026-11-26 21:51:57
+[heavy] 21:53:23 waiting for: lotA: A-iv 8b-long | wrapper=58249 pgid=58251 | since 2026-11-26 21:51:57
+[heavy] 21:53:53 waiting for: lotA: A-iv 8b-long | wrapper=58249 pgid=58251 | since 2026-11-26 21:51:57
+[heavy] 21:54:23 waiting for: lotA: A-iv 8b-long | wrapper=58249 pgid=58251 | since 2026-11-26 21:51:57
+[heavy] 21:54:53 waiting for: lotA: A-iv 8b-long | wrapper=58249 pgid=58251 | since 2026-11-26 21:51:57
+[heavy] 21:55:23 waiting for: lotA: A-iv 8b-long | wrapper=58249 pgid=58251 | since 2026-11-26 21:51:57
+[heavy] 21:55:53 waiting for: lotA: A-iv 8b-long | wrapper=58249 pgid=58251 | since 2026-11-26 21:51:57
+[heavy] 21:56:23 waiting for: lotA: A-iv 8b-long | wrapper=58249 pgid=58251 | since 2026-11-26 21:51:57
+[heavy] 21:56:53 waiting for: lotA: A-iv 8b-long | wrapper=58249 pgid=58251 | since 2026-11-26 21:51:57
+[heavy] 21:57:23 waiting for: lotA: A-iv 8b-long | wrapper=58249 pgid=58251 | since 2026-11-26 21:51:57
+[heavy] 21:57:53 waiting for: lotA: A-iv 8b-long | wrapper=58249 pgid=58251 | since 2026-11-26 21:51:57
+[heavy] 21:58:23 waiting for: lotA: A-iv 14b-short | wrapper=59556 pgid=59558 | since 2026-11-26 21:58:08
+[heavy] 21:58:53 waiting for: lotA: A-iv 14b-short | wrapper=59556 pgid=59558 | since 2026-11-26 21:58:08
+[heavy] 21:59:23 waiting for: lotA: A-iv 14b-short | wrapper=59556 pgid=59558 | since 2026-11-26 21:58:08
+[heavy] 21:59:53 waiting for: lotA: A-iv 14b-short | wrapper=59556 pgid=59558 | since 2026-11-26 21:58:08
+[heavy] 22:00:23 waiting for: lotA: A-iv 14b-short | wrapper=59556 pgid=59558 | since 2026-11-26 21:58:08
+[heavy] 22:00:53 waiting for: lotA: A-iv 14b-long | wrapper=60232 pgid=60234 | since 2026-11-26 22:00:26
+[heavy] 22:01:23 waiting for: lotA: A-iv 14b-long | wrapper=60232 pgid=60234 | since 2026-11-26 22:00:26
+[heavy] 22:01:53 waiting for: lotA: A-iv 14b-long | wrapper=60232 pgid=60234 | since 2026-11-26 22:00:26
+[heavy] 22:02:23 waiting for: lotA: A-iv 14b-long | wrapper=60232 pgid=60234 | since 2026-11-26 22:00:26
+[heavy] 22:02:53 waiting for: lotA: A-iv 14b-long | wrapper=60232 pgid=60234 | since 2026-11-26 22:00:26
+[heavy] 22:03:23 waiting for: lotA: A-iv 14b-long | wrapper=60232 pgid=60234 | since 2026-11-26 22:00:26
+[heavy] 22:03:53 waiting for: lotA: A-iv 14b-long | wrapper=60232 pgid=60234 | since 2026-11-26 22:00:26
+[heavy] 22:04:23 waiting for: lotA: A-iv 14b-long | wrapper=60232 pgid=60234 | since 2026-11-26 22:00:26
+[heavy] 22:04:53 waiting for: lotA: A-iv 14b-long | wrapper=60232 pgid=60234 | since 2026-11-26 22:00:26
+[heavy] 22:05:23 waiting for: lotA: A-iv 14b-long | wrapper=60232 pgid=60234 | since 2026-11-26 22:00:26
+[heavy] 22:05:53 waiting for: lotA: A-iv 14b-long | wrapper=60232 pgid=60234 | since 2026-11-26 22:00:26
+[heavy] 22:06:24 waiting for: lotA: A-iv 14b-long | wrapper=60232 pgid=60234 | since 2026-11-26 22:00:26
+[heavy] 22:06:54 waiting for: lotA: A-iv 14b-long | wrapper=60232 pgid=60234 | since 2026-11-26 22:00:26
+[heavy] 22:07:24 waiting for: lotA: A-iv 14b-long | wrapper=60232 pgid=60234 | since 2026-11-26 22:00:26
+[heavy] 22:07:54 waiting for: lotA: A-iv 14b-long | wrapper=60232 pgid=60234 | since 2026-11-26 22:00:26
+[heavy] 22:08:24 waiting for: lotA: A-iv 14b-long | wrapper=60232 pgid=60234 | since 2026-11-26 22:00:26
+[heavy] 22:08:54 waiting for: lotA: A-iv 14b-long | wrapper=60232 pgid=60234 | since 2026-11-26 22:00:26
+[heavy] 22:09:24 waiting for: lotA: A-iv 14b-long | wrapper=60232 pgid=60234 | since 2026-11-26 22:00:26
+[heavy] 22:09:54 waiting for: lotA: A-iv 14b-long | wrapper=60232 pgid=60234 | since 2026-11-26 22:00:26
+[heavy] 22:10:24 waiting for: lotA: A-iv 14b-long | wrapper=60232 pgid=60234 | since 2026-11-26 22:00:26
+[heavy] 22:10:54 waiting for: lotA: A-iv 14b-long | wrapper=60232 pgid=60234 | since 2026-11-26 22:00:26
+[heavy] 22:11:24 waiting for: lotA: peak qwen3-4b-tetra-e4.json | wrapper=62778 pgid=62780 | since 2026-11-26 22:11:17
+[heavy] 22:11:54 waiting for: lotA: peak qwen3-4b-tetra-e4.json | wrapper=62778 pgid=62780 | since 2026-11-26 22:11:17
+[heavy] 22:12:24 waiting for: lotA: peak qwen3-4b-tetra-e4.json | wrapper=62778 pgid=62780 | since 2026-11-26 22:11:17
+[heavy] 22:12:54 waiting for: lotA: peak qwen3-4b-tetra-e4-metal.json | wrapper=63154 pgid=63156 | since 2026-11-26 22:12:29
+[heavy] 22:13:24 waiting for: lotA: peak qwen3-8b-tetra-e4.json | wrapper=63393 pgid=63395 | since 2026-11-26 22:13:08
+[heavy] 22:13:54 waiting for: lotA: peak qwen3-8b-tetra-e4.json | wrapper=63393 pgid=63395 | since 2026-11-26 22:13:08
+[heavy] 22:14:24 waiting for: lotA: peak qwen3-8b-tetra-e4-metal.json | wrapper=63760 pgid=63762 | since 2026-11-26 22:14:16
+[heavy] 22:14:54 waiting for: lotA: peak qwen3-8b-tetra-e4-metal.json | wrapper=63760 pgid=63762 | since 2026-11-26 22:14:16
+[heavy] 22:15:24 waiting for: lotA: peak qwen3-14b-tetra-e4.json | wrapper=64024 pgid=64026 | since 2026-11-26 22:14:57
+[heavy] 22:15:54 waiting for: lotA: peak qwen3-14b-tetra-e4.json | wrapper=64024 pgid=64026 | since 2026-11-26 22:14:57
+[heavy] 22:16:24 waiting for: lotA: peak qwen3-14b-tetra-e4.json | wrapper=64024 pgid=64026 | since 2026-11-26 22:14:57
+[heavy] 22:16:54 waiting for: lotA: peak qwen3-14b-tetra-e4-metal.json | wrapper=64590 pgid=64592 | since 2026-11-26 22:16:50
+[heavy] 22:17:24 waiting for: lotA: peak qwen3-14b-tetra-e4-metal.json | wrapper=64590 pgid=64592 | since 2026-11-26 22:16:50
+[heavy] 22:17:54 waiting for: lotA: peak qwen3-14b-tetra-e4-metal.json | wrapper=64590 pgid=64592 | since 2026-11-26 22:16:50
+[heavy] 22:18:24 waiting for: lotA: mutant M1 | wrapper=65064 pgid=65066 | since 2026-11-26 22:18:19
+[heavy] 22:18:54 waiting for: lotA: mutant M3 | wrapper=65889 pgid=65891 | since 2026-11-26 22:18:47
+[heavy] 22:19:24 waiting for: lotA: mutant M2 build | wrapper=66685 pgid=66687 | since 2026-11-26 22:19:07
+[heavy] 22:19:54 waiting for: lotA: mutant M2 gate 4B | wrapper=66897 pgid=66899 | since 2026-11-26 22:19:53
+[heavy] 22:20:24 waiting for: lotA: build llvq after | wrapper=67073 pgid=67076 | since 2026-11-26 22:20:14
+[heavy] 22:20:54 waiting for: lotA: build llvq after | wrapper=67073 pgid=67076 | since 2026-11-26 22:20:14
+llvq version 0.1.3 (c00ce5ed4b52)
+ec2d357774d10b2392b3afb6b104e5e96db58ae6cd6dd8b20f71e91d211196ce  /private/tmp/claude-501/-Users-pjmalandrino--claude-spares-spare-yP7uU6/349695ef-9fba-4aaf-aa6b-b8db068dbfb5/scratchpad/bin/llvq-after-c00ce5e
+a0: first token 132.12085604667664 s, prompt 8791, cached 0, read 131.91 s, content ''
+a1: first token 0.16477012634277344 s, prompt 8791, cached 8791, read 0.00 s, content ''
+a2: first token 0.15816783905029297 s, prompt 8791, cached 8791, read 0.00 s, content ''
+a3: first token 0.1565701961517334 s, prompt 8791, cached 8791, read 0.00 s, content ''
+a4: first token 0.15921998023986816 s, prompt 8791, cached 8791, read 0.00 s, content ''
+c0: first token 0.8958861827850342 s, prompt 36, cached 0, read 0.78 s, content ''
+c1: first token 0.14143681526184082 s, prompt 36, cached 36, read 0.00 s, content ''
+c2: first token 0.13801312446594238 s, prompt 36, cached 36, read 0.00 s, content ''
+c3: first token 0.13551712036132812 s, prompt 36, cached 36, read 0.00 s, content ''
+c4: first token 0.14096522331237793 s, prompt 36, cached 36, read 0.00 s, content ''
+done 2026-11-26 22:24:18

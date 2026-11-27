@@ -154,6 +154,72 @@ impl Default for MetalTuning {
 /// Rows the Tetra prefill kernel can take a launch (`TETRA48_PREFILL_MAX`).
 pub const TETRA_PREFILL_MAX: usize = 8;
 
+impl MetalTuning {
+    /// The tuning a `bin/metalrun` arm names, `lutd+h+pq` for one: a Tetra
+    /// matvec, then modifiers. The one reader of that spelling, shared by the
+    /// bench and by the served configs that name their Metal kernels
+    /// ([`MetalTuning::of_served`]), so an arm a journal timed and a config
+    /// that serves it cannot mean two things. `+grp` and `+ker` are attention
+    /// forms, not kernels: the caller takes them off first.
+    pub fn parse_arm(s: &str) -> Result<Self> {
+        let mut parts = s.split('+');
+        let kernel = match parts.next().unwrap_or("") {
+            "lut" => SERVED_TETRA,
+            "lutp" => "tv_tetra48_metal_lutp",
+            "lutd" => "tv_tetra48_metal_lutd",
+            "lutdp" => "tv_tetra48_metal_lutdp",
+            "lutd2" => "tv_tetra48_metal_lutd2",
+            "lutd4" => "tv_tetra48_metal_lutd4",
+            "lutdt" => "tv_tetra48_metal_lutdt",
+            other => candle_core::bail!("arm {s:?}: {other:?} is not lut, lutp, lutd, lutdp, lutd2, lutd4 or lutdt"),
+        };
+        let mut t = MetalTuning { tetra_kernel: kernel, ..Default::default() };
+        for m in parts {
+            match m {
+                "q4p" => t.q4_prefetch = true,
+                "h" => t.half_io = true,
+                "p" => t.prefill_rows = TETRA_PREFILL_MAX,
+                "r" => t.rot_tg = true,
+                "pq" => {
+                    t.prefill_rows = TETRA_PREFILL_MAX;
+                    t.q4_rows = true;
+                }
+                c if c.starts_with('t') && c.len() > 1 => {
+                    t.q4_tile_cols =
+                        c[1..].parse().map_err(|_| candle_core::Error::msg(format!("arm {s:?}: tile {c:?}")))?
+                }
+                other => candle_core::bail!("arm {s:?}: unknown modifier {other:?}"),
+            }
+        }
+        t.validate()?;
+        Ok(t)
+    }
+
+    /// The tuning a served config names in `metal_kernels`. `Default` is
+    /// [`MetalTuning::default`], what every config before 2026-11-26 served.
+    pub fn of_served(k: crate::served::MetalKernels) -> Result<Self> {
+        match k.arm() {
+            None => Ok(Self::default()),
+            Some(arm) => Self::parse_arm(arm),
+        }
+    }
+}
+
+/// What the runtime under a loaded model launches, found through its first
+/// Tetra projection; `None` when the model has no Metal Tetra projection.
+pub fn tuning_of(m: &crate::model::Qwen3) -> Option<MetalTuning> {
+    m.blocks.iter().find_map(|b| {
+        [&b.q_proj, &b.k_proj, &b.v_proj, &b.o_proj, &b.gate_proj, &b.up_proj, &b.down_proj].into_iter().find_map(|p| {
+            match p {
+                crate::model::Proj::Lattice(d) => {
+                    d.as_any().and_then(|a| a.downcast_ref::<MetalLattice>()).map(|l| l.rt.tuning())
+                }
+                _ => None,
+            }
+        })
+    })
+}
+
 /// The served Tetra matvec on Metal.
 pub const SERVED_TETRA: &str = "tv_tetra48_metal_lut";
 
@@ -1963,6 +2029,11 @@ pub struct MetalLattice {
 impl crate::device::LatticeProj for MetalLattice {
     fn name(&self) -> &str {
         &self.proj.name
+    }
+    /// The concrete projection, so the served door can read which kernels
+    /// the runtime under a loaded model launches ([`tuning_of`]).
+    fn as_any(&self) -> Option<&dyn std::any::Any> {
+        Some(self)
     }
     fn d_out(&self) -> usize {
         self.proj.d_out
@@ -4286,7 +4357,53 @@ impl candle_core::CustomOp3 for MoePairsSumOp<'_> {
 
 #[cfg(test)]
 mod tests {
-    use super::{h2f, kernel_named};
+    use super::{h2f, kernel_named, MetalTuning, Q4_TILE_COLS, SERVED_TETRA, TETRA_PREFILL_MAX};
+    use crate::served::MetalKernels;
+
+    /// The default tuning is the served path of every config before
+    /// 2026-11-26, and the Metal configs' `lutd+h+pq` is the bundle arm of
+    /// `metal-nuit-2026-11-06` (M2, M8, M10) and nothing else: the matvec
+    /// `lutd`, the half-io twins, the Tetra and int4 prefill kernels at 8
+    /// rows, the served int4 tile, no prefetch, no threadgroup rotation.
+    #[test]
+    fn the_served_metal_kernels_are_the_measured_arm() {
+        let d = MetalTuning::default();
+        assert_eq!(
+            d,
+            MetalTuning {
+                q4_tile_cols: Q4_TILE_COLS,
+                tetra_kernel: SERVED_TETRA,
+                q4_prefetch: false,
+                half_io: false,
+                prefill_rows: 1,
+                q4_rows: false,
+                rot_tg: false,
+            }
+        );
+        assert_eq!(MetalTuning::of_served(MetalKernels::Default).unwrap(), d);
+        assert_eq!(MetalTuning::parse_arm("lut").unwrap(), d);
+        let t = MetalTuning::of_served(MetalKernels::LutdHPq).unwrap();
+        assert_eq!(
+            t,
+            MetalTuning {
+                tetra_kernel: "tv_tetra48_metal_lutd",
+                half_io: true,
+                prefill_rows: TETRA_PREFILL_MAX,
+                q4_rows: true,
+                ..d
+            }
+        );
+        for name in MetalKernels::NAMES {
+            let k = MetalKernels::parse(Some(name)).unwrap();
+            assert_eq!(MetalTuning::of_served(k).unwrap(), MetalTuning::parse_arm(name).unwrap(), "{name}");
+        }
+        // The bench's other spellings still read, and a form is not a kernel.
+        assert!(MetalTuning::parse_arm("lutd+h+pq+r").unwrap().rot_tg);
+        assert_eq!(MetalTuning::parse_arm("lut+t8192").unwrap().q4_tile_cols, 8192);
+        for bad in ["lutd+grp", "lutd+ker", "lutx", "lutd+zz", "lutd+t", "lutd+t100", "lutp+h"] {
+            assert!(MetalTuning::parse_arm(bad).is_err(), "{bad:?} must be refused");
+        }
+    }
 
     /// Unset and `lut` serve the served matvec, each A/B name maps to its own
     /// kernel, and an unknown name is refused by name instead of falling back

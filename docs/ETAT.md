@@ -1,4 +1,4 @@
-# Project state as of 2026-11-17
+# Project state as of 2026-11-27
 
 ## 1. The project
 
@@ -26,11 +26,29 @@ All three sizes share one setting: layout `tetra48`, `LLVQ_EMBED=q4`, `LLVQ_ROT_
 - **Runtime**: `llvq` (crate `llvq-runtime`) pulls the three files and serves them with Ollama's and OpenAI's APIs. On
   CUDA it loads the chain config for the 4B and the v9 configs for the 8B and 14B; `LLVQ_PROFILE=eager` takes the
   4B back to its v9 config. Under `LLVQ_BATCH` it loads the batch configs, whose pool prefills eagerly. On Metal it
-  runs the expanded config through the Rust engine, not MLX.
+  runs the Rust engine, not MLX, with `configs/qwen3-{4b,8b,14b}-tetra-e4-metal.json` since 2026-11-26: the grouped
+  attention and the Metal kernels `lutd+h+pq`, bit for bit with the expanded configs (matrix gate 253 of 253 at 4B
+  and 8B, 281 of 281 at 14B; grouped against expanded max |dlogit| 0; the same tokens). Against the expanded
+  config, round by round on an M3 Max, decode after a 5-token prompt is x1.142 / x1.097 / x1.077 at 4B / 8B / 14B,
+  decode after a long prompt x3.201 at 4,096 tokens, x1.689 and x1.525 at 2,048, and the first token at the long
+  prompt comes after 35.17 s instead of 67.87 at 4B, 28.44 instead of 55.45 at 8B and 52.59 instead of 91.92 at 14B
+  (*measured*, [qwen-metal-servi](mesures/qwen-metal-servi-2026-11-26.txt)). The 4B's peak footprint at the long
+  prompt falls from 4.98 to 3.55 GB and the 8B's and 14B's do not move. The ratios are the reading: that night's
+  absolute rates came from a machine other jobs were loading. The CPU keeps the `*-e4.json` configs.
 - **Without a GPU**: the runtime's CPU backend since 2026-11-07, `fused_cpu` on the expanded e4 configs, at f32. It
   reads the Tetra codes at every matvec: 8.6 tok/s in 1.86 GB on the 4B at 12 threads of an M3 Max, against 0.71
   tok/s in 10.6 GB for the dense reconstruction it replaced; perplexity -0.0021 % of the dense f32 over 12 windows
-  (*measured*, [cpu-tetra](mesures/cpu-tetra-2026-11-07.txt)). Never run on x86.
+  (*measured*, [cpu-tetra](mesures/cpu-tetra-2026-11-07.txt)). On 8 vCPU of an AMD EPYC 7R13 with its AVX2 kernel the
+  4B decodes 5.80 and 6.53 tok/s through `cpurun` and 5.4 through `llvq run`, in 1.81 GB resident (*measured*, one
+  instance, one run an arm, job 7 of [llvq-cpu-x86](mesures/llvq-cpu-x86-2026-11-25.txt); 3.64 and 3.90 on the build
+  of job 5, [cpu-tetra-speed](mesures/cpu-tetra-speed-2026-11-25.txt)).
+- **Inkling 2 Mini, prefix cache**: on by default on Metal and on the CPU, off on CUDA, where it has not run. On
+  this Mac's CPU (6 threads) a restarted server gives the first token of a 2,316-token agent prompt after 20.33 s
+  [20.31, 20.39] against 140.99 s cold, with the same answer as a server with the cache off; the file is 0.81 GB.
+  A request whose whole prompt is held is answered from the logits kept at the end of its first read: on Metal the
+  same 8,791-token prompt sent again gets its first token after 0.159 s [0.157, 0.165] against 2.687 s before
+  (*measured*, [inkling-cpu-prefix-held](mesures/inkling-cpu-prefix-held-2026-11-26.txt)). Nothing is measured on
+  x86 for the cache.
 
 | size | sealed file | b/param | MMLU | GSM8K | ppl | tok/s served | GB weights on card | GB card used after load |
 |---|---|---|---|---|---|---|---|---|
@@ -150,7 +168,7 @@ WikiText-2 windows 13 to 24 it reads -0.0103 % [-0.0847, +0.0642] by decode, ins
 [mlx-pooled](mesures/mlx-pooled-2026-11-07.txt)). Its prototype decoded 93.9 tok/s on an M3 Max, where mlx-lm's
 4-bit Qwen3-4B decodes 129.5 on another stack (*measured*, [metal-nuit](mesures/metal-nuit-2026-11-06.txt) M16). The
 served door's own speed is not measured. The Rust Metal path runs the sealed 4B fused at 52.1 tok/s, and `served.rs`
-refuses its grouped and kernel forms until the operator decides.
+accepts the grouped form on Metal only from the `-metal.json` configs of §2 and refuses the kernel form.
 
 **Above 14B.** No model above 14B is served, and the 32B has never been encoded. The `rot_apply` shared-memory wall of
 [`format-noyau.md`](format-noyau.md) §8 is lifted on the card up to width 25,600 (*measured*,
@@ -235,7 +253,29 @@ records of `o`. The groups are super-additive: all exceeds the MLP plus attentio
 - **A full GSM8K census under 4E.** Each size has a 50-problem pilot only. The 4B's grouped census cost $2.02.
 - **The v9 config on the Hub's moving repository.** Publishing needs the operator.
 - **A consumer GPU.** Speed is measured on an L40S and an A100 only.
-- **The Rust Metal door.** Grouped and kernel forms read within tolerance on Metal; `served.rs` refuses them.
+- **The Rust Metal door, kernel form.** The grouped form is served on Metal since 2026-11-26; `served.rs` still refuses
+  the kernel form there, which read within tolerance on the 4B only.
+- **Inkling's sliding layers scoring the window only, on the Mac.** Built off, behind `inkrun --attn-window narrow`
+  and `llvq serve --attn-window narrow`, a switch hidden from the help and refused off Metal. Through the server the
+  first token of an 8,791-token prompt comes after 109.24 s against 127.40 s, x0.858 [0.857, 0.859] over three
+  alternated pairs, and `inkrun` reads a 9,000-token prompt x0.855 [0.854, 0.856] faster and a 2,000-token one x0.945
+  (*measured*, M3 Max, [inkling-mac-fenetre-runtime](mesures/inkling-mac-fenetre-runtime-2026-11-27.txt),
+  [inkling-mac-fenetre](mesures/inkling-mac-fenetre-2026-11-27.txt)). It is not bit for bit: max |dlogit| 6.41 against
+  a largest logit of 29.49 at 9,000 tokens. Through `inkrun` the 32 tokens after the prompt are the reference's;
+  through the server the long prompt's answer takes another token at the 35th of 46, and the short prompt's does not
+  move. Its paired perplexity is inside the +-0.12 % band the pieces carry: +0.022 % [-0.045, +0.089] on two joined
+  texts of 6,144 tokens and +0.015 % [-0.047, +0.076] on six windows of 2,048
+  ([inkling-mac-fenetre-ppl](mesures/inkling-mac-fenetre-ppl-2026-11-27.txt)). One window alone reads +0.169 %
+  [+0.046, +0.292]. A prefix file of one arm is never loaded under the other. The peak footprint is 0.24 GB higher at
+  9,000 tokens. Owed before serving: a reading on CUDA and on the CPU, and the operator's word.
+- **The grouped attention on the CPU backend.** Read and not served: the CPU keeps the expanded configs. The grouped
+  configs load on the CPU as they are. After a 2,048-token prompt the 4B decodes at 6.515 tok/s against 4.186, x1.555
+  [1.550, 1.566] over three rounds, and the 8B at 4.363 against 3.165, x1.378 [1.371, 1.385] over two; after 5 tokens
+  x1.033 and x1.038; the first token at 2,048 tokens does not move, 130 s and 279 s (*measured*, M3 Max, 6 threads,
+  f32, [qwen-cpu-groupee](mesures/qwen-cpu-groupee-2026-11-27.txt)). It is not bit for bit there, unlike on Metal:
+  max |dlogit| 8.1e-4 and 3.5e-4 against largest logits of 34.8 and 43.1, no step whose argmax differs in 2,047, the
+  same tokens. Owed before serving: the paired perplexity of §4 on the CPU, about a night of this Mac
+  (*estimated*), and the operator's word. Not read: the 14B, x86.
 - **A model above 14B.** The 32B has to be encoded first.
 - **`down_proj` instead of `o_proj` in int4 at 4B and 14B.** At 8B it scored 0.77 points better [0.26, 1.28]. Set
   aside by the operator's ruling of 2026-11-12 that per-model, per-type changes are not the project's direction

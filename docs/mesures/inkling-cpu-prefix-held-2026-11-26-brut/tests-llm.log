@@ -1,0 +1,229 @@
+     Running unittests src/lib.rs (target/debug/deps/llvq_llm-2ce0e1ace9114b1f)
+test result: ok. 243 passed; 0 failed; 3 ignored; 0 measured; 0 filtered out; finished in 11.67s
+     Running unittests src/bin/artstat.rs (target/debug/deps/artstat-1d5a5f6d857ee3c2)
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+     Running unittests src/bin/batchrun.rs (target/debug/deps/batchrun-0413ae41c940be10)
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+     Running unittests src/bin/calibtokens.rs (target/debug/deps/calibtokens-19f9010d3de544b9)
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+     Running unittests src/bin/chat.rs (target/debug/deps/chat-77653810aa2a828a)
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+     Running unittests src/bin/cpurun.rs (target/debug/deps/cpurun-253a53c4d6159b53)
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+     Running unittests src/bin/dflashcheck.rs (target/debug/deps/dflashcheck-cb5dc4824e2414f8)
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+     Running unittests src/bin/embedq.rs (target/debug/deps/embedq-935f1a0f9da7d55b)
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.27s
+     Running unittests src/bin/errmap.rs (target/debug/deps/errmap-0893f80eb57dfff7)
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+     Running unittests src/bin/export.rs (target/debug/deps/export-e91495402764bce8)
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+     Running unittests src/bin/extq.rs (target/debug/deps/extq-111a8666e494fade)
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+     Running unittests src/bin/fusedrun.rs (target/debug/deps/fusedrun-5b6334ed3da71b68)
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+     Running unittests src/bin/gbench.rs (target/debug/deps/gbench-ed8a03a6bd0e18a4)
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+     Running unittests src/bin/gsm8k.rs (target/debug/deps/gsm8k-4238e7d48936eae7)
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+     Running unittests src/bin/gsm8kpair.rs (target/debug/deps/gsm8kpair-ed92b877d7fb9a75)
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+     Running unittests src/bin/hcapture.rs (target/debug/deps/hcapture-4f585b2e030b9e90)
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+     Running unittests src/bin/hfdense.rs (target/debug/deps/hfdense-662e9f1a4e419c14)
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+     Running unittests src/bin/hfpack.rs (target/debug/deps/hfpack-9b4addb82f460c63)
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+     Running unittests src/bin/inkchat.rs (target/debug/deps/inkchat-053e4ed91597233b)
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+     Running unittests src/bin/inkcpu.rs (target/debug/deps/inkcpu-b2a22098179608a8)
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+     Running unittests src/bin/inkgsm.rs (target/debug/deps/inkgsm-0e59da54b7ca3dd8)
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+     Running unittests src/bin/inkrun.rs (target/debug/deps/inkrun-07d088d73a11ca4b)
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+     Running unittests src/bin/inkseal.rs (target/debug/deps/inkseal-f67e12c210c1f323)
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+     Running unittests src/bin/inktable.rs (target/debug/deps/inktable-1bdfd16ff476ec2c)
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+     Running unittests src/bin/inkwh.rs (target/debug/deps/inkwh-a87c2c03dd5a1ae2)
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+     Running unittests src/bin/int4swap.rs (target/debug/deps/int4swap-482308c74693a83e)
+test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.21s
+     Running unittests src/bin/metalrun.rs (target/debug/deps/metalrun-b520b8862080c7e5)
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+     Running unittests src/bin/mmlu.rs (target/debug/deps/mmlu-221683d7a9d72230)
+test result: ok. 21 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+     Running unittests src/bin/mmlupair.rs (target/debug/deps/mmlupair-e69ed60bda1f4b8b)
+test result: ok. 16 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.06s
+     Running unittests src/bin/oracle.rs (target/debug/deps/oracle-0de8399dbacb5aa2)
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+     Running unittests src/bin/ppl.rs (target/debug/deps/ppl-6ebd9838dd3744a6)
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+     Running unittests src/bin/prefillbench.rs (target/debug/deps/prefillbench-afb23875439869dc)
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+     Running unittests src/bin/rowscale.rs (target/debug/deps/rowscale-e6e28f41d9518050)
+test result: ok. 18 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.23s
+     Running unittests src/bin/run.rs (target/debug/deps/run-a495b7a2a63e6066)
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+     Running unittests src/bin/seal.rs (target/debug/deps/seal-f94b883b244e1927)
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+     Running unittests src/bin/smoke.rs (target/debug/deps/smoke-155241ce59cdd0e9)
+test result: ok. 24 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+     Running unittests src/bin/specbench.rs (target/debug/deps/specbench-3c86f492f9dfa5f6)
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+     Running unittests src/bin/specrun.rs (target/debug/deps/specrun-8309c7eed3d7ff49)
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+     Running unittests src/bin/tetra_schur.rs (target/debug/deps/tetra_schur-82edc90c3b2f3006)
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+     Running unittests src/bin/tetraentropy.rs (target/debug/deps/tetraentropy-8b09117909489ec6)
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+     Running unittests src/bin/tetragather.rs (target/debug/deps/tetragather-66308d564d1615ac)
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+     Running unittests src/bin/tetratables.rs (target/debug/deps/tetratables-88a1ae83c71d7feb)
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+     Running unittests src/bin/tetravectors.rs (target/debug/deps/tetravectors-2cc2fab7a474c54e)
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+     Running unittests src/bin/vtreebench.rs (target/debug/deps/vtreebench-09710615fc6e63af)
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+     Running tests/attn_kernel.rs (target/debug/deps/attn_kernel-85a7e3e1cb3e126f)
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.62s
+     Running tests/attn_metal.rs (target/debug/deps/attn_metal-4c2fcb5995b84bfa)
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+     Running tests/batch_gemm.rs (target/debug/deps/batch_gemm-31e2fbbbb599a3bc)
+test result: ok. 0 passed; 0 failed; 5 ignored; 0 measured; 0 filtered out; finished in 0.00s
+     Running tests/batch_mma.rs (target/debug/deps/batch_mma-51ea787b525459fd)
+test result: ok. 0 passed; 0 failed; 2 ignored; 0 measured; 0 filtered out; finished in 0.00s
+     Running tests/batch_step.rs (target/debug/deps/batch_step-9d105f4b8534834d)
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.25s
+     Running tests/cpu_tetra.rs (target/debug/deps/cpu_tetra-38c858ae670dec8f)
+test result: ok. 9 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 1.55s
+     Running tests/device_seam.rs (target/debug/deps/device_seam-2f7e2ab1c9d40062)
+test result: ok. 16 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+     Running tests/dflash_fixture.rs (target/debug/deps/dflash_fixture-1497d82ed467b41a)
+test result: ok. 0 passed; 0 failed; 3 ignored; 0 measured; 0 filtered out; finished in 0.00s
+     Running tests/dflash_prefill.rs (target/debug/deps/dflash_prefill-1f4c231b653857bd)
+test result: ok. 0 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.00s
+     Running tests/dflash_q4_head.rs (target/debug/deps/dflash_q4_head-d13499b06ebb21ac)
+test result: ok. 0 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.00s
+     Running tests/embed_q4.rs (target/debug/deps/embed_q4-f2cd7d6f59bbb6a6)
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.84s
+     Running tests/embed_q8.rs (target/debug/deps/embed_q8-94561974fd45436f)
+test result: ok. 12 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.02s
+     Running tests/embedquant.rs (target/debug/deps/embedquant-c0f05e1d4767d761)
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+     Running tests/env_registry.rs (target/debug/deps/env_registry-182ce0cf7dd3c8bd)
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.07s
+     Running tests/extq_equiv.rs (target/debug/deps/extq_equiv-c84aaae2bc97c5b1)
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 108.83s
+     Running tests/fused_golay70.rs (target/debug/deps/fused_golay70-bf1f7c9aff067b39)
+test result: ok. 1 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.01s
+     Running tests/fused_layout.rs (target/debug/deps/fused_layout-e7124b28f2bf8eb4)
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+     Running tests/fused_planes12x.rs (target/debug/deps/fused_planes12x-76b6381bd7feac7c)
+test result: ok. 1 passed; 0 failed; 3 ignored; 0 measured; 0 filtered out; finished in 0.00s
+     Running tests/fused_segment.rs (target/debug/deps/fused_segment-c8b6675ca51f9a60)
+test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+     Running tests/fused_tail.rs (target/debug/deps/fused_tail-a21a5ea080fcc042)
+test result: ok. 4 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.00s
+     Running tests/fused_tetra48.rs (target/debug/deps/fused_tetra48-55c171ff375cb410)
+test result: ok. 11 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.08s
+     Running tests/g5_calibration.rs (target/debug/deps/g5_calibration-30ab99b7e5e44767)
+test result: ok. 12 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 11.42s
+     Running tests/g6_format.rs (target/debug/deps/g6_format-677a2eefe1bf4638)
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+     Running tests/guided.rs (target/debug/deps/guided-5287ff0c62b72d18)
+test result: ok. 11 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 8.34s
+     Running tests/hfpack.rs (target/debug/deps/hfpack-8dd4f3b024fcfad0)
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.57s
+     Running tests/inkgsm.rs (target/debug/deps/inkgsm-04b83db3b4513d1e)
+test result: ok. 0 passed; 0 failed; 2 ignored; 0 measured; 0 filtered out; finished in 0.00s
+     Running tests/inkling_attn_bias.rs (target/debug/deps/inkling_attn_bias-24f04fa78b2cc3ed)
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+     Running tests/inkling_attn_dense.rs (target/debug/deps/inkling_attn_dense-5256ad7001b76047)
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+     Running tests/inkling_attn_scores.rs (target/debug/deps/inkling_attn_scores-cbcf947439dedab6)
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+     Running tests/inkling_chat.rs (target/debug/deps/inkling_chat-67760d75afd2e9e2)
+test result: ok. 9 passed; 0 failed; 2 ignored; 0 measured; 0 filtered out; finished in 0.03s
+     Running tests/inkling_cpu.rs (target/debug/deps/inkling_cpu-430c51ebf1aa38c5)
+test result: ok. 12 passed; 0 failed; 2 ignored; 0 measured; 0 filtered out; finished in 19.28s
+     Running tests/inkling_decode_kernels.rs (target/debug/deps/inkling_decode_kernels-10ed7b1262626e00)
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+     Running tests/inkling_glue.rs (target/debug/deps/inkling_glue-733b672c7fed14bf)
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+     Running tests/inkling_moe_act.rs (target/debug/deps/inkling_moe_act-1b87a8b1a4ca2beb)
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+     Running tests/inkling_moe_rows.rs (target/debug/deps/inkling_moe_rows-b88dbfb55a5837b1)
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+     Running tests/inkling_oracle.rs (target/debug/deps/inkling_oracle-3820ba55ff2fac99)
+test result: ok. 0 passed; 0 failed; 3 ignored; 0 measured; 0 filtered out; finished in 0.00s
+     Running tests/inkling_prefill_rows_bench.rs (target/debug/deps/inkling_prefill_rows_bench-2609709b9e3d925e)
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+     Running tests/inkling_prefix_state.rs (target/debug/deps/inkling_prefix_state-4b35734768389a9d)
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 4.82s
+     Running tests/inkling_resident.rs (target/debug/deps/inkling_resident-1be8c2c35173d30e)
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+     Running tests/inkling_wave1.rs (target/debug/deps/inkling_wave1-92166e5c993b098e)
+test result: ok. 4 passed; 0 failed; 2 ignored; 0 measured; 0 filtered out; finished in 8.39s
+     Running tests/inkling_wave1_kernels.rs (target/debug/deps/inkling_wave1_kernels-f7e792f1341f0ee9)
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+     Running tests/inkling_wave2_moe.rs (target/debug/deps/inkling_wave2_moe-c230048f31d25aba)
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+     Running tests/inkling_wave2_wiring.rs (target/debug/deps/inkling_wave2_wiring-2c907bfc47d14baa)
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+     Running tests/inkling_wave3_attn.rs (target/debug/deps/inkling_wave3_attn-ab61c9ea3205c5de)
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+     Running tests/inkseal.rs (target/debug/deps/inkseal-f6a276b80cb7a305)
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.60s
+     Running tests/inktable.rs (target/debug/deps/inktable-60fabd14c81cd5e9)
+test result: ok. 0 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.00s
+     Running tests/inkwh_equiv.rs (target/debug/deps/inkwh_equiv-963ddcd429131b45)
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 22.72s
+     Running tests/int4_refusal.rs (target/debug/deps/int4_refusal-b1dd96c68f80d050)
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.02s
+     Running tests/int4_wiring.rs (target/debug/deps/int4_wiring-372cdc812164d5e7)
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 15.22s
+     Running tests/kv_cache.rs (target/debug/deps/kv_cache-51136725119e5d6f)
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 31.84s
+     Running tests/l36_capture.rs (target/debug/deps/l36_capture-35f05ac09c160b01)
+test result: ok. 10 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.08s
+     Running tests/phase_timing.rs (target/debug/deps/phase_timing-2e95d12b8a153011)
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.07s
+     Running tests/proj_q4.rs (target/debug/deps/proj_q4-0b3f757890046f93)
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.47s
+     Running tests/proj_q4_wide.rs (target/debug/deps/proj_q4_wide-afb7122296807d72)
+test result: ok. 3 passed; 0 failed; 3 ignored; 0 measured; 0 filtered out; finished in 0.00s
+     Running tests/q4_metal_candle.rs (target/debug/deps/q4_metal_candle-97942f7ac7118d53)
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+     Running tests/resume.rs (target/debug/deps/resume-a53d47669e4a4897)
+test result: ok. 14 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 11.12s
+     Running tests/rot_metal_tg.rs (target/debug/deps/rot_metal_tg-561db9b24aa57fc1)
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+     Running tests/rotplan.rs (target/debug/deps/rotplan-ac1c3f2a449e1793)
+test result: ok. 12 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.62s
+     Running tests/sampler_nucleus.rs (target/debug/deps/sampler_nucleus-a3e529856146d048)
+test result: ok. 3 passed; 0 failed; 2 ignored; 0 measured; 0 filtered out; finished in 3.34s
+     Running tests/served_config.rs (target/debug/deps/served_config-3d50b876432b2f70)
+test result: ok. 46 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+     Running tests/served_read_env.rs (target/debug/deps/served_read_env-482e7c5f2a4f5a2b)
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+     Running tests/served_unit.rs (target/debug/deps/served_unit-36cd5cea90870c69)
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.43s
+     Running tests/served_unit_copy.rs (target/debug/deps/served_unit_copy-b49e75fefc9e981d)
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+     Running tests/session.rs (target/debug/deps/session-12cc28137453a0bd)
+test result: ok. 12 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.24s
+     Running tests/softmax_whole.rs (target/debug/deps/softmax_whole-ee7e9cab25dc20aa)
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+     Running tests/tetra48_metal_candle.rs (target/debug/deps/tetra48_metal_candle-25c96782150df418)
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+     Running tests/tetra48_metal_rows.rs (target/debug/deps/tetra48_metal_rows-d84f5a1f171fdde5)
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+     Running tests/tetra_diag.rs (target/debug/deps/tetra_diag-bf3192c08b731d3a)
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.02s
+     Running tests/tetra_refusal.rs (target/debug/deps/tetra_refusal-0aaec192d6e372a9)
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.30s
+     Running tests/tetra_wiring.rs (target/debug/deps/tetra_wiring-2dded31573c93966)
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 8.70s
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s

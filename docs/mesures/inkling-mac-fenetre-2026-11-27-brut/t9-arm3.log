@@ -1,0 +1,23 @@
+inkrun: dense weights on metal in 0.4 s
+inkrun: fused MoE down one simdgroup a slot
+inkrun: 24 layers resident in 15.1 s: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23]
+inkrun: prefill of 9000 tokens in 112.44 s
+inkrun: 32 tokens, median step 0.042 s, equal to the reference: None (first mismatch None), report /Users/pjmalandrino/Documents/Pro/workspace/poc/llvq/.claude/worktrees/mac-inkling/docs/mesures/inkling-mac-fenetre-2026-11-27-brut/t9-arm3.json
+      129.61 real        31.09 user        66.11 sys
+         10922115072  maximum resident set size
+                   0  average shared memory size
+                   0  average unshared data size
+                   0  average unshared stack size
+             1224413  page reclaims
+                   4  page faults
+                   0  swaps
+                   0  block input operations
+                   0  block output operations
+                   0  messages sent
+                   0  messages received
+                   0  signals received
+                3097  voluntary context switches
+              549550  involuntary context switches
+        983448513724  instructions retired
+        307820983985  cycles elapsed
+         14792418832  peak memory footprint

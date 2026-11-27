@@ -1,0 +1,140 @@
+INKLING 2 MINI ON THE MAC, THE WINDOW ARM BEHIND A SWITCH OF THE SERVER, OFF AND HIDDEN, 2026-11-27
+
+RESULT
+  `llvq serve --attn-window narrow` gives the first token of the 8,791-token prompt in 109.24 s [109.17, 109.31]
+  against 127.40 s [127.31, 127.42] under `full`, medians of three alternated pairs, cold, a fresh server each,
+  prefix cache off; the pair ratio is x0.858 [0.857, 0.859] (*measured*, M3 Max, Metal, fused stack; h-iii below).
+  `inkrun` read x0.855 [0.854, 0.856] for the same arm (inkling-mac-fenetre-2026-11-27): the gain reaches the server
+  whole.
+  The default is untouched. With no switch, the server built from this commit answers both prompts with the text of
+  the committed build, token for token, and prints the same load lines (H-i). The key of a prefix file under `full`
+  serializes to the bytes it had before the field (unit test).
+  The arm is class B through the server too. On the long prompt `narrow` writes another token at the 35th streamed
+  line of 46 (the reasoning says "based on policy." where `full` says "based on policy text."); on the short prompt
+  its 48 tokens are `full`'s. Its own answers repeat across four servers.
+  A prefix file of one arm is not loaded under the other (H-iv), and `narrow` is refused by name on the CPU backend
+  and on a Qwen3 of the store.
+  The rule commits the switch, off and hidden: H-i, H-iv, the refusals, the mutants, the lints and the tests hold.
+  Prereg: proofs/preregistration-inkling-fenetre-runtime-2026-11-27.md (commits 243983c, 52b9916, OpenTimestamps).
+  Deviations: -ECARTS.md beside it (R1 to R5). Raw files: inkling-mac-fenetre-runtime-2026-11-27-brut/.
+
+WHAT CHANGED (commit 82ec459)
+  `llvq-runtime/src/main.rs`: `llvq serve --attn-window full|narrow`, clap `hide = true`, default `full`; any other
+  value exits naming the switch (`--attn-window "wide": full or narrow`). `llvq serve --help` is the committed
+  build's, byte for byte but for the binary's name (help-before.txt, help-after.txt).
+  `llvq-runtime/src/inkling.rs`: `AttnWindow`, `parse_attn_window`, a process-wide `set_attn_window` / `attn_window`
+  like `prefix::set_options`, and `window_scores_for(arm, backend, fused)`: `full` never turns the scores on,
+  `narrow` turns them on for Metal under the fused stack and is refused on every other load, before a weight is
+  read. `load_local` calls `layers::set_window_scores(true)` after the model loads and adds one load line, only
+  under `narrow`. `window_off_inkling` refuses `narrow` for a model of another family; `DeviceLoader::build` calls it
+  on the Qwen3 branch (`engine.rs`).
+  `llvq-runtime/src/prefix.rs`: `Key` gains `attn_window`, `#[serde(default)]` to `full` and
+  `skip_serializing_if` on `full`. A header written before the field reads as `full`; the key of `full` writes no
+  field, so its JSON and its `Key::id` do not move.
+  `llvq run` shares no switch and stays on `full`. `llvq-llm`, `library.json`, `configs/`, the README and the site
+  are not touched.
+  Tree before the build of the reference: `git status --short llvq-llm llvq-runtime configs` empty at 52b9916
+  (build-before.log, first line).
+
+THE GATES
+  Binaries: target/loth/llvq-before (52b9916, sha256 1f47ffcc...) and target/loth/llvq (82ec459, sha256
+  2e586527...), release, `--features metal` (llvq-before.sha256, llvq.sha256). Every server: a fresh process, a
+  working LLVQ_HOME under the raw directory, the model file of the operator's store read in place (`--local`), an
+  empty /api/chat to load, then request `u1` of ops/inkling/prefix_checks.py (8,791 tokens, temperature 0, 48
+  tokens), then request `chat` (36 tokens, temperature 0, 48 tokens), 45 s between servers, one guarded job
+  (all.sh, all.log). load1 1.4 to 3.2 and memory free 81 to 84 % before each server (<label>.machine). Tokens are
+  compared line by line on the /api/chat stream, one line a token's text (readings.py, readings.txt).
+  H-i, the default untouched: holds.
+    hi-before (llvq-before, no switch) and hi-after (llvq, no switch): same 46 streamed lines on both prompts, same
+    text. The four p<r>-full servers (llvq, `--attn-window full`) give the same text again. The five load lines
+    (`llvq: inkling2:mini: ...`) are identical in all six servers. Under `--prefix-cache off` the prefix line reads
+    `prefix cache: off` in both builds; with the cache on, its key id would differ between the two builds anyway,
+    since the key names the executable's sha256.
+    The key's bytes: `the_key_of_the_full_window_has_the_bytes_it_had_before_the_switch` asserts the JSON of a
+    `full` key against the literal string of the eleven fields before the switch, its id against that string's
+    sha256, and that the string parses back as `full`.
+  H-ii, the arm through the server: the short prompt equal, the long one not.
+    prompt   full vs narrow, four pairs                                    narrow vs narrow, four servers
+    u1       first differing streamed line 34 (0-based) of 46, in all four   identical
+    chat     identical in all four                                           identical
+    The long answer under `narrow` drops one word of the reasoning ("based on policy." for "based on policy
+    text."), then runs on its own path to 48 tokens. The arm's logits differ from `full`'s
+    (max |dlogit| 6.41 at 9,000 tokens through `inkrun`); over 48 tokens one argmax flips here, where `inkrun`'s 32
+    tokens after a 9,000-token prompt of another text saw none.
+    Each narrow server prints one line more than full, and only that one:
+      llvq: inkling2:mini: attention: the sliding layers score the keys of their window only (--attn-window narrow, class B)
+  H-iii, the first token (all.log, readings.txt, p<r>-<arm>.u1.json):
+    pair         full, s    narrow, s    ratio     server's read, full / narrow, s
+    0 (dropped)  128.26     109.27       0.8519    128.09 / 109.09
+    1            127.40     109.24       0.8575    127.23 / 109.07
+    2            127.31     109.31       0.8586    127.13 / 109.13
+    3            127.42     109.17       0.8567    127.20 / 108.99
+    median       127.40 [127.31, 127.42]   109.24 [109.17, 109.31]   0.8575 [0.8567, 0.8586]
+    The server's own read (`prompt_eval_duration`) gives the same ratio, 0.8573 [0.8568, 0.8584]; the template,
+    the HTTP path and the first sampled token add 0.17 to 0.22 s a request.
+    Not a timed pair, read as it came: hi-before 132.74 s and hi-after 140.76 s, the first two servers of the job.
+  H-iv, the cache does not cross: holds.
+    Unit test: `a_prefix_key_names_the_attention_window_that_wrote_it` (keys of `full` and `narrow` differ,
+    `differing` names `attn_window` alone) and `a_file_of_another_key_is_refused_naming_the_field`, which now
+    carries an `attn_window` variant: the file of the other arm is neither found by name nor verified.
+    Live, prefix cache on (iv<n>-<arm>.server.log):
+      iv1 full, home iv-a: key 3021bebaae25d928, cached 0, saved
+        3021bebaae25d928-00008704-c7adec5e8c13cd35f4e45f13ac9167de.llvqprefix.
+      iv2 narrow, the same home: key 899dbf19dcdcea04, cached 0 of 8,791, no `loaded` line, first token 110.60 s;
+        it saved its own 899dbf19dcdcea04-00008704-... beside the first.
+      iv3 full, home iv-b holding only the narrow file: key 3021bebaae25d928, cached 0 of 8,791, no `loaded`
+        line, first token 128.89 s.
+    The server's lines name the key it runs under; a file is found by that key's id, so the other arm's file is a
+    miss with no line of its own. Each arm's answer under the cache is its own answer without it.
+  Refusals (build-refusals.log): hold.
+    CPU backend (target/loth-cpu, no feature), Inkling 2: HTTP 500 in 0.27 s, `loading inkling2:mini:
+    --attn-window narrow: the window scores have been read on Metal under the fused stack only, and this load is
+    cpu, stack cpu`; no weight read.
+    Metal build, a Qwen3 of the store (its manifest copied, its blob linked read-only into a working home): HTTP
+    500, `loading qwen3:4b: --attn-window narrow: the window scores are Inkling 2's, and qwen3:4b is of the family
+    "qwen3"`.
+    CUDA and the candle stack on Metal: unit test only (`narrow_turns_the_window_on_on_metal_fused_and_is_refused_
+    elsewhere`), R3.
+  Lints and tests: see MUTANTS.
+
+MUTANTS (mutants.log, mutant-<name>.log; each an in-place replacement on the committed inkling.rs, one site
+counted, the file restored by git checkout and checked clean)
+  mutant                                        site  `cargo test -p llvq-runtime --features metal --lib`
+  the arm made constant in the key              1     red, 53 passed 1 failed: a_prefix_key_names_the_
+    `attn_window: window.label().into(),`             attention_window_that_wrote_it
+    made `AttnWindow::Full.label().into(),`
+  the switch parsed and not applied             1     red, 53 passed 1 failed: narrow_turns_the_window_on_
+    `(Narrow, Metal, true) => Ok(true),`              on_metal_fused_and_is_refused_elsewhere
+    made `=> Ok(false),` in window_scores_for
+  On the committed file the same 54 tests pass. The second mutant sits on the function that maps the parsed arm to
+  the action; the two call sites that carry its result (`load_local`, `set_attn_window` in main.rs) have no unit
+  test, and the live narrow servers cover them by their added line and their read time (R5).
+  Lints on the committed tree: `cargo clippy -p llvq-runtime --features metal --all-targets`, `cargo clippy -p
+  llvq-runtime --all-targets` (the CPU build) and `ops/check-linux-cuda.sh clippy -p llvq-runtime --features cuda
+  --all-targets`: 0 warnings each (clippy-metal.log, clippy-cpu.log, linux-check.log). They ran on the tree that
+  became 82ec459, before the commit (lints-wip.log); nothing changed in llvq-runtime between them and the commit.
+  Tests in debug on the committed tree, counted from the whole logs: `cargo test -p llvq-runtime` (the CPU build)
+  14 `test result:` lines, 120 passed, 0 failed, 3 ignored (tests-runtime.log); `cargo test -p llvq-runtime
+  --features metal` the same, 120 / 0 / 3 (tests-runtime-metal.log); `cargo test -p llvq-llm --features metal` 116
+  lines, 760 passed, 0 failed, 73 ignored (tests-llm-metal.log), the count of the window lot, since llvq-llm did
+  not change.
+
+AGAINST THE SIGNED PREDICTIONS
+  prediction                                          predicted              measured                          inside
+  H-i, same tokens and same lines under the default   probability 0.95       same, both prompts, same lines    yes
+  H-ii, narrow gives full's tokens on both prompts    probability 0.8        short same, long differs at 34    no
+  H-iii, first token ratio narrow / full              x0.87 [0.84 ; 0.92]    x0.858 [0.857, 0.859]             yes
+  H-iii, first token under full                       105 to 135 s           127.40 s [127.31, 127.42]         yes
+  H-iv, a file of one arm not loaded under the other  holds, 0.9 first try   holds at the first try            yes
+  the lot ends committed before 06:15                 probability 0.6        code 04:19 (82ec459), gates held by 05:26     yes
+  H-ii missed: the long answer is 48 tokens, against the 32 of `inkrun`'s gate, and its prompt is another text;
+  one argmax flipped at the 35th line. The ratio sits under the predicted centre: the fixed part of a request is
+  0.2 s, too small to dilute a 18 s saving.
+
+WHAT THE READING DOES NOT SAY
+  That the arm keeps quality through the server. Its perplexity band is `inkrun`'s (inkling-mac-fenetre-ppl-
+  2026-11-27); one greedy answer of 48 tokens moved by one word, which a band neither confirms nor refutes.
+  That it holds on the CPU or CUDA: refused there, never read.
+  The decode after the prompt, the memory peak and the first token with the prefix cache hitting: not this lot's
+  object, not read.
+  Why hi-after read 8 s slower than every later full server: one read, the second of the job, not repeated.

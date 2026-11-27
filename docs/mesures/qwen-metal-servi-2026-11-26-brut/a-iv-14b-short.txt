@@ -1,0 +1,40 @@
+start 2026-11-26 21:58:08 loadavg { 1.82 1.71 2.02 } | System-wide memory free percentage: 79%
+environment: no LLVQ_* or CANDLE_* variable
+binary  /Users/pjmalandrino/Documents/Pro/workspace/poc/llvq/.claude/worktrees/mac-inkling/docs/mesures/qwen-metal-servi-2026-11-26-brut/work/metalrun-1e35fa1b sha256 2fba57590ed8cccd746d39f30d83a3dc6bd9ce55b58611cca42e3260ed2fdaf4
+object  /Users/pjmalandrino/q8b-14b-sealed-2026-09-23/qwen3-14b-sealed.bin sha256 61db37fe7ce8e6a57c5c59f257319c796574981ecb5e450a02c73dd3c17e2ca0
+config  configs/qwen3-14b-tetra-e4.json sha256 833aec4c3a213c81e2f475acb0a643c4caf0cd7180d2bdb3c561618331032f78
+served config: configs/qwen3-14b-tetra-e4.json (layout tetra48, embed q4, rot_share 1, fuse 0, kv f16, attention expanded on cat) — Qwen3-14B paper-2 object, sealed 2026-09-23: Tetra with dclm-edu calibration and trained row scales, v_proj + o_proj + down_proj@10-28 as int4 g128 records, both untied tables stored int4 g64 in the file (qwen3-14b-sealed.bin). fuse is 0 because Tetra carries no segmented kernel, not because fusion was declined.
+machine Apple M3 Max | Note: No thermal warning level has been recorded | Note: No performance warning level has been recorded | Note: No CPU power status has been recorded
+load    GPU Some(0) % busy, other processes 47 % CPU
+config  configs/qwen3-14b-tetra-e4.json sha256 833aec4c3a213c81e2f475acb0a643c4caf0cd7180d2bdb3c561618331032f78
+arm cfg:configs/qwen3-14b-tetra-e4.json: served config: configs/qwen3-14b-tetra-e4.json (layout tetra48, embed q4, rot_share 1, fuse 0, kv f16, attention expanded on cat) — Qwen3-14B paper-2 object, sealed 2026-09-23: Tetra with dclm-edu calibration and trained row scales, v_proj + o_proj + down_proj@10-28 as int4 g128 records, both untied tables stored int4 g64 in the file (qwen3-14b-sealed.bin). fuse is 0 because Tetra carries no segmented kernel, not because fusion was declined.
+metal: tetra matvec tv_tetra48_metal_lut | int4 99 records, 19 through tv_q4_metal_tiled at 2048 columns a tile, 80 untiled | int4 row loop served | io f32 (served) | prefill row by row (served) | rotation device (served)
+embedding: q4 g64 (metalrun cfg: arm), 2 tables (model.embed_tokens.weight + lm_head.weight), 875.2 MB on the card (int4 777.9 + scales/biases 97.2)
+total expected on the device: 5.04 GB (projections 4.17 + carried 0.88)
+arm cfg:configs/qwen3-14b-tetra-e4.json loaded in   8.0 s | host count 5.044 GB | 4.606 GB of weights a token | attention expanded on cat | kernels Some(MetalTuning { q4_tile_cols: 2048, tetra_kernel: "tv_tetra48_metal_lut", q4_prefetch: false, half_io: false, prefill_rows: 1, q4_rows: false, rot_tg: false })
+config  configs/qwen3-14b-tetra-e4-metal.json sha256 b7a814a90bda573a87205cd08fe867e41272d05d80aaa572bc981e86453f5349
+arm cfg:configs/qwen3-14b-tetra-e4-metal.json: served config: configs/qwen3-14b-tetra-e4-metal.json (layout tetra48, embed q4, rot_share 1, fuse 0, kv f16, attention grouped on grow(256), Metal kernels lutd+h+pq) — PENDING its gates (proofs/preregistration-servi-au-bit-2026-11-26.md, part A).
+metal: tetra matvec tv_tetra48_metal_lutd | int4 99 records, 19 through tv_q4_metal_tiled at 2048 columns a tile, 80 untiled | int4 row loop served | io half (in-kernel casts, tv_q4_pf.metal and llvq_tetra48_rows.metal) | prefill 8 rows a launch, Tetra (tv_tetra48_metal_lutdr) and int4 (tv_q4_metal_rows) | rotation device (served)
+embedding: q4 g64 (metalrun cfg: arm), 2 tables (model.embed_tokens.weight + lm_head.weight), 875.2 MB on the card (int4 777.9 + scales/biases 97.2)
+total expected on the device: 5.04 GB (projections 4.17 + carried 0.88)
+arm cfg:configs/qwen3-14b-tetra-e4-metal.json loaded in   8.9 s | host count 5.044 GB | 4.606 GB of weights a token | attention grouped on grow(256) | kernels Some(MetalTuning { q4_tile_cols: 2048, tetra_kernel: "tv_tetra48_metal_lutd", q4_prefetch: false, half_io: true, prefill_rows: 8, q4_rows: true, rot_tg: false })
+bit gate: arm cfg:configs/qwen3-14b-tetra-e4-metal.json against cfg:configs/qwen3-14b-tetra-e4.json: 281 of 281 records equal bit for bit
+prompt "The capital of France is" = [785, 6722, 315, 9625, 374]; 256 new tokens; 1 discarded + 3 timed rounds; order cfg:configs/qwen3-14b-tetra-e4.json cfg:configs/qwen3-14b-tetra-e4-metal.json
+round 0 (discarded) arm cfg:configs/qwen3-14b-tetra-e4.json door   18.32 tok/s | decode   18.52 tok/s | first token  206.6 ms | others 18 % CPU
+round 0 (discarded) arm cfg:configs/qwen3-14b-tetra-e4-metal.json door   19.81 tok/s | decode   20.05 tok/s | first token  205.3 ms | others 58 % CPU
+round 1 arm cfg:configs/qwen3-14b-tetra-e4.json door   18.73 tok/s | decode   18.97 tok/s | first token  224.5 ms | others 12 % CPU
+round 1 arm cfg:configs/qwen3-14b-tetra-e4-metal.json door   20.33 tok/s | decode   20.58 tok/s | first token  198.8 ms | others 25 % CPU
+round 2 arm cfg:configs/qwen3-14b-tetra-e4.json door   19.27 tok/s | decode   19.51 tok/s | first token  214.4 ms | others 15 % CPU
+round 2 arm cfg:configs/qwen3-14b-tetra-e4-metal.json door   20.79 tok/s | decode   21.02 tok/s | first token  180.6 ms | others 90 % CPU
+round 3 arm cfg:configs/qwen3-14b-tetra-e4.json door   19.56 tok/s | decode   19.81 tok/s | first token  211.0 ms | others 29 % CPU
+round 3 arm cfg:configs/qwen3-14b-tetra-e4-metal.json door   20.97 tok/s | decode   21.23 tok/s | first token  196.7 ms | others 94 % CPU
+--- medians over 3 timed rounds [min-max], niced, measured on this Mac
+arm cfg:configs/qwen3-14b-tetra-e4.json door   19.27 tok/s [18.73-19.56] | decode   19.51 tok/s [18.97-19.81] | first token 0.214 s [0.211-0.224] | 51.26 ms a decode token | 89.8 GB/s of weights (computed)
+arm cfg:configs/qwen3-14b-tetra-e4-metal.json door   20.79 tok/s [20.33-20.97] | decode   21.02 tok/s [20.58-21.23] | first token 0.197 s [0.181-0.199] | 47.58 ms a decode token | 96.8 GB/s of weights (computed)
+ratio cfg:configs/qwen3-14b-tetra-e4-metal.json / cfg:configs/qwen3-14b-tetra-e4.json: door x1.079 [1.072-1.086] | decode x1.077 [1.072-1.085] | first token cfg:configs/qwen3-14b-tetra-e4.json / arm x1.129 [1.072-1.187], round by round
+tokens cfg:configs/qwen3-14b-tetra-e4-metal.json against cfg:configs/qwen3-14b-tetra-e4.json: the same 256 tokens
+tokens of cfg:configs/qwen3-14b-tetra-e4.json: sha256 0701277f83d3abd233953a89ad59ad3905f902c8f00dd8ee763f4c57817d6fcc (u32 little-endian)
+text of cfg:configs/qwen3-14b-tetra-e4.json: " Paris. The capital of Italy is Rome. The capital of Spain is Madrid. The capital of Germany is Berlin. The capital of Japan is Tokyo. The capital of Canada is Ottawa. The capital of Australia is Canberra. The capital of Brazil is Brasília. The capital of Russia is Moscow. The capital of China is Beijing. The capital of India is New Delhi. The capital of South Korea is Seoul. The capital of Mexico is Mexico City. The capital of Egypt is Cairo. The capital of South Africa is Pretoria. The capital of Thailand is Bangkok. The capital of Indonesia is Jakarta. The capital of Turkey is Ankara. The capital of Greece is Athens. The capital of Portugal is Lisbon. The capital of Sweden is Stockholm. The capital of Norway is Oslo. The capital of Finland is Helsinki. The capital of Denmark is Copenhagen. The capital of Netherlands is Amsterdam. The capital of Belgium is Brussels. The capital of Switzerland is Bern. The capital of Austria is Vienna. The capital of Hungary is Budapest. The capital of Poland is Warsaw. The capital of Czech Republic is Prague. The capital of Slovakia is Bratislava. The capital of Slovenia is Ljubljana. The capital of Croatia is Zagreb. The capital of Serbia is Belgrade."
+other processes, worst sample between arms: 94 % CPU
+end     Note: No thermal warning level has been recorded | Note: No performance warning level has been recorded | Note: No CPU power status has been recorded | GPU Some(0) % busy
+exit 0 end 2026-11-26 22:00:26 loadavg { 1.62 1.65 1.94 }

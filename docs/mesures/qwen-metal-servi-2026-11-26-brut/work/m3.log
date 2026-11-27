@@ -1,0 +1,113 @@
+   Compiling llvq-llm v0.1.0 (/Users/pjmalandrino/Documents/Pro/workspace/poc/llvq/.claude/worktrees/mac-inkling/llvq-llm)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 7.32s
+     Running tests/served_config.rs (target/debug/deps/served_config-9972304fcf004c77)
+
+running 46 tests
+test resolving_the_file_does_not_read_the_environment ... ok
+test an_attention_the_file_cannot_serve_is_refused ... ok
+test metal_kernels_reads_a_closed_list ... ok
+test a_contradicting_variable_is_refused_and_an_agreeing_one_passes ... ok
+test an_empty_field_is_refused_and_not_read_as_the_default ... ok
+test a_chain_dump_names_its_prefill ... ok
+test measurement_modes_are_refused_beside_the_persistent_decode ... ok
+test removed_variables_are_refused_by_name ... ok
+test an_unknown_key_is_refused ... ok
+test a_missing_key_is_refused ... ok
+test the_chain_prefill_is_refused_where_it_cannot_run ... ok
+test the_chat_door_refuses_what_its_config_cannot_serve ... ok
+test the_comparison_goes_through_the_parsers ... ok
+test the_chain_prefill_runs_on_the_4b_shape_only ... ok
+test the_decode_cache_field_rides_4e_v9_only ... ok
+test the_decode_field_accepts_two_engines_and_refuses_the_rest ... ok
+test the_file_accepts_exactly_what_the_variables_accept ... ok
+test the_kernel_form_stays_refused_on_metal_beside_named_kernels ... ok
+test the_persistent_decode_is_refused_on_metal ... ok
+test the_persistent_decode_is_refused_off_the_served_4b_fields ... ok
+test the_persistent_decode_runs_on_the_sealed_shapes_only ... ok
+test the_kv8_config_is_the_v9_config_with_the_int8_cache_and_not_served ... ok
+test the_prefill_field_accepts_two_forms_and_refuses_the_rest ... ok
+test the_rows_field_serves_v3_v4_and_v6_and_refuses_the_rest ... ok
+test the_q4_config_is_the_4b_served_values_with_a_q4_embedding ... ok
+test the_q5_config_is_the_object_arbitrated_on_2026_09_08 ... ok
+test the_served_config_resolves_to_the_served_values ... ok
+test the_served_rows_are_the_modules_row_forms ... ok
+test the_grouped_config_is_the_e4_object_with_the_grouped_attention ... ok
+test the_4e_config_is_the_kernel_config_with_the_persistent_decode ... ok
+test the_kernel_config_is_the_grouped_config_with_the_kernel_form ... ok
+test the_8b_config_is_the_4b_served_values_on_the_8b_object ... ok
+test the_14b_config_is_the_4b_served_values_on_the_14b_object ... ok
+test variables_below_the_door_are_refused_by_name ... ok
+test the_v4_config_is_the_4e_config_with_the_v4_rows ... ok
+test the_optional_fields_are_read_as_written ... ok
+test the_chain_config_is_the_v9_config_with_the_chain_prefill ... ok
+test the_v6_config_is_the_v4_config_with_the_v6_rows ... ok
+test the_8b_and_14b_v9_configs_are_the_4b_v9_config_on_their_objects ... ok
+test the_grouped_form_is_served_on_metal_only_through_a_metal_config ... FAILED
+test the_prefill_attention_field_rides_the_kernel_form_only ... ok
+test the_v9_config_is_the_v6_config_with_the_v9_rows ... ok
+test the_batch_configs_are_the_served_fields_with_a_batch_and_no_4e ... ok
+test an_absent_attention_field_is_the_published_form ... FAILED
+test the_shipped_config_is_the_served_object ... ok
+test every_shipped_config_resolves ... ok
+
+failures:
+
+---- the_grouped_form_is_served_on_metal_only_through_a_metal_config stdout ----
+
+thread 'the_grouped_form_is_served_on_metal_only_through_a_metal_config' (13469902) panicked at llvq-llm/tests/served_config.rs:605:9:
+assertion `left == right` failed: 4b
+  left: Expanded
+ right: Grouped
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+---- an_absent_attention_field_is_the_published_form stdout ----
+
+thread 'an_absent_attention_field_is_the_published_form' (13469879) panicked at llvq-llm/tests/served_config.rs:476:26:
+assertion `left == right` failed: qwen3-4b-tetra-e4-metal.json
+  left: Expanded
+ right: Grouped
+
+
+failures:
+    an_absent_attention_field_is_the_published_form
+    the_grouped_form_is_served_on_metal_only_through_a_metal_config
+
+test result: FAILED. 44 passed; 2 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+error: test failed, to rerun pass `-p llvq-llm --test served_config`
+error: 1 target failed:
+    `-p llvq-llm --test served_config`
+   Compiling llvq-runtime v0.1.3 (/Users/pjmalandrino/Documents/Pro/workspace/poc/llvq/.claude/worktrees/mac-inkling/llvq-runtime)
+   Compiling llvq-llm v0.1.0 (/Users/pjmalandrino/Documents/Pro/workspace/poc/llvq/.claude/worktrees/mac-inkling/llvq-llm)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 3.88s
+     Running unittests src/lib.rs (target/debug/deps/llvq_runtime-17608f1923badfcc)
+
+running 8 tests
+test library::tests::names_default_to_latest_and_refuse_paths ... ok
+test library::tests::a_manifest_is_served_by_the_library_configs_of_its_file ... ok
+test library::tests::the_cpu_serves_what_its_loader_reads ... ok
+test library::tests::the_chain_is_the_4b_default_on_cuda_and_eager_is_the_way_back ... ok
+test library::tests::latest_is_the_4b_and_the_digests_are_the_readme_ones ... ok
+test library::tests::metal_serves_the_grouped_form_through_its_metal_config ... FAILED
+test library::tests::the_library_parses_and_every_entry_is_whole ... ok
+test library::tests::inkling_answers_its_names_and_is_refused_until_published ... ok
+
+failures:
+
+---- library::tests::metal_serves_the_grouped_form_through_its_metal_config stdout ----
+
+thread 'library::tests::metal_serves_the_grouped_form_through_its_metal_config' (13470605) panicked at llvq-runtime/src/library.rs:419:13:
+assertion `left == right` failed: qwen3-4b-tetra-e4-metal.json
+  left: Expanded
+ right: Grouped
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    library::tests::metal_serves_the_grouped_form_through_its_metal_config
+
+test result: FAILED. 7 passed; 1 failed; 0 ignored; 0 measured; 42 filtered out; finished in 0.01s
+
+error: test failed, to rerun pass `-p llvq-runtime --lib`
+error: 1 target failed:
+    `-p llvq-runtime --lib`

@@ -4288,6 +4288,7 @@ mod tests {
             prefill: None,
             decode_cache: None,
             batch: None,
+            metal_kernels: None,
             note: None,
         };
         let resolve = |attention: Option<&str>| {
@@ -4384,6 +4385,7 @@ mod tests {
             prefill: None,
             decode_cache: None,
             batch: None,
+            metal_kernels: None,
             note: None,
         };
         let f = served_file_kernel();

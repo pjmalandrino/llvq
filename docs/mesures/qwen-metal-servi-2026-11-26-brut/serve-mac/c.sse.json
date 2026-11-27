@@ -1,0 +1,18 @@
+{
+ "lines": 94,
+ "chunks": 46,
+ "done": true,
+ "first_chunk_s": 0.019729137420654297,
+ "first_token_s": 0.7797560691833496,
+ "last_s": 2.2818009853363037,
+ "content": "one, two, three, four",
+ "reasoning": "The user wants count from one to five in words, separated by commas. Need answer only. Ensure words: one, two, three, four, five. No extra.",
+ "tool_calls": [],
+ "finish_reason": "length",
+ "usage": {
+  "completion_tokens": 48,
+  "prompt_tokens": 26,
+  "total_tokens": 74
+ },
+ "errors": []
+}

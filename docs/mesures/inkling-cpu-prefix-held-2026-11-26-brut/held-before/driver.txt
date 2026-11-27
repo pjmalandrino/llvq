@@ -1,0 +1,12 @@
+calib: first token 32.23119592666626 s, prompt 2035, cached 0, read 31.89 s, content ''
+a0: first token 140.39863920211792 s, prompt 8791, cached 0, read 140.18 s, content ''
+a1: first token 3.6588637828826904 s, prompt 8791, cached 8704, read 2.56 s, content ''
+a2: first token 2.628570318222046 s, prompt 8791, cached 8704, read 2.42 s, content ''
+a3: first token 2.6891212463378906 s, prompt 8791, cached 8704, read 2.48 s, content ''
+a4: first token 2.684842824935913 s, prompt 8791, cached 8704, read 2.49 s, content ''
+c0: first token 0.9163539409637451 s, prompt 36, cached 0, read 0.78 s, content ''
+c1: first token 0.919309139251709 s, prompt 36, cached 0, read 0.79 s, content ''
+c2: first token 0.9219279289245605 s, prompt 36, cached 0, read 0.79 s, content ''
+c3: first token 0.9236788749694824 s, prompt 36, cached 0, read 0.79 s, content ''
+c4: first token 0.9158098697662354 s, prompt 36, cached 0, read 0.78 s, content ''
+done 2026-11-26 21:13:22

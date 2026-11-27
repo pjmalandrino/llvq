@@ -1,0 +1,8 @@
+a: all 10 answers equal (before 5, after 5): True; eval_count [48, 48, 48, 48, 48]
+  held-before: first read 140.40 s; sent again x4: median 2.687 s [2.629, 3.659], cached [8704, 8704, 8704, 8704]
+  held-after: first read 132.12 s; sent again x4: median 0.159 s [0.157, 0.165], cached [8791, 8791, 8791, 8791]
+  ratio before/after of medians 16.9
+c: all 10 answers equal (before 5, after 5): True; eval_count [48, 48, 48, 48, 48]
+  held-before: first read 0.92 s; sent again x4: median 0.921 s [0.916, 0.924], cached [0, 0, 0, 0]
+  held-after: first read 0.90 s; sent again x4: median 0.139 s [0.136, 0.141], cached [36, 36, 36, 36]
+  ratio before/after of medians 6.6

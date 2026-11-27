@@ -1,0 +1,4 @@
+ref 0140733aceb0789513f4c76dc922b6401b2f919c96f11d018adafb492fcdf226  ../inkling-mac-prompt-2026-11-26-brut/s1-ref9000.logits.f32
+arm 56abc1234ceef58d219932f6ceb37f98d1ea5a916f7647b57e808ffc1ee8d440  dii-arm9000.logits.f32
+rows 32; bit for bit 0; max |dlogit| 6.41146; largest |logit| 29.4911; relative 0.217; argmax moved at rows []
+tokens after the prompt: 32 and 32, same True

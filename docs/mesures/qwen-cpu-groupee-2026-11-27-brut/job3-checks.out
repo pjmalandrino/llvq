@@ -1,0 +1,20 @@
+[waitload] 2026-11-27 01:18:08 load { 5.29 5.87 5.85 } | System-wide memory free percentage: 80%
+== clippy 2026-11-27 01:18:08
+clippy rc=0
+0
+== cargo test -p llvq-llm (debug) 2026-11-27 01:19:00
+test rc=0
+115
+0
+== mutant 2026-11-27 01:25:36
+sites before: 1
+sites after: 1 mutated, 0 left
+ llvq-llm/src/served.rs | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+mutant test rc=101 (non-zero = red)
+thread 'model::tests::a_served_config_sets_the_store_and_the_attention_form' (13827593) panicked at llvq-llm/src/model.rs:4311:9:
+  left: Expanded
+ right: Grouped
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 245 filtered out; finished in 0.08s
+restored, served.rs clean
+== done 2026-11-27 01:25:39

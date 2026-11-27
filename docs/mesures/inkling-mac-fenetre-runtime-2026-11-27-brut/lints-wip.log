@@ -1,0 +1,7 @@
+lints: 2026-11-27 04:18:50 at 52b9916af3ffdd27a82d06f04a60753635539ce5; tree:  M llvq-runtime/src/engine.rs  M llvq-runtime/src/inkling.rs  M llvq-runtime/src/main.rs  M llvq-runtime/src/prefix.rs  M llvq-runtime/tests/inkling_prefix.rs 
+clippy metal rc=0
+clippy cpu rc=0
+linux check rc=0
+clippy-metal: 0 warning lines, 0 error lines
+clippy-cpu: 0 warning lines, 0 error lines
+linux-check: 0 warning lines, 0 error lines

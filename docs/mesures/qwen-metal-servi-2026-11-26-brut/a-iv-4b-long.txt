@@ -1,0 +1,45 @@
+start 2026-11-26 21:38:59 loadavg { 1.45 2.16 3.01 } | System-wide memory free percentage: 79%
+environment: no LLVQ_* or CANDLE_* variable
+binary  /Users/pjmalandrino/Documents/Pro/workspace/poc/llvq/.claude/worktrees/mac-inkling/docs/mesures/qwen-metal-servi-2026-11-26-brut/work/metalrun-1e35fa1b sha256 2fba57590ed8cccd746d39f30d83a3dc6bd9ce55b58611cca42e3260ed2fdaf4
+object  /Users/pjmalandrino/q4b-sealed-2026-09-23/qwen3-4b-sealed.bin sha256 886391a8c03f66dc269cc65c3598c6627dbdcd259180aff36604ef10d37371b8
+config  configs/qwen3-4b-tetra-e4.json sha256 098fe49c03c4b3f8893a0a0079ac2bcf34dd6d55c780c18df7c718470fb6bb4c
+served config: configs/qwen3-4b-tetra-e4.json (layout tetra48, embed q4, rot_share 1, fuse 0, kv f16, attention expanded on cat) — Qwen3-4B paper-2 object, sealed 2026-09-23: Tetra with dclm-edu calibration and trained row scales, v_proj + o_proj + down_proj@12-23 as int4 g128 records, the tied embedding stored int4 g64 in the file (qwen3-4b-sealed.bin). fuse is 0 because Tetra carries no segmented kernel, not because fusion was declined.
+machine Apple M3 Max | Note: No thermal warning level has been recorded | Note: No performance warning level has been recorded | Note: No CPU power status has been recorded
+load    GPU Some(0) % busy, other processes 17 % CPU
+config  configs/qwen3-4b-tetra-e4.json sha256 098fe49c03c4b3f8893a0a0079ac2bcf34dd6d55c780c18df7c718470fb6bb4c
+arm cfg:configs/qwen3-4b-tetra-e4.json: served config: configs/qwen3-4b-tetra-e4.json (layout tetra48, embed q4, rot_share 1, fuse 0, kv f16, attention expanded on cat) — Qwen3-4B paper-2 object, sealed 2026-09-23: Tetra with dclm-edu calibration and trained row scales, v_proj + o_proj + down_proj@12-23 as int4 g128 records, the tied embedding stored int4 g64 in the file (qwen3-4b-sealed.bin). fuse is 0 because Tetra carries no segmented kernel, not because fusion was declined.
+metal: tetra matvec tv_tetra48_metal_lut | int4 84 records, 12 through tv_q4_metal_tiled at 2048 columns a tile, 72 untiled | int4 row loop served | io f32 (served) | prefill row by row (served) | rotation device (served)
+embedding: q4 g64 (metalrun cfg: arm), 1 table (model.embed_tokens.weight, lm_head tied on it), 218.8 MB on the card (int4 194.5 + scales/biases 24.3)
+total expected on the device: 1.38 GB (projections 1.16 + carried 0.22)
+arm cfg:configs/qwen3-4b-tetra-e4.json loaded in   2.2 s | host count 1.377 GB | 1.377 GB of weights a token | attention expanded on cat | kernels Some(MetalTuning { q4_tile_cols: 2048, tetra_kernel: "tv_tetra48_metal_lut", q4_prefetch: false, half_io: false, prefill_rows: 1, q4_rows: false, rot_tg: false })
+config  configs/qwen3-4b-tetra-e4-metal.json sha256 b7a814a90bda573a87205cd08fe867e41272d05d80aaa572bc981e86453f5349
+arm cfg:configs/qwen3-4b-tetra-e4-metal.json: served config: configs/qwen3-4b-tetra-e4-metal.json (layout tetra48, embed q4, rot_share 1, fuse 0, kv f16, attention grouped on grow(256), Metal kernels lutd+h+pq) — PENDING its gates (proofs/preregistration-servi-au-bit-2026-11-26.md, part A).
+metal: tetra matvec tv_tetra48_metal_lutd | int4 84 records, 12 through tv_q4_metal_tiled at 2048 columns a tile, 72 untiled | int4 row loop served | io half (in-kernel casts, tv_q4_pf.metal and llvq_tetra48_rows.metal) | prefill 8 rows a launch, Tetra (tv_tetra48_metal_lutdr) and int4 (tv_q4_metal_rows) | rotation device (served)
+embedding: q4 g64 (metalrun cfg: arm), 1 table (model.embed_tokens.weight, lm_head tied on it), 218.8 MB on the card (int4 194.5 + scales/biases 24.3)
+total expected on the device: 1.38 GB (projections 1.16 + carried 0.22)
+arm cfg:configs/qwen3-4b-tetra-e4-metal.json loaded in   2.2 s | host count 1.377 GB | 1.377 GB of weights a token | attention grouped on grow(256) | kernels Some(MetalTuning { q4_tile_cols: 2048, tetra_kernel: "tv_tetra48_metal_lutd", q4_prefetch: false, half_io: true, prefill_rows: 8, q4_rows: true, rot_tg: false })
+bit gate: arm cfg:configs/qwen3-4b-tetra-e4-metal.json against cfg:configs/qwen3-4b-tetra-e4.json: 253 of 253 records equal bit for bit
+prompt: the first 4096 tokens of the WikiText-2 test split, sha256 04e38430c7007541a5c73f7f55f5c38021e1b507cf955c2762653b3d974a67fa
+prompt 4096 tokens; 64 new tokens; 1 discarded + 5 timed rounds; order cfg:configs/qwen3-4b-tetra-e4.json cfg:configs/qwen3-4b-tetra-e4-metal.json
+round 0 (discarded) arm cfg:configs/qwen3-4b-tetra-e4.json door    0.73 tok/s | decode   10.85 tok/s | first token 82213.2 ms | others 15 % CPU
+round 0 (discarded) arm cfg:configs/qwen3-4b-tetra-e4-metal.json door    1.59 tok/s | decode   35.25 tok/s | first token 38343.2 ms | others 38 % CPU
+round 1 arm cfg:configs/qwen3-4b-tetra-e4.json door    0.86 tok/s | decode   11.65 tok/s | first token 69260.0 ms | others 91 % CPU
+round 1 arm cfg:configs/qwen3-4b-tetra-e4-metal.json door    1.74 tok/s | decode   37.63 tok/s | first token 35172.4 ms | others 79 % CPU
+round 2 arm cfg:configs/qwen3-4b-tetra-e4.json door    0.89 tok/s | decode   11.98 tok/s | first token 66702.8 ms | others 23 % CPU
+round 2 arm cfg:configs/qwen3-4b-tetra-e4-metal.json door    1.76 tok/s | decode   37.88 tok/s | first token 34693.8 ms | others 25 % CPU
+round 3 arm cfg:configs/qwen3-4b-tetra-e4.json door    0.87 tok/s | decode   11.49 tok/s | first token 67870.7 ms | others 12 % CPU
+round 3 arm cfg:configs/qwen3-4b-tetra-e4-metal.json door    1.65 tok/s | decode   35.29 tok/s | first token 37096.5 ms | others 11 % CPU
+round 4 arm cfg:configs/qwen3-4b-tetra-e4.json door    0.84 tok/s | decode   11.33 tok/s | first token 71040.9 ms | others 17 % CPU
+round 4 arm cfg:configs/qwen3-4b-tetra-e4-metal.json door    1.69 tok/s | decode   37.03 tok/s | first token 36063.5 ms | others 9 % CPU
+round 5 arm cfg:configs/qwen3-4b-tetra-e4.json door    0.88 tok/s | decode   11.94 tok/s | first token 67121.1 ms | others 27 % CPU
+round 5 arm cfg:configs/qwen3-4b-tetra-e4-metal.json door    1.77 tok/s | decode   38.23 tok/s | first token 34557.4 ms | others 83 % CPU
+--- medians over 5 timed rounds [min-max], niced, measured on this Mac
+arm cfg:configs/qwen3-4b-tetra-e4.json door    0.87 tok/s [0.84-0.89] | decode   11.65 tok/s [11.33-11.98] | first token 67.871 s [66.703-71.041] | 85.86 ms a decode token | 16.0 GB/s of weights (computed)
+arm cfg:configs/qwen3-4b-tetra-e4-metal.json door    1.74 tok/s [1.65-1.77] | decode   37.63 tok/s [35.29-38.23] | first token 35.172 s [34.557-37.097] | 26.57 ms a decode token | 51.8 GB/s of weights (computed)
+ratio cfg:configs/qwen3-4b-tetra-e4-metal.json / cfg:configs/qwen3-4b-tetra-e4.json: door x2.000 [1.887-2.028] | decode x3.201 [3.071-3.268] | first token cfg:configs/qwen3-4b-tetra-e4.json / arm x1.942 [1.830-1.970], round by round
+tokens cfg:configs/qwen3-4b-tetra-e4-metal.json against cfg:configs/qwen3-4b-tetra-e4.json: the same 64 tokens
+tokens of cfg:configs/qwen3-4b-tetra-e4.json: sha256 7cbd553b74b0d385f6b49c463af45b4f747b042796457b235f222bdc310eca18 (u32 little-endian)
+text of cfg:configs/qwen3-4b-tetra-e4.json: " \" Do not be too greedy for power , do not be too proud of your achievements , do not be too self-centered , and do not be too self-righteous . \" He is often described as a moral man , a man of the people , and a man of the world . He is also described as a man"
+other processes, worst sample between arms: 91 % CPU
+end     Note: No thermal warning level has been recorded | Note: No performance warning level has been recorded | Note: No CPU power status has been recorded | GPU Some(99) % busy
+exit 0 end 2026-11-26 21:50:31 loadavg { 1.69 1.83 2.30 }

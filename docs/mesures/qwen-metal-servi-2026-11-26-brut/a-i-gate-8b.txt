@@ -1,0 +1,21 @@
+loadavg { 2.33 3.99 4.10 } | System-wide memory free percentage: 80%
+environment: no LLVQ_* or CANDLE_* variable
+binary  /Users/pjmalandrino/Documents/Pro/workspace/poc/llvq/.claude/worktrees/mac-inkling/docs/mesures/qwen-metal-servi-2026-11-26-brut/work/metalrun-1e35fa1b sha256 2fba57590ed8cccd746d39f30d83a3dc6bd9ce55b58611cca42e3260ed2fdaf4
+object  /Users/pjmalandrino/q8b-14b-sealed-2026-09-23/qwen3-8b-sealed-B.bin sha256 7bdb9a5503518081b1f652a93215250898caae5cc1b6a2f33ee9fb6094565c13
+config  configs/qwen3-8b-tetra-e4.json sha256 6f0d489f24605712ed8b9767e2e6a80c79cc5f78c6c9937072852d2396716b30
+served config: configs/qwen3-8b-tetra-e4.json (layout tetra48, embed q4, rot_share 1, fuse 0, kv f16, attention expanded on cat) — Qwen3-8B paper-2 object at 2.7 b/param, sealed 2026-09-24: Tetra with dclm-edu calibration and trained row scales, v_proj + down_proj@10-26 as int4 g128 records, both untied tables stored int4 g64 in the file (qwen3-8b-sealed-B.bin). fuse is 0 because Tetra carries no segmented kernel, not because fusion was declined.
+machine Apple M3 Max | Note: No thermal warning level has been recorded | Note: No performance warning level has been recorded | Note: No CPU power status has been recorded
+load    GPU Some(0) % busy, other processes 19 % CPU
+arm lut: loading with MetalTuning { q4_tile_cols: 2048, tetra_kernel: "tv_tetra48_metal_lut", q4_prefetch: false, half_io: false, prefill_rows: 1, q4_rows: false, rot_tg: false }
+metal: tetra matvec tv_tetra48_metal_lut | int4 53 records, 17 through tv_q4_metal_tiled at 2048 columns a tile, 36 untiled | int4 row loop served | io f32 (served) | prefill row by row (served) | rotation device (served)
+embedding: q4 g64 (metalrun), 2 tables (model.embed_tokens.weight + lm_head.weight), 700.1 MB on the card (int4 622.3 + scales/biases 77.8)
+total expected on the device: 2.76 GB (projections 2.06 + carried 0.70)
+arm lut          loaded in   4.5 s | host count 2.764 GB | 2.414 GB of weights a token | attention expanded on cat
+config  configs/qwen3-8b-tetra-e4-metal.json sha256 b7a814a90bda573a87205cd08fe867e41272d05d80aaa572bc981e86453f5349
+arm cfg:configs/qwen3-8b-tetra-e4-metal.json: served config: configs/qwen3-8b-tetra-e4-metal.json (layout tetra48, embed q4, rot_share 1, fuse 0, kv f16, attention grouped on grow(256), Metal kernels lutd+h+pq) — PENDING its gates (proofs/preregistration-servi-au-bit-2026-11-26.md, part A).
+metal: tetra matvec tv_tetra48_metal_lutd | int4 53 records, 17 through tv_q4_metal_tiled at 2048 columns a tile, 36 untiled | int4 row loop served | io half (in-kernel casts, tv_q4_pf.metal and llvq_tetra48_rows.metal) | prefill 8 rows a launch, Tetra (tv_tetra48_metal_lutdr) and int4 (tv_q4_metal_rows) | rotation device (served)
+embedding: q4 g64 (metalrun cfg: arm), 2 tables (model.embed_tokens.weight + lm_head.weight), 700.1 MB on the card (int4 622.3 + scales/biases 77.8)
+total expected on the device: 2.76 GB (projections 2.06 + carried 0.70)
+arm cfg:configs/qwen3-8b-tetra-e4-metal.json loaded in   4.7 s | host count 2.764 GB | 2.414 GB of weights a token | attention grouped on grow(256) | kernels Some(MetalTuning { q4_tile_cols: 2048, tetra_kernel: "tv_tetra48_metal_lutd", q4_prefetch: false, half_io: true, prefill_rows: 8, q4_rows: true, rot_tg: false })
+bit gate: arm cfg:configs/qwen3-8b-tetra-e4-metal.json against lut: 253 of 253 records equal bit for bit
+exit 0

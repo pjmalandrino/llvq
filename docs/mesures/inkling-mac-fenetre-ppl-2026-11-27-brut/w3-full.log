@@ -1,0 +1,22 @@
+inkrun: dense weights on metal in 0.4 s
+inkrun: fused MoE down one simdgroup a slot
+inkrun: 24 layers resident in 15.4 s: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23]
+inkrun: scored 2047 positions (prompt), ppl 8.3251, 26.5 s, report docs/mesures/inkling-mac-fenetre-ppl-2026-11-27-brut/w3-full.json
+       42.52 real        18.42 user        15.20 sys
+         15287664640  maximum resident set size
+                   0  average shared memory size
+                   0  average unshared data size
+                   0  average unshared stack size
+             1030477  page reclaims
+                 493  page faults
+                   0  swaps
+                   0  block input operations
+                   0  block output operations
+                   0  messages sent
+                   0  messages received
+                   0  signals received
+                3087  voluntary context switches
+              129492  involuntary context switches
+        430269704450  instructions retired
+        111615532771  cycles elapsed
+         21742727624  peak memory footprint

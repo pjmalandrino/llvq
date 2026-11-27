@@ -1,0 +1,42 @@
+start 2026-11-26 22:14:16 loadavg { 2.19 1.67 1.66 } | System-wide memory free percentage: 78%
+environment: no LLVQ_* or CANDLE_* variable
+binary  /Users/pjmalandrino/Documents/Pro/workspace/poc/llvq/.claude/worktrees/mac-inkling/docs/mesures/qwen-metal-servi-2026-11-26-brut/work/metalrun-1e35fa1b sha256 2fba57590ed8cccd746d39f30d83a3dc6bd9ce55b58611cca42e3260ed2fdaf4
+object  /Users/pjmalandrino/q8b-14b-sealed-2026-09-23/qwen3-8b-sealed-B.bin sha256 7bdb9a5503518081b1f652a93215250898caae5cc1b6a2f33ee9fb6094565c13
+config  configs/qwen3-8b-tetra-e4-metal.json sha256 b7a814a90bda573a87205cd08fe867e41272d05d80aaa572bc981e86453f5349
+served config: configs/qwen3-8b-tetra-e4-metal.json (layout tetra48, embed q4, rot_share 1, fuse 0, kv f16, attention grouped on grow(256), Metal kernels lutd+h+pq) — PENDING its gates (proofs/preregistration-servi-au-bit-2026-11-26.md, part A).
+machine Apple M3 Max | Note: No thermal warning level has been recorded | Note: No performance warning level has been recorded | Note: No CPU power status has been recorded
+load    GPU Some(0) % busy, other processes 63 % CPU
+config  configs/qwen3-8b-tetra-e4-metal.json sha256 b7a814a90bda573a87205cd08fe867e41272d05d80aaa572bc981e86453f5349
+arm cfg:configs/qwen3-8b-tetra-e4-metal.json: served config: configs/qwen3-8b-tetra-e4-metal.json (layout tetra48, embed q4, rot_share 1, fuse 0, kv f16, attention grouped on grow(256), Metal kernels lutd+h+pq) — PENDING its gates (proofs/preregistration-servi-au-bit-2026-11-26.md, part A).
+metal: tetra matvec tv_tetra48_metal_lutd | int4 53 records, 17 through tv_q4_metal_tiled at 2048 columns a tile, 36 untiled | int4 row loop served | io half (in-kernel casts, tv_q4_pf.metal and llvq_tetra48_rows.metal) | prefill 8 rows a launch, Tetra (tv_tetra48_metal_lutdr) and int4 (tv_q4_metal_rows) | rotation device (served)
+embedding: q4 g64 (metalrun cfg: arm), 2 tables (model.embed_tokens.weight + lm_head.weight), 700.1 MB on the card (int4 622.3 + scales/biases 77.8)
+total expected on the device: 2.76 GB (projections 2.06 + carried 0.70)
+arm cfg:configs/qwen3-8b-tetra-e4-metal.json loaded in   4.4 s | host count 2.764 GB | 2.414 GB of weights a token | attention grouped on grow(256) | kernels Some(MetalTuning { q4_tile_cols: 2048, tetra_kernel: "tv_tetra48_metal_lutd", q4_prefetch: false, half_io: true, prefill_rows: 8, q4_rows: true, rot_tg: false })
+prompt: the first 2048 tokens of the WikiText-2 test split, sha256 942f9f56dff7c8d099cda59e3439e87bf9646019220263793e333a4724d8e44d
+prompt 2048 tokens; 64 new tokens; 0 discarded + 1 timed rounds; order cfg:configs/qwen3-8b-tetra-e4-metal.json
+round 0 arm cfg:configs/qwen3-8b-tetra-e4-metal.json door    2.34 tok/s | decode   32.57 tok/s | first token 25422.3 ms | others 18 % CPU
+--- medians over 1 timed rounds [min-max], niced, measured on this Mac
+arm cfg:configs/qwen3-8b-tetra-e4-metal.json door    2.34 tok/s [2.34-2.34] | decode   32.57 tok/s [32.57-32.57] | first token 25.422 s [25.422-25.422] | 30.70 ms a decode token | 78.6 GB/s of weights (computed)
+tokens of cfg:configs/qwen3-8b-tetra-e4-metal.json: sha256 32a5bfc2c6fe39cffc38fc0afc5271dae31f099f1562b7c658efe95259102c8d (u32 little-endian)
+text of cfg:configs/qwen3-8b-tetra-e4-metal.json: " have memorised the entire Shijing ( Book of Odes ) and the entire Book of Songs ( Shijing ) . He was also taught the art of calligraphy and the use of the brush pen . He was also taught the art of the guqin and the zither . He was also taught the art of"
+other processes, worst sample between arms: 18 % CPU
+end     Note: No thermal warning level has been recorded | Note: No performance warning level has been recorded | Note: No CPU power status has been recorded | GPU Some(99) % busy
+       41.07 real        13.50 user         2.95 sys
+          6081773568  maximum resident set size
+                   0  average shared memory size
+                   0  average unshared data size
+                   0  average unshared stack size
+              735378  page reclaims
+                   7  page faults
+                   0  swaps
+                   0  block input operations
+                   0  block output operations
+                   0  messages sent
+                   0  messages received
+                   0  signals received
+                   5  voluntary context switches
+               40944  involuntary context switches
+        230661413915  instructions retired
+         60348362448  cycles elapsed
+          6239443016  peak memory footprint
+exit 0

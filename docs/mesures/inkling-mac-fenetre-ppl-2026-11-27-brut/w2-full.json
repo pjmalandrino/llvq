@@ -1,0 +1,61 @@
+{
+  "attn_chunk": 128,
+  "bin": "inkrun",
+  "device": "metal",
+  "kv_window": {
+    "bounded_slack": 1024
+  },
+  "mean_nll": 2.266642766980216,
+  "memory": {
+    "end": {
+      "kind": "metal currentAllocatedSize",
+      "used": 17134452736
+    },
+    "load": {
+      "after_dense": {
+        "kind": "metal currentAllocatedSize",
+        "used": 1821392896
+      },
+      "after_resident": {
+        "kind": "metal currentAllocatedSize",
+        "used": 8027930624
+      },
+      "before_load": {
+        "kind": "metal currentAllocatedSize",
+        "used": 475136
+      }
+    }
+  },
+  "mode": "score-prompt",
+  "nll_file": "docs/mesures/inkling-mac-fenetre-ppl-2026-11-27-brut/w2-full.nll.json",
+  "ppl": 9.646959297384354,
+  "prefill_chunk": 512,
+  "prompt_key": "ids",
+  "provenance": {
+    "attention_matrix_bytes": {
+      "bf16": 1290829824,
+      "f32": 0
+    },
+    "attn": "fused+scores",
+    "attn_bias": "host",
+    "attn_window": "full",
+    "bf16_head_on_device": false,
+    "events": "on",
+    "glue": "fused",
+    "head": "int4",
+    "head_table": "/Users/pjmalandrino/llvq-inkling-mini/lot1-b/tables/unembed.q4g64.llvqraw",
+    "moe": "four",
+    "moe_act": "fused",
+    "moe_down": "default",
+    "moe_rows": "chunk",
+    "prefill_rows": 8,
+    "routing_on_device": true
+  },
+  "score_from": null,
+  "scored": 2047,
+  "seconds": 26.323395541,
+  "seconds_prefill": 26.322893166,
+  "steps": 0,
+  "text_tokens": 2048,
+  "tokens_file": "/Users/pjmalandrino/llvq-inkling-mini/lot4-x/wikitext_w2_2048.json"
+}

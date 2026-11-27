@@ -1,0 +1,9 @@
+Start the server on LLVQ_HOST
+
+Usage: llvq serve [OPTIONS]
+
+Options:
+      --local <LOCAL>            Register a model served from local files (Inkling 2), named by a small JSON file; see llvq-runtime/README.md. Repeatable
+      --prefix-cache <on|off>    Save the cache after a long static block (system prompt and tools) to disk, and load it for a prompt that starts with the same tokens: on or off. Default: on for Metal and the CPU, off on CUDA. Inkling 2
+      --prefix-cache-max <SIZE>  The disk cap of the prefix cache, least recently used files removed first: bytes, or K, M, G, T (binary). Default 4G
+  -h, --help                     Print help

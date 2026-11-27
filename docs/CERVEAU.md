@@ -26,7 +26,11 @@ On 2026-11-26 a desk note read four repairs of Tetra's section caps through a ca
 conjecture, one belief joined the dropped ones, and the operator closed the lead.
 On 2026-11-26 four lots at $0 served Inkling 2 Mini on an M3 Max: A3 and A4 are added, both supported, and the
 anomaly N9.
-74 claims: 17 established, 2 proved, 45 supported, 6 conjecture, 4 refuted.
+On 2026-11-27 the night's three lots (the Qwen3 files served on Metal, the prefix cache on the CPU, a prompt held
+whole) added A5 to A8 and corrected A2, which said the CPU backend never ran on x86. The same night two readings
+that serve nothing added A9 (Inkling's sliding layers scoring the window only, with its perplexity band) and A10 (the
+grouped attention on the CPU backend).
+80 claims: 18 established, 2 proved, 50 supported, 6 conjecture, 4 refuted.
 
 This document lists what we believe to be true about quantizing LLMs on the Leech lattice, each belief with its
 standing. It is not the served state ([`ETAT.md`](ETAT.md)), the history ([`HISTORIQUE.md`](HISTORIQUE.md)) or a plan
@@ -907,10 +911,15 @@ and its prototype decodes 93.9 tok/s on an M3 Max where mlx-lm's 4-bit 4B decode
 
 **A2.** On a CPU, reading the codes at every matvec beats the dense reconstruction by speed and memory: 8.65 tok/s in
 1.86 GB against 0.71 tok/s in 10.6 GB, perplexity −0.0021 %.
-- Standing: supported. Scope: 4B, M3 Max, 12 threads, f32; never run on x86.
-- Evidence: [cpu-tetra](mesures/cpu-tetra-2026-11-07.txt).
-- Overturn: an x86 run.
-- Checked: 2026-11-12.
+- Standing: supported. Scope: 4B, M3 Max, 12 threads, f32. On x86, one instance of 8 vCPU of an AMD EPYC 7R13 with
+  the AVX2 kernel reads 5.80 and 6.53 tok/s through `cpurun` and 5.4 through `llvq run`, 1.81 GB resident (job 7;
+  3.64 and 3.90 on the build of job 5); no dense arm ran there.
+- Evidence: [cpu-tetra](mesures/cpu-tetra-2026-11-07.txt);
+  [llvq-cpu-x86](mesures/llvq-cpu-x86-2026-11-25.txt) jobs 5 to 7,
+  [cpu-tetra-speed](mesures/cpu-tetra-speed-2026-11-25.txt).
+- Overturn: a dense reconstruction on x86 that reads faster than the codes, or an x86 machine with its own cores
+  that reads far under the rate of that instance.
+- Checked: 2026-11-27.
 
 **A3.** On an M3 Max the read of a long prompt by Inkling 2 Mini does not follow the number of launches: reading
 the experts' rows in 3,456 lattice launches instead of 1,605,064 at 9,000 tokens, with the score bias on the device,
@@ -931,6 +940,82 @@ after 3.90 s [3.62, 4.57] instead of 155 to 202 s.
 - Evidence: [inkling-mac-prefix](mesures/inkling-mac-prefix-2026-11-26.txt).
 - Overturn: a client whose static block never repeats token for token, or a loaded state whose logits differ.
 - Checked: 2026-11-26.
+
+**A5.** The Qwen3 4B, 8B and 14B served on Metal through the grouped attention and the kernels `lutd+h+pq` return
+the logits and the tokens of the expanded configs bit for bit: every matrix 253 of 253 (4B, 8B) and 281 of 281 (14B),
+grouped against expanded in lockstep max |dlogit| 0 (4B 49,140 steps, 8B and 14B 2,047 steps each), the same tokens
+at both prompt lengths, and the same text through `llvq run`, `/api/generate` and `/api/chat` at temperature 0.
+- Standing: established. Scope: the three sealed Qwen3 files, one M3 Max, the 8B and 14B past one window of 2,048
+  positions not read; the 4B's lockstep is M5 of metal-nuit-2026-11-06.
+- Evidence: [qwen-metal-servi](mesures/qwen-metal-servi-2026-11-26.txt) A-i to A-iii and A-v;
+  [metal-nuit](mesures/metal-nuit-2026-11-06.txt) M5.
+- Overturn: one matrix, one logit or one token that differs on a Metal config.
+- Checked: 2026-11-27.
+
+**A6.** Against the expanded config on that Mac, the Metal config decodes x1.142, x1.097 and x1.077 faster after a
+5-token prompt at 4B, 8B and 14B, and x3.201 (4,096 tokens), x1.689 and x1.525 (2,048 tokens) after a long one; the
+first token at the long prompt comes after 35.17, 28.44 and 52.59 s instead of 67.87, 55.45 and 91.92.
+- Standing: supported. Scope: one M3 Max loaded by other jobs, ratios round by round in one process (5 timed rounds
+  at 4B, 3 at 8B and 14B); no absolute rate of that night is quoted, the 4B's 30.4 tok/s at 5 tokens against 50.85
+  three weeks before is not explained.
+- Evidence: [qwen-metal-servi](mesures/qwen-metal-servi-2026-11-26.txt) A-iv, peak memory.
+- Overturn: alternated rounds on a quiet machine that read a ratio outside the ranges of that journal.
+- Checked: 2026-11-27.
+
+**A7.** On the CPU the prefix cache of Inkling 2 Mini gives the first token of a restarted server over a 2,316-token
+agent prompt after 20.33 s [20.31, 20.39], median of 3, against 140.99 s read cold, with the answer of a server with
+the cache off. The file is 0.81 GB, written in 0.77 s and checked and loaded in 0.45 to 0.52 s, and the real model's
+logits after a state saved and loaded at 2,048 equal the straight read's byte for byte.
+- Standing: supported. Scope: Inkling 2 Mini, this M3 Max's CPU, 6 threads, one synthetic agent prompt, save point
+  2,048; nothing on x86, the cache off on CUDA where it has not run.
+- Evidence: [inkling-cpu-prefix-held](mesures/inkling-cpu-prefix-held-2026-11-26.txt) B-i to B-iii.
+- Overturn: a loaded state whose logits differ, or a CPU of another family where the read after the save point costs
+  as much as the cold read.
+- Checked: 2026-11-27.
+
+**A8.** On Metal a request whose whole prompt is held is answered from the logits kept at the end of its first read,
+with no read: the same 8,791-token agent prompt sent again gets its first token after 0.159 s [0.157, 0.165] against
+2.687 s [2.629, 3.659] before, and a 36-token chat after 0.139 s [0.136, 0.141] against 0.921 s [0.916, 0.924], with
+the same text. The Qwen3 engine does not have that defect: it re-reads one token.
+- Standing: supported. Scope: Inkling 2 Mini, one M3 Max, one server an arm, answers of 48 tokens; the rollback over a
+  held answer is gated by unit tests on a scripted model only.
+- Evidence: [inkling-cpu-prefix-held](mesures/inkling-cpu-prefix-held-2026-11-26.txt) C-i, C-ii.
+- Overturn: alternated before and after servers that read a first token above 0.5 s on the long prompt.
+- Checked: 2026-11-27.
+
+**A9.** On Metal, scoring each chunk of query rows of Inkling 2 Mini's sliding layers over the keys it can see,
+instead of over every key the slot holds, reads a 9,000-token prompt in 112.41 s against 131.48 s, x0.855
+[0.854, 0.856], and a 2,000-token prompt x0.945 [0.943, 0.951]. The logits move: max |dlogit| 6.41 at 9,000 tokens
+and 1.50 at 2,000 against a largest logit of 29.5 and 29.7, with the same argmax on the 32 compared rows and the same
+32 tokens. On the tiny model the worst gap is 2.9e-6 of the largest logit. The paired perplexity of the arm against
+the reference is +0.022 % [-0.045, +0.089] on 12,286 positions of two joined texts and +0.015 % [-0.047, +0.076] on
+12,282 positions of six windows, inside the +-0.12 % band, with no difference grouped at a chunk or piece boundary.
+Through `llvq serve` the first token of an 8,791-token prompt comes x0.858 [0.857, 0.859] sooner, 109.24 s against
+127.40 s, and that prompt's greedy answer takes another token at the 35th of 46. The decode has nothing to gain: its
+score kernel already reads the window only.
+- Standing: supported. Scope: one M3 Max, Metal, the arm off by default in `inkrun` and behind a hidden switch of
+  `llvq serve`; two prompts and four alternated pairs a length in `inkrun`, one long prompt and three pairs through
+  the server; WikiText-2 only, a cost under about 0.07 % not resolved, one window of six outside the band alone
+  (+0.169 % [+0.046, +0.292]); the routing not recorded, nothing on CUDA or the CPU.
+- Evidence: [inkling-mac-fenetre](mesures/inkling-mac-fenetre-2026-11-27.txt) D-i to D-iii;
+  [inkling-mac-fenetre-ppl](mesures/inkling-mac-fenetre-ppl-2026-11-27.txt);
+  [inkling-mac-fenetre-runtime](mesures/inkling-mac-fenetre-runtime-2026-11-27.txt) H-i to H-iv.
+- Overturn: a pooled perplexity point outside the band on other texts or another backend, or alternated pairs that
+  read a ratio above 0.95 at 9,000 tokens.
+- Checked: 2026-11-27.
+
+**A10.** On the CPU backend the grouped attention decodes the Qwen3 4B x1.555 [1.550, 1.566] faster than the expanded
+one after a 2,048-token prompt, 6.515 against 4.186 tok/s, and the 8B x1.378 [1.371, 1.385], 4.363 against 3.165.
+After 5 tokens the gain is x1.033 and x1.038, and the first token at 2,048 tokens does not move (x0.997 and x1.002).
+The two forms are not bit for bit on the CPU, where they are on Metal (A5): 2,046 steps of 2,047 differ, by at most
+8.1e-4 and 3.5e-4 against largest logits of 34.8 and 43.1, with no step whose argmax differs and the same tokens.
+- Standing: supported. Scope: one M3 Max, NEON, 6 threads, f32, `cpurun` in two measurement modes; three timed
+  rounds at 4B and two at 8B, one window of 2,048 in lockstep; no perplexity band on the CPU, no 14B, no x86. The
+  cause of the gain is not traced, and the 4B's peak footprint at 2,048 tokens is bimodal in both forms.
+- Evidence: [qwen-cpu-groupee](mesures/qwen-cpu-groupee-2026-11-27.txt) G-i to G-iv.
+- Overturn: alternated rounds that read a ratio under 1.2 at 2,048 tokens on either size, or a step whose argmax
+  differs.
+- Checked: 2026-11-27.
 
 ## Anomalies
 

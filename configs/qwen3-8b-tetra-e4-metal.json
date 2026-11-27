@@ -1,0 +1,10 @@
+{
+  "layout": "tetra48",
+  "embed": "q4",
+  "rot_share": "1",
+  "fuse": "0",
+  "kv": "f16",
+  "attention": "grouped",
+  "metal_kernels": "lutd+h+pq",
+  "note": "The qwen3-8b-tetra-e4 object (qwen3-8b-sealed-B.bin, sha256 7bdb9a55), served on Metal since 2026-11-26 with the grouped attention and the Metal kernels lutd+h+pq (see the 4B's Metal config). Same tokens as qwen3-8b-tetra-e4.json, which the CPU keeps: 253 of 253 records bit for bit against the default kernels, max |dlogit| 0 over 2,047 decode steps of one WikiText-2 window of 2,048 against the expanded form, the same 256 tokens after 5 and the same 64 after 2,048. On the M3 Max against that config, round by round: decode x1.097 [1.094-1.099] at 5 tokens and x1.689 [1.598-1.693] at 2,048, first token at 2,048 x1.926 [1.890-2.002], peak footprint at 2,048 6.24 GB on both (measured, qwen-metal-servi-2026-11-26). Refused off Metal."
+}

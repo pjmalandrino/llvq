@@ -7,7 +7,7 @@
 //! 5f439df): only a ratio formed round by round in one process survives that.
 //!
 //! ```text
-//! metalrun time  <sealed> <config> <arms> [n_new] [timed_rounds] [prompt_tokens]
+//! metalrun time  <sealed> <config> <arms> [n_new] [timed_rounds] [prompt_tokens] [discarded_rounds]
 //! metalrun gate  <sealed> <config> <arms>
 //! metalrun phased <sealed> <config> <arm> [n_new]
 //! metalrun dispatch
@@ -32,11 +32,16 @@
 //! | `+grp` | grouped attention, refused on the served Metal door: a measurement arm |
 //! | `+ker` | the split-KV decode-attention kernel (`kernels/attn_dec.metal`) from position 0, as the 4B's served card config reads it; refused on the served Metal door: a measurement arm |
 //! | `D` | the dense reconstruction, f16, through candle (`sealed::load`) |
+//! | `cfg:<config>` | the served door of another config, whole: its kernels (`metal_kernels`) through `served::load_served` and its attention form through `Served::apply`, refused where that door refuses |
 //!
+//! A `cfg:` arm ignores the `<config>` argument: it is the object another
+//! config serves, so two configs can be timed against each other in one
+//! process.
 //! The first arm is the reference: every other arm's tokens and every
 //! projection's output are compared with it.
 //!
-//! `time` runs, in order: the bit gate (below), then two discarded and
+//! `time` runs, in order: the bit gate (below), then `discarded_rounds`
+//! (default two) discarded and
 //! `timed_rounds` timed rounds, every arm in the same order each round, each a
 //! `generate_timed` of `n_new` tokens after the 5-token prompt of `fusedrun`,
 //! or, when `prompt_tokens` is not 0, after the first `prompt_tokens` tokens of
@@ -93,7 +98,7 @@ fn main() -> anyhow::Result<()> {
 mod mac {
     use anyhow::Context;
     use candle_core::{DType, Device, Tensor, D};
-    use llvq_llm::fused_metal::{load_resolved_tuned, MetalTuning, SERVED_TETRA};
+    use llvq_llm::fused_metal::{load_resolved_tuned, MetalTuning};
     use llvq_llm::kvq::AttnHeads;
     use llvq_llm::model::{Act, Capture, NoCapture, Qwen3};
     use llvq_llm::served::Served;
@@ -102,6 +107,8 @@ mod mac {
     use std::time::Instant;
 
     const PROMPT: &str = "The capital of France is";
+    /// Discarded rounds of `time` unless its eighth argument names another
+    /// count, and of `profile`.
     const DISCARDED: usize = 2;
     const CHUNK: usize = 256;
     const REFUSED_PREFIXES: [&str; 2] = ["LLVQ_", "CANDLE_"];
@@ -125,7 +132,9 @@ mod mac {
             })
         };
         match a.first().map(String::as_str) {
-            Some("time") if a.len() >= 4 => time(&a[1], &a[2], &a[3], num(4, 128)?, num(5, 7)?, num(6, 0)?),
+            Some("time") if a.len() >= 4 => {
+                time(&a[1], &a[2], &a[3], num(4, 128)?, num(5, 7)?, num(6, 0)?, num(7, DISCARDED)?)
+            }
             Some("gate") if a.len() == 4 => {
                 let device = Device::new_metal(0)?;
                 let cfg = header(&a[1], &a[2])?;
@@ -142,7 +151,7 @@ mod mac {
             Some("attnprof") if a.len() >= 4 => attnprof(&a[1], &a[2], &a[3], num(4, 11)?, num(5, 0)?),
             Some("chat") if a.len() >= 4 => chat(&a[1], &a[2], &a[3], a.get(4).map(String::as_str), num(5, 512)?),
             _ => anyhow::bail!(
-                "usage: metalrun time <sealed> <config> <arms> [n_new=128] [timed_rounds=7] [prompt_tokens=0]\n\
+                "usage: metalrun time <sealed> <config> <arms> [n_new=128] [timed_rounds=7] [prompt_tokens=0] [discarded_rounds=2]\n\
                  \x20      metalrun gate <sealed> <config> <arms>\n\
                  \x20      metalrun phased <sealed> <config> <arm> [n_new=64]\n\
                  \x20      metalrun dispatch\n\
@@ -150,7 +159,7 @@ mod mac {
                  \x20      metalrun chat <sealed> <config> <arm> [temp=0.7] [max_new=512]\n\
                  \x20      metalrun profile <sealed> <config> <arm> [timed_rounds=11]\n\
                  \x20      metalrun attnprof <sealed> <config> <arm> [timed_rounds=11] [cache_len=0: the prompt's]\n\
-                 arms: comma list of lut|lutp|lutd|lutdp|lutd2|lutd4|lutdt[+q4p][+h][+r][+p|+pq][+t<cols>][+grp|+ker] or D; the first is the reference"
+                 arms: comma list of lut|lutp|lutd|lutdp|lutd2|lutd4|lutdt[+q4p][+h][+r][+p|+pq][+t<cols>][+grp|+ker], D or cfg:<config>; the first is the reference"
             ),
         }
     }
@@ -243,40 +252,20 @@ mod mac {
         if s == "D" {
             return Ok(None);
         }
-        let mut parts = s.split('+');
-        let kernel = match parts.next().unwrap_or("") {
-            "lut" => SERVED_TETRA,
-            "lutp" => "tv_tetra48_metal_lutp",
-            "lutd" => "tv_tetra48_metal_lutd",
-            "lutdp" => "tv_tetra48_metal_lutdp",
-            "lutd2" => "tv_tetra48_metal_lutd2",
-            "lutd4" => "tv_tetra48_metal_lutd4",
-            "lutdt" => "tv_tetra48_metal_lutdt",
-            other => anyhow::bail!("arm {s:?}: {other:?} is not lut, lutp, lutd, lutdp, lutd2, lutd4, lutdt or D"),
-        };
-        let mut spec =
-            Spec { tuning: MetalTuning { tetra_kernel: kernel, ..Default::default() }, grouped: false, kernel: false };
-        for m in parts {
+        // The attention forms come off first; the kernels are read by the
+        // one reader of the arm spelling, which the served configs use too.
+        let (mut grouped, mut kernel) = (false, false);
+        let mut kept = Vec::new();
+        for m in s.split('+') {
             match m {
-                "q4p" => spec.tuning.q4_prefetch = true,
-                "h" => spec.tuning.half_io = true,
-                "p" => spec.tuning.prefill_rows = llvq_llm::fused_metal::TETRA_PREFILL_MAX,
-                "r" => spec.tuning.rot_tg = true,
-                "pq" => {
-                    spec.tuning.prefill_rows = llvq_llm::fused_metal::TETRA_PREFILL_MAX;
-                    spec.tuning.q4_rows = true;
-                }
-                "grp" => spec.grouped = true,
-                "ker" => spec.kernel = true,
-                t if t.starts_with('t') => {
-                    spec.tuning.q4_tile_cols = t[1..].parse().with_context(|| format!("arm {s:?}: tile {t:?}"))?
-                }
-                other => anyhow::bail!("arm {s:?}: unknown modifier {other:?}"),
+                "grp" => grouped = true,
+                "ker" => kernel = true,
+                other => kept.push(other),
             }
         }
-        anyhow::ensure!(!(spec.grouped && spec.kernel), "arm {s:?}: +grp and +ker are two forms; name one");
-        spec.tuning.validate()?;
-        Ok(Some(spec))
+        anyhow::ensure!(!(grouped && kernel), "arm {s:?}: +grp and +ker are two forms; name one");
+        let tuning = MetalTuning::parse_arm(&kept.join("+")).map_err(|e| anyhow::anyhow!("arm {s:?}: {e}"))?;
+        Ok(Some(Spec { tuning, grouped, kernel }))
     }
 
     fn head_bytes(c: &candle_transformers::models::qwen3::Config, bits: Option<u8>) -> f64 {
@@ -293,7 +282,41 @@ mod mac {
         2.0 * (l * (d * q + 2 * d * kv + q * d + 3 * d * i) + c.vocab_size * d) as f64
     }
 
+    /// An arm that is another config's served door, whole: its kernels
+    /// through `served::load_served`, its form through `Served::apply`, with
+    /// no measurement fallback.
+    fn load_config_arm(path: &str, cfg_path: &str, device: &Device, spec_s: &str) -> anyhow::Result<Arm> {
+        let t0 = Instant::now();
+        println!("config  {cfg_path} sha256 {}", llvq_llm::digest::sha256_file(Path::new(cfg_path))?);
+        let cfg = Served::read(Path::new(cfg_path)).map_err(anyhow::Error::msg)?;
+        println!("arm {spec_s}: {}", cfg.provenance());
+        let mut f = llvq_llm::served::load_served(&cfg, path, device, DType::F16, Some("metalrun cfg: arm"))?;
+        cfg.apply(&mut f.model, device).map_err(anyhow::Error::msg)?;
+        let arm = Arm {
+            label: spec_s.to_string(),
+            weights_a_token: f.runtime_bytes as f64 + head_bytes(&f.config, cfg.embed.bits()),
+            host_bytes: (f.runtime_bytes + f.carried_bytes) as f64,
+            model: f.model,
+            tokenizer: f.tokenizer,
+            fused: true,
+        };
+        println!(
+            "arm {:<12} loaded in {:5.1} s | host count {:.3} GB | {:.3} GB of weights a token | attention {} on {} | kernels {:?}",
+            spec_s,
+            t0.elapsed().as_secs_f64(),
+            arm.host_bytes / 1e9,
+            arm.weights_a_token / 1e9,
+            arm.model.attn_heads().label(),
+            arm.model.kv_store().label(),
+            llvq_llm::fused_metal::tuning_of(&arm.model),
+        );
+        Ok(arm)
+    }
+
     fn load_arm(path: &str, cfg: &Served, device: &Device, spec_s: &str) -> anyhow::Result<Arm> {
+        if let Some(cfg_path) = spec_s.strip_prefix("cfg:") {
+            return load_config_arm(path, cfg_path, device, spec_s);
+        }
         let t0 = Instant::now();
         let arm = match parse_spec(spec_s)? {
             None => {
@@ -362,11 +385,13 @@ mod mac {
         Ok(arm)
     }
 
-    /// The config's store and form. A form the Metal door refuses (grouped,
-    /// kernel) goes through the measurement door, said so on one line: this
-    /// binary times it, nothing serves it.
+    /// The config's store and form. What the Metal door refuses (the kernel
+    /// form, a grouped form from a config that names no Metal kernels, an arm
+    /// whose kernels are not the ones its config names) goes through the
+    /// measurement door, said so on one line: this binary times it, nothing
+    /// serves it.
     fn apply_config(cfg: &Served, model: &mut Qwen3, device: &Device) -> anyhow::Result<()> {
-        match cfg.check_device(true) {
+        match cfg.check_device(true).and_then(|()| cfg.check_metal_kernels(model, device)) {
             Ok(()) => cfg.apply(model, device).map_err(anyhow::Error::msg),
             Err(why) => {
                 println!("NOT SERVED on Metal, measured through Served::apply_measurement: {why}");
@@ -467,7 +492,15 @@ mod mac {
         (med, s[0], s[n - 1])
     }
 
-    fn time(path: &str, cfg_path: &str, list: &str, n_new: usize, timed: usize, prompt_tokens: usize) -> anyhow::Result<()> {
+    fn time(
+        path: &str,
+        cfg_path: &str,
+        list: &str,
+        n_new: usize,
+        timed: usize,
+        prompt_tokens: usize,
+        discarded: usize,
+    ) -> anyhow::Result<()> {
         anyhow::ensure!(n_new >= 2 && timed >= 1, "n_new >= 2 and at least one timed round");
         let device = Device::new_metal(0)?;
         let cfg = header(path, cfg_path)?;
@@ -492,14 +525,14 @@ mod mac {
         };
         let shown = if ids.len() <= 8 { format!("{PROMPT:?} = {ids:?}") } else { format!("{} tokens", ids.len()) };
         println!(
-            "prompt {shown}; {n_new} new tokens; {DISCARDED} discarded + {timed} timed rounds; order {}",
+            "prompt {shown}; {n_new} new tokens; {discarded} discarded + {timed} timed rounds; order {}",
             arms.iter().map(|a| a.label.as_str()).collect::<Vec<_>>().join(" ")
         );
         let n = arms.len();
-        let (mut door, mut dec) = (vec![Vec::new(); n], vec![Vec::new(); n]);
+        let (mut door, mut dec, mut first) = (vec![Vec::new(); n], vec![Vec::new(); n], vec![Vec::new(); n]);
         let mut texts: Vec<Option<Vec<u32>>> = vec![None; n];
         let mut cpu_max = 0f64;
-        for r in 0..DISCARDED + timed {
+        for r in 0..discarded + timed {
             for (i, a) in arms.iter().enumerate() {
                 let g = a.model.generate_timed(&ids, n_new, CHUNK)?;
                 let cpu = others_cpu();
@@ -511,13 +544,14 @@ mod mac {
                     }
                 }
                 let (rd, rc) = (n_new as f64 / (g.prompt_s + g.decode_s), (n_new - 1) as f64 / g.decode_s);
-                if r >= DISCARDED {
+                if r >= discarded {
                     door[i].push(rd);
                     dec[i].push(rc);
+                    first[i].push(g.prompt_s);
                 }
                 println!(
                     "round {r}{} arm {:<12} door {rd:7.2} tok/s | decode {rc:7.2} tok/s | first token {:6.1} ms | others {cpu:.0} % CPU",
-                    if r < DISCARDED { " (discarded)" } else { "" },
+                    if r < discarded { " (discarded)" } else { "" },
                     a.label,
                     g.prompt_s * 1e3,
                 );
@@ -527,9 +561,13 @@ mod mac {
         for (i, a) in arms.iter().enumerate() {
             let (m, lo, hi) = stats(&door[i]);
             let (dm, dlo, dhi) = stats(&dec[i]);
+            let (fm, flo, fhi) = stats(&first[i]);
             println!(
-                "arm {:<12} door {m:7.2} tok/s [{lo:.2}-{hi:.2}] | decode {dm:7.2} tok/s [{dlo:.2}-{dhi:.2}] | {:.2} ms a decode token | {:.1} GB/s of weights (computed)",
+                "arm {:<12} door {m:7.2} tok/s [{lo:.2}-{hi:.2}] | decode {dm:7.2} tok/s [{dlo:.2}-{dhi:.2}] | first token {:.3} s [{:.3}-{:.3}] | {:.2} ms a decode token | {:.1} GB/s of weights (computed)",
                 a.label,
+                fm,
+                flo,
+                fhi,
                 1e3 / dm,
                 dm * a.weights_a_token / 1e9
             );
@@ -541,8 +579,10 @@ mod mac {
             };
             let (m, lo, hi) = ratio(&door);
             let (dm, dlo, dhi) = ratio(&dec);
+            // First token as a speed-up: the reference's time over the arm's.
+            let (fm, flo, fhi) = stats(&first[0].iter().zip(&first[i]).map(|(q, p)| q / p).collect::<Vec<_>>());
             println!(
-                "ratio {:<12} / {reference}: door x{m:.3} [{lo:.3}-{hi:.3}] | decode x{dm:.3} [{dlo:.3}-{dhi:.3}], round by round",
+                "ratio {:<12} / {reference}: door x{m:.3} [{lo:.3}-{hi:.3}] | decode x{dm:.3} [{dlo:.3}-{dhi:.3}] | first token {reference} / arm x{fm:.3} [{flo:.3}-{fhi:.3}], round by round",
                 a.label
             );
         }
@@ -1030,7 +1070,7 @@ mod mac {
         let text = llvq_llm::corpus::wikitext2_test()?;
         let ids = a.tokenizer.encode(text.as_str(), false).map_err(anyhow::Error::msg)?.get_ids().to_vec();
         let nwin = (ids.len() / ctx).min(windows);
-        anyhow::ensure!(nwin >= 2 && ctx >= 2, "two windows of two tokens at least: {} tokens", ids.len());
+        anyhow::ensure!(nwin >= 1 && ctx >= 2, "one window of two tokens at least: {} tokens", ids.len());
         let span = &ids[..nwin * ctx];
         println!(
             "ppl: wikitext2 test, {nwin} windows of {ctx} from the start ({} tokens in the split, span sha256 {}), \

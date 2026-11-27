@@ -2,7 +2,9 @@
 
 The static block is the long prompt of serve_checks.py (a system prompt of numbered sections and 15 tools, built the
 same way on every run, about 8,770 tokens once rendered); each request adds one short user message, like a coding
-agent's first turn. Standard library only.
+agent's first turn. PREFIX_SECTIONS and PREFIX_TOOLS keep the first sections and tools only, for a shorter block
+(ops/inkling/serve-prefix-cpu.sh). The request `chat` is a short chat with no system prompt and no tool. Standard
+library only.
 
   prefix_checks.py req <name>                                  prints the request body (/api/chat, streamed)
   prefix_checks.py ndjson <t0> <raw out> <json out>            reads an /api/chat stream on stdin, timestamps lines
@@ -29,10 +31,17 @@ USERS = {
     "u1": sc.LONG_USER,
     "u2": "Do not call any tool. In one short sentence: what does section 12 of the policy ask for?",
     "u3": "Do not call any tool. In one short sentence: what does section 21 of the policy ask for?",
+    "u4": "Do not call any tool. In one short sentence: what does section 4 of the policy ask for?",
+    "u5": "Do not call any tool. In one short sentence: what does section 9 of the policy ask for?",
 }
+CHAT = "In two short sentences: why is the sky blue during the day, and why is it red at sunset?"
+# The sections and the tools the static block keeps: all of them unless set.
+SECTIONS = int(os.environ.get("PREFIX_SECTIONS", sc.SECTIONS))
+TOOLS = int(os.environ.get("PREFIX_TOOLS", 1 + sc.N_TOOLS))
 
 
 def system(changed=False):
+    sc.SECTIONS = SECTIONS
     s = sc.long_system()
     if changed:
         # one word of the first sentence
@@ -43,8 +52,11 @@ def system(changed=False):
 
 def req(name):
     """`<user>` or `<user>-changed`: the static block (changed by one word) and that user message."""
+    if name == "chat":
+        return {"model": MODEL, "stream": True, "keep_alive": -1, "messages": [{"role": "user", "content": CHAT}],
+                "options": {"num_predict": 48, "temperature": 0}}
     user, _, changed = name.partition("-")
-    return {"model": MODEL, "stream": True, "keep_alive": -1, "tools": sc.long_tools(),
+    return {"model": MODEL, "stream": True, "keep_alive": -1, "tools": sc.long_tools()[:TOOLS],
             "messages": [{"role": "system", "content": system(changed == "changed")},
                          {"role": "user", "content": USERS[user]}],
             "options": {"num_predict": 48, "temperature": 0}}

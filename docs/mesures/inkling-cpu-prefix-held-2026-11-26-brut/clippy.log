@@ -1,0 +1,26 @@
+[heavy] 21:16:28 waiting for: lotBC: B-iii CPU server prefix checks | wrapper=44068 pgid=48388 | since 2026-11-26 21:16:06
+[heavy] 21:16:58 waiting for: lotBC: B-iii CPU server prefix checks | wrapper=44068 pgid=48388 | since 2026-11-26 21:16:06
+[heavy] 21:17:28 waiting for: lotBC: B-iii CPU server prefix checks | wrapper=44068 pgid=48388 | since 2026-11-26 21:16:06
+[heavy] 21:17:58 waiting for: lotBC: B-iii CPU server prefix checks | wrapper=44068 pgid=48388 | since 2026-11-26 21:16:06
+[heavy] 21:18:28 waiting for: lotBC: B-iii CPU server prefix checks | wrapper=44068 pgid=48388 | since 2026-11-26 21:16:06
+[heavy] 21:18:58 waiting for: lotBC: B-iii CPU server prefix checks | wrapper=44068 pgid=48388 | since 2026-11-26 21:16:06
+[heavy] 21:19:28 waiting for: lotBC: B-iii CPU server prefix checks | wrapper=44068 pgid=48388 | since 2026-11-26 21:16:06
+[heavy] 21:19:58 waiting for: lotBC: B-iii CPU server prefix checks | wrapper=44068 pgid=48388 | since 2026-11-26 21:16:06
+[heavy] 21:20:28 waiting for: lotBC: B-iii CPU server prefix checks | wrapper=44068 pgid=48388 | since 2026-11-26 21:16:06
+[heavy] 21:20:58 waiting for: lotBC: B-iii CPU server prefix checks | wrapper=44068 pgid=48388 | since 2026-11-26 21:16:06
+[heavy] 21:21:29 waiting for: lotBC: B-iii CPU server prefix checks | wrapper=44068 pgid=48388 | since 2026-11-26 21:16:06
+[heavy] 21:21:59 waiting for: lotBC: B-iii CPU server prefix checks | wrapper=44068 pgid=48388 | since 2026-11-26 21:16:06
+[heavy] 21:22:29 waiting for: lotBC: B-iii CPU server prefix checks | wrapper=44068 pgid=48388 | since 2026-11-26 21:16:06
+[heavy] 21:22:59 waiting for: lotBC: B-iii CPU server prefix checks | wrapper=44068 pgid=48388 | since 2026-11-26 21:16:06
+[heavy] 21:23:29 waiting for: lotBC: B-iii CPU server prefix checks | wrapper=44068 pgid=48388 | since 2026-11-26 21:16:06
+[heavy] 21:23:59 waiting for: lotBC: B-iii CPU server prefix checks | wrapper=44068 pgid=48388 | since 2026-11-26 21:16:06
+[heavy] 21:24:29 waiting for: lotBC: B-iii CPU server prefix checks | wrapper=44068 pgid=48388 | since 2026-11-26 21:16:06
+[heavy] 21:24:59 waiting for: lotBC: B-iii CPU server prefix checks | wrapper=44068 pgid=48388 | since 2026-11-26 21:16:06
+[heavy] 21:25:29 waiting for: lotBC: B-iii CPU server prefix checks | wrapper=44068 pgid=48388 | since 2026-11-26 21:16:06
+[heavy] 21:25:59 waiting for: lotBC: B-iii CPU server prefix checks | wrapper=44068 pgid=48388 | since 2026-11-26 21:16:06
+[heavy] 21:26:29 waiting for: lotA: cargo test llvq-runtime lib metal | wrapper=45144 pgid=53150 | since 2026-11-26 21:26:07
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 1.95s
+== linux llm
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 10.51s
+== linux runtime
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 5.75s

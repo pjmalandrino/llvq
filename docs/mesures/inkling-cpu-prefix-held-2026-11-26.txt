@@ -1,0 +1,99 @@
+INKLING 2 MINI: THE PREFIX CACHE ON THE CPU, AND A PROMPT HELD WHOLE ANSWERED WITH NO READ, 2026-11-26 (parts B and C)
+
+RESULT
+  B. On this Mac's CPU (M3 Max, 6 threads), a restarted `llvq serve` gives the first token of a 2,316-token agent
+  prompt after 20.33 s, median of 3 [20.31, 20.39], against 140.99 s read cold (*measured*). The answer at temperature
+  0 is the text of a server with the cache off, three times of three. The real model's logits after a state saved and
+  loaded at 2,048 are the straight read's byte for byte (sha256 ec40910e..., 2,600-token prompt and 8 greedy steps).
+  The file is 0.81 GB at b = 2,048, written in 0.77 s, checked and loaded in 0.45 to 0.52 s. The peak footprint of
+  the server reads 11 GB with the cache on or off. Warm is 6.9 times under cold, inside the rule's quarter: the cache
+  is now on by default on the CPU.
+  C. On Metal, the same request sent again gets its first token after 0.159 s, median of 4 [0.157, 0.165], against
+  2.687 s [2.629, 3.659] before the change for the 8,791-token agent prompt, and after 0.139 s [0.136, 0.141] against
+  0.921 s [0.916, 0.924] for a 36-token chat (*measured*, one server an arm). The ten answers of each prompt, five
+  before and five after, are one text.
+  Prereg: proofs/preregistration-servi-au-bit-2026-11-26.md (a05d99a, OpenTimestamps). Deviations: -ECARTS.md beside
+  it, entries BC1 to BC6. Raw files: inkling-cpu-prefix-held-2026-11-26-brut/. Code: c00ce5e, and the commit of this
+  journal (the CPU default).
+
+WHAT CHANGED
+  B. `long_prompt` (llvq-runtime/src/inkling.rs) answers `BiasOnHost` for the CPU, whatever the stack: every CPU load
+  is `experts_cpu::load_served`, which sets the pieces of 512, the score rows of 128 and the slack of 1,024 itself
+  (llvq-llm/src/inkling/experts_cpu.rs), and the model, not the runtime, cuts the prompt (`Inkling::forward_pieces`).
+  A compile-time assertion holds the runtime's three values equal to the CPU load's. A CPU build has no bias kernel
+  (`attn_bias` is compiled for CUDA and Metal only), so the bias is `layers::score_bias_host` and the key's `bias`
+  field, `host`, says what runs. The key names the stack `cpu` and the backend `cpu`; a CPU file is never loaded on
+  Metal. `prefix_on_by_default` is now true on Metal and the CPU.
+  C. A held segment that ended a prompt keeps the logits of its last position as `pick` reads them (flat f32 on the
+  host, 200,058 values, 0.8 MB). When the whole prompt of a request is held and its last segment has them, the server
+  goes back to that segment's mark and samples from them, with no feed. Without them, or when the rollback is refused
+  (a bounded sliding slot past its slack), it reads as before.
+
+THE GATES
+  B-i, tiny served file set on the CPU stack (llvq-llm/tests/inkling_cpu.rs, `experts_cpu::load_served`, attention
+  `cpu`, experts from Tetra codes; pieces of 16, scores in chunks of 8, slack 2): a 70-token prompt cut at 32, 48 and
+  64, the state written, loaded into a new cache, the rest read, 8 greedy steps: 0 of 78 rows differ at each cut, and
+  the loaded cache writes the bytes it was loaded from.
+  B-ii, real model on this Mac's CPU (llvq-runtime/tests/inkling_cpu_prefix_real.rs, BC2): the first 2,600 ids of the
+  lot 1 prompt read straight in 163.2 s; read to 2,048 in 118.5 s, the state (809,155,432 bytes) written in 0.52 s and
+  loaded in 0.12 s, the rest in 39.1 s. Last prompt row and 8 steps: sha256 ec40910e9234ff035e7e7a0130a0d1672239522f
+  4fd4e8277b28d99120af53a1 for both arms, same 8 tokens. Peak footprint of the process 11.14 GB (`time -l`).
+  B-iii, server on the CPU (ops/inkling/serve-prefix-cpu.sh, CPU build of c00ce5e, `--prefix-cache on`, BC3, BC4):
+  10 checks of 10 pass.
+    check   server                 request            first token   cached   reading
+    P-a     s1 cold store          static + u4        140.99 s      0        file written, b 2,048, 0.77 s
+    P-b1    s2 restarted           static + u5        20.39 s       2,048    loaded in 0.52 s (check 0.33 s); same answer
+    P-b2    s3 restarted           static + u5        20.33 s       2,048    loaded in 0.45 s (check 0.31 s); same answer
+    P-b3    s4 restarted           static + u5        20.31 s       2,048    loaded in 0.46 s (check 0.31 s); same answer
+    ref     s5 cache off           static + u5        139.96 s      0        no prefix directory (P-f)
+    P-d     s6, 1 byte damaged     static + u5        144.95 s      0        refused by name ("its sha256 does not hold:
+                                                                             the file is damaged"), same answer, saved again
+  The 20.3 s of P-b: about 0.5 s of load, the 268 tokens after b read in 19.2 s, then a decode step. On the CPU the
+  read costs about 60 ms a token whether it starts at 0 or at b, so the gain is the share of the prompt before b.
+  Server load 4.9 to 5.1 s each. 1-minute load before each request 4.0 to 5.6 (`machine.txt`); LLVQ_THREADS 6 for
+  every server. Footprint sampled each second: 11 GB peak in every request (1 GB grain), cache on, off or refused.
+  The rule: warm 20.33 s is 0.144 of the cold 140.99 s, under a quarter, and B-i to B-iii hold: on by default.
+  C-i, unit tests on a scripted model whose rows carry noise drawn from a counter of its feeds, so no two reads give
+  the same bits (llvq-runtime/src/inkling.rs, 4 tests): the row sampled on a request sent again is the first read's
+  bit for bit, with no prompt feed and the cache back at the prompt's mark; a segment whose logits were taken away is
+  read again and sampled from the new read; a refused rollback reads the whole prompt from an empty cache; on a second
+  turn, the logits handed back are the second prompt's, not the first's.
+  C-ii, server on Metal (ops/inkling/held-mac.sh, BC5, BC6): before = a05d99a, after = c00ce5e.
+    prompt                 arm      first read   sent again, 4 times                   cached
+    agent, 8,791 tokens    before   140.40 s     2.687 s [2.629, 3.659]                8,704 (the prefix file)
+    agent, 8,791 tokens    after    132.12 s     0.159 s [0.157, 0.165]                8,791
+    chat, 36 tokens        before   0.92 s       0.921 s [0.916, 0.924]                0
+    chat, 36 tokens        after    0.90 s       0.139 s [0.136, 0.141]                36
+  Each answer is 48 tokens (the cap), so the answer is dropped after it and the cache is already at the prompt's
+  mark when the request comes again: the real model ran the kept logits without a rollback of the answer. The
+  rollback over a held answer is gated by C-i only. 1-minute load 1.9 to 3.9 before each timed request.
+
+MUTANTS (mutants.py, mutants.log; one site each, applied by count on committed c00ce5e, restored by git checkout)
+  B-key   the backend removed from the key (empty string)             red: a_prefix_key_names_the_backend_...
+  B-off   the CPU branch of long_prompt answering Off                 red: long_prompt_settings_follow_the_stack_...
+  C-other the kept logits of the first segment that has them         red: the_logits_handed_back_are_the_last_segments
+  C-skip  the rollback to the mark skipped when kept logits are used  red: a_prompt_sent_again_..., a_refused_rollback_...
+
+AGAINST THE SIGNED PREDICTIONS
+  prediction                                            measured                          inside
+  B identity holds                                      B-i, B-ii, B-iii hold             yes
+  B cold first token 250 s [120 ; 600]                  140.99 s (2,316 tokens)           yes
+  B warm after a restart 20 s [6 ; 45]                  20.33 s [20.31, 20.39]            yes
+  B warm at least x8 under cold                         x6.9                              no: the 268 tokens after b
+                                                                                          cost as much a token as cold
+  B file at b = 2,048: 0.6 GB [0.35 ; 0.9]              0.81 GB (809,164,155 bytes)       yes
+  C identity holds                                      C-i, C-ii hold                    yes
+  C agent sent again, today 3 to 5 s                    2.687 s [2.629, 3.659]            no, under the range
+  C agent sent again, after at most 0.5 s               0.159 s [0.157, 0.165]            yes
+  C chat sent again, today 0.3 to 1.5 s                 0.921 s [0.916, 0.924]            yes
+  C chat sent again, after at most 0.15 s               0.139 s [0.136, 0.141]            yes
+
+THE QWEN3 ENGINE (llvq-runtime/src/engine.rs, read, not changed)
+  It does not have the defect. `Session::reuse_prefix` keeps the common prefix up to the prompt's length minus one,
+  so a prompt sent again reads one token, not a segment. Kept logits would save that one forward and nothing more.
+
+WHAT THE READING DOES NOT SAY
+  Nothing about x86: the CPU numbers are this Mac's. Nothing about CUDA, still off by default and type-checked only.
+  The CPU warm number is for a block just over 2,048 tokens; a longer block saves more, since the cost after b stays
+  under 512 tokens plus the user message. C-ii timed one server an arm; the before and after servers did not
+  alternate.

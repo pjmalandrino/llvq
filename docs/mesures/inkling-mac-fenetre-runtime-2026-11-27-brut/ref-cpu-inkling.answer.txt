@@ -1,0 +1,2 @@
+{"error":"loading inkling2:mini: --attn-window narrow: the window scores have been read on Metal under the fused stack only, and this load is cpu, stack cpu"}
+HTTP 500 0.273642 s

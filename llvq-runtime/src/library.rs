@@ -260,6 +260,9 @@ const CONFIGS: &[(&str, &str)] = configs![
     "qwen3-8b-tetra-e4-4e-v9-batch.json",
     "qwen3-14b-tetra-e4-4e-v9-batch.json",
     "qwen3-4b-tetra-e4-4e-v9-chain.json",
+    "qwen3-4b-tetra-e4-metal.json",
+    "qwen3-8b-tetra-e4-metal.json",
+    "qwen3-14b-tetra-e4-metal.json",
 ];
 
 /// The text of a compiled-in config.
@@ -400,15 +403,24 @@ mod tests {
         assert!(readme.contains(&m.sha256), "the 4B's full digest is in the README");
     }
 
+    /// Metal serves each sealed file through its Metal config: the grouped
+    /// form and the kernels `lutd+h+pq`, gated bit for bit against the
+    /// expanded form and the default kernels on that file
+    /// (`docs/mesures/qwen-metal-servi-2026-11-26.txt`). The CPU keeps the
+    /// expanded config, which a Metal config is refused on.
     #[test]
-    fn metal_serves_only_the_expanded_form() {
-        // served.rs refuses every other form on Metal; a library that named
-        // one would fail at the first load instead of here.
+    fn metal_serves_the_grouped_form_through_its_metal_config() {
         for m in sealed() {
             let c = m.configs.metal.as_deref().unwrap();
+            assert_eq!(c, format!("qwen3-{}-tetra-e4-metal.json", m.tag), "{}", m.model_name());
             let f: ServedFile = serde_json::from_str(config_text(c).unwrap()).unwrap();
             let s = Served::of(f, c.into()).unwrap();
             s.check_device(true).unwrap_or_else(|e| panic!("{c}: {e}"));
+            assert_eq!(s.attention, llvq_llm::kvq::AttnHeads::Grouped, "{c}");
+            assert_eq!(s.metal_kernels, llvq_llm::served::MetalKernels::LutdHPq, "{c}");
+            assert!(s.check_device(false).is_err(), "{c} is a Metal config");
+            let cpu = m.configs.cpu.as_deref().unwrap();
+            assert_eq!(cpu, format!("qwen3-{}-tetra-e4.json", m.tag), "{}: the CPU keeps the expanded config", m.model_name());
         }
     }
 
@@ -439,8 +451,8 @@ mod tests {
         assert_eq!(config_for(c, Backend::Cuda, false, Some("eager")), Ok("qwen3-4b-tetra-e4-4e-v9.json"));
         assert_eq!(config_for(c, Backend::Cuda, true, None), Ok("qwen3-4b-tetra-e4-4e-v9-batch.json"));
         assert_eq!(config_for(c, Backend::Cuda, true, Some("eager")), Ok("qwen3-4b-tetra-e4-4e-v9-batch.json"));
-        assert_eq!(config_for(c, Backend::Metal, false, None), Ok("qwen3-4b-tetra-e4.json"));
-        assert_eq!(config_for(c, Backend::Metal, false, Some("eager")), Ok("qwen3-4b-tetra-e4.json"));
+        assert_eq!(config_for(c, Backend::Metal, false, None), Ok("qwen3-4b-tetra-e4-metal.json"));
+        assert_eq!(config_for(c, Backend::Metal, false, Some("eager")), Ok("qwen3-4b-tetra-e4-metal.json"));
         assert_eq!(config_for(c, Backend::Cpu, false, None), Ok("qwen3-4b-tetra-e4.json"));
         let refused = [
             (config_for(c, Backend::Cuda, false, Some("chain")), "is the default where a model carries it"),

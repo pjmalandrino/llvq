@@ -1222,3 +1222,64 @@ O13, the number the long-context speed phase took on main the next day.
   the files the model loads. The same 9,000-token read ranged from 109 to 305 s over the day with no cause found.
 - `CERVEAU.md` gains A3 and A4, both supported, and the anomaly N9, and goes from 72 claims to 74. The operator had
   the branch pushed and merged ("Oui, pousse", "relis et merge").
+
+
+## 2026-11-26 to 11-27. The Qwen3 files served on Metal grouped, the prefix cache on the CPU, a held prompt answered with no read; $0
+
+- Three lots ran on one M3 Max under a prereg stamped before the first measurement
+  ([`servi-au-bit`](../proofs/preregistration-servi-au-bit-2026-11-26.md)), at no cost.
+- Part A. `llvq` serves the Qwen3 4B, 8B and 14B on Metal through `configs/qwen3-{4b,8b,14b}-tetra-e4-metal.json`,
+  which carry the grouped attention and a new optional field, `metal_kernels`, naming the kernels `lutd+h+pq`. The
+  matrices read 253 of 253 and 281 of 281 bit for bit, grouped against expanded max |dlogit| 0, the same tokens and
+  the same text through the server. Against the expanded configs, round by round, decode after 5 tokens is x1.142,
+  x1.097 and x1.077, after a long prompt x3.201, x1.689 and x1.525, and the 4B's first token at 4,096 tokens falls
+  from 67.87 to 35.17 s (*measured*, [qwen-metal-servi](mesures/qwen-metal-servi-2026-11-26.txt)). The absolute
+  rates of that night came from a loaded machine and are not quoted. The CPU keeps the expanded configs.
+- Part B. The Inkling prefix cache is on by default on the CPU as on Metal. A restarted server gives the first token
+  of a 2,316-token prompt after 20.33 s against 140.99 s cold, with the same answer (*measured*,
+  [inkling-cpu-prefix-held](mesures/inkling-cpu-prefix-held-2026-11-26.txt)).
+- Part C. A request whose whole prompt is held is answered from the logits kept at the end of its first read. On
+  Metal the 8,791-token prompt sent again gets its first token after 0.159 s against 2.687 s, same journal.
+- Two statements replaced in the living documents. `CLAUDE.md` said the grouped form is refused on Metal, where it
+  had never been measured: it was measured bit for bit on 2026-11-06 and is served there since this lot, and
+  `ETAT.md` §4 and §5 said the same until 2026-11-26. `ETAT.md` and `CERVEAU.md` A2 said the CPU backend was never
+  run on x86: it ran on 2026-11-25, 5.80 and 6.53 tok/s on the 4B on one 8 vCPU instance at its last job
+  ([llvq-cpu-x86](mesures/llvq-cpu-x86-2026-11-25.txt)).
+- `CERVEAU.md` gains A5 to A8 and goes from 74 claims to 78.
+
+## 2026-11-27. Two readings that serve nothing: Inkling's window arm on the Mac, the grouped attention on the CPU; $0
+
+- Four lots ran the same night on one M3 Max, each under a prereg stamped before its first measurement
+  ([`inkling-fenetre`](../proofs/preregistration-inkling-fenetre-2026-11-27.md),
+  [`inkling-fenetre-ppl`](../proofs/preregistration-inkling-fenetre-ppl-2026-11-27.md),
+  [`inkling-fenetre-runtime`](../proofs/preregistration-inkling-fenetre-runtime-2026-11-27.md),
+  [`qwen-cpu-groupee`](../proofs/preregistration-qwen-cpu-groupee-2026-11-27.md)), at no cost. No default changed.
+- The window arm. `inkrun --attn-window narrow` scores each chunk of query rows of Inkling 2 Mini's sliding layers
+  over the keys it can see, not over every key the slot holds. A 9,000-token prompt is read in 112.41 s against
+  131.48 s, x0.855 [0.854, 0.856] over four alternated pairs, and a 2,000-token prompt x0.945 [0.943, 0.951]
+  (*measured*, Metal, [inkling-mac-fenetre](mesures/inkling-mac-fenetre-2026-11-27.txt)). The logits move by up to
+  6.41 against a largest logit of 29.49, with the same argmax and the same 32 tokens. The peak footprint is 0.24 GB
+  higher at 9,000 tokens. The decode had nothing to gain: its score kernel already reads the window only.
+- Its perplexity. Paired by position against the reference, the arm reads +0.022 % [-0.045, +0.089] on two joined
+  WikiText-2 texts of 6,144 tokens and +0.015 % [-0.047, +0.076] on six windows of 2,048, inside the +-0.12 % band
+  the pieces carry ([inkling-mac-fenetre-ppl](mesures/inkling-mac-fenetre-ppl-2026-11-27.txt)). No difference sits at
+  a chunk or piece boundary. One window alone reads +0.169 % [+0.046, +0.292].
+- Its switch. `llvq serve --attn-window narrow`, hidden from the help, off by default and refused off Metal, gives
+  the first token of an 8,791-token prompt after 109.24 s against 127.40 s, x0.858 [0.857, 0.859] over three
+  alternated pairs ([inkling-mac-fenetre-runtime](mesures/inkling-mac-fenetre-runtime-2026-11-27.txt)). With no
+  switch the server answers token for token as the build before it, and the key of a prefix file keeps its bytes.
+  Under `narrow` the long prompt's greedy answer takes another token at the 35th of 46; the short prompt's does not
+  move. The arm stays off: serving it needs a reading on CUDA and on the CPU, and the operator's word.
+- The grouped attention on the CPU. The grouped configs load on the CPU backend as they are. After a 2,048-token
+  prompt the 4B decodes x1.555 [1.550, 1.566] faster, 6.515 against 4.186 tok/s, and the 8B x1.378 [1.371, 1.385],
+  4.363 against 3.165; after 5 tokens x1.033 and x1.038; the first token at 2,048 tokens does not move (*measured*, 6
+  threads, f32, [qwen-cpu-groupee](mesures/qwen-cpu-groupee-2026-11-27.txt)). On the CPU the two forms are not bit
+  for bit, where they are on Metal: max |dlogit| 8.1e-4 and 3.5e-4, no step whose argmax differs in 2,047, the same
+  tokens. `cpurun` gains two measurement modes, `timed` and `lockstep`. The CPU keeps the expanded configs: a
+  grouped one would need the paired perplexity of `ETAT.md` §4 on the CPU, about a night of this Mac (*estimated*).
+- Predictions that missed, as signed in the preregs. The window arm's logit gap was predicted under 2e-3 and read
+  6.41: the tiny model's drift does not carry to a model whose routing turns a small drift into other experts. Its
+  peak was predicted not higher. Through the server its answer to the long prompt was predicted token for token at
+  0.8 and moved. The grouped form on the CPU was given one chance in two to be bit for bit, and its
+  first token at 2,048 tokens was predicted x1.1 [1.0, 1.4] faster and read x0.997.
+- `CERVEAU.md` gains A9 and A10 and goes from 78 claims to 80.

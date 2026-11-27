@@ -1,0 +1,12 @@
+   Compiling llvq-llm v0.1.0 (/Users/pjmalandrino/Documents/Pro/workspace/poc/llvq/.claude/worktrees/mac-inkling/llvq-llm)
+warning: unused import: `GlueKind`
+  --> llvq-llm/tests/inkling_window.rs:26:35
+   |
+26 | use llvq_llm::inkling::{AttnKind, GlueKind, Inkling, InklingCache, LayerExperts, LoadOptions};
+   |                                   ^^^^^^^^
+   |
+   = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: `llvq-llm` (test "inkling_window") generated 1 warning (run `cargo clippy --fix --test "inkling_window" -p llvq-llm -- ` to apply 1 suggestion)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 8.12s
+rc=0
