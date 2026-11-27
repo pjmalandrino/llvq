@@ -1,0 +1,61 @@
+== H-i: the default against the committed build ==
+u1    hi-before   vs hi-after   : 46 / 46 tokens, same tokens, text equal True
+u1    hi-before   vs p0-full    : 46 / 46 tokens, same tokens, text equal True
+u1    hi-before   vs p1-full    : 46 / 46 tokens, same tokens, text equal True
+u1    hi-before   vs p2-full    : 46 / 46 tokens, same tokens, text equal True
+u1    hi-before   vs p3-full    : 46 / 46 tokens, same tokens, text equal True
+chat  hi-before   vs hi-after   : 46 / 46 tokens, same tokens, text equal True
+chat  hi-before   vs p0-full    : 46 / 46 tokens, same tokens, text equal True
+chat  hi-before   vs p1-full    : 46 / 46 tokens, same tokens, text equal True
+chat  hi-before   vs p2-full    : 46 / 46 tokens, same tokens, text equal True
+chat  hi-before   vs p3-full    : 46 / 46 tokens, same tokens, text equal True
+load lines hi-after vs hi-before: identical (5 lines)
+load lines p0-full vs hi-before: identical (5 lines)
+load lines p1-full vs hi-before: identical (5 lines)
+load lines p2-full vs hi-before: identical (5 lines)
+load lines p3-full vs hi-before: identical (5 lines)
+== H-ii: narrow against full ==
+u1    p0-full     vs p0-narrow  : 46 / 46 tokens, first differing token at position 34, text equal False
+u1    p1-full     vs p1-narrow  : 46 / 46 tokens, first differing token at position 34, text equal False
+u1    p2-full     vs p2-narrow  : 46 / 46 tokens, first differing token at position 34, text equal False
+u1    p3-full     vs p3-narrow  : 46 / 46 tokens, first differing token at position 34, text equal False
+u1    p0-narrow   vs p1-narrow  : 46 / 46 tokens, same tokens, text equal True
+u1    p0-narrow   vs p2-narrow  : 46 / 46 tokens, same tokens, text equal True
+u1    p0-narrow   vs p3-narrow  : 46 / 46 tokens, same tokens, text equal True
+chat  p0-full     vs p0-narrow  : 46 / 46 tokens, same tokens, text equal True
+chat  p1-full     vs p1-narrow  : 46 / 46 tokens, same tokens, text equal True
+chat  p2-full     vs p2-narrow  : 46 / 46 tokens, same tokens, text equal True
+chat  p3-full     vs p3-narrow  : 46 / 46 tokens, same tokens, text equal True
+chat  p0-narrow   vs p1-narrow  : 46 / 46 tokens, same tokens, text equal True
+chat  p0-narrow   vs p2-narrow  : 46 / 46 tokens, same tokens, text equal True
+chat  p0-narrow   vs p3-narrow  : 46 / 46 tokens, same tokens, text equal True
+load lines p0-narrow: 6, all of hi-before's present True, added ['llvq: inkling2:mini: attention: the sliding layers score the keys of their window only (--attn-window narrow, class B)']
+load lines p1-narrow: 6, all of hi-before's present True, added ['llvq: inkling2:mini: attention: the sliding layers score the keys of their window only (--attn-window narrow, class B)']
+load lines p2-narrow: 6, all of hi-before's present True, added ['llvq: inkling2:mini: attention: the sliding layers score the keys of their window only (--attn-window narrow, class B)']
+load lines p3-narrow: 6, all of hi-before's present True, added ['llvq: inkling2:mini: attention: the sliding layers score the keys of their window only (--attn-window narrow, class B)']
+== H-iii: first token of u1, cold, a fresh server each, full then narrow ==
+pair 0 (discarded): full 128.26 s (read 128.09), narrow 109.27 s (read 109.09), ratio 0.8519, prompt 8791
+pair 1 (timed): full 127.40 s (read 127.23), narrow 109.24 s (read 109.07), ratio 0.8575, prompt 8791
+pair 2 (timed): full 127.31 s (read 127.13), narrow 109.31 s (read 109.13), ratio 0.8586, prompt 8791
+pair 3 (timed): full 127.42 s (read 127.20), narrow 109.17 s (read 108.99), ratio 0.8567, prompt 8791
+first token full: median 127.40 s [127.31, 127.42]
+first token narrow: median 109.24 s [109.17, 109.31]
+read full: median 127.20 s [127.13, 127.23]
+read narrow: median 109.07 s [108.99, 109.13]
+pair ratio narrow / full: median 0.8575 [0.8567, 0.8586], pairs [0.8575, 0.8586, 0.8567]
+pair ratio of the server's read: median 0.8573 [0.8568, 0.8584]
+hi-before: u1 first token 132.74 s
+hi-after: u1 first token 140.76 s
+== H-iv: the cache does not cross ==
+iv1-full: cached 0 of 8791, first token 129.39 s
+  llvq: inkling2:mini: prefix cache: on, in docs/mesures/inkling-mac-fenetre-runtime-2026-11-27-brut/work/home-iv-a/prefix, cap 4.0 GiB, key 3021bebaae25d928
+  llvq: prefix cache: saved 8704 tokens, 1413197183 bytes, in 1.89 s: 3021bebaae25d928-00008704-c7adec5e8c13cd35f4e45f13ac9167de.llvqprefix
+iv2-narrow: cached 0 of 8791, first token 110.60 s
+  llvq: inkling2:mini: prefix cache: on, in docs/mesures/inkling-mac-fenetre-runtime-2026-11-27-brut/work/home-iv-a/prefix, cap 4.0 GiB, key 899dbf19dcdcea04
+  llvq: prefix cache: saved 8704 tokens, 1413197206 bytes, in 1.65 s: 899dbf19dcdcea04-00008704-c7adec5e8c13cd35f4e45f13ac9167de.llvqprefix
+iv3-full: cached 0 of 8791, first token 128.89 s
+  llvq: inkling2:mini: prefix cache: on, in docs/mesures/inkling-mac-fenetre-runtime-2026-11-27-brut/work/home-iv-b/prefix, cap 4.0 GiB, key 3021bebaae25d928
+  llvq: prefix cache: saved 8704 tokens, 1413197183 bytes, in 1.75 s: 3021bebaae25d928-00008704-c7adec5e8c13cd35f4e45f13ac9167de.llvqprefix
+u1    iv1-full    vs p1-full    : 46 / 46 tokens, same tokens, text equal True
+u1    iv2-narrow  vs p1-narrow  : 46 / 46 tokens, same tokens, text equal True
+u1    iv3-full    vs p1-full    : 46 / 46 tokens, same tokens, text equal True

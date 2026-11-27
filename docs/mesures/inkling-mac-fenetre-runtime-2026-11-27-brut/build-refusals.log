@@ -1,0 +1,28 @@
+build: start 2026-11-27 04:20:39 at 82ec459db6599e3ebfd2bb0be8d71706274c2488; tree: []
+2e5865277d25cf82193886a941fa7cbeaaf808fb7174606691ff80f060759c2f  target/loth/llvq
+llvq version 0.1.3 (82ec459db659)
+6b5a8f9ddb6ee33b3f035d937b1ba5b3b66be1d46350ccde8dd5e603b9d78285  target/loth-cpu/release/llvq
+== the parse ==
+--attn-window 'wide': rc=1 Error: --attn-window "wide": full or narrow 
+--attn-window 'Narrow': rc=1 Error: --attn-window "Narrow": full or narrow 
+--attn-window '': rc=1 Error: --attn-window "": full or narrow 
+== the help (hidden) ==
+docs/mesures/inkling-mac-fenetre-runtime-2026-11-27-brut/help-before.txt docs/mesures/inkling-mac-fenetre-runtime-2026-11-27-brut/help-after.txt differ: char 43, line 3
+0
+== narrow on the CPU backend, Inkling 2 ==
+ref-cpu-inkling: up=1
+{"error":"loading inkling2:mini: --attn-window narrow: the window scores have been read on Metal under the fused stack only, and this load is cpu, stack cpu"}
+HTTP 500 0.273642 s
+ref-cpu-inkling server log:
+llvq: inkling2:mini registered from /Users/pjmalandrino/.llvq/models/sha256-1e9314dba89332cb1af444619dc5d31a2a1ed6a50a1112e0ca2b8fc55bb6bfd3/inkling.json
+llvq 0.1.3 (82ec459db659) serving on http://127.0.0.1:11438, backend cpu, store docs/mesures/inkling-mac-fenetre-runtime-2026-11-27-brut/work/home-cpu
+chat in the browser: http://127.0.0.1:11438/
+llvq: loading inkling2:mini (inkling2, /Users/pjmalandrino/.llvq/models/sha256-1e9314dba89332cb1af444619dc5d31a2a1ed6a50a1112e0ca2b8fc55bb6bfd3/inkling.json) on cpu
+== narrow on a Qwen3 of the store, Metal build ==
+ref-metal-qwen3: up=1
+{"error":"loading qwen3:4b: --attn-window narrow: the window scores are Inkling 2's, and qwen3:4b is of the family \"qwen3\""}
+HTTP 500 0.000670 s
+ref-metal-qwen3 server log:
+llvq 0.1.3 (82ec459db659) serving on http://127.0.0.1:11438, backend metal, store docs/mesures/inkling-mac-fenetre-runtime-2026-11-27-brut/work/home-qwen
+chat in the browser: http://127.0.0.1:11438/
+build: done 2026-11-27 04:23:45

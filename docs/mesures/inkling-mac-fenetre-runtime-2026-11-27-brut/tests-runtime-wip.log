@@ -1,0 +1,210 @@
+   Compiling llvq-llm v0.1.0 (/Users/pjmalandrino/Documents/Pro/workspace/poc/llvq/.claude/worktrees/mac-inkling/llvq-llm)
+   Compiling llvq-runtime v0.1.3 (/Users/pjmalandrino/Documents/Pro/workspace/poc/llvq/.claude/worktrees/mac-inkling/llvq-runtime)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 12.10s
+     Running unittests src/lib.rs (target/debug/deps/llvq_runtime-17608f1923badfcc)
+
+running 55 tests
+test chat::tests::roles_refuse_tools_by_name ... ok
+test api::tests::rfc3339_matches_known_instants ... ok
+test banner::tests::the_banner_is_the_brand_file ... ok
+test chat::tests::the_stream_sends_each_byte_once_and_never_rewinds ... ok
+test api::tests::only_loopback_or_same_origin_pages_reach_the_server ... ok
+test inkling::tests::long_prompt_settings_follow_the_stack_not_only_cuda ... ok
+test engine::tests::keep_alive_reads_ollamas_forms ... ok
+test chat::tests::a_multibyte_stop_string_is_held_on_character_boundaries ... ok
+test inkling::tests::narrow_is_refused_on_a_model_of_another_family ... ok
+test inkling::tests::narrow_turns_the_window_on_on_metal_fused_and_is_refused_elsewhere ... ok
+test chat::tests::a_tail_that_could_become_a_stop_string_is_held ... ok
+test chat::tests::a_stop_string_cuts_at_its_first_occurrence ... ok
+test inkling::tests::the_attention_window_parses_or_is_refused_by_name ... ok
+test inkling::tests::the_effort_is_the_clients_or_none ... ok
+test inkling::tests::reuse_follows_the_held_keys_until_one_differs ... ok
+test inkling::tests::a_prefix_key_names_the_backend_and_the_stack_that_wrote_it ... ok
+test inkling::tests::pieces_cut_at_every_assistant_turn ... ok
+test library::tests::names_default_to_latest_and_refuse_paths ... ok
+test inkling::tests::a_prefix_key_names_the_attention_window_that_wrote_it ... ok
+test api::tests::unknown_options_are_listed_and_known_ones_read ... ok
+test library::tests::the_cpu_serves_what_its_loader_reads ... ok
+test library::tests::metal_serves_the_grouped_form_through_its_metal_config ... ok
+test library::tests::a_manifest_is_served_by_the_library_configs_of_its_file ... ok
+test library::tests::the_chain_is_the_4b_default_on_cuda_and_eager_is_the_way_back ... ok
+test library::tests::inkling_answers_its_names_and_is_refused_until_published ... ok
+test library::tests::latest_is_the_4b_and_the_digests_are_the_readme_ones ... ok
+test prefix::tests::options_parse_or_refuse_by_name ... ok
+test library::tests::the_library_parses_and_every_entry_is_whole ... ok
+test inkling::tests::a_local_file_reads_relative_paths_from_its_directory ... ok
+test prefix::tests::the_key_of_the_full_window_has_the_bytes_it_had_before_the_switch ... ok
+test prefix::tests::the_save_point_is_the_last_piece_boundary_of_the_static_block ... ok
+test tools::tests::a_call_after_text_keeps_the_text_and_drops_the_newline_the_template_writes ... ok
+test tools::tests::a_result_must_answer_a_call_before_it ... ok
+test tools::tests::a_split_opening_marker_is_never_sent_as_content ... ok
+test tools::tests::a_call_split_at_every_byte_reads_as_the_whole ... ok
+test tools::tests::a_tool_marker_inside_the_reasoning_is_reasoning ... ok
+test tools::tests::pieces_encoded_alone_give_the_ids_of_the_whole_prompt ... ignored, needs the Qwen3-4B tokenizer.json of the Hub cache (LLVQ_QWEN3_TOKENIZER)
+test tools::tests::malformed_blocks_come_back_as_content_with_the_reason ... ok
+test tools::tests::python_dumps_keeps_order_unicode_and_number_forms ... ok
+test chat::tests::a_stop_prefix_before_a_split_character_is_held ... ok
+test prefix::tests::a_write_that_never_ended_is_removed_once_stale ... ok
+test tools::tests::the_rendered_prompt_is_the_official_templates_byte_for_byte ... ok
+test tools::tests::two_calls_in_one_answer ... ok
+test prefix::tests::a_file_of_another_key_is_refused_naming_the_field ... ok
+test inkling::tests::a_segment_without_kept_logits_is_read_again ... ok
+test inkling::tests::a_refused_rollback_falls_back_to_the_full_read ... ok
+test inkling::tests::a_prompt_sent_again_samples_from_the_logits_of_its_first_read ... ok
+test inkling::tests::the_logits_handed_back_are_the_last_segments ... ok
+test inkling::tests::the_files_id_follows_every_part_and_not_the_local_file_alone ... ok
+test prefix::tests::a_damaged_file_is_refused_by_name ... ok
+test prefix::tests::a_saved_prefix_is_found_verified_and_loaded_back ... ok
+test engine::tests::a_job_being_taken_is_never_seen_idle ... ok
+test chat::tests::the_stream_decodes_as_the_whole_list_at_every_id ... ok
+test prefix::tests::the_least_recently_used_files_go_past_the_cap ... ok
+test prefix::tests::the_digest_covers_every_chunk_in_order ... ok
+
+test result: ok. 54 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 17.58s
+
+     Running unittests src/main.rs (target/debug/deps/llvq-3e7ee6d0eafde707)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/batch_server.rs (target/debug/deps/batch_server-7c5c964a9efca610)
+
+running 9 tests
+test llvq_batch_reads_a_count_or_a_count_and_a_context ... ok
+test the_batched_engine_refuses_to_sample ... ok
+test a_panic_in_the_batched_step_ends_every_live_stream_with_an_error ... ok
+test ps_counts_the_batch_pool ... ok
+test a_lone_request_past_the_batch_1_cap_finishes_in_the_pool ... ok
+test requests_beyond_the_slots_each_get_their_alone_answer ... ok
+test a_lone_request_runs_on_the_batch_1_path_and_joins_the_pool_when_another_arrives ... ok
+test a_failed_batched_step_leaves_the_model_to_its_keep_alive ... ok
+test a_request_left_alone_in_the_pool_goes_back_to_the_batch_1_path ... ok
+
+test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.13s
+
+     Running tests/engine_busy.rs (target/debug/deps/engine_busy-fc512c006a88c078)
+
+running 5 tests
+test a_busy_engine_is_not_evicted_for_another_model ... ok
+test the_reaper_leaves_a_busy_engine_that_retires ... ok
+test a_load_that_panics_fails_the_engine_and_the_next_request_loads_again ... ok
+test a_manifest_written_again_with_a_new_date_keeps_the_loaded_engine ... ok
+test a_blob_written_again_under_the_same_manifest_loads_the_model_again ... ok
+
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.20s
+
+     Running tests/inkling_cpu_prefix_real.rs (target/debug/deps/inkling_cpu_prefix_real-67d4dc2e81cec5a9)
+
+running 1 test
+test a_state_saved_and_loaded_at_2048_gives_the_straight_reads_logits_on_the_cpu ... ignored, the real model on the CPU: INKLING_DIR, INKLING_IDS, INKLING_OUT
+
+test result: ok. 0 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/inkling_prefix.rs (target/debug/deps/inkling_prefix-000e3168a25428b1)
+
+running 3 tests
+test a_short_static_block_is_not_saved ... ok
+test the_switch_off_writes_and_loads_nothing ... ok
+test a_static_block_is_read_once_across_conversations_and_restarts ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.10s
+
+     Running tests/inkling_server.rs (target/debug/deps/inkling_server-61d8fb2dfd65a697)
+
+running 4 tests
+test refusals_come_back_by_name ... ok
+test a_streamed_call_comes_whole_in_one_chunk ... ok
+test a_refused_rollback_reads_the_prompt_again ... ok
+test a_tool_round_trip_reads_only_what_is_new ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.29s
+
+     Running tests/inkling_tools.rs (target/debug/deps/inkling_tools-b8d9719d8ada113d)
+
+running 6 tests
+test the_routes_messages_render_as_the_reference_byte_for_byte_and_id_for_id ... ignored, needs $INKLING_DATA/native/tokenizer.json and $INKLING_DATA/lot2-k/chat_ref.json
+test numbers_keep_pythons_forms ... ok
+test arguments_must_be_an_object ... ok
+test a_streamed_call_reads_back_whole_at_every_cut ... ok
+test a_tool_conversation_renders_as_the_template_writes_it ... ok
+test an_answer_is_keyed_by_the_message_the_client_sends_back ... ok
+
+test result: ok. 5 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+     Running tests/openapi.rs (target/debug/deps/openapi-4729dacfd7b5794f)
+
+running 4 tests
+test every_route_goes_through_its_annotation ... ok
+test the_document_is_openapi_3_1_and_names_every_served_route ... ok
+test the_committed_document_is_the_generated_one ... ok
+test every_ollama_route_we_answer_is_in_ollamas_document_with_its_required_fields ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.03s
+
+     Running tests/pull.rs (target/debug/deps/pull-861f0545601bf37f)
+
+running 8 tests
+test a_manifest_that_does_not_read_leaves_the_others_listed_and_removable ... ok
+test an_imported_blob_does_not_change_with_its_source ... ok
+test import_checks_a_local_copy_and_rm_keeps_a_blob_another_name_holds ... ok
+test rm_during_an_import_of_the_same_file_is_refused ... ok
+test a_hub_that_stops_sending_fails_the_pull_instead_of_hanging_it ... ok
+test a_matching_file_is_registered_and_a_mutated_digest_leaves_nothing ... ok
+test an_interrupted_pull_resumes_and_a_present_blob_is_checked_again ... ok
+test two_pulls_of_one_file_at_once_register_the_file_whole ... ok
+
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.73s
+
+     Running tests/pull_files.rs (target/debug/deps/pull_files-efbd9e0cbeacf180)
+
+running 6 tests
+test an_archive_of_the_system_tar_unpacks ... ok
+test an_unpublished_entry_is_refused_by_name_and_never_fetched ... ok
+test one_wrong_digest_in_the_index_registers_nothing ... ok
+test a_file_set_is_pulled_unpacked_and_registered_and_rm_removes_it ... ok
+test an_index_or_an_archive_that_leaves_the_model_directory_is_refused ... ok
+test the_files_of_a_set_download_in_parallel ... ok
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.01s
+
+     Running tests/server.rs (target/debug/deps/server-4c9018f7a61de379)
+
+running 18 tests
+test the_chat_page_is_served_whole_with_the_library_written_in ... ok
+test refusals_answer_with_their_status_and_a_reason ... ok
+test a_stop_list_past_its_bounds_is_refused ... ok
+test a_failed_prefill_leaves_an_empty_cache_to_the_next_request ... ok
+test a_stop_string_cuts_the_answer_where_it_starts ... ok
+test one_object_when_stream_is_false_and_generate_takes_raw_and_templated_prompts ... ok
+test a_greedy_chat_streams_the_ids_a_direct_session_gives ... ok
+test a_stateless_second_turn_reads_only_its_new_tokens_and_answers_as_the_stateful_run ... ok
+test the_openai_routes_answer_as_the_ollama_ones_in_openais_shapes ... ok
+test a_client_that_leaves_stops_the_engine ... ok
+test the_first_answer_counts_its_load_once ... ok
+test a_client_that_leaves_a_non_streamed_answer_stops_the_engine ... ok
+test a_model_stopped_while_busy_unloads_when_its_answer_ends ... ok
+test the_store_routes_list_show_copy_delete_and_ps_follows_loads ... ok
+test stopping_a_busy_model_keeps_one_copy_until_its_answer_ends ... ok
+test a_request_abandoned_in_the_queue_leaves_the_cache_alone ... ok
+test a_client_that_leaves_during_a_silence_stops_the_engine ... ok
+test a_page_from_another_site_cannot_drive_the_server ... ok
+
+test result: ok. 18 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 39.38s
+
+     Running tests/tools_server.rs (target/debug/deps/tools_server-67cd9398163bbdc2)
+
+running 4 tests
+test what_is_not_served_is_refused_by_name ... ok
+test openai_round_trip_streamed ... ok
+test openai_round_trip_unstreamed ... ok
+test ollama_round_trip_streamed_and_not ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.12s
+
+   Doc-tests llvq_runtime
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+

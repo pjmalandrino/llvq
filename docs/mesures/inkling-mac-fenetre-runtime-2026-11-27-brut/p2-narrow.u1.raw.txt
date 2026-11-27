@@ -1,0 +1,47 @@
+109.3060	{"created_at":"2026-11-27T03:48:57.122898000Z","done":false,"message":{"content":"","role":"assistant","thinking":"The"},"model":"inkling2:mini"}
+109.3478	{"created_at":"2026-11-27T03:48:57.164836000Z","done":false,"message":{"content":"","role":"assistant","thinking":" user"},"model":"inkling2:mini"}
+109.3897	{"created_at":"2026-11-27T03:48:57.206690000Z","done":false,"message":{"content":"","role":"assistant","thinking":" asks"},"model":"inkling2:mini"}
+109.4309	{"created_at":"2026-11-27T03:48:57.247858000Z","done":false,"message":{"content":"","role":"assistant","thinking":":"},"model":"inkling2:mini"}
+109.4729	{"created_at":"2026-11-27T03:48:57.289913000Z","done":false,"message":{"content":"","role":"assistant","thinking":" \""},"model":"inkling2:mini"}
+109.5149	{"created_at":"2026-11-27T03:48:57.331917000Z","done":false,"message":{"content":"","role":"assistant","thinking":"Do"},"model":"inkling2:mini"}
+109.5569	{"created_at":"2026-11-27T03:48:57.373952000Z","done":false,"message":{"content":"","role":"assistant","thinking":" not"},"model":"inkling2:mini"}
+109.5989	{"created_at":"2026-11-27T03:48:57.415959000Z","done":false,"message":{"content":"","role":"assistant","thinking":" call"},"model":"inkling2:mini"}
+109.6407	{"created_at":"2026-11-27T03:48:57.457778000Z","done":false,"message":{"content":"","role":"assistant","thinking":" any"},"model":"inkling2:mini"}
+109.6828	{"created_at":"2026-11-27T03:48:57.499832000Z","done":false,"message":{"content":"","role":"assistant","thinking":" tool"},"model":"inkling2:mini"}
+109.7239	{"created_at":"2026-11-27T03:48:57.540975000Z","done":false,"message":{"content":"","role":"assistant","thinking":"."},"model":"inkling2:mini"}
+109.7656	{"created_at":"2026-11-27T03:48:57.582586000Z","done":false,"message":{"content":"","role":"assistant","thinking":" In"},"model":"inkling2:mini"}
+109.8076	{"created_at":"2026-11-27T03:48:57.624604000Z","done":false,"message":{"content":"","role":"assistant","thinking":" one"},"model":"inkling2:mini"}
+109.8495	{"created_at":"2026-11-27T03:48:57.666568000Z","done":false,"message":{"content":"","role":"assistant","thinking":" short"},"model":"inkling2:mini"}
+109.8914	{"created_at":"2026-11-27T03:48:57.708467000Z","done":false,"message":{"content":"","role":"assistant","thinking":" sentence"},"model":"inkling2:mini"}
+109.9334	{"created_at":"2026-11-27T03:48:57.750405000Z","done":false,"message":{"content":"","role":"assistant","thinking":":"},"model":"inkling2:mini"}
+109.9753	{"created_at":"2026-11-27T03:48:57.792361000Z","done":false,"message":{"content":"","role":"assistant","thinking":" what"},"model":"inkling2:mini"}
+110.0173	{"created_at":"2026-11-27T03:48:57.834360000Z","done":false,"message":{"content":"","role":"assistant","thinking":" does"},"model":"inkling2:mini"}
+110.0594	{"created_at":"2026-11-27T03:48:57.876458000Z","done":false,"message":{"content":"","role":"assistant","thinking":" section"},"model":"inkling2:mini"}
+110.1014	{"created_at":"2026-11-27T03:48:57.918497000Z","done":false,"message":{"content":"","role":"assistant","thinking":" "},"model":"inkling2:mini"}
+110.1434	{"created_at":"2026-11-27T03:48:57.960492000Z","done":false,"message":{"content":"","role":"assistant","thinking":"7"},"model":"inkling2:mini"}
+110.1852	{"created_at":"2026-11-27T03:48:58.002230000Z","done":false,"message":{"content":"","role":"assistant","thinking":" of"},"model":"inkling2:mini"}
+110.2271	{"created_at":"2026-11-27T03:48:58.044116000Z","done":false,"message":{"content":"","role":"assistant","thinking":" the"},"model":"inkling2:mini"}
+110.2690	{"created_at":"2026-11-27T03:48:58.086005000Z","done":false,"message":{"content":"","role":"assistant","thinking":" policy"},"model":"inkling2:mini"}
+110.3110	{"created_at":"2026-11-27T03:48:58.127995000Z","done":false,"message":{"content":"","role":"assistant","thinking":" ask"},"model":"inkling2:mini"}
+110.3529	{"created_at":"2026-11-27T03:48:58.169998000Z","done":false,"message":{"content":"","role":"assistant","thinking":" for"},"model":"inkling2:mini"}
+110.3947	{"created_at":"2026-11-27T03:48:58.211792000Z","done":false,"message":{"content":"","role":"assistant","thinking":"?"},"model":"inkling2:mini"}
+110.4366	{"created_at":"2026-11-27T03:48:58.253714000Z","done":false,"message":{"content":"","role":"assistant","thinking":"\""},"model":"inkling2:mini"}
+110.4775	{"created_at":"2026-11-27T03:48:58.294547000Z","done":false,"message":{"content":"","role":"assistant","thinking":"\n\n"},"model":"inkling2:mini"}
+110.5186	{"created_at":"2026-11-27T03:48:58.335591000Z","done":false,"message":{"content":"","role":"assistant","thinking":"Need"},"model":"inkling2:mini"}
+110.5600	{"created_at":"2026-11-27T03:48:58.377046000Z","done":false,"message":{"content":"","role":"assistant","thinking":" answer"},"model":"inkling2:mini"}
+110.6017	{"created_at":"2026-11-27T03:48:58.418699000Z","done":false,"message":{"content":"","role":"assistant","thinking":" based"},"model":"inkling2:mini"}
+110.6436	{"created_at":"2026-11-27T03:48:58.460667000Z","done":false,"message":{"content":"","role":"assistant","thinking":" on"},"model":"inkling2:mini"}
+110.6856	{"created_at":"2026-11-27T03:48:58.502639000Z","done":false,"message":{"content":"","role":"assistant","thinking":" policy"},"model":"inkling2:mini"}
+110.7275	{"created_at":"2026-11-27T03:48:58.544580000Z","done":false,"message":{"content":"","role":"assistant","thinking":"."},"model":"inkling2:mini"}
+110.7695	{"created_at":"2026-11-27T03:48:58.586520000Z","done":false,"message":{"content":"","role":"assistant","thinking":" Section"},"model":"inkling2:mini"}
+110.8116	{"created_at":"2026-11-27T03:48:58.628661000Z","done":false,"message":{"content":"","role":"assistant","thinking":" "},"model":"inkling2:mini"}
+110.8536	{"created_at":"2026-11-27T03:48:58.670668000Z","done":false,"message":{"content":"","role":"assistant","thinking":"7"},"model":"inkling2:mini"}
+110.8953	{"created_at":"2026-11-27T03:48:58.712378000Z","done":false,"message":{"content":"","role":"assistant","thinking":","},"model":"inkling2:mini"}
+110.9373	{"created_at":"2026-11-27T03:48:58.754383000Z","done":false,"message":{"content":"","role":"assistant","thinking":" incidents"},"model":"inkling2:mini"}
+110.9791	{"created_at":"2026-11-27T03:48:58.796194000Z","done":false,"message":{"content":"","role":"assistant","thinking":","},"model":"inkling2:mini"}
+111.0212	{"created_at":"2026-11-27T03:48:58.838252000Z","done":false,"message":{"content":"","role":"assistant","thinking":" part"},"model":"inkling2:mini"}
+111.0632	{"created_at":"2026-11-27T03:48:58.880232000Z","done":false,"message":{"content":"","role":"assistant","thinking":" "},"model":"inkling2:mini"}
+111.1048	{"created_at":"2026-11-27T03:48:58.921806000Z","done":false,"message":{"content":"","role":"assistant","thinking":"1"},"model":"inkling2:mini"}
+111.1468	{"created_at":"2026-11-27T03:48:58.963791000Z","done":false,"message":{"content":"","role":"assistant","thinking":":"},"model":"inkling2:mini"}
+111.1886	{"created_at":"2026-11-27T03:48:59.005627000Z","done":false,"message":{"content":"","role":"assistant","thinking":" \""},"model":"inkling2:mini"}
+111.1886	{"created_at":"2026-11-27T03:48:59.005632000Z","done":true,"done_reason":"length","eval_count":48,"eval_duration":2040276042,"load_duration":0,"message":{"content":"","role":"assistant"},"model":"inkling2:mini","prompt_eval_cached_count":0,"prompt_eval_count":8791,"prompt_eval_duration":109130194708,"total_duration":111178979708}

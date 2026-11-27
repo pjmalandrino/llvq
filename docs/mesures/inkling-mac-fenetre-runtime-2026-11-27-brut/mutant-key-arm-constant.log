@@ -1,0 +1,87 @@
+   Compiling llvq-runtime v0.1.3 (/Users/pjmalandrino/Documents/Pro/workspace/poc/llvq/.claude/worktrees/mac-inkling/llvq-runtime)
+warning: unused variable: `window`
+   --> llvq-runtime/src/inkling.rs:598:5
+    |
+598 |     window: AttnWindow,
+    |     ^^^^^^ help: if this is intentional, prefix it with an underscore: `_window`
+    |
+    = note: `#[warn(unused_variables)]` (part of `#[warn(unused)]`) on by default
+
+warning: `llvq-runtime` (lib test) generated 1 warning (run `cargo fix --lib -p llvq-runtime --tests` to apply 1 suggestion)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 2.65s
+     Running unittests src/lib.rs (target/debug/deps/llvq_runtime-17608f1923badfcc)
+
+running 55 tests
+test api::tests::rfc3339_matches_known_instants ... ok
+test chat::tests::the_stream_sends_each_byte_once_and_never_rewinds ... ok
+test chat::tests::roles_refuse_tools_by_name ... ok
+test banner::tests::the_banner_is_the_brand_file ... ok
+test api::tests::only_loopback_or_same_origin_pages_reach_the_server ... ok
+test inkling::tests::long_prompt_settings_follow_the_stack_not_only_cuda ... ok
+test inkling::tests::narrow_is_refused_on_a_model_of_another_family ... ok
+test inkling::tests::narrow_turns_the_window_on_on_metal_fused_and_is_refused_elsewhere ... ok
+test engine::tests::keep_alive_reads_ollamas_forms ... ok
+test chat::tests::a_stop_string_cuts_at_its_first_occurrence ... ok
+test chat::tests::a_tail_that_could_become_a_stop_string_is_held ... ok
+test chat::tests::a_multibyte_stop_string_is_held_on_character_boundaries ... ok
+test inkling::tests::the_attention_window_parses_or_is_refused_by_name ... ok
+test inkling::tests::reuse_follows_the_held_keys_until_one_differs ... ok
+test inkling::tests::the_effort_is_the_clients_or_none ... ok
+test inkling::tests::pieces_cut_at_every_assistant_turn ... ok
+test inkling::tests::a_prefix_key_names_the_attention_window_that_wrote_it ... FAILED
+test inkling::tests::a_prefix_key_names_the_backend_and_the_stack_that_wrote_it ... ok
+test library::tests::names_default_to_latest_and_refuse_paths ... ok
+test library::tests::a_manifest_is_served_by_the_library_configs_of_its_file ... ok
+test library::tests::the_cpu_serves_what_its_loader_reads ... ok
+test library::tests::metal_serves_the_grouped_form_through_its_metal_config ... ok
+test library::tests::the_chain_is_the_4b_default_on_cuda_and_eager_is_the_way_back ... ok
+test api::tests::unknown_options_are_listed_and_known_ones_read ... ok
+test library::tests::inkling_answers_its_names_and_is_refused_until_published ... ok
+test inkling::tests::a_local_file_reads_relative_paths_from_its_directory ... ok
+test library::tests::the_library_parses_and_every_entry_is_whole ... ok
+test library::tests::latest_is_the_4b_and_the_digests_are_the_readme_ones ... ok
+test prefix::tests::options_parse_or_refuse_by_name ... ok
+test prefix::tests::the_save_point_is_the_last_piece_boundary_of_the_static_block ... ok
+test tools::tests::a_call_after_text_keeps_the_text_and_drops_the_newline_the_template_writes ... ok
+test prefix::tests::the_key_of_the_full_window_has_the_bytes_it_had_before_the_switch ... ok
+test tools::tests::a_result_must_answer_a_call_before_it ... ok
+test tools::tests::a_split_opening_marker_is_never_sent_as_content ... ok
+test tools::tests::a_tool_marker_inside_the_reasoning_is_reasoning ... ok
+test tools::tests::malformed_blocks_come_back_as_content_with_the_reason ... ok
+test tools::tests::pieces_encoded_alone_give_the_ids_of_the_whole_prompt ... ignored, needs the Qwen3-4B tokenizer.json of the Hub cache (LLVQ_QWEN3_TOKENIZER)
+test tools::tests::a_call_split_at_every_byte_reads_as_the_whole ... ok
+test tools::tests::python_dumps_keeps_order_unicode_and_number_forms ... ok
+test chat::tests::a_stop_prefix_before_a_split_character_is_held ... ok
+test prefix::tests::a_write_that_never_ended_is_removed_once_stale ... ok
+test tools::tests::the_rendered_prompt_is_the_official_templates_byte_for_byte ... ok
+test tools::tests::two_calls_in_one_answer ... ok
+test prefix::tests::a_file_of_another_key_is_refused_naming_the_field ... ok
+test inkling::tests::a_segment_without_kept_logits_is_read_again ... ok
+test inkling::tests::a_refused_rollback_falls_back_to_the_full_read ... ok
+test inkling::tests::a_prompt_sent_again_samples_from_the_logits_of_its_first_read ... ok
+test prefix::tests::a_damaged_file_is_refused_by_name ... ok
+test inkling::tests::the_logits_handed_back_are_the_last_segments ... ok
+test inkling::tests::the_files_id_follows_every_part_and_not_the_local_file_alone ... ok
+test prefix::tests::a_saved_prefix_is_found_verified_and_loaded_back ... ok
+test chat::tests::the_stream_decodes_as_the_whole_list_at_every_id ... ok
+test engine::tests::a_job_being_taken_is_never_seen_idle ... ok
+test prefix::tests::the_least_recently_used_files_go_past_the_cap ... ok
+test prefix::tests::the_digest_covers_every_chunk_in_order ... ok
+
+failures:
+
+---- inkling::tests::a_prefix_key_names_the_attention_window_that_wrote_it stdout ----
+
+thread 'inkling::tests::a_prefix_key_names_the_attention_window_that_wrote_it' (14157238) panicked at llvq-runtime/src/inkling.rs:1563:9:
+assertion `left == right` failed
+  left: ("full", "full")
+ right: ("full", "narrow")
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    inkling::tests::a_prefix_key_names_the_attention_window_that_wrote_it
+
+test result: FAILED. 53 passed; 1 failed; 1 ignored; 0 measured; 0 filtered out; finished in 17.84s
+
+error: test failed, to rerun pass `-p llvq-runtime --lib`

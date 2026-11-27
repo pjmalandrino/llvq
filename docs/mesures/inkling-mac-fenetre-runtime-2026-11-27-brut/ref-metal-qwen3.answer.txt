@@ -1,0 +1,2 @@
+{"error":"loading qwen3:4b: --attn-window narrow: the window scores are Inkling 2's, and qwen3:4b is of the family \"qwen3\""}
+HTTP 500 0.000670 s

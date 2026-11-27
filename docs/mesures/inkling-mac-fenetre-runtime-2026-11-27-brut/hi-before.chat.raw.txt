@@ -1,0 +1,47 @@
+0.8802	{"created_at":"2026-11-27T03:26:54.208707000Z","done":false,"message":{"content":"","role":"assistant","thinking":"The"},"model":"inkling2:mini"}
+0.9135	{"created_at":"2026-11-27T03:26:54.242106000Z","done":false,"message":{"content":"","role":"assistant","thinking":" user"},"model":"inkling2:mini"}
+0.9471	{"created_at":"2026-11-27T03:26:54.275691000Z","done":false,"message":{"content":"","role":"assistant","thinking":" wants"},"model":"inkling2:mini"}
+0.9804	{"created_at":"2026-11-27T03:26:54.308974000Z","done":false,"message":{"content":"","role":"assistant","thinking":" two"},"model":"inkling2:mini"}
+1.0137	{"created_at":"2026-11-27T03:26:54.342255000Z","done":false,"message":{"content":"","role":"assistant","thinking":" short"},"model":"inkling2:mini"}
+1.0472	{"created_at":"2026-11-27T03:26:54.375795000Z","done":false,"message":{"content":"","role":"assistant","thinking":" sentences"},"model":"inkling2:mini"}
+1.0808	{"created_at":"2026-11-27T03:26:54.409379000Z","done":false,"message":{"content":"","role":"assistant","thinking":" explaining"},"model":"inkling2:mini"}
+1.1143	{"created_at":"2026-11-27T03:26:54.442872000Z","done":false,"message":{"content":"","role":"assistant","thinking":" why"},"model":"inkling2:mini"}
+1.1478	{"created_at":"2026-11-27T03:26:54.476425000Z","done":false,"message":{"content":"","role":"assistant","thinking":" sky"},"model":"inkling2:mini"}
+1.1813	{"created_at":"2026-11-27T03:26:54.509923000Z","done":false,"message":{"content":"","role":"assistant","thinking":" is"},"model":"inkling2:mini"}
+1.2149	{"created_at":"2026-11-27T03:26:54.543474000Z","done":false,"message":{"content":"","role":"assistant","thinking":" blue"},"model":"inkling2:mini"}
+1.2485	{"created_at":"2026-11-27T03:26:54.577058000Z","done":false,"message":{"content":"","role":"assistant","thinking":" during"},"model":"inkling2:mini"}
+1.2820	{"created_at":"2026-11-27T03:26:54.610553000Z","done":false,"message":{"content":"","role":"assistant","thinking":" day"},"model":"inkling2:mini"}
+1.3156	{"created_at":"2026-11-27T03:26:54.644144000Z","done":false,"message":{"content":"","role":"assistant","thinking":" and"},"model":"inkling2:mini"}
+1.3490	{"created_at":"2026-11-27T03:26:54.677617000Z","done":false,"message":{"content":"","role":"assistant","thinking":" red"},"model":"inkling2:mini"}
+1.3825	{"created_at":"2026-11-27T03:26:54.711119000Z","done":false,"message":{"content":"","role":"assistant","thinking":" at"},"model":"inkling2:mini"}
+1.4162	{"created_at":"2026-11-27T03:26:54.744798000Z","done":false,"message":{"content":"","role":"assistant","thinking":" sun"},"model":"inkling2:mini"}
+1.4491	{"created_at":"2026-11-27T03:26:54.777649000Z","done":false,"message":{"content":"","role":"assistant","thinking":"set"},"model":"inkling2:mini"}
+1.4827	{"created_at":"2026-11-27T03:26:54.811348000Z","done":false,"message":{"content":"","role":"assistant","thinking":"."},"model":"inkling2:mini"}
+1.5164	{"created_at":"2026-11-27T03:26:54.845002000Z","done":false,"message":{"content":"","role":"assistant","thinking":" Need"},"model":"inkling2:mini"}
+1.5499	{"created_at":"2026-11-27T03:26:54.878505000Z","done":false,"message":{"content":"","role":"assistant","thinking":" answer"},"model":"inkling2:mini"}
+1.5836	{"created_at":"2026-11-27T03:26:54.912204000Z","done":false,"message":{"content":"","role":"assistant","thinking":" con"},"model":"inkling2:mini"}
+1.6173	{"created_at":"2026-11-27T03:26:54.945882000Z","done":false,"message":{"content":"","role":"assistant","thinking":"cise"},"model":"inkling2:mini"}
+1.6506	{"created_at":"2026-11-27T03:26:54.979232000Z","done":false,"message":{"content":"","role":"assistant","thinking":"."},"model":"inkling2:mini"}
+1.6837	{"created_at":"2026-11-27T03:26:55.012257000Z","done":false,"message":{"content":"","role":"assistant","thinking":" Need"},"model":"inkling2:mini"}
+1.7172	{"created_at":"2026-11-27T03:26:55.045803000Z","done":false,"message":{"content":"","role":"assistant","thinking":" ensure"},"model":"inkling2:mini"}
+1.7509	{"created_at":"2026-11-27T03:26:55.079529000Z","done":false,"message":{"content":"","role":"assistant","thinking":" accuracy"},"model":"inkling2:mini"}
+1.7844	{"created_at":"2026-11-27T03:26:55.113013000Z","done":false,"message":{"content":"","role":"assistant","thinking":":"},"model":"inkling2:mini"}
+1.8176	{"created_at":"2026-11-27T03:26:55.146249000Z","done":false,"message":{"content":"","role":"assistant","thinking":" day"},"model":"inkling2:mini"}
+1.8510	{"created_at":"2026-11-27T03:26:55.179636000Z","done":false,"message":{"content":"","role":"assistant","thinking":"time"},"model":"inkling2:mini"}
+1.8846	{"created_at":"2026-11-27T03:26:55.213226000Z","done":false,"message":{"content":"","role":"assistant","thinking":" blue"},"model":"inkling2:mini"}
+1.9179	{"created_at":"2026-11-27T03:26:55.246516000Z","done":false,"message":{"content":"","role":"assistant","thinking":" due"},"model":"inkling2:mini"}
+1.9516	{"created_at":"2026-11-27T03:26:55.280154000Z","done":false,"message":{"content":"","role":"assistant","thinking":" to"},"model":"inkling2:mini"}
+1.9850	{"created_at":"2026-11-27T03:26:55.313588000Z","done":false,"message":{"content":"","role":"assistant","thinking":" "},"model":"inkling2:mini"}
+2.0183	{"created_at":"2026-11-27T03:26:55.346875000Z","done":false,"message":{"content":"","role":"assistant","thinking":"Rayleigh"},"model":"inkling2:mini"}
+2.0519	{"created_at":"2026-11-27T03:26:55.380509000Z","done":false,"message":{"content":"","role":"assistant","thinking":" scattering"},"model":"inkling2:mini"}
+2.0856	{"created_at":"2026-11-27T03:26:55.414161000Z","done":false,"message":{"content":"","role":"assistant","thinking":" of"},"model":"inkling2:mini"}
+2.1190	{"created_at":"2026-11-27T03:26:55.447645000Z","done":false,"message":{"content":"","role":"assistant","thinking":" shorter"},"model":"inkling2:mini"}
+2.1520	{"created_at":"2026-11-27T03:26:55.480617000Z","done":false,"message":{"content":"","role":"assistant","thinking":" wavelength"},"model":"inkling2:mini"}
+2.1856	{"created_at":"2026-11-27T03:26:55.514233000Z","done":false,"message":{"content":"","role":"assistant","thinking":"s"},"model":"inkling2:mini"}
+2.2191	{"created_at":"2026-11-27T03:26:55.547688000Z","done":false,"message":{"content":"","role":"assistant","thinking":" ("},"model":"inkling2:mini"}
+2.2529	{"created_at":"2026-11-27T03:26:55.581521000Z","done":false,"message":{"content":"","role":"assistant","thinking":"blue"},"model":"inkling2:mini"}
+2.2864	{"created_at":"2026-11-27T03:26:55.614975000Z","done":false,"message":{"content":"","role":"assistant","thinking":")"},"model":"inkling2:mini"}
+2.3200	{"created_at":"2026-11-27T03:26:55.648562000Z","done":false,"message":{"content":"","role":"assistant","thinking":" by"},"model":"inkling2:mini"}
+2.3533	{"created_at":"2026-11-27T03:26:55.681857000Z","done":false,"message":{"content":"","role":"assistant","thinking":" air"},"model":"inkling2:mini"}
+2.3868	{"created_at":"2026-11-27T03:26:55.715390000Z","done":false,"message":{"content":"","role":"assistant","thinking":" molecules"},"model":"inkling2:mini"}
+2.3868	{"created_at":"2026-11-27T03:26:55.715393000Z","done":true,"done_reason":"length","eval_count":48,"eval_duration":1621468125,"load_duration":0,"message":{"content":"","role":"assistant"},"model":"inkling2:mini","prompt_eval_cached_count":0,"prompt_eval_count":36,"prompt_eval_duration":756496542,"total_duration":2378105250}
