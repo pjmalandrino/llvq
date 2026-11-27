@@ -1,0 +1,80 @@
+INKLING 2 MINI ON THE MAC, THE PERPLEXITY OF THE WINDOW ARM, 2026-11-27
+
+RESULT
+  The window arm (`inkrun --attn-window narrow`) passes the prereg's rule on this Mac. Joined texts pooled (primary,
+  12,286 positions): perplexity ratio narrow against full +0.0219 % [-0.0451, +0.0889]. Single windows pooled
+  (secondary, 12,282 positions): +0.0147 % [-0.0469, +0.0764] (*computed* from the dumps, *measured* NLL). Both points
+  and both 95 % intervals are inside +-0.12 %. No difference sits at a chunk or piece boundary.
+  The arm carries the band the pieces carry, on this Mac. It stays off: serving it needs the operator's word and a
+  reading on the other backends. The code did not change in this lot.
+  Prereg: proofs/preregistration-inkling-fenetre-ppl-2026-11-27.md (commit f7db98d, anchor 227cb93). Deviations:
+  -ECARTS.md beside it. Raw files: inkling-mac-fenetre-ppl-2026-11-27-brut/.
+
+THE TEXTS
+  Six WikiText-2 test windows of 2,048 tokens and two joined texts of 6,144 tokens. The prereg's conditional took
+  its larger branch: the windows' maker is on this Mac (`ops/inkling/data.py`, `eval_windows`, the test parquet in
+  the local Hub cache, the tokenizer of `~/llvq-inkling-mini/native`, all read offline). Its windows 0, 1 and 2 equal
+  the files the Mac held, id for id; windows 3, 4 and 5 were made the same way before the first run (`windows.py`,
+  `windows.log`). Joined texts: w0+w1+w2 and w3+w4+w5. The sha256 of the eight texts are in `texts.sha256`.
+
+THE RUNS
+  Part D's binary (`target/lotd/inkrun`, sha256 cb7d8d9e..., the same as part D's `inkrun.sha256`), Metal, part D's
+  reference flags (arm B: pieces of 512, score chunks of 128, slack 1,024, fused glue, fused+scores attention, int4
+  head), `--score-prompt on --nll-out`. Two arms that differ by `--attn-window` alone, `full` then `narrow`, text by
+  text, 45 s apart, in one guarded job from 03:39 to 04:07 (`all.sh`, `all.log`). Tree clean under `llvq-llm`,
+  `llvq-runtime` and `configs` at the start. Load1 5.74 before the first run (lot G's job had just ended), 1.85 to
+  3.17 before the others; GPU 0 to 5 %.
+  All sixteen runs finished (rc 0). Peak footprint (`/usr/bin/time -l`, *measured*): 20.4 to 21.8 GB a single
+  window, 44.6 to 45.9 GB a joined text, where every row's logits are kept on the device and read to the host.
+  Memory free stayed 76 to 81 % before each run.
+
+THE PAIRING (pair.py, pair.txt; the statistics of ops/jobs/inkling-cuda-pieces-ppl.sh)
+  text     positions   ppl full    ppl narrow   ratio      95 % interval          positions that differ   largest |dNLL|
+  w0       2,047       5.40918     5.41831      +0.1687 %  [+0.0457, +0.2918]     1,983                   0.339 at 1,028
+  w1       2,047       8.67316     8.66563      -0.0869 %  [-0.2154, +0.0419]     1,983                   0.382 at 882
+  w2       2,047       9.64696     9.65293      +0.0619 %  [-0.0383, +0.1622]     1,983                   0.377 at 628
+  w3       2,047       8.32511     8.32918      +0.0489 %  [-0.1161, +0.2142]     1,983                   0.387 at 1,100
+  w4       2,047       6.99228     6.98323      -0.1294 %  [-0.3464, +0.0881]     1,983                   1.064 at 363
+  w5       2,047       5.91186     5.91337      +0.0255 %  [-0.1177, +0.1689]     1,983                   0.375 at 237
+  jw012    6,143       7.11483     7.11837      +0.0498 %  [-0.0310, +0.1306]     6,079                   0.452 at 4,319
+  jw345    6,143       6.09247     6.09210      -0.0060 %  [-0.1129, +0.1009]     6,079                   0.756 at 3,745
+  secondary, single windows pooled   12,282 positions   +0.0147 % [-0.0469, +0.0764]   point and interval inside
+  primary, joined texts pooled       12,286 positions   +0.0219 % [-0.0451, +0.0889]   point and interval inside
+  Two single windows have their point outside the band alone: w0 (+0.169 %, interval up to +0.29 %) and w4
+  (-0.129 %). They go in opposite directions, and the pooled figures are inside.
+  In every text the first 64 positions are the same bits in both arms and every later position differs.
+
+THE POSITION-WISE LOOK (joined texts, pair.txt)
+  Modulo 128 (the score chunk): the largest residue means are +0.0169 (jw012, residue 54) and -0.0157 (jw345,
+  residue 9), against a standard error of about 0.005 and 0.006 a residue. The boundary residues 0, 1 and 127 read
+  -0.0059, -0.0007, +0.0023 (jw012) and +0.0026, +0.0012, +0.0014 (jw345).
+  Modulo 512 (the piece): the largest residue means are -0.0435 (jw012, residue 223) and -0.0603 (jw345, residue
+  161), against about 0.009 and 0.012. Each holds that text's largest single difference (positions 4,319 and 3,745):
+  one position, not a boundary. The boundary residues 0, 1 and 511 read -0.0119, +0.0117, -0.0045 (jw012) and
+  +0.0034, +0.0056, +0.0030 (jw345).
+  No difference clusters at a chunk or a piece boundary. No joined-text position moves by more than 1.0.
+
+READ TIMES (not a gate; `seconds_prefill` of the scoring mode, which includes reading every row's logits back and
+the host's log-sum-exp)
+  single windows: full 26.25 to 27.00 s, narrow 25.00 to 25.19 s, one run each.
+  joined texts: jw012 105.20 s full against 117.98 s narrow; jw345 107.56 s full against 92.20 s narrow. One run
+  each, opposite signs: these runs do not time the arm. Part D's alternated pairs do.
+
+AGAINST THE SIGNED PREDICTIONS
+  prediction                                            predicted         measured                            inside
+  primary, point inside +-0.12 %                        p 0.75            +0.0219 %                           yes
+  secondary, point inside +-0.12 %                      p 0.80            +0.0147 %                           yes
+  primary, whole interval inside +-0.12 %               p 0.55 (2 texts)  [-0.0451, +0.0889]                  yes
+  differences cluster at chunk or piece boundaries      p 0.10            no cluster                          did not
+  largest per-position |dNLL| above 1.0 somewhere       p 0.6             1.064 (w4, position 363)            yes
+  The last one holds on a single window only; on the joined texts the largest is 0.756.
+
+WHAT THE READING DOES NOT SAY
+  That the arm costs nothing: 12,286 positions on one machine resolve about +-0.07 % (*computed*, the half-width of
+  the interval); a cost under that is not resolved, as the prereg says.
+  Anything about CUDA, the CPU or the runtime: one stack, Metal, arm B, `inkrun` only.
+  Anything about generation (GSM8K or chat): this reads teacher-forced perplexity only.
+  Why the first 64 positions keep their bits: not traced (the first score chunk of a text starts at key 0 in both
+  arms; why only half of it matches is not read).
+  The speed of the arm: the read times of this lot are single runs that include reading the logits back, and
+  disagree in sign on the two joined texts.

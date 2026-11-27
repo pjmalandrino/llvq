@@ -1,0 +1,47 @@
+w0: 2047 positions, ppl full 5.40918, narrow 5.41831; 1983 differ; largest |d| 0.3391 at 1028, ratio +0.1687 % [+0.0457, +0.2918]
+w1: 2047 positions, ppl full 8.67316, narrow 8.66563; 1983 differ; largest |d| 0.3823 at 882, ratio -0.0869 % [-0.2154, +0.0419]
+w2: 2047 positions, ppl full 9.64696, narrow 9.65293; 1983 differ; largest |d| 0.3767 at 628, ratio +0.0619 % [-0.0383, +0.1622]
+w3: 2047 positions, ppl full 8.32511, narrow 8.32918; 1983 differ; largest |d| 0.3869 at 1100, ratio +0.0489 % [-0.1161, +0.2142]
+w4: 2047 positions, ppl full 6.99228, narrow 6.98323; 1983 differ; largest |d| 1.0644 at 363, ratio -0.1294 % [-0.3464, +0.0881]
+w5: 2047 positions, ppl full 5.91186, narrow 5.91337; 1983 differ; largest |d| 0.3751 at 237, ratio +0.0255 % [-0.1177, +0.1689]
+jw012: 6143 positions, ppl full 7.11483, narrow 7.11837; 6079 differ; largest |d| 0.4515 at 4319, ratio +0.0498 % [-0.0310, +0.1306]
+jw345: 6143 positions, ppl full 6.09247, narrow 6.09210; 6079 differ; largest |d| 0.7563 at 3745, ratio -0.0060 % [-0.1129, +0.1009]
+
+secondary (single windows pooled): 12282 positions, ratio +0.0147 % [-0.0469, +0.0764]
+secondary (single windows pooled) band +-0.12 %: point inside, interval inside
+primary (joined texts pooled): 12286 positions, ratio +0.0219 % [-0.0451, +0.0889]
+primary (joined texts pooled) band +-0.12 %: point inside, interval inside
+
+jw012: position-wise
+  modulo 128: 128 residues, 47 positions each or so; overall mean +0.00050, sd of one difference 0.0323, so a residue mean's standard error about 0.0047
+    largest |mean| residues: 54: +0.0169, 95: -0.0126, 18: +0.0119, 74: -0.0117, 86: +0.0112
+    boundary residues (0, 1, 127): 0: -0.0059, 1: -0.0007, 127: +0.0023
+  modulo 512: 512 residues, 11 positions each or so; overall mean +0.00050, sd of one difference 0.0323, so a residue mean's standard error about 0.0093
+    largest |mean| residues: 458: -0.0435, 223: -0.0378, 2: -0.0302, 319: +0.0299, 335: -0.0295
+    boundary residues (0, 1, 511): 0: -0.0119, 1: +0.0117, 511: -0.0045
+  largest |d| 0.4515 (d -0.4515) at position 4319 (mod 128 = 95, mod 512 = 223); 6079 of 6143 positions differ; 0 above 1.0
+jw345: position-wise
+  modulo 128: 128 residues, 47 positions each or so; overall mean -0.00006, sd of one difference 0.0427, so a residue mean's standard error about 0.0062
+    largest |mean| residues: 9: -0.0157, 43: +0.0147, 33: -0.0145, 117: +0.0141, 103: -0.0141
+    boundary residues (0, 1, 127): 0: +0.0026, 1: +0.0012, 127: +0.0014
+  modulo 512: 512 residues, 11 positions each or so; overall mean -0.00006, sd of one difference 0.0427, so a residue mean's standard error about 0.0123
+    largest |mean| residues: 161: -0.0603, 330: -0.0561, 123: -0.0532, 73: +0.0400, 399: -0.0388
+    boundary residues (0, 1, 511): 0: +0.0034, 1: +0.0056, 511: +0.0030
+  largest |d| 0.7563 (d -0.7563) at position 3745 (mod 128 = 33, mod 512 = 161); 6079 of 6143 positions differ; 0 above 1.0
+
+w0-full: read 27.00 s, scored 2047, ppl 5.40918, attn_window full
+w0-narrow: read 25.08 s, scored 2047, ppl 5.41831, attn_window narrow
+w1-full: read 26.25 s, scored 2047, ppl 8.67316, attn_window full
+w1-narrow: read 25.00 s, scored 2047, ppl 8.66563, attn_window narrow
+w2-full: read 26.32 s, scored 2047, ppl 9.64696, attn_window full
+w2-narrow: read 25.09 s, scored 2047, ppl 9.65293, attn_window narrow
+w3-full: read 26.46 s, scored 2047, ppl 8.32511, attn_window full
+w3-narrow: read 25.19 s, scored 2047, ppl 8.32918, attn_window narrow
+w4-full: read 26.38 s, scored 2047, ppl 6.99228, attn_window full
+w4-narrow: read 25.14 s, scored 2047, ppl 6.98323, attn_window narrow
+w5-full: read 26.46 s, scored 2047, ppl 5.91186, attn_window full
+w5-narrow: read 25.14 s, scored 2047, ppl 5.91337, attn_window narrow
+jw012-full: read 105.20 s, scored 6143, ppl 7.11483, attn_window full
+jw012-narrow: read 117.98 s, scored 6143, ppl 7.11837, attn_window narrow
+jw345-full: read 107.56 s, scored 6143, ppl 6.09247, attn_window full
+jw345-narrow: read 92.20 s, scored 6143, ppl 6.09210, attn_window narrow

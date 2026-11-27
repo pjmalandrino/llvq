@@ -1,0 +1,8 @@
+window 0: equal to /Users/pjmalandrino/llvq-inkling-mini/lot2-d/wikitext_w0_2048.json
+window 1: equal to /Users/pjmalandrino/llvq-inkling-mini/lot4-x/wikitext_w1_2048.json
+window 2: equal to /Users/pjmalandrino/llvq-inkling-mini/lot4-x/wikitext_w2_2048.json
+window 3: /Users/pjmalandrino/Documents/Pro/workspace/poc/llvq/.claude/worktrees/mac-inkling/docs/mesures/inkling-mac-fenetre-ppl-2026-11-27-brut/wikitext_w3_2048.json
+window 4: /Users/pjmalandrino/Documents/Pro/workspace/poc/llvq/.claude/worktrees/mac-inkling/docs/mesures/inkling-mac-fenetre-ppl-2026-11-27-brut/wikitext_w4_2048.json
+window 5: /Users/pjmalandrino/Documents/Pro/workspace/poc/llvq/.claude/worktrees/mac-inkling/docs/mesures/inkling-mac-fenetre-ppl-2026-11-27-brut/wikitext_w5_2048.json
+joined_w012_6144.json: 6144 ids
+joined_w345_6144.json: 6144 ids
