@@ -101,7 +101,10 @@ impl Loader for DeviceLoader {
     fn build(&self, name: &ModelName, m: &Manifest, store: &Store) -> anyhow::Result<Built> {
         match m.family.as_str() {
             crate::inkling::FAMILY => crate::inkling::load_local(name, std::path::Path::new(&m.file), store).map(Built::Inkling),
-            _ => self.load(name, m, store).map(|l| Built::Qwen3(Box::new(l))),
+            _ => {
+                crate::inkling::window_off_inkling(crate::inkling::attn_window(), name, &m.family)?;
+                self.load(name, m, store).map(|l| Built::Qwen3(Box::new(l)))
+            }
         }
     }
 

@@ -111,6 +111,7 @@ fn key() -> Key {
         score_rows: 128,
         kv_slack: 1024,
         bias: "host".into(),
+        attn_window: llvq_runtime::prefix::FULL_WINDOW.into(),
     }
 }
 

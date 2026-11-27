@@ -62,6 +62,11 @@ enum Cmd {
         /// first: bytes, or K, M, G, T (binary). Default 4G.
         #[arg(long = "prefix-cache-max", value_name = "SIZE")]
         prefix_cache_max: Option<String>,
+        /// Inkling 2: the sliding layers score every key their slot holds
+        /// (full, the default) or the keys of their window only (narrow, class
+        /// B, Metal under the fused stack only). Hidden: not served.
+        #[arg(long = "attn-window", value_name = "full|narrow", hide = true)]
+        attn_window: Option<String>,
     },
     /// Download a model of the library, check its size and sha256, register it.
     Pull {
@@ -508,8 +513,10 @@ fn run(client: &Client, model: &str, prompt: Vec<String>, o: RunOpts) -> anyhow:
     }
 }
 
-fn serve(local: &[std::path::PathBuf], prefix_cache: Option<&str>, prefix_cache_max: Option<&str>) -> anyhow::Result<()> {
+fn serve(local: &[std::path::PathBuf], prefix_cache: Option<&str>, prefix_cache_max: Option<&str>, attn_window: Option<&str>) -> anyhow::Result<()> {
     use llvq_runtime::prefix;
+    let window = attn_window.map(llvq_runtime::inkling::parse_attn_window).transpose().map_err(anyhow::Error::msg)?;
+    llvq_runtime::inkling::set_attn_window(window.unwrap_or_default());
     let enabled = prefix_cache.map(prefix::parse_switch).transpose().map_err(anyhow::Error::msg)?;
     let max_bytes = match prefix_cache_max {
         Some(v) => prefix::parse_size(v).map_err(anyhow::Error::msg)?,
@@ -556,8 +563,8 @@ fn main() -> anyhow::Result<()> {
             Cli::command().print_help()?;
             Ok(())
         }
-        Some(Cmd::Serve { local, prefix_cache, prefix_cache_max }) => {
-            serve(&local, prefix_cache.as_deref(), prefix_cache_max.as_deref())
+        Some(Cmd::Serve { local, prefix_cache, prefix_cache_max, attn_window }) => {
+            serve(&local, prefix_cache.as_deref(), prefix_cache_max.as_deref(), attn_window.as_deref())
         }
         Some(Cmd::Pull { model, from }) => pull(&client, &model, from),
         Some(Cmd::Run { model, prompt, think, verbose, temperature, keepalive }) => {

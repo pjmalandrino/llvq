@@ -326,6 +326,76 @@ fn long_prompt(backend: Backend, fused: bool) -> LongPrompt {
     }
 }
 
+/// What `llvq serve --attn-window` sets: whether the sliding layers of Inkling
+/// 2 score every key their slot holds (`full`, the default and what is
+/// served) or only the keys their window sees (`narrow`,
+/// `layers::set_window_scores`). The arm is class B: its logits differ, its
+/// greedy tokens and its perplexity band held on Metal under the fused stack
+/// (`docs/mesures/inkling-mac-fenetre-2026-11-27.txt`), and it has been read
+/// nowhere else.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum AttnWindow {
+    #[default]
+    Full,
+    Narrow,
+}
+
+impl AttnWindow {
+    pub fn label(self) -> &'static str {
+        match self {
+            AttnWindow::Full => "full",
+            AttnWindow::Narrow => "narrow",
+        }
+    }
+}
+
+/// `full` or `narrow`; any other value refused by name.
+pub fn parse_attn_window(v: &str) -> Result<AttnWindow, String> {
+    match v {
+        "full" => Ok(AttnWindow::Full),
+        "narrow" => Ok(AttnWindow::Narrow),
+        o => Err(format!("--attn-window {o:?}: full or narrow")),
+    }
+}
+
+static ATTN_WINDOW: std::sync::OnceLock<AttnWindow> = std::sync::OnceLock::new();
+
+/// Set the arm of this process, once, before any model loads.
+pub fn set_attn_window(a: AttnWindow) {
+    let _ = ATTN_WINDOW.set(a);
+}
+
+/// The arm of this process: the one [`set_attn_window`] set, or `full`.
+pub fn attn_window() -> AttnWindow {
+    ATTN_WINDOW.get().copied().unwrap_or_default()
+}
+
+/// Whether a load on `backend` and its stack turns the window scores on:
+/// `narrow` on Metal under the fused stack, the only place the arm was read;
+/// refused by name on every other load. `full` never turns them on.
+fn window_scores_for(a: AttnWindow, backend: Backend, fused: bool) -> anyhow::Result<bool> {
+    match (a, backend, fused) {
+        (AttnWindow::Full, _, _) => Ok(false),
+        (AttnWindow::Narrow, Backend::Metal, true) => Ok(true),
+        (AttnWindow::Narrow, _, _) => anyhow::bail!(
+            "--attn-window narrow: the window scores have been read on Metal under the fused stack only, and this load is {}, stack {}",
+            backend.label(),
+            stack_name(backend, fused)
+        ),
+    }
+}
+
+/// A model of another family than Inkling 2 (a Qwen3 of the store) under the
+/// arm `a`: `full` loads, `narrow` is refused by name.
+pub fn window_off_inkling(a: AttnWindow, name: &ModelName, family: &str) -> anyhow::Result<()> {
+    anyhow::ensure!(
+        a == AttnWindow::Full,
+        "--attn-window {}: the window scores are Inkling 2's, and {name} is of the family {family:?}",
+        a.label()
+    );
+    Ok(())
+}
+
 /// The stack a model loaded on `backend` runs, as the prefix cache's key and
 /// the load's lines name it.
 fn stack_name(backend: Backend, fused: bool) -> &'static str {
@@ -485,6 +555,7 @@ fn prefix_cache(
     backend: Backend,
     fused: bool,
     long: LongPrompt,
+    window: AttnWindow,
 ) -> anyhow::Result<Option<crate::prefix::PrefixCache>> {
     let o = crate::prefix::options();
     let on = o.enabled.unwrap_or(prefix_on_by_default(backend));
@@ -509,14 +580,23 @@ fn prefix_cache(
         backend,
         fused,
         long,
+        window,
     );
     Ok(Some(crate::prefix::PrefixCache::new(store.root().join("prefix"), o.max_bytes, key)))
 }
 
 /// The key of a prefix file: the model's files, the build, and every setting
 /// that changes a bit of the state. A file is loaded only under the backend
-/// and the stack that wrote it.
-fn prefix_key(model_sha256: String, files_sha256: String, build_sha256: String, backend: Backend, fused: bool, long: LongPrompt) -> crate::prefix::Key {
+/// and the stack that wrote it, and under the arm of `--attn-window` that wrote it.
+fn prefix_key(
+    model_sha256: String,
+    files_sha256: String,
+    build_sha256: String,
+    backend: Backend,
+    fused: bool,
+    long: LongPrompt,
+    window: AttnWindow,
+) -> crate::prefix::Key {
     crate::prefix::Key {
         format: crate::prefix::FORMAT,
         family: FAMILY.into(),
@@ -529,6 +609,7 @@ fn prefix_key(model_sha256: String, files_sha256: String, build_sha256: String, 
         score_rows: SCORE_ROWS,
         kv_slack: KV_SLACK,
         bias: if long == LongPrompt::BiasOnCard { "card" } else { "host" }.into(),
+        attn_window: window.label().into(),
     }
 }
 
@@ -565,9 +646,16 @@ pub fn load_local(name: &ModelName, path: &Path, store: &Store) -> anyhow::Resul
         ),
     }];
     let fused = !dev.is_cpu() && local.fused().map_err(anyhow::Error::msg)?;
-    let prefix = prefix_cache(store, path, &local, backend, fused, long_prompt(backend, fused))?;
+    let window = attn_window();
+    // Refused before a weight is read; turned on only once the model is loaded.
+    let narrow = window_scores_for(window, backend, fused)?;
+    let prefix = prefix_cache(store, path, &local, backend, fused, long_prompt(backend, fused), window)?;
     let (model, mut lines) = load_model(&local, &dev)?;
     first.append(&mut lines);
+    if narrow {
+        llvq_llm::inkling::layers::set_window_scores(true);
+        first.push("attention: the sliding layers score the keys of their window only (--attn-window narrow, class B)".into());
+    }
     first.push(match &prefix {
         Some(p) => format!(
             "prefix cache: on, in {}, cap {:.1} GiB, key {}",
@@ -1447,7 +1535,7 @@ mod tests {
 
     #[test]
     fn a_prefix_key_names_the_backend_and_the_stack_that_wrote_it() {
-        let key = |b: Backend, fused: bool| prefix_key("m".into(), "f".into(), "x".into(), b, fused, long_prompt(b, fused));
+        let key = |b: Backend, fused: bool| prefix_key("m".into(), "f".into(), "x".into(), b, fused, long_prompt(b, fused), AttnWindow::Full);
         let cpu = key(Backend::Cpu, false);
         assert_eq!((cpu.backend.as_str(), cpu.stack.as_str(), cpu.bias.as_str()), ("cpu", "cpu", "host"));
         assert_eq!(cpu.prompt_piece, llvq_llm::inkling::experts_cpu::PROMPT_PIECE);
@@ -1466,6 +1554,60 @@ mod tests {
         assert!(prefix_on_by_default(Backend::Metal));
         assert!(prefix_on_by_default(Backend::Cpu));
         assert!(!prefix_on_by_default(Backend::Cuda));
+    }
+
+    #[test]
+    fn a_prefix_key_names_the_attention_window_that_wrote_it() {
+        let key = |w: AttnWindow| prefix_key("m".into(), "f".into(), "x".into(), Backend::Metal, true, LongPrompt::BiasOnHost, w);
+        let (full, narrow) = (key(AttnWindow::Full), key(AttnWindow::Narrow));
+        assert_eq!((full.attn_window.as_str(), narrow.attn_window.as_str()), ("full", "narrow"));
+        // A file of one arm is never found, nor verified, under the other.
+        assert_ne!(full, narrow);
+        assert_ne!(full.id(), narrow.id());
+        let d = full.differing(&narrow);
+        assert!(d.len() == 1 && d[0].starts_with("attn_window "), "{d:?}");
+        // The default arm's key writes no field: the bytes of the key before the switch.
+        assert!(!serde_json::to_string(&full).unwrap().contains("attn_window"));
+        assert_eq!(AttnWindow::default(), AttnWindow::Full);
+        assert_eq!(attn_window(), AttnWindow::Full, "no test sets the arm: unset reads full");
+    }
+
+    #[test]
+    fn the_attention_window_parses_or_is_refused_by_name() {
+        assert_eq!(parse_attn_window("full"), Ok(AttnWindow::Full));
+        assert_eq!(parse_attn_window("narrow"), Ok(AttnWindow::Narrow));
+        for bad in ["", "Narrow", "window", "on"] {
+            let e = parse_attn_window(bad).unwrap_err();
+            assert!(e.contains("--attn-window"), "{bad}: {e}");
+        }
+    }
+
+    #[test]
+    fn narrow_turns_the_window_on_on_metal_fused_and_is_refused_elsewhere() {
+        // The one load the arm was read on turns it on.
+        assert!(window_scores_for(AttnWindow::Narrow, Backend::Metal, true).unwrap());
+        // `full` turns nothing on, anywhere.
+        for (b, fused) in [(Backend::Metal, true), (Backend::Metal, false), (Backend::Cuda, true), (Backend::Cuda, false), (Backend::Cpu, false)] {
+            assert!(!window_scores_for(AttnWindow::Full, b, fused).unwrap(), "{b:?} {fused}");
+        }
+        // Every other load refuses `narrow`, naming the switch, the backend and the stack.
+        for (b, fused, names) in [
+            (Backend::Metal, false, "metal, stack candle"),
+            (Backend::Cuda, true, "cuda, stack fused"),
+            (Backend::Cuda, false, "cuda, stack candle"),
+            (Backend::Cpu, false, "cpu, stack cpu"),
+        ] {
+            let e = format!("{:#}", window_scores_for(AttnWindow::Narrow, b, fused).unwrap_err());
+            assert!(e.contains("--attn-window narrow") && e.contains(names), "{b:?} {fused}: {e}");
+        }
+    }
+
+    #[test]
+    fn narrow_is_refused_on_a_model_of_another_family() {
+        let name = ModelName::parse("qwen3:4b").unwrap();
+        assert!(window_off_inkling(AttnWindow::Full, &name, "qwen3").is_ok());
+        let e = format!("{:#}", window_off_inkling(AttnWindow::Narrow, &name, "qwen3").unwrap_err());
+        assert!(e.contains("--attn-window narrow") && e.contains("qwen3:4b"), "{e}");
     }
 
     #[test]
