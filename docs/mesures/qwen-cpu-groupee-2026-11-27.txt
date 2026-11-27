@@ -1,0 +1,123 @@
+THE GROUPED ATTENTION ON THE CPU: CLASS B (2,046 OF 2,047 STEPS MOVE, MAX |DLOGIT| 8.1E-4, SAME TOKENS), DECODE X1.555 AT 2,048 AND X1.033 AT 5 TOKENS ON THE 4B (2026-11-27)
+==================================================================================================================================================================
+Why:    the CPU backend serves the three Qwen3 files on the expanded attention and a `Cat` store. The grouped form
+        reads the cached heads with no `repeat_kv` copy; it is served on the card under a tolerance and on Metal
+        as an identity. It had never run on the CPU backend.
+Prereg: proofs/preregistration-qwen-cpu-groupee-2026-11-27.md (OpenTimestamps anchor, commit 6724c6b0), deviations in
+        proofs/preregistration-qwen-cpu-groupee-2026-11-27-ECARTS.md (E1 two cpurun modes, E2 two loaded models in
+        the lockstep, E3 the mutant's site).
+Cost:   $0. Apple M3 Max (12 P + 4 E cores, 64 GB), macOS 26.7.3, rustc 1.95.0, release profile. Every run under
+        ~/.llvq-guard/heavy.sh (nice 15, one heavy job at a time on the machine), LLVQ_THREADS=6 and
+        RAYON_NUM_THREADS=6, the machine shared with two other sessions' light work. The 1-minute load before each
+        timed run is in each raw log, 4.2 to 6.7.
+Object: ~/q4b-sealed-2026-09-23/qwen3-4b-sealed.bin, sha256 886391a8...71b8 (re-hashed tonight).
+Config: arm "exp" = configs/qwen3-4b-tetra-e4.json, the served CPU config (expanded, store cat). Arm "grp" =
+        configs/qwen3-4b-tetra-e4-grouped.json, unchanged (grouped, store grow(256)). The two files differ by the
+        `attention` field and the note alone. Both loaded through cpurun's CPU door (served::load_resolved on
+        Device::Cpu, then Served::apply), f32, neon, 6 threads; each run prints the form its loaded model reports.
+Code:   commit f505e2a6 (cpurun modes `timed` and `lockstep`, nothing else). Binary target/release/cpurun sha256
+        e5109be8...96ca, built from that source before the commit.
+Nature: every rate, time, footprint, logit and token id *measured*; medians, ranges, ratios and the cost of a
+        tolerance run *computed* by analyse.py or by hand as stated; the tolerance run's wall time *estimated*.
+Raw:    docs/mesures/qwen-cpu-groupee-2026-11-27-brut/ (README.txt).
+
+RESULT
+------
+On the CPU in f32 the grouped form is class B: its logits leave the expanded form's at step 1 and differ in some bit
+at 2,046 of 2,047 steps, max |dlogit| 8.144e-4 against a largest |logit| of 34.77, and no step whose argmax differs.
+Both forms generate the same tokens at a 5-token prompt (256 new) and at a 2,048-token prompt (64 new), in every one
+of the 10 runs of each arm. The grouped form decodes x1.555 [1.550-1.566] faster after 2,048 tokens (6.515 against
+4.186 tok/s) and x1.033 [1.029-1.045] after 5 tokens (9.302 against 9.007). The time to the first token at 2,048 does
+not move (x0.997). The peak footprint is bimodal in both arms and gives no clean reading. Nothing is served: under
+class B a served CPU config needs a tolerance run first (section "What the decision would need").
+
+WHAT WAS RUN
+------------
+job1-identity.sh (00:34-00:53): release build of cpurun; G-i lockstep (one process); G-ii, four processes (exp short,
+exp 2048, grp short, grp 2048). job2-speed.sh (00:54-01:17): G-iii, 16 processes, rounds 0 to 3, in each round exp
+short, grp short, exp 2048, grp 2048; round 0 discarded. job3-checks.sh: clippy, cargo test, the mutant.
+
+  cpurun <sealed> lockstep configs/qwen3-4b-tetra-e4-grouped.json 2048 0     (LLVQ_CONFIG = the served config)
+  cpurun <sealed> timed short 256 | timed 2048 64                            (LLVQ_CONFIG = one arm's config)
+
+"short" is "The capital of France is", 5 tokens (fingerprint 4fd22932e1a93676). "2048" is the first 2,048 tokens of
+WikiText-2 test (fingerprint 93950fb3b58d41b6), sent in one prefill chunk. The lockstep window is the same first
+2,048 tokens. WikiText-2 came from the local Hub cache (HF_HUB_OFFLINE=1), the tokenizer from the sealed file.
+
+THE GATES
+---------
+G-i, lockstep, decode path, teacher forced, WikiText-2 test window 0 of 2,048 (gi-lockstep-4b.log, 616.8 s):
+  steps 2,047; steps whose logits differ in any bit 2,046 (step 0, the first position, is equal; every later one
+  differs); steps whose argmax differs 0; max |dlogit| 8.144e-4 at step 647; median 3.24e-5, 99th percentile
+  6.10e-5 (computed); largest |logit| 34.77; ratio 2.3e-5. By position: steps 0-255 max 6.5e-5, 256-1023 max 8.1e-4
+  (one step), 1024-2047 max 7.1e-5. Perplexity of the window by the decode path: 10.540267 for both arms, equal to
+  the printed digit. Verdict: class B on the CPU.
+G-ii, same tokens (gii-4b-*.json): 256 of 256 at the 5-token prompt (ids digest 8db32986), 64 of 64 at the
+  2,048-token prompt (digest 5a0a28dd). The 16 runs of G-iii return the same ids as G-ii in both arms. Pass.
+G-iii, speed, 1 discarded + 3 timed rounds, arms alternated, medians [ranges], ratios formed round by round
+  (giii-4b-r*-*.log and .json, analyse.py):
+
+  prompt  arm  decode tok/s           first token, s           peak footprint, GB    grp / exp, round by round
+  5       exp  9.007 [8.908-9.034]    0.282 [0.280-0.288]      2.027 [2.023-2.031]
+  5       grp  9.302 [9.297-9.307]    0.282 [0.280-0.282]      1.899 [1.897-1.937]   decode 1.029, 1.045, 1.033
+  2,048   exp  4.186 [4.164-4.203]    130.136 [130.087-130.245] 3.303 [3.302-3.737]
+  2,048   grp  6.515 [6.509-6.522]    129.746 [129.681-129.853] 3.637 [3.633-3.639]  decode 1.550, 1.555, 1.566
+                                                                                    first token 0.997, 0.998, 0.996
+
+  Ratios, medians of the round ratios: decode at 5 tokens x1.033 [1.029-1.045]; decode at 2,048 x1.555
+  [1.550-1.566]; first token at 2,048 x0.997 [0.996-0.998]; first token at 5 x0.999 [0.973-1.005].
+  Peak footprint at 5 tokens: grouped lower by 0.124 GB [0.094-0.129], round by round.
+  Peak footprint at 2,048 tokens: each arm lands on one of two levels from run to run. Over its 5 runs at 2,048
+  (G-ii and rounds 0-3), exp read 3.73, 3.73, 3.74, 3.30, 3.30 GB and grp 3.22, 3.23, 3.64, 3.63, 3.64 GB. Within a
+  level grouped is lower by 0.08 (3.22 against 3.30) and 0.10 GB (3.64 against 3.74), computed. Which level a run
+  lands on is not controlled here, so the round-by-round difference (0.098, -0.330, -0.335 GB) reads nothing.
+
+Code checks (job3-checks.out, 01:18-01:25):
+  cargo clippy --all-targets: rc 0, zero warnings (clippy.log).
+  cargo test -p llvq-llm in debug: 115 `test result:` lines, all ok, 664 passed, 0 failed, 38 ignored
+  (test-llvq-llm.log, counted whole).
+  Mutant (E3): llvq-llm/src/served.rs, committed and clean, 1 site `model.set_attn_heads(self.attention);`
+  replaced in place by `model.set_attn_heads(AttnHeads::Expanded);` (1 mutated, 0 left).
+  model::tests::a_served_config_sets_the_store_and_the_attention_form went red (rc 101, model.rs:4311, left
+  Expanded, right Grouped; mutant.log). Restored by git checkout, served.rs clean after.
+
+AGAINST THE SIGNED PREDICTIONS
+------------------------------
+  prediction                                          measured                                  inside?
+  G-i bit for bit, 50 %                               2,046 of 2,047 steps differ               NO, missed
+  if not: max |dlogit| <= 1e-3, no argmax step, 85 %  8.144e-4, 0 steps                         inside
+  G-ii same tokens at both lengths, 85 %              same at both, in every run                inside
+  decode at 5 tokens x1.00 [0.97 ; 1.04]              x1.033 [1.029-1.045]                      median inside, one round above
+  decode at 2,048 x1.5 [1.15 ; 2.5]                   x1.555 [1.550-1.566]                      inside
+  first token at 2,048 x1.1 [1.0 ; 1.4]               x0.997 [0.996-0.998]                      NO, missed (low, below 1.0)
+  peak at 2,048 lower by 0.1 to 1.0 GB                bimodal; within a level 0.08 and 0.10     NO reading; at most at the edge
+
+The first-token prediction missed: the prompt pass of 2,048 positions costs 130 s on both forms, and the attention
+copy the grouped form avoids is a small part of it. The bit prediction missed in the direction the prereg named as
+its risk: the CPU product does not sum the stacked query heads in the order of the expanded heads.
+The computed basis of the 2,048 prediction ("about 2.4 GB of cache copied a token") was not checked by this lot; the
+x1.555 is measured, its cause is not.
+
+WHAT THE DECISION WOULD NEED (class B, so no perplexity gate was run)
+---------------------------------------------------------------------
+The card's license is a paired WikiText-2 perplexity, by prefill and by decode, on 12 windows of 4,096 against a
+band of +-0.12 % (gqa-ppl-2026-11-01). The same reading on the CPU:
+  - by decode: `cpurun lockstep` extended to 12 windows of 4,096 with a paired NLL interval (the mode prints one
+    window's two perplexities today). Estimated wall time on this Mac at 6 threads: a step costs about 0.111 s +
+    6.3e-5 s per cached position under exp and 0.108 s + 2.2e-5 s under grp (fitted on the G-iii rates at 5 and
+    2,048 positions, computed), so one window of 4,096 costs about 980 + 630 s, 27 min, and 12 windows about 5.4 h
+    (estimated). The fit reproduces this lot's lockstep: 625 s predicted against 617 s measured.
+  - by prefill: `cpurun gate` pairs the CPU backend against the dense reconstruction, not two forms; it would need a
+    two-config arm. At about 210 s a window of 4,096 for each arm (cpu-tetra-2026-11-07, 12 threads), 12 windows
+    would cost about 1.4 h at 12 threads and more at 6 (estimated).
+That is one night of this Mac, at $0. It is the operator's call.
+
+WHAT THE READING DOES NOT SAY
+-----------------------------
+- It serves nothing. library.json, llvq-runtime and the served configs are unchanged.
+- One window and one model. The lockstep read 2,047 steps of one WikiText-2 window; the tolerance is not measured.
+  Equal tokens over 256 + 64 generated tokens do not license the form.
+- One machine, NEON only, 6 threads, f32. AVX2 and AVX-512, other thread counts and f16 were not run; the bits may
+  move differently there.
+- The 2,048-token prompt went in one chunk. A chunked prefill, as `llvq serve` may send it, was not run.
+- The footprint at 2,048 is bimodal in both arms; this lot did not find why.

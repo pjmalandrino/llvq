@@ -1,0 +1,25 @@
+   Compiling llvq-llm v0.1.0 (/Users/pjmalandrino/Documents/Pro/workspace/poc/llvq/.claude/worktrees/qwen-cpu/llvq-llm)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 1.65s
+     Running unittests src/lib.rs (target/debug/deps/llvq_llm-2ce0e1ace9114b1f)
+
+running 1 test
+test model::tests::a_served_config_sets_the_store_and_the_attention_form ... FAILED
+
+failures:
+
+---- model::tests::a_served_config_sets_the_store_and_the_attention_form stdout ----
+
+thread 'model::tests::a_served_config_sets_the_store_and_the_attention_form' (13827593) panicked at llvq-llm/src/model.rs:4311:9:
+assertion `left == right` failed: the form
+  left: Expanded
+ right: Grouped
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    model::tests::a_served_config_sets_the_store_and_the_attention_form
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 245 filtered out; finished in 0.08s
+
+error: test failed, to rerun pass `-p llvq-llm --lib`
+/Users/pjmalandrino/Documents/Pro/workspace/poc/llvq/.claude/worktrees/qwen-cpu/docs/mesures/qwen-cpu-groupee-2026-11-27-brut/tlim.sh: line 11: 26091 Terminated: 15          sleep "$secs"
