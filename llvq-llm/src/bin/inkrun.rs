@@ -90,6 +90,12 @@
 //! (default) or by `inkling::attn_bias` on the device (CUDA and Metal), the
 //! same bits.
 //!
+//! `--attn-window full|narrow`: a sliding layer's scores over every key the
+//! slot holds, the keys outside the window masked (`full`, the default and the
+//! reference), or each chunk of rows over the keys its rows see
+//! (`layers::set_window_scores`, prereg `inkling-fenetre-2026-11-27`). Not
+//! meant to be the same bits; the runtime has no such switch.
+//!
 //! `--moe-rows chunk|batch`: a prompt's rows through the resident experts one
 //! expert and one chunk at a time (`chunk`, the default and the reference), or
 //! one launch a step for every (token, expert) pair of a layer (`batch`).
@@ -202,6 +208,7 @@ struct Args {
     moe_down_sg: Option<bool>,
     prefill_phases: bool,
     attn_bias_device: bool,
+    attn_window_narrow: bool,
     moe_four: bool,
     routing_steps_out: Option<PathBuf>,
     events_off: bool,
@@ -220,7 +227,7 @@ fn usage() -> ! {
          [--resident verified|none] [--require-layers N] [--logits-out <file>] [--prompt-key <key>] \
          [--prompt-len N] [--phases K] [--attn-chunk N] [--prefill-chunk N] [--kv-window full|bounded[=S]] [--peak-probe on] \
          [--rollback-gate on] [--prefill-rows 1|2|4|8] [--head bf16|int4 --head-table <file>] \
-         [--glue candle|fused] [--attn candle|fused|fused+scores] [--routing device|host] [--moe-act fused|candle] [--moe four|one] [--moe-rows chunk|batch] [--moe-down sg|serial] [--attn-bias host|device] [--prefill-phases on] [--events on|off] [--kernel-times on|off] [--routing-steps-out <file>] [--score-from N | --score-prompt on] \
+         [--glue candle|fused] [--attn candle|fused|fused+scores] [--routing device|host] [--moe-act fused|candle] [--moe four|one] [--moe-rows chunk|batch] [--moe-down sg|serial] [--attn-bias host|device] [--attn-window full|narrow] [--prefill-phases on] [--events on|off] [--kernel-times on|off] [--routing-steps-out <file>] [--score-from N | --score-prompt on] \
          [--nll-out <file>] [--save-at N --state-file <file>]"
     );
     std::process::exit(2)
@@ -308,6 +315,11 @@ fn parse() -> Result<Args> {
             None | Some("host") => false,
             Some("device") => true,
             Some(o) => bail!("--attn-bias {o}: host or device"),
+        },
+        attn_window_narrow: match take("attn-window").as_deref() {
+            None | Some("full") => false,
+            Some("narrow") => true,
+            Some(o) => bail!("--attn-window {o}: full or narrow"),
         },
         prefill_phases: match take("prefill-phases").as_deref() {
             None | Some("off") => false,
@@ -598,6 +610,7 @@ fn main() -> Result<()> {
     model.set_moe_act(args.moe_act);
     model.set_moe_four_launches(args.moe_four);
     model.set_moe_batch_rows(args.moe_rows_batch);
+    llvq_llm::inkling::layers::set_window_scores(args.attn_window_narrow);
     #[cfg(any(all(target_os = "linux", feature = "cuda"), all(target_os = "macos", feature = "metal")))]
     llvq_llm::inkling::attn_bias::set_on_device(args.attn_bias_device.then_some(&dev))?;
     #[cfg(not(any(all(target_os = "linux", feature = "cuda"), all(target_os = "macos", feature = "metal"))))]
@@ -605,7 +618,7 @@ fn main() -> Result<()> {
         bail!("--attn-bias device: CUDA or Metal only");
     }
     let provenance = json!({"prefill_rows": args.prefill_rows,
-        "moe_down": match args.moe_down_sg { None => "default", Some(true) => "sg", Some(false) => "serial" }, "moe_rows": if args.moe_rows_batch { "batch" } else { "chunk" }, "attn_bias": if args.attn_bias_device { "device" } else { "host" }, "glue": model.glue().name(),
+        "moe_down": match args.moe_down_sg { None => "default", Some(true) => "sg", Some(false) => "serial" }, "moe_rows": if args.moe_rows_batch { "batch" } else { "chunk" }, "attn_bias": if args.attn_bias_device { "device" } else { "host" }, "attn_window": if args.attn_window_narrow { "narrow" } else { "full" }, "glue": model.glue().name(),
         "head": if args.head_table.is_some() { "int4" } else { "bf16" }, "head_table": args.head_table,
         "bf16_head_on_device": model.has_bf16_head(), "attn": model.attn().name(),
         "routing_on_device": model.routing_on_device(), "moe": if args.moe_four { "four" } else { "one" }, "events": if args.events_off { "off" } else { "on" }, "moe_act": if args.moe_act { "fused" } else { "candle" },
