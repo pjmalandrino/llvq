@@ -658,7 +658,8 @@ static WINDOW_SCORE_CHUNKS: std::sync::atomic::AtomicUsize = std::sync::atomic::
 /// Score each chunk of a sliding layer's query rows over the keys its rows
 /// can see (`true`), or over every key the slot holds, the keys outside the
 /// window masked to minus infinity (`false`, the default). For a process:
-/// `inkrun --attn-window narrow` turns it on, the runtime never does. The
+/// `inkrun --attn-window narrow` turns it on, and `llvq serve --attn-window
+/// narrow`, hidden and off by default, on Metal under the fused stack. The
 /// dropped keys have probability exactly zero, so each row's value is the
 /// same in exact arithmetic; the device's sums run over shorter rows, so the
 /// bits are not meant to be the same (prereg `inkling-fenetre-2026-11-27`).

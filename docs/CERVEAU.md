@@ -990,12 +990,16 @@ and 1.50 at 2,000 against a largest logit of 29.5 and 29.7, with the same argmax
 32 tokens. On the tiny model the worst gap is 2.9e-6 of the largest logit. The paired perplexity of the arm against
 the reference is +0.022 % [-0.045, +0.089] on 12,286 positions of two joined texts and +0.015 % [-0.047, +0.076] on
 12,282 positions of six windows, inside the +-0.12 % band, with no difference grouped at a chunk or piece boundary.
-The decode has nothing to gain: its score kernel already reads the window only.
-- Standing: supported. Scope: one M3 Max, Metal, `inkrun` with the arm off by default, two prompts, four alternated
-  pairs a length; WikiText-2 only, a cost under about 0.07 % not resolved, one window of six outside the band alone
-  (+0.169 % [+0.046, +0.292]); the routing not recorded, nothing on CUDA or the CPU, the runtime unchanged.
+Through `llvq serve` the first token of an 8,791-token prompt comes x0.858 [0.857, 0.859] sooner, 109.24 s against
+127.40 s, and that prompt's greedy answer takes another token at the 35th of 46. The decode has nothing to gain: its
+score kernel already reads the window only.
+- Standing: supported. Scope: one M3 Max, Metal, the arm off by default in `inkrun` and behind a hidden switch of
+  `llvq serve`; two prompts and four alternated pairs a length in `inkrun`, one long prompt and three pairs through
+  the server; WikiText-2 only, a cost under about 0.07 % not resolved, one window of six outside the band alone
+  (+0.169 % [+0.046, +0.292]); the routing not recorded, nothing on CUDA or the CPU.
 - Evidence: [inkling-mac-fenetre](mesures/inkling-mac-fenetre-2026-11-27.txt) D-i to D-iii;
-  [inkling-mac-fenetre-ppl](mesures/inkling-mac-fenetre-ppl-2026-11-27.txt).
+  [inkling-mac-fenetre-ppl](mesures/inkling-mac-fenetre-ppl-2026-11-27.txt);
+  [inkling-mac-fenetre-runtime](mesures/inkling-mac-fenetre-runtime-2026-11-27.txt) H-i to H-iv.
 - Overturn: a pooled perplexity point outside the band on other texts or another backend, or alternated pairs that
   read a ratio above 0.95 at 9,000 tokens.
 - Checked: 2026-11-27.

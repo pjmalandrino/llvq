@@ -1249,11 +1249,11 @@ O13, the number the long-context speed phase took on main the next day.
 
 ## 2026-11-27. Two readings that serve nothing: Inkling's window arm on the Mac, the grouped attention on the CPU; $0
 
-- Three lots ran the same night on one M3 Max, each under a prereg stamped before its first measurement
+- Four lots ran the same night on one M3 Max, each under a prereg stamped before its first measurement
   ([`inkling-fenetre`](../proofs/preregistration-inkling-fenetre-2026-11-27.md),
   [`inkling-fenetre-ppl`](../proofs/preregistration-inkling-fenetre-ppl-2026-11-27.md),
-  [`qwen-cpu-groupee`](../proofs/preregistration-qwen-cpu-groupee-2026-11-27.md)), at no cost. No default changed
-  and the runtime was not touched.
+  [`inkling-fenetre-runtime`](../proofs/preregistration-inkling-fenetre-runtime-2026-11-27.md),
+  [`qwen-cpu-groupee`](../proofs/preregistration-qwen-cpu-groupee-2026-11-27.md)), at no cost. No default changed.
 - The window arm. `inkrun --attn-window narrow` scores each chunk of query rows of Inkling 2 Mini's sliding layers
   over the keys it can see, not over every key the slot holds. A 9,000-token prompt is read in 112.41 s against
   131.48 s, x0.855 [0.854, 0.856] over four alternated pairs, and a 2,000-token prompt x0.945 [0.943, 0.951]
@@ -1263,8 +1263,13 @@ O13, the number the long-context speed phase took on main the next day.
 - Its perplexity. Paired by position against the reference, the arm reads +0.022 % [-0.045, +0.089] on two joined
   WikiText-2 texts of 6,144 tokens and +0.015 % [-0.047, +0.076] on six windows of 2,048, inside the +-0.12 % band
   the pieces carry ([inkling-mac-fenetre-ppl](mesures/inkling-mac-fenetre-ppl-2026-11-27.txt)). No difference sits at
-  a chunk or piece boundary. One window alone reads +0.169 % [+0.046, +0.292]. The arm stays off: serving it needs
-  a reading on CUDA and on the CPU, a switch in the runtime, and the operator's word.
+  a chunk or piece boundary. One window alone reads +0.169 % [+0.046, +0.292].
+- Its switch. `llvq serve --attn-window narrow`, hidden from the help, off by default and refused off Metal, gives
+  the first token of an 8,791-token prompt after 109.24 s against 127.40 s, x0.858 [0.857, 0.859] over three
+  alternated pairs ([inkling-mac-fenetre-runtime](mesures/inkling-mac-fenetre-runtime-2026-11-27.txt)). With no
+  switch the server answers token for token as the build before it, and the key of a prefix file keeps its bytes.
+  Under `narrow` the long prompt's greedy answer takes another token at the 35th of 46; the short prompt's does not
+  move. The arm stays off: serving it needs a reading on CUDA and on the CPU, and the operator's word.
 - The grouped attention on the CPU. The grouped configs load on the CPU backend as they are. After a 2,048-token
   prompt the 4B decodes x1.555 [1.550, 1.566] faster, 6.515 against 4.186 tok/s, and the 8B x1.378 [1.371, 1.385],
   4.363 against 3.165; after 5 tokens x1.033 and x1.038; the first token at 2,048 tokens does not move (*measured*, 6
@@ -1274,6 +1279,7 @@ O13, the number the long-context speed phase took on main the next day.
   grouped one would need the paired perplexity of `ETAT.md` §4 on the CPU, about a night of this Mac (*estimated*).
 - Predictions that missed, as signed in the preregs. The window arm's logit gap was predicted under 2e-3 and read
   6.41: the tiny model's drift does not carry to a model whose routing turns a small drift into other experts. Its
-  peak was predicted not higher. The grouped form on the CPU was given one chance in two to be bit for bit, and its
+  peak was predicted not higher. Through the server its answer to the long prompt was predicted token for token at
+  0.8 and moved. The grouped form on the CPU was given one chance in two to be bit for bit, and its
   first token at 2,048 tokens was predicted x1.1 [1.0, 1.4] faster and read x0.997.
 - `CERVEAU.md` gains A9 and A10 and goes from 78 claims to 80.
