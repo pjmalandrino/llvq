@@ -255,6 +255,24 @@ records of `o`. The groups are super-additive: all exceeds the MLP plus attentio
 - **A consumer GPU.** Speed is measured on an L40S and an A100 only.
 - **The Rust Metal door, kernel form.** The grouped form is served on Metal since 2026-11-26; `served.rs` still refuses
   the kernel form there, which read within tolerance on the 4B only.
+- **Inkling's sliding layers scoring the window only, on the Mac.** Built off, behind `inkrun --attn-window narrow`;
+  the runtime has no switch. It reads a 9,000-token prompt in 112.41 s against 131.48 s, x0.855 [0.854, 0.856] over
+  four alternated pairs, and a 2,000-token prompt x0.945 [0.943, 0.951] (*measured*, M3 Max,
+  [inkling-mac-fenetre](mesures/inkling-mac-fenetre-2026-11-27.txt)). It is not bit for bit: max |dlogit| 6.41 against
+  a largest logit of 29.49 at 9,000 tokens, the same argmax on the 32 compared rows and the same 32 tokens. Its paired
+  perplexity is inside the +-0.12 % band the pieces carry: +0.022 % [-0.045, +0.089] on two joined texts of 6,144
+  tokens and +0.015 % [-0.047, +0.076] on six windows of 2,048 (*measured*, same Mac,
+  [inkling-mac-fenetre-ppl](mesures/inkling-mac-fenetre-ppl-2026-11-27.txt)). One window alone reads +0.169 %
+  [+0.046, +0.292]. The peak footprint is 0.24 GB higher at 9,000 tokens. Owed before serving: a reading on CUDA and
+  on the CPU, the runtime's switch, and the operator's word.
+- **The grouped attention on the CPU backend.** Read and not served: the CPU keeps the expanded configs. The grouped
+  configs load on the CPU as they are. After a 2,048-token prompt the 4B decodes at 6.515 tok/s against 4.186, x1.555
+  [1.550, 1.566] over three rounds, and the 8B at 4.363 against 3.165, x1.378 [1.371, 1.385] over two; after 5 tokens
+  x1.033 and x1.038; the first token at 2,048 tokens does not move, 130 s and 279 s (*measured*, M3 Max, 6 threads,
+  f32, [qwen-cpu-groupee](mesures/qwen-cpu-groupee-2026-11-27.txt)). It is not bit for bit there, unlike on Metal:
+  max |dlogit| 8.1e-4 and 3.5e-4 against largest logits of 34.8 and 43.1, no step whose argmax differs in 2,047, the
+  same tokens. Owed before serving: the paired perplexity of §4 on the CPU, about a night of this Mac
+  (*estimated*), and the operator's word. Not read: the 14B, x86.
 - **A model above 14B.** The 32B has to be encoded first.
 - **`down_proj` instead of `o_proj` in int4 at 4B and 14B.** At 8B it scored 0.77 points better [0.26, 1.28]. Set
   aside by the operator's ruling of 2026-11-12 that per-model, per-type changes are not the project's direction

@@ -1246,3 +1246,34 @@ O13, the number the long-context speed phase took on main the next day.
   run on x86: it ran on 2026-11-25, 5.80 and 6.53 tok/s on the 4B on one 8 vCPU instance at its last job
   ([llvq-cpu-x86](mesures/llvq-cpu-x86-2026-11-25.txt)).
 - `CERVEAU.md` gains A5 to A8 and goes from 74 claims to 78.
+
+## 2026-11-27. Two readings that serve nothing: Inkling's window arm on the Mac, the grouped attention on the CPU; $0
+
+- Three lots ran the same night on one M3 Max, each under a prereg stamped before its first measurement
+  ([`inkling-fenetre`](../proofs/preregistration-inkling-fenetre-2026-11-27.md),
+  [`inkling-fenetre-ppl`](../proofs/preregistration-inkling-fenetre-ppl-2026-11-27.md),
+  [`qwen-cpu-groupee`](../proofs/preregistration-qwen-cpu-groupee-2026-11-27.md)), at no cost. No default changed
+  and the runtime was not touched.
+- The window arm. `inkrun --attn-window narrow` scores each chunk of query rows of Inkling 2 Mini's sliding layers
+  over the keys it can see, not over every key the slot holds. A 9,000-token prompt is read in 112.41 s against
+  131.48 s, x0.855 [0.854, 0.856] over four alternated pairs, and a 2,000-token prompt x0.945 [0.943, 0.951]
+  (*measured*, Metal, [inkling-mac-fenetre](mesures/inkling-mac-fenetre-2026-11-27.txt)). The logits move by up to
+  6.41 against a largest logit of 29.49, with the same argmax and the same 32 tokens. The peak footprint is 0.24 GB
+  higher at 9,000 tokens. The decode had nothing to gain: its score kernel already reads the window only.
+- Its perplexity. Paired by position against the reference, the arm reads +0.022 % [-0.045, +0.089] on two joined
+  WikiText-2 texts of 6,144 tokens and +0.015 % [-0.047, +0.076] on six windows of 2,048, inside the +-0.12 % band
+  the pieces carry ([inkling-mac-fenetre-ppl](mesures/inkling-mac-fenetre-ppl-2026-11-27.txt)). No difference sits at
+  a chunk or piece boundary. One window alone reads +0.169 % [+0.046, +0.292]. The arm stays off: serving it needs
+  a reading on CUDA and on the CPU, a switch in the runtime, and the operator's word.
+- The grouped attention on the CPU. The grouped configs load on the CPU backend as they are. After a 2,048-token
+  prompt the 4B decodes x1.555 [1.550, 1.566] faster, 6.515 against 4.186 tok/s, and the 8B x1.378 [1.371, 1.385],
+  4.363 against 3.165; after 5 tokens x1.033 and x1.038; the first token at 2,048 tokens does not move (*measured*, 6
+  threads, f32, [qwen-cpu-groupee](mesures/qwen-cpu-groupee-2026-11-27.txt)). On the CPU the two forms are not bit
+  for bit, where they are on Metal: max |dlogit| 8.1e-4 and 3.5e-4, no step whose argmax differs in 2,047, the same
+  tokens. `cpurun` gains two measurement modes, `timed` and `lockstep`. The CPU keeps the expanded configs: a
+  grouped one would need the paired perplexity of `ETAT.md` §4 on the CPU, about a night of this Mac (*estimated*).
+- Predictions that missed, as signed in the preregs. The window arm's logit gap was predicted under 2e-3 and read
+  6.41: the tiny model's drift does not carry to a model whose routing turns a small drift into other experts. Its
+  peak was predicted not higher. The grouped form on the CPU was given one chance in two to be bit for bit, and its
+  first token at 2,048 tokens was predicted x1.1 [1.0, 1.4] faster and read x0.997.
+- `CERVEAU.md` gains A9 and A10 and goes from 78 claims to 80.

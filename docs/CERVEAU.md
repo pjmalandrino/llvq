@@ -27,8 +27,10 @@ conjecture, one belief joined the dropped ones, and the operator closed the lead
 On 2026-11-26 four lots at $0 served Inkling 2 Mini on an M3 Max: A3 and A4 are added, both supported, and the
 anomaly N9.
 On 2026-11-27 the night's three lots (the Qwen3 files served on Metal, the prefix cache on the CPU, a prompt held
-whole) added A5 to A8 and corrected A2, which said the CPU backend never ran on x86.
-78 claims: 18 established, 2 proved, 48 supported, 6 conjecture, 4 refuted.
+whole) added A5 to A8 and corrected A2, which said the CPU backend never ran on x86. The same night two readings
+that serve nothing added A9 (Inkling's sliding layers scoring the window only, with its perplexity band) and A10 (the
+grouped attention on the CPU backend).
+80 claims: 18 established, 2 proved, 50 supported, 6 conjecture, 4 refuted.
 
 This document lists what we believe to be true about quantizing LLMs on the Leech lattice, each belief with its
 standing. It is not the served state ([`ETAT.md`](ETAT.md)), the history ([`HISTORIQUE.md`](HISTORIQUE.md)) or a plan
@@ -979,6 +981,36 @@ the same text. The Qwen3 engine does not have that defect: it re-reads one token
   held answer is gated by unit tests on a scripted model only.
 - Evidence: [inkling-cpu-prefix-held](mesures/inkling-cpu-prefix-held-2026-11-26.txt) C-i, C-ii.
 - Overturn: alternated before and after servers that read a first token above 0.5 s on the long prompt.
+- Checked: 2026-11-27.
+
+**A9.** On Metal, scoring each chunk of query rows of Inkling 2 Mini's sliding layers over the keys it can see,
+instead of over every key the slot holds, reads a 9,000-token prompt in 112.41 s against 131.48 s, x0.855
+[0.854, 0.856], and a 2,000-token prompt x0.945 [0.943, 0.951]. The logits move: max |dlogit| 6.41 at 9,000 tokens
+and 1.50 at 2,000 against a largest logit of 29.5 and 29.7, with the same argmax on the 32 compared rows and the same
+32 tokens. On the tiny model the worst gap is 2.9e-6 of the largest logit. The paired perplexity of the arm against
+the reference is +0.022 % [-0.045, +0.089] on 12,286 positions of two joined texts and +0.015 % [-0.047, +0.076] on
+12,282 positions of six windows, inside the +-0.12 % band, with no difference grouped at a chunk or piece boundary.
+The decode has nothing to gain: its score kernel already reads the window only.
+- Standing: supported. Scope: one M3 Max, Metal, `inkrun` with the arm off by default, two prompts, four alternated
+  pairs a length; WikiText-2 only, a cost under about 0.07 % not resolved, one window of six outside the band alone
+  (+0.169 % [+0.046, +0.292]); the routing not recorded, nothing on CUDA or the CPU, the runtime unchanged.
+- Evidence: [inkling-mac-fenetre](mesures/inkling-mac-fenetre-2026-11-27.txt) D-i to D-iii;
+  [inkling-mac-fenetre-ppl](mesures/inkling-mac-fenetre-ppl-2026-11-27.txt).
+- Overturn: a pooled perplexity point outside the band on other texts or another backend, or alternated pairs that
+  read a ratio above 0.95 at 9,000 tokens.
+- Checked: 2026-11-27.
+
+**A10.** On the CPU backend the grouped attention decodes the Qwen3 4B x1.555 [1.550, 1.566] faster than the expanded
+one after a 2,048-token prompt, 6.515 against 4.186 tok/s, and the 8B x1.378 [1.371, 1.385], 4.363 against 3.165.
+After 5 tokens the gain is x1.033 and x1.038, and the first token at 2,048 tokens does not move (x0.997 and x1.002).
+The two forms are not bit for bit on the CPU, where they are on Metal (A5): 2,046 steps of 2,047 differ, by at most
+8.1e-4 and 3.5e-4 against largest logits of 34.8 and 43.1, with no step whose argmax differs and the same tokens.
+- Standing: supported. Scope: one M3 Max, NEON, 6 threads, f32, `cpurun` in two measurement modes; three timed
+  rounds at 4B and two at 8B, one window of 2,048 in lockstep; no perplexity band on the CPU, no 14B, no x86. The
+  cause of the gain is not traced, and the 4B's peak footprint at 2,048 tokens is bimodal in both forms.
+- Evidence: [qwen-cpu-groupee](mesures/qwen-cpu-groupee-2026-11-27.txt) G-i to G-iv.
+- Overturn: alternated rounds that read a ratio under 1.2 at 2,048 tokens on either size, or a step whose argmax
+  differs.
 - Checked: 2026-11-27.
 
 ## Anomalies
