@@ -1,5 +1,5 @@
-THE GROUPED ATTENTION ON THE CPU: CLASS B (2,046 OF 2,047 STEPS MOVE, MAX |DLOGIT| 8.1E-4, SAME TOKENS), DECODE X1.555 AT 2,048 AND X1.033 AT 5 TOKENS ON THE 4B (2026-11-27)
-==================================================================================================================================================================
+THE GROUPED ATTENTION ON THE CPU: CLASS B (MAX |DLOGIT| 8.1E-4, SAME TOKENS), DECODE X1.555 AT 2,048 AND X1.033 AT 5 TOKENS ON THE 4B, X1.378 AND X1.038 ON THE 8B (2026-11-27)
+=========================================================================================================================================================================
 Why:    the CPU backend serves the three Qwen3 files on the expanded attention and a `Cat` store. The grouped form
         reads the cached heads with no `repeat_kv` copy; it is served on the card under a tolerance and on Metal
         as an identity. It had never run on the CPU backend.
@@ -30,6 +30,9 @@ of the 10 runs of each arm. The grouped form decodes x1.555 [1.550-1.566] faster
 4.186 tok/s) and x1.033 [1.029-1.045] after 5 tokens (9.302 against 9.007). The time to the first token at 2,048 does
 not move (x0.997). The peak footprint is bimodal in both arms and gives no clean reading. Nothing is served: under
 class B a served CPU config needs a tolerance run first (section "What the decision would need").
+The 8B (G-iv, 1 + 2 rounds) reads the same way: class B, max |dlogit| 3.50e-4 against a largest |logit| of 43.09,
+no argmax step, same tokens, decode x1.378 [1.371-1.385] at 2,048 and x1.038 [1.018-1.059] at 5, first token x1.002,
+peak footprint lower by 0.109 GB at 2,048.
 
 WHAT WAS RUN
 ------------
@@ -81,6 +84,33 @@ Code checks (job3-checks.out, 01:18-01:25):
   model::tests::a_served_config_sets_the_store_and_the_attention_form went red (rc 101, model.rs:4311, left
   Expanded, right Grouped; mutant.log). Restored by git checkout, served.rs clean after.
 
+G-iv, the 8B (job4-8b.sh, 02:35-03:39, after G-i to G-iii were committed at 01:27). Object
+  ~/q8b-14b-sealed-2026-09-23/qwen3-8b-sealed-B.bin, sha256 7bdb9a55...5c13 (re-hashed in job4-8b.out), arms
+  configs/qwen3-8b-tetra-e4.json (served CPU config, expanded, cat) and configs/qwen3-8b-tetra-e4-grouped.json
+  (unchanged, grouped, grow(256)), the same binary e5109be8..., the same prompts and window, 1 discarded + 2 timed
+  rounds. With two rounds the median is the mean of the two.
+  G-i (gi-lockstep-8b.log, 943.2 s): 2,046 of 2,047 steps differ in some bit, first at step 1; no step whose argmax
+  differs; max |dlogit| 3.502e-4 at step 1235, median 1.91e-5, 99th percentile 5.50e-5; largest |logit| 43.09;
+  ratio 8.1e-6. Window perplexity by the decode path 8.221680 for both arms. Class B, as on the 4B.
+  G-ii (gii-8b-*.json): 256 of 256 at 5 tokens (digest 6232c918), 64 of 64 at 2,048 (digest 55bf3d52); the 12 runs
+  of G-iii return the same ids. Pass.
+  G-iii (giii-8b-r*-*):
+
+  prompt  arm  decode tok/s           first token, s            peak footprint, GB    grp / exp, round by round
+  5       exp  5.164 [5.081-5.246]    0.663 [0.659-0.666]       3.706 [3.703-3.708]
+  5       grp  5.360 [5.339-5.382]    0.664 [0.662-0.666]       3.665 [3.664-3.666]   decode 1.018, 1.059
+  2,048   exp  3.165 [3.164-3.167]    279.194 [278.781-279.608] 5.198 [5.192-5.203]
+  2,048   grp  4.363 [4.344-4.382]    279.762 [279.426-280.097] 5.089 [5.088-5.090]   decode 1.371, 1.385
+                                                                                    first token 0.999, 1.005
+
+  Ratios: decode at 5 tokens x1.038 [1.018-1.059]; decode at 2,048 x1.378 [1.371-1.385]; first token at 2,048
+  x1.002 [0.999-1.005]. Peak footprint, exp minus grp, round by round: 0.041 GB [0.037-0.044] at 5 tokens and
+  0.109 GB [0.104-0.113] at 2,048. On the 8B the footprint is not bimodal: over the 4 runs of each arm at 2,048,
+  exp read 5.19-5.20 GB and grp 5.09-5.14 GB.
+  The 1-minute load before the 8B's timed runs was 4.8 to 7.5, above 6 for 6 of its 12 G-iii runs: the machine's
+  other sessions plus this job's own 6 threads. The ratios of two rounds are close to each other at 2,048
+  (1.371, 1.385) and apart at 5 tokens (1.018, 1.059).
+
 AGAINST THE SIGNED PREDICTIONS
 ------------------------------
   prediction                                          measured                                  inside?
@@ -91,6 +121,14 @@ AGAINST THE SIGNED PREDICTIONS
   decode at 2,048 x1.5 [1.15 ; 2.5]                   x1.555 [1.550-1.566]                      inside
   first token at 2,048 x1.1 [1.0 ; 1.4]               x0.997 [0.996-0.998]                      NO, missed (low, below 1.0)
   peak at 2,048 lower by 0.1 to 1.0 GB                bimodal; within a level 0.08 and 0.10     NO reading; at most at the edge
+  The same predictions read against the 8B (the prereg wrote them for the 4B; G-iv reuses its gates):
+  G-i bit for bit                                     2,046 of 2,047 steps differ               NO, missed
+  max |dlogit| <= 1e-3, no argmax step                3.502e-4, 0 steps                         inside
+  same tokens at both lengths                         same, in every run                        inside
+  decode at 5 tokens x1.00 [0.97 ; 1.04]              x1.038 [1.018-1.059]                      median inside, one round above
+  decode at 2,048 x1.5 [1.15 ; 2.5]                   x1.378 [1.371-1.385]                      inside
+  first token at 2,048 x1.1 [1.0 ; 1.4]               x1.002 [0.999-1.005]                      at the low edge, one round below 1.0
+  peak at 2,048 lower by 0.1 to 1.0 GB                0.109 GB [0.104-0.113]                    inside, at the low edge
 
 The first-token prediction missed: the prompt pass of 2,048 positions costs 130 s on both forms, and the attention
 copy the grouped form avoids is a small part of it. The bit prediction missed in the direction the prereg named as
@@ -115,9 +153,11 @@ That is one night of this Mac, at $0. It is the operator's call.
 WHAT THE READING DOES NOT SAY
 -----------------------------
 - It serves nothing. library.json, llvq-runtime and the served configs are unchanged.
-- One window and one model. The lockstep read 2,047 steps of one WikiText-2 window; the tolerance is not measured.
+- One window a model. The lockstep read 2,047 steps of one WikiText-2 window on each of the 4B and the 8B; the tolerance is not measured.
   Equal tokens over 256 + 64 generated tokens do not license the form.
 - One machine, NEON only, 6 threads, f32. AVX2 and AVX-512, other thread counts and f16 were not run; the bits may
   move differently there.
 - The 2,048-token prompt went in one chunk. A chunked prefill, as `llvq serve` may send it, was not run.
-- The footprint at 2,048 is bimodal in both arms; this lot did not find why.
+- The footprint at 2,048 is bimodal in both arms on the 4B and not on the 8B; this lot did not find why.
+- The 8B's gain at 2,048 (x1.378) is smaller than the 4B's (x1.555); this lot did not split the 8B's token time.
+- The 14B was not run.

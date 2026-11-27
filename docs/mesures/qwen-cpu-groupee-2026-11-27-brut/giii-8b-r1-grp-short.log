@@ -1,0 +1,27 @@
+== G-iii round 1 grp short 256 2026-11-27 03:16:42 load { 6.27 6.34 6.07 } | System-wide memory free percentage: 80%
+embedding: q4 g64 (LLVQ_CONFIG), 2 tables (model.embed_tokens.weight + lm_head.weight), 700.1 MB on the card (int4 622.3 + scales/biases 77.8)
+cpu: neon SIMD on 6 threads | weights packed | tetra 199 + int4 53 matrices | 2.77 GB in memory (projections 2.06 + carried 0.70)
+tetra on the CPU: configs/qwen3-8b-tetra-e4-grouped.json (neon)
+loaded form: attention grouped store grow(256)
+timed: prompt 5 tokens (fingerprint 4fd22932e1a93676) first token in 0.666 s | 255 decode steps in 47.759 s, 5.339 tok/s
+timed: output ids [12095, 13, 576, 6722, 315, 9856, 374, 19846, 13, 576, 6722, 315, 15344, 374, 21718, 13, 576, 6722, 315, 17689, 374, 24081, 13, 576, 6722, 315, 279, 3639, 15072, 374, 7148, 13, 576, 6722, 315, 279, 3639, 4180, 374, 6515, 422, 727, 13, 576, 6722, 315, 6864, 374, 32166, 13, 576, 6722, 315, 8330, 374, 68790, 13, 576, 6722, 315, 15948, 374, 61124, 75372, 13, 576, 6722, 315, 12270, 374, 12270, 4311, 13, 576, 6722, 315, 6323, 374, 26194, 13, 576, 6722, 315, 5616, 374, 26549, 13, 576, 6722, 315, 6747, 374, 1532, 21996, 13, 576, 6722, 315, 8359, 374, 22415, 13, 576, 6722, 315, 4882, 10174, 374, 61939, 10782, 13, 576, 6722, 315, 15948, 374, 61124, 75372, 13, 576, 6722, 315, 31064, 374, 68073, 64617, 13, 576, 6722, 315, 15948, 374, 61124, 75372, 13, 576, 6722, 315, 15948, 374, 61124, 75372, 13, 576, 6722, 315, 15948, 374, 61124, 75372, 13, 576, 6722, 315, 15948, 374, 61124, 75372, 13, 576, 6722, 315, 15948, 374, 61124, 75372, 13, 576, 6722, 315, 15948, 374, 61124, 75372, 13, 576, 6722, 315, 15948, 374, 61124, 75372, 13, 576, 6722, 315, 15948, 374, 61124, 75372, 13, 576, 6722, 315, 15948, 374, 61124, 75372, 13, 576, 6722, 315, 15948, 374, 61124, 75372, 13, 576, 6722, 315, 15948, 374, 61124, 75372, 13, 576, 6722, 315, 15948, 374, 61124, 75372, 13, 576, 6722, 315, 15948, 374, 61124, 75372, 13, 576, 6722, 315, 15948, 374, 61124, 75372, 13, 576, 6722, 315, 15948, 374, 61124, 75372, 13, 576, 6722, 315, 15948, 374, 61124, 75372, 13, 576]
+dumped to /Users/pjmalandrino/Documents/Pro/workspace/poc/llvq/.claude/worktrees/qwen-cpu/docs/mesures/qwen-cpu-groupee-2026-11-27-brut/giii-8b-r1-grp-short.json
+       52.71 real       252.68 user        14.03 sys
+          3725475840  maximum resident set size
+                   0  average shared memory size
+                   0  average unshared data size
+                   0  average unshared stack size
+              590420  page reclaims
+                   0  page faults
+                   0  swaps
+                   0  block input operations
+                   0  block output operations
+                   0  messages sent
+                   0  messages received
+                   0  signals received
+                   0  voluntary context switches
+             1504314  involuntary context switches
+       5988983999546  instructions retired
+        931046026639  cycles elapsed
+          3663778136  peak memory footprint
+/Users/pjmalandrino/Documents/Pro/workspace/poc/llvq/.claude/worktrees/qwen-cpu/docs/mesures/qwen-cpu-groupee-2026-11-27-brut/tlim.sh: line 11: 45130 Terminated: 15          sleep "$secs"

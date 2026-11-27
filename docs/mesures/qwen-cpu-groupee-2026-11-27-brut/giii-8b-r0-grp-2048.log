@@ -1,0 +1,27 @@
+== G-iii round 0 grp 2048 64 2026-11-27 03:10:50 load { 7.47 6.53 5.97 } | System-wide memory free percentage: 80%
+embedding: q4 g64 (LLVQ_CONFIG), 2 tables (model.embed_tokens.weight + lm_head.weight), 700.1 MB on the card (int4 622.3 + scales/biases 77.8)
+cpu: neon SIMD on 6 threads | weights packed | tetra 199 + int4 53 matrices | 2.77 GB in memory (projections 2.06 + carried 0.70)
+tetra on the CPU: configs/qwen3-8b-tetra-e4-grouped.json (neon)
+loaded form: attention grouped store grow(256)
+timed: prompt 2048 tokens (fingerprint 93950fb3b58d41b6) first token in 279.684 s | 63 decode steps in 14.426 s, 4.367 tok/s
+timed: output ids [614, 16035, 4056, 279, 4453, 1417, 23649, 320, 5893, 315, 506, 5799, 873, 323, 279, 4453, 5893, 315, 39100, 320, 1417, 23649, 873, 659, 1260, 572, 1083, 15599, 279, 1947, 315, 1618, 92070, 323, 279, 12538, 315, 279, 8453, 15625, 659, 1260, 572, 1083, 15599, 279, 1947, 315, 279, 8453, 326, 1070, 323, 279, 8453, 1147, 2485, 659, 1260, 572, 1083, 15599, 279, 1947]
+dumped to /Users/pjmalandrino/Documents/Pro/workspace/poc/llvq/.claude/worktrees/qwen-cpu/docs/mesures/qwen-cpu-groupee-2026-11-27-brut/giii-8b-r0-grp-2048.json
+      298.69 real      1593.98 user        16.67 sys
+          5559123968  maximum resident set size
+                   0  average shared memory size
+                   0  average unshared data size
+                   0  average unshared stack size
+             1707024  page reclaims
+                   0  page faults
+                   0  swaps
+                   0  block input operations
+                   0  block output operations
+                   0  messages sent
+                   0  messages received
+                   0  signals received
+                   0  voluntary context switches
+             1513970  involuntary context switches
+      15703846676441  instructions retired
+       5753787815899  cycles elapsed
+          5143778968  peak memory footprint
+/Users/pjmalandrino/Documents/Pro/workspace/poc/llvq/.claude/worktrees/qwen-cpu/docs/mesures/qwen-cpu-groupee-2026-11-27-brut/tlim.sh: line 11: 44441 Terminated: 15          sleep "$secs"
