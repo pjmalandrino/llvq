@@ -23,7 +23,7 @@ use std::sync::Mutex;
 use candle_core::{DType, Device, Result, Tensor};
 use llvq_llm::inkling::config::InklingConfig;
 use llvq_llm::inkling::layers::{self, ExpertSource};
-use llvq_llm::inkling::{AttnKind, GlueKind, Inkling, InklingCache, LayerExperts, LoadOptions};
+use llvq_llm::inkling::{AttnKind, Inkling, InklingCache, LayerExperts, LoadOptions};
 use llvq_llm::lm::CausalLm;
 
 static LOCK: Mutex<()> = Mutex::new(());
@@ -291,7 +291,7 @@ fn window_scores_track_full_scores_metal() {
     let _g = LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let dev = Device::new_metal(0).expect("Metal device");
     let mut m = tiny_model(&dev, AttnKind::FusedScores).unwrap();
-    m.set_glue(GlueKind::Fused).unwrap();
+    m.set_glue(llvq_llm::inkling::GlueKind::Fused).unwrap();
     arm_tracks_reference(&mut m, "metal");
 }
 
