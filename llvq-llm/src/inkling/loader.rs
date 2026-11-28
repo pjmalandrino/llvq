@@ -71,6 +71,11 @@ impl NativeCheckpoint {
     /// it read-only, and a change underneath the mapping is undefined
     /// behaviour (the reason this crate allows `unsafe` at that boundary).
     pub fn open(path: &Path) -> Result<Self> {
+        // SAFETY: assumes no process writes or truncates `path` while the map
+        // lives: candle maps it read-only, and a change underneath is undefined
+        // behaviour (a truncation faults with SIGBUS). Nothing in this process
+        // writes it (the doc above); another process could, and nothing here can stop it:
+        // the boundary every mmap reader in this crate accepts, not a guarantee.
         let st = unsafe { MmapedSafetensors::new(path)? };
         Ok(Self { st, prefix: "model.llm.".into() })
     }

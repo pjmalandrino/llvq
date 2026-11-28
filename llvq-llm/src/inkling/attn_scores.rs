@@ -402,6 +402,9 @@ impl CustomOp1 for Launch<'_> {
             bind("keys", self.x.keys, false)?,
             bind("values", self.x.values, false)?,
         ];
+        // SAFETY: clause U of the `fused_cuda` launch contract; assumes `attn_row`
+        // writes all `nh * hd + nh * nvis` outputs (one block a head: its `hd`
+        // outputs and its `nvis` scores), which is kernel text not followed here.
         let out = unsafe { stream.alloc::<f32>(self.out_elems) }
             .map_err(|e| candle_core::Error::msg(format!("attn_row: alloc of the output: {e}")))?;
         let mut ptrs: Vec<u64> =
@@ -421,6 +424,13 @@ impl CustomOp1 for Launch<'_> {
         }
         let probe = crate::inkling::probe_begin(|| stream.synchronize().is_ok());
         crate::inkling::count_launch();
+        // SAFETY: L1: the six pointers of `attn_row` (`kernels/ink_scores.cu`), `q`,
+        // `rel`, `sinks`, `kb`, `vb`, `out`, then the fourteen words of
+        // `AttnRow::forward`. L2: `bound` holds the read guards past the launch and
+        // the module is on the device's stream. L3: `forward` checked the counts of
+        // `q`, `rel` and `sinks`, `pos < held`, and the keys' and values' strides
+        // are their own layouts', so the reads stay inside their storage as far as
+        // the host shows.
         unsafe { b.launch(cfg) }.map_err(|e| candle_core::Error::msg(format!("attn_row: {e}")))?;
         crate::inkling::probe_end(probe, "attn_row", || stream.synchronize().is_ok());
         drop(bound);

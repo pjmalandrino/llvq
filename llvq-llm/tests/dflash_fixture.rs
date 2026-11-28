@@ -127,7 +127,8 @@ fn the_sealed_table_is_the_packed_table_and_the_fixture_rows() {
     assert!(fixture.exists(), "missing {}", fixture.display());
     let (packed, scales, biases, vocab, hidden) = dflash::sealed_q4_table(&sealed).unwrap();
     eprintln!("sealed table: {vocab} x {hidden}, {} packed bytes, {} scales", packed.len(), scales.len());
-    // SAFETY: a read-only mmap of a file nothing in this process writes.
+    // SAFETY: a read-only mmap of a file nothing in this process writes;
+    // assumes no other process writes or truncates it during the test.
     let st = unsafe { candle_core::safetensors::MmapedSafetensors::new(packed_dir.join("model.safetensors")) }.unwrap();
     let get = |k: &str| st.load(k, &Device::Cpu).unwrap();
     let q = get("model.embed_tokens.qweight").flatten_all().unwrap().to_vec1::<u8>().unwrap();

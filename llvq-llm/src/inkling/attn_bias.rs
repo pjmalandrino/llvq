@@ -225,6 +225,10 @@ impl CustomOp1 for Launch<'_> {
         let dev = storage.device.clone();
         let stream = dev.cuda_stream();
         let n = heads * t * s;
+        // SAFETY: clause U of the `fused_cuda` launch contract: `attn_bias_rows`
+        // (`SRC` above) runs one thread per element, returns past
+        // `g >= heads * t * s` and stores `out[g]` for every other `g`, so all `n`
+        // floats are written.
         let mut out = unsafe { stream.alloc::<f32>(n) }
             .map_err(|e| candle_core::Error::msg(format!("attention bias: alloc of {n} floats: {e}")))?;
         let blocks = n.div_ceil(256);
@@ -238,6 +242,12 @@ impl CustomOp1 for Launch<'_> {
             b.arg(w);
         }
         crate::inkling::count_launch();
+        // SAFETY: the eight parameters of `attn_bias_rows` in order (`SRC`): `rel`,
+        // `out`, then the six words. `rel` holds `heads * t * extent` floats at offset
+        // 0 (checked above) and the kernel reads column `c < extent` of row
+        // `h * t + i`; `out` holds `n`; the grid fits an `i32` (checked). The module
+        // is on the device's stream (`compile`), so the buffers are freed after the
+        // kernel.
         unsafe { b.launch(cfg) }.map_err(|e| candle_core::Error::msg(format!("attn_bias_rows: {e}")))?;
         Ok((CudaStorage::wrap_cuda_slice(out, dev), Shape::from(self.out)))
     }

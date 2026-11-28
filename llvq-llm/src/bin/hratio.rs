@@ -191,6 +191,11 @@ fn main() -> anyhow::Result<()> {
     let ckpt = llvq_llm::loader::Checkpoint::from_dir(std::path::Path::new(&a[1]))?;
     // Safety: the checkpoint files are not modified while the mapping is
     // alive, the same contract `sealed::load` takes for the restore path.
+    // SAFETY: assumes no process writes or truncates the checkpoint files while the map
+    // lives: candle maps them read-only, and a change underneath is undefined
+    // behaviour (a truncation faults with SIGBUS). Nothing in this process
+    // writes them, as in `sealed::load`; another process could, and nothing here can stop it:
+    // the boundary every mmap reader in this crate accepts, not a guarantee.
     let ck = unsafe { candle_core::safetensors::MmapedSafetensors::multi(&ckpt.weights)? };
 
     let mut out = File::create(&a[5])?;

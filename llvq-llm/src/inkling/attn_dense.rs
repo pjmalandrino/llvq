@@ -1182,6 +1182,10 @@ impl CustomOp1 for Launch<'_> {
             });
         }
         // Uninitialised: every kernel writes every word of its output.
+        // SAFETY: clause U of the `fused_cuda` launch contract, as the line above
+        // says; assumes each of the five `ad_*` kernels (`kernels/ink_attn.cu`)
+        // stores all `out_elems` words of its output, which this file does not
+        // re-derive from the kernel text.
         let out = unsafe { stream.alloc::<f32>(self.out_elems) }
             .map_err(|e| candle_core::Error::msg(format!("{}: alloc of the output: {e}", self.name)))?;
         // Pointers as their device addresses, the constant struct as its words: one kernel parameter each.
@@ -1214,6 +1218,15 @@ impl CustomOp1 for Launch<'_> {
         }
         let probe = crate::inkling::probe_begin(|| stream.synchronize().is_ok());
         crate::inkling::count_launch();
+        // SAFETY: L1: every `Launch` of this file lists its buffers in the kernel's
+        // parameter order and then its words, one `u32` each (floats as their bits);
+        // checked by reading for the five `ad_*` kernels. L2: the tensors are held
+        // by the read guards in `bound` until after the launch, the owned buffers by
+        // `self`, and the module is on the device's stream (`AttnDense::new`), so
+        // any free is ordered after the kernel. L3: each `Arg::Tensor` has the
+        // element count `bind` checked, the owned buffers were sized at upload, the
+        // output holds `out_elems`; assumes each kernel's indices stay inside those
+        // counts for the shapes its words carry, which is kernel text.
         unsafe { b.launch(cfg) }.map_err(|e| candle_core::Error::msg(format!("{}: {e}", self.name)))?;
         crate::inkling::probe_end(probe, self.name, || stream.synchronize().is_ok());
         drop(bound);

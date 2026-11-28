@@ -95,7 +95,8 @@ fn the_int4_head_matches_the_dense_head_on_the_fixture() {
     assert!(packed.exists(), "missing {}", packed.display());
     let fx = candle_core::safetensors::load(&fixture, &Device::Cpu).unwrap();
     let get = |k: String| fx.get(&k).unwrap_or_else(|| panic!("fixture: no {k}")).clone();
-    // SAFETY: a read-only mmap of a file nothing in this process writes.
+    // SAFETY: a read-only mmap of a file nothing in this process writes;
+    // assumes no other process writes or truncates it during the test.
     let st = unsafe { candle_core::safetensors::MmapedSafetensors::new(&packed) }.unwrap();
     let q = st.load("model.embed_tokens.qweight", &Device::Cpu).unwrap();
     let (vocab, half_h) = q.dims2().unwrap();

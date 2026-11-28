@@ -251,7 +251,13 @@ fn main() -> anyhow::Result<()> {
                 anyhow::bail!("LLVQ_PERS_4E: the context holds several streams, and turning \
                                cudarc's events off is only safe on one");
             }
-            // Safe: one stream, checked above, orders every access by issue.
+            // SAFETY: cudarc's conditions without events (no free or use
+            // across streams before the other stream's work ends, no
+            // concurrent writes) are vacuous on one stream: the context is not
+            // in multi-stream mode (checked above), and this process opens no
+            // second stream on it afterwards. Slices made before this line
+            // keep their events, which on one stream cost time and order
+            // nothing.
             unsafe {
                 ctx.disable_event_tracking();
             }
@@ -362,7 +368,13 @@ fn main() -> anyhow::Result<()> {
                 anyhow::bail!("LLVQ_KV_CAPTURE: the context holds several streams, and turning \
                                cudarc's events off is only safe on one");
             }
-            // Safe: one stream, checked above, orders every access by issue.
+            // SAFETY: cudarc's conditions without events (no free or use
+            // across streams before the other stream's work ends, no
+            // concurrent writes) are vacuous on one stream: the context is not
+            // in multi-stream mode (checked above), and this process opens no
+            // second stream on it afterwards. Slices made before this line
+            // keep their events, which on one stream cost time and order
+            // nothing.
             unsafe {
                 ctx.disable_event_tracking();
             }
@@ -462,7 +474,13 @@ fn main() -> anyhow::Result<()> {
                 anyhow::bail!("LLVQ_GQA_PPL: the context holds several streams, and turning \
                                cudarc's events off is only safe on one");
             }
-            // Safe: one stream, checked above, orders every access by issue.
+            // SAFETY: cudarc's conditions without events (no free or use
+            // across streams before the other stream's work ends, no
+            // concurrent writes) are vacuous on one stream: the context is not
+            // in multi-stream mode (checked above), and this process opens no
+            // second stream on it afterwards. Slices made before this line
+            // keep their events, which on one stream cost time and order
+            // nothing.
             unsafe {
                 ctx.disable_event_tracking();
             }
@@ -529,7 +547,13 @@ fn main() -> anyhow::Result<()> {
                 anyhow::bail!("LLVQ_GQA_AB: the context holds several streams, and turning \
                                cudarc's events off is only safe on one");
             }
-            // Safe: one stream, checked above, orders every access by issue.
+            // SAFETY: cudarc's conditions without events (no free or use
+            // across streams before the other stream's work ends, no
+            // concurrent writes) are vacuous on one stream: the context is not
+            // in multi-stream mode (checked above), and this process opens no
+            // second stream on it afterwards. Slices made before this line
+            // keep their events, which on one stream cost time and order
+            // nothing.
             unsafe {
                 ctx.disable_event_tracking();
             }

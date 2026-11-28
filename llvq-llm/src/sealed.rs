@@ -598,9 +598,11 @@ pub fn load_with_restored(
             restore.describe()
         ),
         (false, Some(ck)) => {
-            // Safety: the checkpoint files are not modified while the mapping
-            // is alive — the same contract as `Checkpoint::var_builder`, which
-            // is the other reader of these very files.
+            // SAFETY: assumes no process writes or truncates the checkpoint
+            // files while the map lives, the same contract as
+            // `Checkpoint::var_builder`, the other reader of these files.
+            // Nothing in this process writes them; another process could,
+            // and nothing here can stop it.
             let st = unsafe { candle_core::safetensors::MmapedSafetensors::multi(&ck.weights)? };
             let prec = restore.prec();
             let r = restore_projections(&mut tensors, restore, |name| {
@@ -1008,12 +1010,19 @@ mod restore_tests {
         m.insert("model.layers.0.self_attn.k_proj.weight".to_string(), w);
         candle_core::safetensors::save(&m, &file).unwrap();
 
+        // SAFETY: assumes no process writes or truncates `file` while the map
+        // lives: candle maps it read-only, and a change underneath is undefined
+        // behaviour (a truncation faults with SIGBUS). Nothing in this process
+        // writes it after `save` returned, and the test owns its
+        // temporary directory; another process could, and nothing here can stop it:
+        // the boundary every mmap reader in this crate accepts, not a guarantee.
         let st = unsafe { candle_core::safetensors::MmapedSafetensors::multi(&[&file]).unwrap() };
         let ours = st
             .load("model.layers.0.self_attn.k_proj.weight", &Device::Cpu)
             .unwrap()
             .to_dtype(DType::F16)
             .unwrap();
+        // SAFETY: as for `st` just above: the same file, not written again.
         let vb = unsafe {
             VarBuilder::from_mmaped_safetensors(&[&file], DType::F16, &Device::Cpu).unwrap()
         };

@@ -1509,7 +1509,11 @@ impl CustomOp1 for Launch<'_> {
         }
         let alloc_err = |e| candle_core::Error::msg(format!("{}: alloc of the output: {e}", self.name));
         let out = match self.out_dtype {
+            // SAFETY: clause U of the `fused_cuda` launch contract, as the
+            // comment above says; assumes every `ink_glue.cu` kernel stores all
+            // `out_elems` words, not re-derived here kernel by kernel.
             DType::F32 => Out::F(unsafe { stream.alloc::<f32>(self.out_elems) }.map_err(alloc_err)?),
+            // SAFETY: as for the F32 arm above; `u32` takes any bits too.
             DType::U32 => Out::U(unsafe { stream.alloc::<u32>(self.out_elems) }.map_err(alloc_err)?),
             o => candle_core::bail!("{}: an output of {o:?}", self.name),
         };
@@ -1547,6 +1551,12 @@ impl CustomOp1 for Launch<'_> {
         }
         let probe = crate::inkling::probe_begin(|| stream.synchronize().is_ok());
         crate::inkling::count_launch();
+        // SAFETY: the pattern of `attn_dense`'s `Launch`: buffers in parameter
+        // order, then words; the guards in `bound` and the device's stream (`new`)
+        // carry L2; each `Arg::Tensor` has the count `bind` checked. Unverified
+        // here: that each `Launch` this file builds names its kernel's parameters
+        // in order, and that each kernel stays inside those counts; the glue
+        // kernels are many and this review did not walk `ink_glue.cu` one by one.
         unsafe { b.launch(cfg) }.map_err(|e| candle_core::Error::msg(format!("{}: {e}", self.name)))?;
         crate::inkling::probe_end(probe, self.name, || stream.synchronize().is_ok());
         drop(bound);

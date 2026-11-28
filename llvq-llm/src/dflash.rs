@@ -271,7 +271,9 @@ pub fn vocab_from_sealed(path: &Path, device: &Device, dtype: DType) -> anyhow::
 /// table the reference fed the drafter (the MLX door's int4 g64 table).
 pub fn vocab_from_packed(dir: &Path, device: &Device, dtype: DType) -> anyhow::Result<DenseVocab> {
     let file = dir.join("model.safetensors");
-    // SAFETY: a read-only mmap of a file nothing in this process writes.
+    // SAFETY: a read-only mmap of a file nothing in this process writes;
+    // assumes no other process writes or truncates it while `st` lives,
+    // which nothing here can prevent.
     let st = unsafe { candle_core::safetensors::MmapedSafetensors::new(&file) }
         .with_context(|| format!("mmap {}", file.display()))?;
     let get = |k: &str| st.load(k, &Device::Cpu).with_context(|| format!("{}: no `{k}`", file.display()));

@@ -313,6 +313,14 @@ impl Checkpoint {
     /// # Safety
     /// The checkpoint files must not be modified while the mapping is alive.
     pub fn var_builder(&self, dtype: DType, device: &Device) -> anyhow::Result<VarBuilder<'_>> {
+        // SAFETY: assumes no process writes or truncates the checkpoint files while the map
+        // lives: candle maps them read-only, and a change underneath is undefined
+        // behaviour (a truncation faults with SIGBUS). Nothing in this process
+        // writes them (they sit in the Hugging Face cache or the
+        // directory given); another process could, and nothing here can stop it:
+        // the boundary every mmap reader in this crate accepts, not a guarantee.
+        // The `# Safety` above names this, but on a safe function, so no caller is
+        // made to uphold it.
         let vb = unsafe { VarBuilder::from_mmaped_safetensors(&self.weights, dtype, device)? };
         Ok(vb)
     }

@@ -213,6 +213,11 @@ fn main() -> anyhow::Result<()> {
     // Safety: the checkpoint files are not modified while the mapping is
     // alive, the contract `sealed::load_with_restored` states for the same
     // files.
+    // SAFETY: assumes no process writes or truncates the checkpoint files while the map
+    // lives: candle maps them read-only, and a change underneath is undefined
+    // behaviour (a truncation faults with SIGBUS). Nothing in this process
+    // writes them, as in `sealed::load_with_restored`; another process could, and nothing here can stop it:
+    // the boundary every mmap reader in this crate accepts, not a guarantee.
     let st = unsafe { candle_core::safetensors::MmapedSafetensors::multi(&ck.weights)? };
     // Loaded, then narrowed to f16: the order the restore path follows at
     // dtype f16, which is the dtype every census arm ran at.

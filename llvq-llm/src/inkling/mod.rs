@@ -440,7 +440,13 @@ pub fn cuda_events_off(dev: &Device) -> Result<()> {
     if ctx.is_in_multi_stream_mode() {
         candle_core::bail!("events off: the context holds several streams, and that is only safe on one");
     }
-    // Safe: one stream, checked above, orders every access by issue.
+    // SAFETY: cudarc's conditions (no free or use across streams before the
+    // other stream's work ends, no concurrent writes) are vacuous on one
+    // stream, and the context is not in multi-stream mode (checked above).
+    // What this safe `pub` function cannot check: that nothing creates a
+    // second stream on this context afterwards, which would leave every
+    // slice made from here on untracked across streams. Nothing in this crate
+    // does (the same argument as `fused_cuda::load_resolved`'s door).
     unsafe { ctx.disable_event_tracking() };
     Ok(())
 }
@@ -465,6 +471,13 @@ pub const METAL_COMPUTE_PER_BUFFER: &str = "30";
 pub fn new_metal_device() -> Result<Device> {
     const VAR: &str = "CANDLE_METAL_COMPUTE_PER_BUFFER";
     let unset = std::env::var_os(VAR).is_none();
+    // SAFETY (open), no `unsafe` block here because this crate is on edition
+    // 2021, where `set_var` and `remove_var` are safe functions; on 2024 they
+    // are `unsafe` for this reason. Writing the environment while another
+    // thread reads it (`getenv` in libc, the allocator, a logger) is a data
+    // race on POSIX. The doc above asks callers to run this before other
+    // threads read the environment, but it is a safe `pub` function and the
+    // runtime calls it inside the running server (BUG-16).
     if unset {
         std::env::set_var(VAR, METAL_COMPUTE_PER_BUFFER);
     }
