@@ -984,3 +984,130 @@ fn honest_raw_tensors_still_read_byte_for_byte() {
         assert_eq!(raw_bytes(&back), bytes, "{}: the rewrite moved a byte", t.name);
     }
 }
+
+// ---------------------------------------------------------------------------
+// The rotation a record's d_in sizes
+// ---------------------------------------------------------------------------
+
+/// A rotated Tetra record with no rows: nothing in the code stream backs its
+/// `d_in`, so the field is the only thing that sizes the rotation a decoder
+/// builds from it.
+fn rotated_empty(d_in: usize) -> RawMatrix {
+    RawMatrix {
+        name: "model.layers.0.mlp.down_proj.weight".into(),
+        d_out: 0,
+        d_in,
+        indices: vec![],
+        gains: vec![],
+        row_scales: vec![],
+        rotation_seed: Some(7),
+        tail: vec![],
+        ..small_tetra_matrix()
+    }
+}
+
+/// Byte offset of the d_in field: name length (4) + name + d_out (4).
+fn d_in_at(m: &RawMatrix) -> usize {
+    4 + m.name.len() + 4
+}
+
+#[test]
+fn a_rotated_d_in_no_decoder_can_build_is_refused_on_read() {
+    // Written honestly at d_in = 48, then the field is rewritten. The three
+    // first values are the audit's: a panic in `Rotation::new`, an 8 TB
+    // Gram-Schmidt, 74 s for zero rows. The last is a power of two whose sign
+    // table alone would be 16 GB.
+    let m = rotated_empty(48);
+    let good = v5_matrix_bytes(&m);
+    let at = d_in_at(&m);
+    for d_in in [0u32, 1_000_001, 2001, 1 << 31] {
+        let mut bytes = good.clone();
+        bytes[at..at + 4].copy_from_slice(&d_in.to_le_bytes());
+        match read_matrix_raw(&mut &bytes[..], FIRST_KINDED_VERSION) {
+            Err(Error::Inconsistent { detail, .. }) => {
+                assert!(detail.contains(&format!("d_in {d_in}")), "{d_in}: {detail}")
+            }
+            other => panic!("d_in {d_in}: expected Inconsistent, got {:?}", other.err()),
+        }
+    }
+    // The same record unrotated reads: the bound is the rotation's, not the
+    // record's.
+    let plain = v5_matrix_bytes(&RawMatrix {
+        rotation_seed: None,
+        ..rotated_empty(48)
+    });
+    for d_in in [0u32, 2001] {
+        let mut bytes = plain.clone();
+        bytes[at..at + 4].copy_from_slice(&d_in.to_le_bytes());
+        read_matrix_raw(&mut &bytes[..], FIRST_KINDED_VERSION).expect("no rotation, nothing to size");
+    }
+}
+
+#[test]
+fn a_rotated_d_in_no_decoder_can_build_is_refused_by_both_writers() {
+    let cb = Codebook::new(CodeKind::Tetra).expect("Tetra has a map");
+    for d_in in [0usize, 2001, 1 << 21] {
+        let mut out = Vec::new();
+        match write_matrix_raw(&mut out, FIRST_KINDED_VERSION, &rotated_empty(d_in)) {
+            Err(Error::Inconsistent { detail, .. }) => {
+                assert!(detail.contains(&format!("d_in {d_in}")), "{d_in}, raw writer: {detail}")
+            }
+            other => panic!("d_in {d_in}, raw writer: expected Inconsistent, got {:?}", other.err()),
+        }
+        assert!(out.is_empty(), "{d_in}: {} bytes written before the refusal", out.len());
+        let q = QuantizedMatrix {
+            name: "model.layers.0.mlp.down_proj.weight".into(),
+            d_out: 0,
+            d_in,
+            codes: vec![],
+            row_scales: vec![],
+            centroids: vec![0.7, 1.1],
+            rotation_seed: Some(7),
+            shell_cap: TETRA_SHELL_CAP,
+            tail: vec![],
+        };
+        let mut out = Vec::new();
+        match write_matrix_with(&mut out, FIRST_KINDED_VERSION, &cb, &q) {
+            Err(Error::Inconsistent { detail, .. }) => {
+                assert!(detail.contains(&format!("d_in {d_in}")), "{d_in}, point writer: {detail}")
+            }
+            other => panic!("d_in {d_in}, point writer: expected Inconsistent, got {:?}", other.err()),
+        }
+        assert!(out.is_empty(), "{d_in}: {} bytes written before the refusal", out.len());
+    }
+}
+
+#[test]
+fn every_width_the_product_rotates_still_round_trips() {
+    // Qwen3 0.6B, 4B, 8B, 14B and 32B hidden, attention-output and MLP widths
+    // (odd factors 1, 3, 5, 17, 19, 25), Inkling 2 Mini's 1152 and 2304 (9),
+    // and the bound's own edges: odd factor 255 and the widest power of two.
+    for d_in in [
+        1024usize, 3072, 2560, 9728, 4096, 12288, 5120, 17408, 8192, 25600, 1152, 2304,
+        255 * 128,
+        1 << 20,
+    ] {
+        let m = rotated_empty(d_in);
+        let bytes = v5_matrix_bytes(&m);
+        let back = read_matrix_raw(&mut &bytes[..], FIRST_KINDED_VERSION).expect("a real width must read");
+        assert_eq!((back.d_in, back.rotation_seed), (d_in, Some(7)));
+    }
+}
+
+#[test]
+fn a_matrix_with_no_rows_decodes_without_building_a_rotation() {
+    // In memory, past every reader: `Rotation::new(0, _)` asserts, and with no
+    // row there is nothing for a rotation to act on.
+    let q = QuantizedMatrix {
+        name: "model.layers.0.mlp.down_proj.weight".into(),
+        d_out: 0,
+        d_in: 0,
+        codes: vec![],
+        row_scales: vec![],
+        centroids: vec![0.7, 1.1],
+        rotation_seed: Some(7),
+        shell_cap: TETRA_SHELL_CAP,
+        tail: vec![],
+    };
+    assert!(llvq_artifact::decode_matrix(&q).is_empty());
+}

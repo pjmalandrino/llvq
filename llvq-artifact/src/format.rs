@@ -567,6 +567,57 @@ fn check_tail(name: &str, d_out: usize, d_in: usize, tail_len: usize) -> Result<
     Ok(())
 }
 
+/// The largest odd factor of a rotated record's `d_in`.
+///
+/// `Rotation::new(d_in, seed)` builds a dense `k x k` block by Gram-Schmidt,
+/// `k` the odd factor of `d_in`: O(k^2) memory and O(k^3) time from one u32
+/// field, which on a record with no rows nothing else in the file backs. The
+/// widths the product rotates have odd factors of at most 25: Qwen3 0.6B
+/// (1024, 2048, 3072: 1 and 3), 4B (2560, 4096, 9728: 5, 1, 19), 8B (4096,
+/// 12288: 1, 3), 14B (5120, 17408: 5, 17), 32B (5120, 8192, 25600: 5, 1, 25),
+/// Inkling 2 Mini (1152, 2304: 9). The served kernels stop at 32
+/// (`ROT_KMAX` in `llvq-cuda`). 255 is ten times the widest of them and costs
+/// a fraction of a second to build; 2001 cost 74 s.
+pub const MAX_ROTATION_ODD_FACTOR: usize = 255;
+
+/// The largest `d_in` a rotated record may carry.
+///
+/// The rotation keeps one sign per column, so `d_in` alone sizes an
+/// allocation even when its odd factor is 1. The widest rotated width above
+/// is 25,600; 2^20 is forty times that, and its sign table is 8 MB.
+pub const MAX_ROTATED_D_IN: usize = 1 << 20;
+
+/// The rotation a record asks for has to be one a decoder can build: a
+/// positive width (`Rotation::new` asserts it), no wider than
+/// [`MAX_ROTATED_D_IN`], with an odd factor no larger than
+/// [`MAX_ROTATION_ODD_FACTOR`]. Both writers and the reader call this, so a
+/// writer never emits a record its own reader refuses.
+fn check_rotation(name: &str, d_in: usize, rotated: bool) -> Result<()> {
+    if !rotated {
+        return Ok(());
+    }
+    let refuse = |why: String| {
+        Err(Error::Inconsistent {
+            name: name.to_string(),
+            detail: format!("a rotation of d_in {d_in}: {why}"),
+        })
+    };
+    if d_in == 0 {
+        return refuse("a rotation has no zero-width form".to_string());
+    }
+    if d_in > MAX_ROTATED_D_IN {
+        return refuse(format!("wider than the {MAX_ROTATED_D_IN} a rotated record may carry"));
+    }
+    let odd = d_in >> d_in.trailing_zeros();
+    if odd > MAX_ROTATION_ODD_FACTOR {
+        return refuse(format!(
+            "its odd factor {odd} is past {MAX_ROTATION_ODD_FACTOR}, and the decoder would \
+             build a dense {odd} x {odd} block for it"
+        ));
+    }
+    Ok(())
+}
+
 /// A gain rank with no centroid behind it. The gain field is
 /// `ceil(log2 n)` bits wide, so when `n` is not a power of two it can hold
 /// ranks `n..2^bits` that `reconstruct_shape_gain` would index past the
@@ -728,6 +779,7 @@ fn put_record_head(
             ),
         });
     }
+    check_rotation(name, d_in, rotation_seed.is_some())?;
     // Every u32 field is converted before the first byte goes out.
     let name_len = u32_field(name, "name length", name.len())?;
     let d_out32 = u32_field(name, "d_out", d_out)?;
@@ -1134,6 +1186,9 @@ fn read_lattice_body(r: &mut impl Read, head: RecordHead) -> Result<RawMatrix> {
     }
     let seed = get_u64(r, "rotation seed")?;
     let has_rot = get_u32(r, "rotation flag")? != 0;
+    // Before anything is allocated from the record: with no rows, nothing
+    // after this point would ever check `d_in` against the bytes.
+    check_rotation(&name, d_in, has_rot)?;
 
     let mut centroids = Vec::with_capacity(n_cent.min(PREALLOC_CAP));
     for _ in 0..n_cent {
@@ -1645,7 +1700,9 @@ pub fn decode_matrix(m: &QuantizedMatrix) -> Vec<f32> {
             w[at..at + tail_w].copy_from_slice(&m.tail[i * tail_w..(i + 1) * tail_w]);
         }
     }
-    if let Some(seed) = m.rotation_seed {
+    // With no row there is nothing to un-rotate, and building the rotation
+    // anyway would cost its dense block for an empty matrix.
+    if let (Some(seed), true) = (m.rotation_seed, m.d_out > 0) {
         llvq_quant::rotation::Rotation::new(m.d_in, seed).unrotate_weight_rows(&mut w, m.d_out);
     }
     w.into_iter().map(|v| v as f32).collect()
