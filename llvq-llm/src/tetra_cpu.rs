@@ -332,10 +332,10 @@ impl TetraMatrix {
     pub(crate) fn finish(&self, isa: Isa, r: usize, acc: f32, x: &[f32]) -> f32 {
         let tail = &self.tail[r * self.tail_w..(r + 1) * self.tail_w];
         let xt = &x[self.nblocks * DIM..];
-        match isa {
+        match isa.0 {
             // SAFETY: as in `tetra_row`.
             #[cfg(target_arch = "x86_64")]
-            Isa::Avx2 => unsafe { avx2::finish(self.rscale[r], tail, acc, xt) },
+            Kind::Avx2 => unsafe { avx2::finish(self.rscale[r], tail, acc, xt) },
             _ => {
                 let mut s = acc * self.rscale[r];
                 for (&h, &v) in tail.iter().zip(xt) {
@@ -382,9 +382,9 @@ fn for_each_word(row: &[u32], nblocks: usize, mut f: impl FnMut(usize, u64)) {
     }
 }
 
-/// Which SIMD path this CPU takes.
+/// The paths, private so that only [`Isa::detect`] can name a SIMD one.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Isa {
+enum Kind {
     Scalar,
     #[cfg(target_arch = "aarch64")]
     Neon,
@@ -392,14 +392,49 @@ pub enum Isa {
     Avx2,
 }
 
+/// Which SIMD path this CPU takes.
+///
+/// The matvecs reach `#[target_feature]` code behind a safe signature, so an
+/// `Isa` naming AVX2 on a CPU without it would be undefined behaviour from
+/// safe code. The variant is therefore private: a SIMD path comes from
+/// [`Isa::detect`] and nowhere else, and [`Isa::scalar`] is the one path any
+/// caller may force. Safe code cannot name a SIMD path the CPU may lack:
+///
+/// ```compile_fail
+/// let _ = llvq_llm::tetra_cpu::Isa::Avx2;
+/// ```
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub struct Isa(Kind);
+
+/// Prints the path as the enum did (`Scalar`, `Avx2`, `Neon`).
+impl std::fmt::Debug for Isa {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        self.0.fmt(f)
+    }
+}
+
 impl Isa {
+    /// The portable path, which every CPU runs: what a test forces to hold a
+    /// SIMD path against.
+    ///
+    /// ```
+    /// use llvq_llm::tetra_cpu::{available_isas, Isa};
+    /// assert_eq!(Isa::scalar().name(), "scalar");
+    /// assert_eq!(available_isas()[0], Isa::scalar());
+    /// assert_eq!(available_isas().last(), Some(&Isa::detect()));
+    /// ```
+    pub const fn scalar() -> Self {
+        Isa(Kind::Scalar)
+    }
+
     /// The best path this CPU runs.
     pub fn detect() -> Self {
         static ISA: OnceLock<Isa> = OnceLock::new();
         *ISA.get_or_init(|| {
             #[cfg(target_arch = "aarch64")]
             {
-                Isa::Neon
+                // NEON is part of the aarch64 baseline: every such CPU has it.
+                Isa(Kind::Neon)
             }
             #[cfg(target_arch = "x86_64")]
             {
@@ -409,33 +444,33 @@ impl Isa {
                     && std::arch::is_x86_feature_detected!("fma")
                     && std::arch::is_x86_feature_detected!("f16c")
                 {
-                    return Isa::Avx2;
+                    return Isa(Kind::Avx2);
                 }
-                Isa::Scalar
+                Isa(Kind::Scalar)
             }
             #[cfg(not(any(target_arch = "aarch64", target_arch = "x86_64")))]
             {
-                Isa::Scalar
+                Isa(Kind::Scalar)
             }
         })
     }
 
     pub fn name(self) -> &'static str {
-        match self {
-            Isa::Scalar => "scalar",
+        match self.0 {
+            Kind::Scalar => "scalar",
             #[cfg(target_arch = "aarch64")]
-            Isa::Neon => "neon",
+            Kind::Neon => "neon",
             #[cfg(target_arch = "x86_64")]
-            Isa::Avx2 => "avx2+fma",
+            Kind::Avx2 => "avx2+fma",
         }
     }
 }
 
 /// Every path this CPU can run, the best last: what the tests sweep.
 pub fn available_isas() -> Vec<Isa> {
-    let mut v = vec![Isa::Scalar];
+    let mut v = vec![Isa::scalar()];
     let best = Isa::detect();
-    if best != Isa::Scalar {
+    if best != Isa::scalar() {
         v.push(best);
     }
     v
@@ -1139,14 +1174,14 @@ mod avx2 {
 }
 
 fn tetra_row(isa: Isa, t: &Tables, row: &[u32], nblocks: usize, sc: &[f32; 64], x: &[f32]) -> f32 {
-    match isa {
-        Isa::Scalar => tetra_row_scalar(t, row, nblocks, sc, x),
+    match isa.0 {
+        Kind::Scalar => tetra_row_scalar(t, row, nblocks, sc, x),
         #[cfg(target_arch = "aarch64")]
-        Isa::Neon => neon::row(t, row, nblocks, sc, x),
-        // SAFETY: `Isa::Avx2` is only produced where the CPU reports both
-        // features (`Isa::detect`).
+        Kind::Neon => neon::row(t, row, nblocks, sc, x),
+        // SAFETY: an `Isa` naming AVX2 is only produced where the CPU reports
+        // AVX2, FMA and F16C (`Isa::detect`, the one constructor of a SIMD path).
         #[cfg(target_arch = "x86_64")]
-        Isa::Avx2 => unsafe { avx2::row(t, row, nblocks, sc, x) },
+        Kind::Avx2 => unsafe { avx2::row(t, row, nblocks, sc, x) },
     }
 }
 
@@ -1161,13 +1196,13 @@ fn tetra_rows(
     stride: usize,
     out: &mut [f32],
 ) {
-    match isa {
-        Isa::Scalar => tetra_rows_scalar(t, row, nblocks, sc, xs, stride, out),
+    match isa.0 {
+        Kind::Scalar => tetra_rows_scalar(t, row, nblocks, sc, xs, stride, out),
         #[cfg(target_arch = "aarch64")]
-        Isa::Neon => neon::rows(t, row, nblocks, sc, xs, stride, out),
+        Kind::Neon => neon::rows(t, row, nblocks, sc, xs, stride, out),
         // SAFETY: as in `tetra_row`.
         #[cfg(target_arch = "x86_64")]
-        Isa::Avx2 => unsafe { avx2::rows(t, row, nblocks, sc, xs, stride, out) },
+        Kind::Avx2 => unsafe { avx2::rows(t, row, nblocks, sc, xs, stride, out) },
     }
 }
 
@@ -1386,25 +1421,25 @@ fn nib_rows_scalar(t: &Tables, nib: &[u8], hdr: &[u8], sc: &[f32; 64], xs: &[f32
 }
 
 fn nib_row(isa: Isa, t: &Tables, nib: &[u8], hdr: &[u8], sc: &[f32; 64], x: &[f32]) -> f32 {
-    match isa {
-        Isa::Scalar => nib_row_scalar(t, nib, hdr, sc, x),
+    match isa.0 {
+        Kind::Scalar => nib_row_scalar(t, nib, hdr, sc, x),
         #[cfg(target_arch = "aarch64")]
-        Isa::Neon => neon::nib_row(t, nib, hdr, sc, x),
+        Kind::Neon => neon::nib_row(t, nib, hdr, sc, x),
         // SAFETY: as in `tetra_row`.
         #[cfg(target_arch = "x86_64")]
-        Isa::Avx2 => unsafe { avx2::nib_row(t, nib, hdr, sc, x) },
+        Kind::Avx2 => unsafe { avx2::nib_row(t, nib, hdr, sc, x) },
     }
 }
 
 #[allow(clippy::too_many_arguments)]
 fn nib_rows(isa: Isa, t: &Tables, nib: &[u8], hdr: &[u8], sc: &[f32; 64], xs: &[f32], stride: usize, out: &mut [f32]) {
-    match isa {
-        Isa::Scalar => nib_rows_scalar(t, nib, hdr, sc, xs, stride, out),
+    match isa.0 {
+        Kind::Scalar => nib_rows_scalar(t, nib, hdr, sc, xs, stride, out),
         #[cfg(target_arch = "aarch64")]
-        Isa::Neon => neon::nib_rows(t, nib, hdr, sc, xs, stride, out),
+        Kind::Neon => neon::nib_rows(t, nib, hdr, sc, xs, stride, out),
         // SAFETY: as in `tetra_row`.
         #[cfg(target_arch = "x86_64")]
-        Isa::Avx2 => unsafe { avx2::nib_rows(t, nib, hdr, sc, xs, stride, out) },
+        Kind::Avx2 => unsafe { avx2::nib_rows(t, nib, hdr, sc, xs, stride, out) },
     }
 }
 
@@ -1547,13 +1582,13 @@ fn q4_row(isa: Isa, m: &Q4Matrix, r: usize, a: &Q4Act) -> f32 {
     if !half_g.is_multiple_of(16) {
         return q4_row_scalar(bytes, scales, biases, half_g, a);
     }
-    match isa {
-        Isa::Scalar => q4_row_scalar(bytes, scales, biases, half_g, a),
+    match isa.0 {
+        Kind::Scalar => q4_row_scalar(bytes, scales, biases, half_g, a),
         #[cfg(target_arch = "aarch64")]
-        Isa::Neon => neon::q4_row(bytes, scales, biases, half_g, a),
+        Kind::Neon => neon::q4_row(bytes, scales, biases, half_g, a),
         // SAFETY: as in `tetra_row`.
         #[cfg(target_arch = "x86_64")]
-        Isa::Avx2 => unsafe { avx2::q4_row(bytes, scales, biases, half_g, a) },
+        Kind::Avx2 => unsafe { avx2::q4_row(bytes, scales, biases, half_g, a) },
     }
 }
 
@@ -1638,13 +1673,13 @@ fn bf16_row_scalar(w: &[u16], x: &[f32]) -> f32 {
 }
 
 fn bf16_row(isa: Isa, w: &[u16], x: &[f32]) -> f32 {
-    match isa {
-        Isa::Scalar => bf16_row_scalar(w, x),
+    match isa.0 {
+        Kind::Scalar => bf16_row_scalar(w, x),
         #[cfg(target_arch = "aarch64")]
-        Isa::Neon => neon::bf16_row(w, x),
+        Kind::Neon => neon::bf16_row(w, x),
         // SAFETY: as in `tetra_row`.
         #[cfg(target_arch = "x86_64")]
-        Isa::Avx2 => unsafe { avx2::bf16_row(w, x) },
+        Kind::Avx2 => unsafe { avx2::bf16_row(w, x) },
     }
 }
 
