@@ -1737,6 +1737,9 @@ pub struct ArtifactWriter<W: Write> {
     declared: KindSet,
     used: KindSet,
     codebooks: Codebooks,
+    /// The count the header promised, checked against [`Self::matrices`]
+    /// when the file is closed.
+    declared_matrices: u32,
     pub matrices: u32,
     pub payload_bits: u64,
 }
@@ -1790,6 +1793,7 @@ impl<W: Write> ArtifactWriter<W> {
             declared,
             used: KindSet::empty(),
             codebooks: Codebooks::new(),
+            declared_matrices: n_matrices,
             matrices: 0,
             payload_bits: 0,
         })
@@ -1872,6 +1876,23 @@ impl<W: Write> ArtifactWriter<W> {
         Ok(())
     }
 
+    /// The header's count against the records pushed, before the closing
+    /// sections go out. Another count leaves a file every reader misparses:
+    /// too few and the raw-tensor section is read as a record, too many and
+    /// the extra record is read as the raw-tensor section.
+    fn check_count(&self) -> Result<()> {
+        if self.matrices != self.declared_matrices {
+            return Err(Error::Inconsistent {
+                name: "matrix count".to_string(),
+                detail: format!(
+                    "the header declares {} matrices and {} pushed",
+                    self.declared_matrices, self.matrices
+                ),
+            });
+        }
+        Ok(())
+    }
+
     /// Close the file with the sections that make it self-contained.
     ///
     /// Taking them here rather than streaming them is deliberate: the counts
@@ -1883,6 +1904,7 @@ impl<W: Write> ArtifactWriter<W> {
         raws: &[crate::RawTensor],
         blobs: &[crate::Blob],
     ) -> Result<(u64, u64)> {
+        self.check_count()?;
         let n_raws = u32_field("raw tensor section", "tensor count", raws.len())?;
         let n_blobs = u32_field("blob section", "blob count", blobs.len())?;
         put_u32(&mut self.out, n_raws)?;
@@ -1903,6 +1925,7 @@ impl<W: Write> ArtifactWriter<W> {
     /// Kept for the quantization run, which streams matrices as it goes and
     /// has no checkpoint tensors to hand. `bin/seal` completes such a file.
     pub fn finish(mut self) -> Result<u64> {
+        self.check_count()?;
         put_u32(&mut self.out, 0)?;
         put_u32(&mut self.out, 0)?;
         self.out.flush()?;

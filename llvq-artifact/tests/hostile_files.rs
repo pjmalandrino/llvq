@@ -1094,6 +1094,52 @@ fn every_width_the_product_rotates_still_round_trips() {
     }
 }
 
+// ---------------------------------------------------------------------------
+// The header's matrix count against the records pushed
+// ---------------------------------------------------------------------------
+
+#[test]
+fn a_writer_that_pushed_another_count_than_its_header_declared_refuses_to_close() {
+    // Too few: the reader would parse the raw-tensor section as a record. Too
+    // many: it would read the extra record as the raw-tensor section.
+    for (declared, pushed) in [(2u32, 1usize), (1, 2), (1, 0)] {
+        for seal in [true, false] {
+            let mut w = llvq_artifact::ArtifactWriter::with_kind(Vec::new(), CodeKind::Tetra, declared)
+                .expect("header");
+            for _ in 0..pushed {
+                w.push_raw(&small_tetra_matrix()).expect("push");
+            }
+            let closed = if seal {
+                w.seal(&[], &[]).map(|_| ())
+            } else {
+                w.finish().map(|_| ())
+            };
+            match closed {
+                Err(Error::Inconsistent { detail, .. }) => assert!(
+                    detail.contains(&format!("{declared} matrices"))
+                        && detail.contains(&format!("{pushed} pushed")),
+                    "{declared}/{pushed}, seal {seal}: {detail}"
+                ),
+                other => panic!(
+                    "declared {declared}, pushed {pushed}, seal {seal}: expected Inconsistent, got {:?}",
+                    other.err()
+                ),
+            }
+        }
+    }
+    // The count it declared, and both closes take it.
+    for seal in [true, false] {
+        let mut w = llvq_artifact::ArtifactWriter::with_kind(Vec::new(), CodeKind::Tetra, 2).expect("header");
+        w.push_raw(&small_tetra_matrix()).expect("push");
+        w.push_raw(&small_tetra_matrix()).expect("push");
+        if seal {
+            w.seal(&[], &[]).expect("two of two");
+        } else {
+            w.finish().expect("two of two");
+        }
+    }
+}
+
 #[test]
 fn a_matrix_with_no_rows_decodes_without_building_a_rotation() {
     // In memory, past every reader: `Rotation::new(0, _)` asserts, and with no

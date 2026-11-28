@@ -271,8 +271,10 @@ fn a_push_of_an_undeclared_kind_is_refused() {
     let mut rng = SplitMix64::new(0x_C0DE_0002);
     let m = tetra_matrix(&tetra, &mut rng, "model.layers.0.mlp.gate_proj.weight", 2, 2 * DIM);
 
+    // A header of zero matrices: the push is refused, so zero is the count
+    // `finish` will hold the writer to.
     let mut buf: Vec<u8> = Vec::new();
-    let mut w = ArtifactWriter::with_version_kind(&mut buf, FIRST_KINDED_VERSION, 1, CodeKind::Ball)
+    let mut w = ArtifactWriter::with_version_kind(&mut buf, FIRST_KINDED_VERSION, 0, CodeKind::Ball)
         .expect("a v5 Ball writer");
     match w.push_kind(&m, CodeKind::Tetra) {
         Err(Error::KindNotDeclared { name, kind, declared }) => {
