@@ -8,7 +8,7 @@
 #        Linux x86_64 with an NVIDIA card       linux-x86_64-cuda
 #        Linux x86_64 without one               linux-x86_64-cpu
 #        Linux arm64 (aarch64)                  linux-arm64-cpu
-#        macOS on Apple Silicon                 macos-arm64-metal
+#        macOS on Apple Silicon                 macos-arm64-metal (also from a shell under Rosetta)
 #        macOS on Intel                         macos-x86_64-cpu
 #      LLVQ_FLAVOR names one instead; it must be a flavor of this system;
 #   2. for the CUDA flavor, refuses a missing driver, a driver older than LLVQ_MIN_DRIVER, or a card older than Ada
@@ -47,6 +47,12 @@ need ln
 
 OS=$(uname -s)
 ARCH=$(uname -m)
+# A shell under Rosetta on Apple Silicon reports x86_64; hw.optional.arm64 is 1 on the hardware itself (as rustup and
+# Ollama read it). The key is absent on Intel Macs, so a failed sysctl means Intel.
+if [ "$OS/$ARCH" = Darwin/x86_64 ] && [ "$(sysctl -n hw.optional.arm64 2> /dev/null || true)" = 1 ]; then
+  say "this shell runs under Rosetta on Apple Silicon: installing the arm64 build"
+  ARCH=arm64
+fi
 case "$OS/$ARCH" in
   Linux/x86_64|Linux/amd64) SYSTEM=linux-x86_64; FLAVORS="linux-x86_64-cuda linux-x86_64-cpu" ;;
   Linux/aarch64|Linux/arm64) SYSTEM=linux-arm64; FLAVORS="linux-arm64-cpu" ;;
