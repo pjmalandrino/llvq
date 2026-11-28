@@ -46,7 +46,7 @@ pub const PREALLOC_CAP: usize = 1 << 20;
 /// Under [`FuseMode::Off`] this is `load` as it always was: [`FusedModel::
 /// groups`] is empty, `matrices` carries all 252 projections of the published
 /// 4B, and `runtime_bytes` is the same sum it always was. Under `On` the
-/// projections that share an activation are spliced into [`FusedGroup`]s — 72
+/// projections that share an activation are spliced into [`FusedGroup`](crate::fused::FusedGroup)s — 72
 /// groups plus 72 lone projections, so 144 matvec launches a token.
 pub fn load_with(path: &str, layout: FusedLayout, fuse: FuseMode) -> Result<FusedModel, String> {
     // Refused here as well as in `fused_cuda::load_with`, and on purpose: this

@@ -267,7 +267,7 @@ pub fn take_embed_tables(
     take_embed_tables_at(raw, tie, 8)
 }
 
-/// [`take_embed_tables`] at `bits` (8 or 4), through [`embed_at`].
+/// [`take_embed_tables`] at `bits` (8 or 4), through `embed_at`.
 pub fn take_embed_tables_at(
     raw: &mut Vec<llvq_artifact::RawTensor>,
     tie: bool,

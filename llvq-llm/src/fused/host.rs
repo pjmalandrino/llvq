@@ -97,7 +97,7 @@ pub struct FusedMatrix {
     pub d_in: usize,
     pub nblocks: usize,
     pub tail_w: usize,
-    /// The payload, in the layout [`FusedModel::layout`] names.
+    /// The payload, in the layout [`FusedModel::layout`](crate::fused::FusedModel::layout) names.
     pub stream: HostStream,
     /// The two gain centroids. One bit of gain is hard-coded in every decoder.
     pub gscale: [f32; 2],
@@ -106,7 +106,7 @@ pub struct FusedMatrix {
     /// bits** — see [`tail_f16_bits`] for why the width changed and what it
     /// is aligned to.
     pub tail: Vec<u16>,
-    /// Key into [`FusedModel::rotations`], or `None` in the natural basis.
+    /// Key into [`FusedModel::rotations`](crate::fused::FusedModel::rotations), or `None` in the natural basis.
     pub rotation: Option<RotKey>,
     /// Bytes this matrix costs at runtime — every device array the kernel
     /// reads: the payload, whatever addressing the layout carries beside it
@@ -256,7 +256,7 @@ pub(super) fn runtime_bytes_of(
 /// Extracted from `load` so the accounting is a function with a name and a
 /// test rather than an expression inside a loop — `runtime_bytes` is the
 /// number `fusedrun` prints as "GB on the card" and that
-/// [`FusedModel::runtime_bits_per_weight`] divides, so an arithmetic slip
+/// [`FusedModel::runtime_bits_per_weight`](crate::fused::FusedModel::runtime_bits_per_weight) divides, so an arithmetic slip
 /// here is published, not caught.
 pub fn matrix_side_bytes(d_out: usize, tail_w: usize) -> u64 {
     (d_out * tail_w) as u64 * TAIL_BYTES + d_out as u64 * ROW_SCALE_BYTES

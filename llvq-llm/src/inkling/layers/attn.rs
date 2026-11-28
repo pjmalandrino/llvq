@@ -44,7 +44,7 @@ pub struct AttnWeights {
     #[cfg(ink_glue)]
     pub dense: Option<super::attn_dense::FusedAttn>,
     /// The seven matrices in BF16 on the host for the CPU kernels, when the
-    /// loader chose them ([`LayerWeights::load_cpu`]): every forward then
+    /// loader chose them ([`LayerWeights::load_cpu`](super::LayerWeights::load_cpu)): every forward then
     /// reads them, and the seven f32 tensors above are empty.
     pub cpu: Option<CpuAttnProj>,
 }

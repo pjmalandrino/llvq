@@ -442,10 +442,10 @@ pub struct FusedModel {
     /// The runtime layout every matrix was transcoded to.
     pub layout: FusedLayout,
     /// The projections launched one at a time. **All** of them under
-    /// [`FuseMode::Off`]; only `o_proj` and `down_proj` under `On`, the rest
+    /// [`FuseMode::Off`](crate::fused::FuseMode::Off); only `o_proj` and `down_proj` under `On`, the rest
     /// having moved into [`Self::groups`].
     pub matrices: Vec<FusedMatrix>,
-    /// The row-concatenated groups, empty under [`FuseMode::Off`] — where this
+    /// The row-concatenated groups, empty under [`FuseMode::Off`](crate::fused::FuseMode::Off) — where this
     /// struct is then byte-identical to what shipped before this lot.
     pub groups: Vec<FusedGroup>,
     /// The `Int4G128` projections, empty for every file written before
