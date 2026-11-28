@@ -90,7 +90,7 @@ llvq-artifact = { path = "../llvq-artifact" }
 
 [[bin]]
 name = "planesbench"
-path = "src/bin/planesbench.rs"
+path = "src/bin/planesbench/main.rs"
 required-features = ["bench"]
 
 [[bin]]
