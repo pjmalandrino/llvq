@@ -48,6 +48,7 @@ def main():
     sources = [repository / name for name in [
         "Cargo.lock", "llvq-quant/src/schur.rs", "llvq-quant/src/quantizer.rs",
         "llvq-quant/src/gptq.rs", "llvq-quant/src/linalg.rs", "llvq-quant/src/rotation.rs",
+        "llvq-search/src/rotation.rs", "llvq-search/src/shapegain.rs",
         "llvq-llm/src/tetra_diag.rs", "llvq-llm/src/bin/tetra_schur.rs",
         "llvq-llm/src/model.rs", "llvq-llm/src/calib.rs", "llvq-llm/src/loader.rs",
         "ops/prepare_tetra_schur.py", "proofs/BROUILLON-preregistration-tetra-schur-2026-09-14.md",

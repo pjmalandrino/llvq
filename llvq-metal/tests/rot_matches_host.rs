@@ -175,7 +175,7 @@ fn fixture(n: usize, seed: u64, pad: f32) -> Fixture {
     // `Q_odd` is the identity when there is no odd factor, and that is a fact
     // about the transform rather than a shortcut. Both kernels take the
     // scale-out branch at `k == 1` and never read `small`, and
-    // `llvq-quant/src/rotation.rs::mix` returns early at the same point. A
+    // `llvq-search/src/rotation.rs::mix` returns early at the same point. A
     // 1×1 Gram-Schmidt draw is ±1, so drawing one here would make the
     // definition reference disagree with all three by a global sign. It did,
     // at n=4096, which is what the reference is for.

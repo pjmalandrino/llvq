@@ -40,7 +40,7 @@ Nine crates, members of `Cargo.toml`.
 | crate | role | external dependencies | `unsafe` |
 |---|---|---|---|
 | `llvq-core` | Golay [24,12,8], Λ₂₄, shells | none | forbid |
-| `llvq-search` | exact NN search, v1 index, Tetra word and encoder, packing | none | forbid |
+| `llvq-search` | exact NN search, v1 index, Tetra word and encoder, packing, the rotation and the shape-gain block code the decoder shares with the quantizer | none | forbid |
 | `llvq-quant` | GPTQ, dense algebra, block loop | `faer` 0.24, optional, feature `fast-linalg` | forbid |
 | `llvq-artifact` | `.llvq` format: writer, reader, decoder, VRAM transcoding | none | forbid |
 | `llvq-bench` | rate-distortion, encoder throughput, decode cost | none | forbid |

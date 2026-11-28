@@ -91,7 +91,7 @@ reference code (`ops/inkling/`), `bin/extq` on each (W, H) pair, reconstructions
 ### J1, the whole model by the offline route
 
 Reused as is: `extq::encode_matrix` and `factor_hessian` (`llvq-llm/src/extq.rs:88-221`), which take any width that is
-a multiple of 24; `Rotation::new` accepts any width (`llvq-quant/src/rotation.rs:50-58`); `quantize_affine` for the
+a multiple of 24; `Rotation::new` accepts any width (`llvq-search/src/rotation.rs:50-58`); `quantize_affine` for the
 tables (`llvq-llm/src/embedquant.rs:22`); `int4_record` for the g128 records (`llvq-llm/src/sealed.rs:371`).
 
 Extended: the capture. In passes 2 and 3 the query, key and value inputs differ, each through its own message gate
