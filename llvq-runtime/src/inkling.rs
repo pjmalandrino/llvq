@@ -615,6 +615,12 @@ fn prefix_key(
 
 /// Load the model a local file names, on this build's device.
 pub fn load_local(name: &ModelName, path: &Path, store: &Store) -> anyhow::Result<InkEngine> {
+    // The served door the Qwen3 engine keeps with its config: the expert
+    // kernels read `LLVQ_KERNEL_DIR`, `LLVQ_TILE_BLOCKS` and `LLVQ_PREFILL` on
+    // CUDA and `LLVQ_METAL_KERNEL` on Metal, which would change the served
+    // object with no word.
+    llvq_llm::served::check_door(&format!("the served model {name}"), |v| std::env::var(v).ok())
+        .map_err(anyhow::Error::msg)?;
     let local = LocalModel::read(path)?;
     let backend = Backend::of_build();
     eprintln!("llvq: loading {name} (inkling2, {}) on {}", path.display(), backend.label());

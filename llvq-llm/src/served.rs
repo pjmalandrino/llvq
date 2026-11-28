@@ -46,7 +46,9 @@
 //!   text, `LLVQ_TILE_BLOCKS` and `LLVQ_PREFILL` move served constants,
 //!   `LLVQ_METAL_KERNEL` swaps the Metal matvec, and `LLVQ_GUIDED_WEIGHTS`,
 //!   `LLVQ_GUIDED_GROUPS` and `LLVQ_GUIDED_CLIP` change how an object is
-//!   encoded. Any one set beside `LLVQ_CONFIG` is refused by name. `LLVQ_NVRTC_ARCH` is deliberately NOT refused: it names the card,
+//!   encoded. Any one set beside `LLVQ_CONFIG` is refused by name, and beside
+//!   a served model of a family with no such file ([`check_door`], the
+//!   runtime's Inkling engine). `LLVQ_NVRTC_ARCH` is deliberately NOT refused: it names the card,
 //!   not the object, and an A100 needs it; the runtime prints it on its
 //!   `NVRTC source:` line so no served log is silent about its target.
 //!
@@ -719,15 +721,7 @@ pub fn check_env(
             }
         }
     }
-    for var in BELOW_THE_DOOR {
-        if let Some(v) = lookup(var) {
-            return Err(format!(
-                "{var}={v:?} beside LLVQ_CONFIG. That variable reaches below the served \
-                 door — it changes what the config cannot describe — so a served run \
-                 refuses it by name. Unset it, or unset LLVQ_CONFIG and run the bench."
-            ));
-        }
-    }
+    below_the_door("LLVQ_CONFIG", "Unset it, or unset LLVQ_CONFIG and run the bench.", &lookup)?;
     let [layout, embed, rot_share, fuse, kv] = SPOKEN_FOR;
     same(layout, lookup(layout), &f.layout, FusedLayout::parse)?;
     same(embed, lookup(embed), &f.embed, EmbedMode::parse)?;
@@ -735,6 +729,32 @@ pub fn check_env(
     same(fuse, lookup(fuse), &f.fuse, FuseMode::parse)?;
     same(kv, lookup(kv), &f.kv, KvMode::parse)?;
     Ok(())
+}
+
+/// The first name of [`BELOW_THE_DOOR`] that `lookup` finds set, refused
+/// beside `beside`, the error ending on `remedy`.
+fn below_the_door(beside: &str, remedy: &str, lookup: &impl Fn(&str) -> Option<String>) -> Result<(), String> {
+    for var in BELOW_THE_DOOR {
+        if let Some(v) = lookup(var) {
+            return Err(format!(
+                "{var}={v:?} beside {beside}. That variable reaches below the served \
+                 door — it changes what the config cannot describe — so a served run \
+                 refuses it by name. {remedy}"
+            ));
+        }
+    }
+    Ok(())
+}
+
+/// The refusals of [`check_env`] that need no [`ServedFile`], for a served
+/// door of a family that has none (the runtime's Inkling engine): every name
+/// of [`REMOVED`] and of [`BELOW_THE_DOOR`] that `lookup` finds set, refused
+/// by name beside `beside`, what is being served. The lists stay here, one
+/// copy for every door. [`MEASUREMENT_MODES`] are not refused: [`check_env`]
+/// refuses them beside the persistent decode only, which is Qwen3's.
+pub fn check_door(beside: &str, lookup: impl Fn(&str) -> Option<String>) -> Result<(), String> {
+    check_removed(&lookup)?;
+    below_the_door(beside, "Unset it.", &lookup)
 }
 
 impl Served {

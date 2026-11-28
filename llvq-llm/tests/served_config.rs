@@ -12,7 +12,7 @@ use llvq_llm::fused::{EmbedMode, FuseMode, FusedLayout};
 use llvq_llm::kvq::{AttnHeads, KvMode, KvStore, GROW_CHUNK};
 use llvq_llm::rotplan::RotShare;
 use llvq_llm::served::{
-    check_env, check_persistent_object, check_removed, Decode, MetalKernels, Rows4e, Served, ServedFile,
+    check_door, check_env, check_persistent_object, check_removed, Decode, MetalKernels, Rows4e, Served, ServedFile,
     BELOW_THE_DOOR, MEASUREMENT_MODES, REMOVED,
 };
 use std::path::PathBuf;
@@ -382,6 +382,24 @@ fn variables_below_the_door_are_refused_by_name() {
     // `LLVQ_NVRTC_ARCH` names the card, not the object: an A100 needs it.
     check_env(&f, env_of(&[("LLVQ_NVRTC_ARCH", "compute_80")]))
         .expect("the compile target is the card's business, not the config's");
+}
+
+/// A door with no config (the runtime's Inkling engine) refuses the same
+/// names from the same lists, and only those: a measurement mode it does not
+/// read and the card variable pass.
+#[test]
+fn a_door_without_a_config_refuses_the_same_names() {
+    check_door("x", env_of(&[])).expect("nothing set, nothing to refuse");
+    for var in BELOW_THE_DOOR.iter().chain(&REMOVED) {
+        let e = match check_door("a served Inkling model", env_of(&[(var, "anything")])) {
+            Err(e) => e,
+            Ok(()) => panic!("{var} beside a door without a config must be refused"),
+        };
+        assert!(e.contains(var), "{e}");
+    }
+    for var in MEASUREMENT_MODES.iter().chain(&["LLVQ_NVRTC_ARCH"]) {
+        check_door("x", env_of(&[(var, "1")])).unwrap_or_else(|e| panic!("{var}: {e}"));
+    }
 }
 
 /// `Served::of` reads no environment: the same file resolves the same way
