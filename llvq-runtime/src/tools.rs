@@ -1069,7 +1069,7 @@ mod tests {
                 std::env::var("HOME").unwrap_or_default()
             )
         });
-        let tok = tokenizers::Tokenizer::from_file(&path)
+        let tok = llvq_llm::tokenizers::Tokenizer::from_file(&path)
             .unwrap_or_else(|e| panic!("{path}: {e}; set LLVQ_QWEN3_TOKENIZER to Qwen3's tokenizer.json"));
         for c in &cases() {
             let name = c.get("name").and_then(OrderedJson::as_str).unwrap();

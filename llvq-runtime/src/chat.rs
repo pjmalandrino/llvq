@@ -60,7 +60,7 @@ pub struct Segment {
 
 /// The ids of `msgs`, one segment a message, reusing `memo` while it agrees.
 pub fn render(
-    tok: &tokenizers::Tokenizer,
+    tok: &llvq_llm::tokenizers::Tokenizer,
     marks: &Marks,
     memo: &[Segment],
     msgs: &[Msg],
@@ -82,7 +82,7 @@ pub fn render(
 /// [`crate::tools::ToolFormat::render`], reusing `memo` while its pieces are
 /// the same text. Each piece is encoded alone: its markers are added tokens,
 /// which the tokenizer splits out wherever they stand.
-pub fn render_pieces(tok: &tokenizers::Tokenizer, memo: &[Segment], pieces: &[String]) -> anyhow::Result<Vec<Segment>> {
+pub fn render_pieces(tok: &llvq_llm::tokenizers::Tokenizer, memo: &[Segment], pieces: &[String]) -> anyhow::Result<Vec<Segment>> {
     let mut out = Vec::with_capacity(pieces.len());
     let mut agree = true;
     for (i, p) in pieces.iter().enumerate() {
@@ -158,7 +158,7 @@ impl TextStream {
     /// grows only then, when the new text does not end with U+FFFD. A
     /// decoder whose window text does not start with its context text falls
     /// back to the whole list.
-    pub fn full(&mut self, tok: &tokenizers::Tokenizer) -> anyhow::Result<String> {
+    pub fn full(&mut self, tok: &llvq_llm::tokenizers::Tokenizer) -> anyhow::Result<String> {
         let decode = |ids: &[u32]| tok.decode(ids, false).map_err(|e| anyhow::anyhow!("{e}"));
         let window = decode(&self.ids[self.from..])?;
         let Some(tail) = window.strip_prefix(self.head.as_str()) else {
@@ -264,7 +264,7 @@ mod tests {
     /// GPT-2's byte-level alphabet: one token a byte, so that a character
     /// of two to four bytes is split across ids, as Qwen3's BPE splits rare
     /// characters, and an invalid byte decodes to U+FFFD.
-    fn byte_tokenizer() -> tokenizers::Tokenizer {
+    fn byte_tokenizer() -> llvq_llm::tokenizers::Tokenizer {
         let chars: Vec<u32> = (33..=126).chain(161..=172).chain(174..=255).collect();
         let mut vocab = serde_json::Map::new();
         let mut extra = 0;
@@ -286,7 +286,7 @@ mod tests {
                       "continuing_subword_prefix": null, "end_of_word_suffix": null, "fuse_unk": false,
                       "byte_fallback": false, "ignore_merges": false}
         });
-        tokenizers::Tokenizer::from_bytes(serde_json::to_vec(&j).unwrap()).unwrap()
+        llvq_llm::tokenizers::Tokenizer::from_bytes(serde_json::to_vec(&j).unwrap()).unwrap()
     }
 
     #[test]

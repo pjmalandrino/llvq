@@ -11,7 +11,7 @@ mod common;
 #[path = "common/ink.rs"]
 mod ink;
 
-use candle_core::{Device, Tensor};
+use llvq_llm::candle::{Device, Tensor};
 use llvq_llm::inkchat::InkChat;
 use llvq_runtime::chat::{Msg, Role};
 use llvq_runtime::engine::{Built, Event, Events, KeepAlive, Loaded, Loader, Models, Options, Prompt, Request};

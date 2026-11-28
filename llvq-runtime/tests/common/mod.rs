@@ -10,7 +10,7 @@
 
 #![allow(dead_code)]
 
-use candle_core::{DType, Device, Tensor};
+use llvq_llm::candle::{DType, Device, Tensor};
 use candle_nn::{Activation, VarBuilder, VarMap};
 use candle_transformers::models::qwen3::Config;
 use llvq_llm::kvq::KvMode;
@@ -30,7 +30,7 @@ pub const WORDS: [&str; 24] = [
 ];
 
 /// A word-level tokenizer with Qwen3's markers as added tokens.
-pub fn tokenizer() -> tokenizers::Tokenizer {
+pub fn tokenizer() -> llvq_llm::tokenizers::Tokenizer {
     let mut vocab = serde_json::Map::new();
     let mut added = Vec::new();
     for (i, s) in SPECIAL.iter().enumerate() {
@@ -47,7 +47,7 @@ pub fn tokenizer() -> tokenizers::Tokenizer {
         "normalizer": null, "pre_tokenizer": {"type": "WhitespaceSplit"}, "post_processor": null,
         "decoder": null, "model": {"type": "WordLevel", "vocab": vocab, "unk_token": "<unk>"}
     });
-    tokenizers::Tokenizer::from_bytes(serde_json::to_vec(&j).unwrap()).expect("the tiny tokenizer builds")
+    llvq_llm::tokenizers::Tokenizer::from_bytes(serde_json::to_vec(&j).unwrap()).expect("the tiny tokenizer builds")
 }
 
 pub fn config() -> Config {

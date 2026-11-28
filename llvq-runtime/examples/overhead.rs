@@ -43,7 +43,7 @@ struct Whole {
 }
 
 impl Whole {
-    fn step(&mut self, tok: &tokenizers::Tokenizer, new: &[u32], stops: &[String]) -> String {
+    fn step(&mut self, tok: &llvq_llm::tokenizers::Tokenizer, new: &[u32], stops: &[String]) -> String {
         self.ids.extend_from_slice(new);
         let full = tok.decode(&self.ids, false).unwrap();
         let upto = match chat::scan(&full, stops) {
@@ -54,7 +54,7 @@ impl Whole {
 }
 
 /// The same step through [`TextStream::full`], as the engine runs it now.
-fn step(s: &mut TextStream, tok: &tokenizers::Tokenizer, new: &[u32], stops: &[String]) -> String {
+fn step(s: &mut TextStream, tok: &llvq_llm::tokenizers::Tokenizer, new: &[u32], stops: &[String]) -> String {
     s.ids.extend_from_slice(new);
     let full = s.full(tok).unwrap();
     let upto = match chat::scan(&full, stops) {
@@ -68,7 +68,7 @@ fn median_us(mut v: Vec<Duration>) -> f64 {
     v[v.len() / 2].as_secs_f64() * 1e6
 }
 
-fn docs_ids(tok: &tokenizers::Tokenizer) -> Vec<u32> {
+fn docs_ids(tok: &llvq_llm::tokenizers::Tokenizer) -> Vec<u32> {
     let root = concat!(env!("CARGO_MANIFEST_DIR"), "/..");
     let mut corpus = String::new();
     for f in ["docs/HISTORIQUE.md", "docs/ETAT.md", "docs/ROADMAP.md"] {
@@ -78,7 +78,7 @@ fn docs_ids(tok: &tokenizers::Tokenizer) -> Vec<u32> {
     ids[..ids.len().min(8192)].to_vec()
 }
 
-fn text_part(tok: &tokenizers::Tokenizer) {
+fn text_part(tok: &llvq_llm::tokenizers::Tokenizer) {
     let ids = docs_ids(tok);
     let n = ids.len();
     println!("text: {n} tokens of the repository's docs");
@@ -125,7 +125,7 @@ fn text_part(tok: &tokenizers::Tokenizer) {
     println!("  same text at every token: the docs with and without stop strings, and 4,096 random ids");
 }
 
-fn render_part(tok: &tokenizers::Tokenizer) {
+fn render_part(tok: &llvq_llm::tokenizers::Tokenizer) {
     let marks = Marks::resolve(tok).unwrap();
     // Twenty turns of about 400 tokens each, from the docs.
     let text = tok.decode(&docs_ids(tok), false).unwrap();
@@ -353,7 +353,7 @@ fn main() {
     let path = std::env::args().nth(1).or_else(|| std::env::var("LLVQ_TOKENIZER").ok());
     match path {
         Some(p) => {
-            let tok = tokenizers::Tokenizer::from_file(&p).expect("the tokenizer loads");
+            let tok = llvq_llm::tokenizers::Tokenizer::from_file(&p).expect("the tokenizer loads");
             println!("tokenizer: {p}");
             text_part(&tok);
             render_part(&tok);

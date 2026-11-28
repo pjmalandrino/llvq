@@ -2050,7 +2050,6 @@ version = "0.1.3"
 dependencies = [
  "anyhow",
  "axum",
- "candle-core",
  "candle-nn",
  "candle-transformers",
  "clap",
@@ -2061,7 +2060,6 @@ dependencies = [
  "serde_json",
  "serde_yaml",
  "sha2",
- "tokenizers",
  "tokio",
  "ureq",
  "utoipa",

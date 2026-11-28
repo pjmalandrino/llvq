@@ -47,7 +47,7 @@ Nine crates, members of `Cargo.toml`.
 | `llvq-metal` | macOS GPU micro-benchmarks, MSL shaders | `metal` | allowed |
 | `llvq-cuda` | NVIDIA kernels compiled by NVRTC, 4E, benchmarks | `cudarc`, `cfg(target_os = "linux")` | allowed |
 | `llvq-llm` | forward pass, served configs, corpora, perplexity, MMLU, GSM8K, CPU backend (`fused_cpu`, `tetra_cpu`) | `candle`, `tokenizers`, `hf-hub`, `parquet`, `rayon`, `flate2`, `half`; on macOS `candle-metal-kernels`, `objc2-metal` | allowed |
-| `llvq-runtime` | the `llvq` binary: model library, store, Ollama and OpenAI routes, OpenAPI | `axum`, `tokio`, `clap`, `utoipa`, `sha2`, `ureq`, `native-tls`, `candle-core`, `tokenizers` | forbid |
+| `llvq-runtime` | the `llvq` binary: model library, store, Ollama and OpenAI routes, OpenAPI | `axum`, `tokio`, `clap`, `utoipa`, `sha2`, `ureq`, `native-tls`; `candle-core` and `tokenizers` only through `llvq-llm` | forbid |
 
 Beside the crates: `llvq-tetra/` is the Python package that reads a packed model in `transformers` (on PyPI; its wheel
 ships a copy of the served kernels that `bin/tetratables` makes). `ops/llvqtune` trains the row scales.

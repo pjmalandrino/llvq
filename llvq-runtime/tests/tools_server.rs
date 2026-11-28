@@ -14,7 +14,7 @@
 
 mod common;
 
-use candle_core::{DType, Device, Tensor};
+use llvq_llm::candle::{DType, Device, Tensor};
 use candle_nn::{Activation, VarBuilder, VarMap};
 use candle_transformers::models::qwen3::Config;
 use llvq_llm::kvq::KvMode;
@@ -59,7 +59,7 @@ fn word(w: &str) -> usize {
 
 /// Qwen3's markers, the tool markers as added tokens that are not special (as
 /// in Qwen3's tokenizer), and a few words.
-fn tokenizer() -> tokenizers::Tokenizer {
+fn tokenizer() -> llvq_llm::tokenizers::Tokenizer {
     let mut vocab = serde_json::Map::new();
     let mut added = Vec::new();
     for (i, s) in SPECIAL.iter().enumerate() {
@@ -76,7 +76,7 @@ fn tokenizer() -> tokenizers::Tokenizer {
         "normalizer": null, "pre_tokenizer": {"type": "WhitespaceSplit"}, "post_processor": null,
         "decoder": null, "model": {"type": "WordLevel", "vocab": vocab, "unk_token": "<unk>"}
     });
-    tokenizers::Tokenizer::from_bytes(serde_json::to_vec(&j).unwrap()).unwrap()
+    llvq_llm::tokenizers::Tokenizer::from_bytes(serde_json::to_vec(&j).unwrap()).unwrap()
 }
 
 const VOCAB: usize = 64;

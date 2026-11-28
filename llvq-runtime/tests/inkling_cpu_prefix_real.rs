@@ -19,7 +19,7 @@
 //!   cargo test --release -p llvq-runtime --test inkling_cpu_prefix_real -- --ignored --nocapture
 //! ```
 
-use candle_core::{DType, Device, Tensor};
+use llvq_llm::candle::{DType, Device, Tensor};
 use llvq_llm::inkling::InklingCache;
 use llvq_llm::lm::CausalLm;
 use sha2::{Digest, Sha256};

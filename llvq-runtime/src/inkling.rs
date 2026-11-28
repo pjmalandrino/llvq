@@ -44,7 +44,7 @@ use crate::engine::{nanos, total, EngineInfo, Event, Job, Prompt, State, Stats, 
 use crate::library::{Backend, Configs, ModelName};
 use crate::store::{Manifest, Store};
 use crate::tools::inkling2;
-use candle_core::{DType, Device, Tensor};
+use llvq_llm::candle::{DType, Device, Tensor};
 use llvq_llm::inkchat::{Delta, InkChat, Json, Part, TurnParser};
 use llvq_llm::repl::Sampler;
 use serde::{Deserialize, Serialize};
@@ -630,7 +630,7 @@ pub fn load_local(name: &ModelName, path: &Path, store: &Store) -> anyhow::Resul
         Backend::Metal => llvq_llm::inkling::new_metal_device()?,
         Backend::Cpu => Device::Cpu,
     };
-    let tok = tokenizers::Tokenizer::from_file(&local.tokenizer)
+    let tok = llvq_llm::tokenizers::Tokenizer::from_file(&local.tokenizer)
         .map_err(|e| anyhow::anyhow!("{}: {e}", local.tokenizer.display()))?;
     let chat = InkChat::new(tok)?;
     // `inkchat` was written against one template: a checkpoint that carries

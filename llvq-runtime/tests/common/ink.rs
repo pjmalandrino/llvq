@@ -25,7 +25,7 @@ pub const MARKS: [&str; 15] = [
 
 /// GPT-2's byte alphabet, one token a byte, and Inkling's markers as special
 /// added tokens from id 300.
-pub fn byte_tokenizer() -> tokenizers::Tokenizer {
+pub fn byte_tokenizer() -> llvq_llm::tokenizers::Tokenizer {
     let chars: Vec<u32> = (33..=126).chain(161..=172).chain(174..=255).collect();
     let mut vocab = serde_json::Map::new();
     let mut extra = 0;
@@ -54,7 +54,7 @@ pub fn byte_tokenizer() -> tokenizers::Tokenizer {
                   "continuing_subword_prefix": null, "end_of_word_suffix": null, "fuse_unk": false,
                   "byte_fallback": false, "ignore_merges": false}
     });
-    tokenizers::Tokenizer::from_bytes(serde_json::to_vec(&j).unwrap()).unwrap()
+    llvq_llm::tokenizers::Tokenizer::from_bytes(serde_json::to_vec(&j).unwrap()).unwrap()
 }
 
 /// The vocabulary of [`byte_tokenizer`]: the bytes, a gap, the markers.

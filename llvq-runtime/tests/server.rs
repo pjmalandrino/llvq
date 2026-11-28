@@ -726,7 +726,7 @@ fn the_first_answer_counts_its_load_once() {
 const FAR: u32 = 100;
 
 /// The tiny tokenizer, and one more word whose id the model has no row for.
-fn far_tokenizer() -> tokenizers::Tokenizer {
+fn far_tokenizer() -> llvq_llm::tokenizers::Tokenizer {
     let mut vocab = serde_json::Map::new();
     let mut added = Vec::new();
     for (i, s) in common::SPECIAL.iter().enumerate() {
@@ -744,7 +744,7 @@ fn far_tokenizer() -> tokenizers::Tokenizer {
         "normalizer": null, "pre_tokenizer": {"type": "WhitespaceSplit"}, "post_processor": null,
         "decoder": null, "model": {"type": "WordLevel", "vocab": vocab, "unk_token": "<unk>"}
     });
-    tokenizers::Tokenizer::from_bytes(serde_json::to_vec(&j).unwrap()).expect("the tokenizer builds")
+    llvq_llm::tokenizers::Tokenizer::from_bytes(serde_json::to_vec(&j).unwrap()).expect("the tokenizer builds")
 }
 
 /// The tiny model behind [`far_tokenizer`].

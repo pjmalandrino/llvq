@@ -235,7 +235,7 @@ fn data_dir() -> PathBuf {
 fn the_routes_messages_render_as_the_reference_byte_for_byte_and_id_for_id() {
     let dir = data_dir();
     let tok_path = dir.join("native/tokenizer.json");
-    let tok = tokenizers::Tokenizer::from_file(&tok_path).unwrap_or_else(|e| panic!("{}: {e}", tok_path.display()));
+    let tok = llvq_llm::tokenizers::Tokenizer::from_file(&tok_path).unwrap_or_else(|e| panic!("{}: {e}", tok_path.display()));
     let chat = InkChat::new(tok).unwrap();
     let ref_path = dir.join("lot2-k/chat_ref.json");
     let text = std::fs::read_to_string(&ref_path).unwrap_or_else(|e| panic!("{}: {e}", ref_path.display()));

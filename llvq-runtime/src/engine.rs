@@ -41,7 +41,7 @@ use std::time::{Duration, Instant, SystemTime};
 /// A model built and ready, on the thread that will run it.
 pub struct Loaded {
     pub qwen: Qwen3,
-    pub tokenizer: tokenizers::Tokenizer,
+    pub tokenizer: llvq_llm::tokenizers::Tokenizer,
     pub decoder: Decoder,
     /// `cuda`, `metal` or `cpu` (`dense-cpu` for a test model).
     pub backend: String,
@@ -114,7 +114,7 @@ impl Loader for DeviceLoader {
     }
 
     fn load(&self, name: &ModelName, m: &Manifest, store: &Store) -> anyhow::Result<Loaded> {
-        use candle_core::DType;
+        use llvq_llm::candle::DType;
         let path = store.blob_path(&m.sha256);
         let path_s = path.to_str().ok_or_else(|| anyhow::anyhow!("{}: not UTF-8", path.display()))?;
         let backend = Backend::of_build();
@@ -143,9 +143,9 @@ impl Loader for DeviceLoader {
             .map_err(|e| anyhow::anyhow!("{config}: {e}"))?;
         let cfg = llvq_llm::served::Served::of(file, config.into()).map_err(anyhow::Error::msg)?;
         let device = match backend {
-            Backend::Cuda => candle_core::Device::new_cuda(0)?,
-            Backend::Metal => candle_core::Device::new_metal(0)?,
-            Backend::Cpu => candle_core::Device::Cpu,
+            Backend::Cuda => llvq_llm::candle::Device::new_cuda(0)?,
+            Backend::Metal => llvq_llm::candle::Device::new_metal(0)?,
+            Backend::Cpu => llvq_llm::candle::Device::Cpu,
         };
         // f32 on the CPU: candle's f16 ops there moved a 4,096-token window
         // by -0.47 % against the dense reference, f32 by -0.002 %, and f32 is
@@ -516,7 +516,7 @@ impl Router {
     fn step(
         &mut self,
         said: &[u32],
-        tok: &tokenizers::Tokenizer,
+        tok: &llvq_llm::tokenizers::Tokenizer,
         think: Option<(u32, u32)>,
         stop: &[String],
     ) -> anyhow::Result<(String, String, bool)> {
@@ -546,7 +546,7 @@ impl Router {
 
     /// The held tail, when no stop string came: whatever is left of the
     /// decoded text is the answer's.
-    fn tail(&mut self, tok: &tokenizers::Tokenizer) -> anyhow::Result<(String, String)> {
+    fn tail(&mut self, tok: &llvq_llm::tokenizers::Tokenizer) -> anyhow::Result<(String, String)> {
         let ftext = self.content.full(tok)?;
         let c = self.content.take(&ftext, ftext.len());
         let ttext = self.thinking.full(tok)?;
@@ -1212,7 +1212,7 @@ impl Worker {
         &mut self,
         mut l: Live,
         mut session: Session,
-        h: candle_core::Tensor,
+        h: llvq_llm::candle::Tensor,
         rx: &std::sync::mpsc::Receiver<Job>,
         pending: &mut VecDeque<Job>,
         open: &mut bool,

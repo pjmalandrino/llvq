@@ -11,9 +11,9 @@ name = "llvq"
 path = "src/main.rs"
 
 [dependencies]
+# Also the one source of `candle-core` and `tokenizers`, re-exported as `llvq_llm::candle` and
+# `llvq_llm::tokenizers`, so their versions and features are stated once, in llvq-llm.
 llvq-llm = { path = "../llvq-llm" }
-candle-core = "0.9"
-tokenizers = { version = "0.21", default-features = false, features = ["onig"] }
 anyhow = "1"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"

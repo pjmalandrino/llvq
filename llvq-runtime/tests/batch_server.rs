@@ -6,7 +6,7 @@
 
 mod common;
 
-use candle_core::Tensor;
+use llvq_llm::candle::Tensor;
 use llvq_llm::batch::{BatchDevice, BatchProjs, CandleBatch};
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use llvq_llm::chatfmt::{open_assistant, turn, Marks};
@@ -40,7 +40,7 @@ impl BatchDevice for Widest {
         pos: &Tensor,
         slots: &Tensor,
         max_len: usize,
-    ) -> candle_core::Result<Tensor> {
+    ) -> llvq_llm::candle::Result<Tensor> {
         self.0.fetch_max(q.dim(0)?, Ordering::SeqCst);
         if q.dim(0)? == 1 {
             self.1.fetch_add(1, Ordering::SeqCst);
@@ -311,12 +311,12 @@ impl BatchDevice for Faulty {
         pos: &Tensor,
         slots: &Tensor,
         max_len: usize,
-    ) -> candle_core::Result<Tensor> {
+    ) -> llvq_llm::candle::Result<Tensor> {
         if self.calls.fetch_add(1, Ordering::SeqCst) + 1 == self.at {
             if self.panics {
                 panic!("the batched step panics");
             }
-            return Err(candle_core::Error::Msg("the batched step fails".into()));
+            return Err(llvq_llm::candle::Error::Msg("the batched step fails".into()));
         }
         CandleBatch.attend(q, k_new, v_new, kc, vc, pos, slots, max_len)
     }

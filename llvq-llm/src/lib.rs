@@ -12,6 +12,13 @@
 //! target, by `unsafe_code = "forbid"` under `[lints.rust]` in their
 //! `Cargo.toml`.
 
+/// The tensor crate, re-exported so that a crate built on this one (the runtime) names the very
+/// `candle-core` this crate was compiled against and carries no version requirement of its own to keep
+/// in step by hand.
+pub use candle_core as candle;
+/// The tokenizer crate, re-exported for the same reason: one version requirement, here, with its features.
+pub use tokenizers;
+
 pub mod artifact;
 pub mod artifact2;
 pub mod argmax_key;
