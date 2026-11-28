@@ -119,6 +119,13 @@ and the PR go together, from a fork; the drafts are in `upstream/transformers-ll
   quality gate at $0, waits for the operator.
 - **The 32B.** About $62 and 11.4 h on `rtx-pro-6000x2` to encode (*estimated*). The `rot_apply` wall is lifted
   (*measured*, [lot1](mesures/lot1-4b-2026-11-04.txt)). A gate on the 14B-to-32B gap comes first.
+- **Inkling 2 Mini.** The window arm of its sliding layers, `--attn-window narrow` on the Mac, is built and off; serving
+  it is owed a reading on CUDA and on the CPU, and the operator's word ([`ETAT.md`](ETAT.md) §5). The prefix cache is off
+  on CUDA, where it has not run (`ETAT.md` §2). In the throughput plan, D8, D9, the D5 ring and P3 to P6 are not
+  started, and the items with a price are listed and not scheduled
+  ([`plan-debit-inkling2-mini.md`](plan-debit-inkling2-mini.md) §0 and §8). Not done on the published file: a run on a
+  16 GB card, the vision tower and the multi-token-prediction head, a comparison with other 2-bit files through this
+  engine ([Hub card](hub/inkling2-mini-tetra.md)).
 - **Prefill by GEMM.** The 4B's first token at 8,192 takes 6.74 s under the served chain prefill (*measured*,
   [chain-prefill-served](mesures/chain-prefill-served-2026-11-15.txt)); the 8B and the 14B still prefill eagerly. Batched prefill moves the logits, so it needs
   the T8 band.
@@ -131,6 +138,7 @@ and the PR go together, from a fork; the drafts are in `upstream/transformers-ll
 | the served census, $20 or $70 | neither |
 | the v9 config on the Hub's moving repository | not published |
 | the Rust Metal door's grouped and kernel forms | refused |
+| serving Inkling's window arm | off |
 | the upstream `transformers` issue and PR | not posted |
 | the next venue for paper 2 | preprint only |
 | a harder reasoning test, about $3 to $5 at 4B | not done |
