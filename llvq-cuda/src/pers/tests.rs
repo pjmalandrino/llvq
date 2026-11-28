@@ -870,6 +870,15 @@ fn the_a12ipg32_pass_is_a12ipg_at_four_tiles() {
     eprintln!("tree module a12ipg32 at SERVED_DEFINES_SM89: {} bytes, sha256 {}", t.len(), crate::sha256::sha256_hex(t.as_bytes()));
 }
 
+use super::e1::{
+    p4e_rc_gu_edits, rc_padded_floats, RcGu, P4E_K8_PART, P4E_RC_ARMS, P4E_RC_GU_ARMS, P4E_RC_GU_TWO_CALLS,
+};
+use super::rows::trows_warp_rows;
+use super::verify::{
+    p4t_split, pers_ft_apply, P4T_A10RC_PART, P4T_A10T2_PART, P4T_A10T_PART, P4T_A10_PART, P4T_A11I_PART, P4T_A11_PART,
+    P4T_A12G32_PART, P4T_A12G_PART, P4T_A12_PART, P4T_A4_PART, P4T_A5_PART, P4T_A6_PART, P4T_A8_PART, P4T_A9_PART,
+    P4T_PART, P4T_STREAM_PART, P4V_PART, PERS_FT_PART,
+};
 use super::*;
 
 #[test]

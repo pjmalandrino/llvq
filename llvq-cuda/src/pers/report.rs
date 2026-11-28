@@ -2,7 +2,7 @@
 //! measured, read from its stamps. One file because the report reads the
 //! event layout the symbols write.
 
-use super::*;
+use super::med_range;
 
 /// The token kernel's symbol for a RoPE form and a block size.
 pub fn p4e_symbol(form: u32, threads: u32) -> Result<&'static str, String> {
@@ -61,7 +61,7 @@ pub const P4E_SUBS: [&str; 7] = [
 ];
 
 /// The phases of a 4E token, in order, as [`p4e_phase_report`] names them.
-pub const P4E_PHASES: [&str; 7] = ["embedding", "q/k/v", "norm/RoPE/append", "attention", "o", "MLP", "head"];
+const P4E_PHASES: [&str; 7] = ["embedding", "q/k/v", "norm/RoPE/append", "attention", "o", "MLP", "head"];
 
 /// One phase of [`P4eReport`], summed over the layers of a token. Each is
 /// the median over the tokens read, with its range.

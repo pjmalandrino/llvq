@@ -24,6 +24,23 @@
 //!
 //! A grid one barrier short deadlocks, and a counter target one epoch off
 //! reads stale rows: both fail silently or hang on a rented card.
+//!
+//! ## The files
+//!
+//! | file | holds |
+//! |---|---|
+//! | `mod` | the site schedule, row slices and staging maps, 4E's waits and barrier counts, the model shapes, the row-form defines, the int4 tile index |
+//! | `units` | the NVRTC units as ordered lists of embedded parts, and their texts |
+//! | `launch` | 4E's launch bookkeeping and the device structs mirrored byte for byte, route P's segment plan |
+//! | `report` | 4E's token and stamp symbols and its phase report |
+//! | `e1` | the 4E bench arms built as text edits of v9's module (E1, rc, k8) |
+//! | `verify` | the n-row verify pass and the tree verify pass, their arms, plans and phase readers |
+//! | `rows` | the row-loop microbenchmarks: persall, vrows, trows, q4rows and counter arms |
+//!
+//! Each child imports what it uses by name. This file re-exports what the
+//! rest of the workspace names, the types public signatures carry, the items
+//! a public doc links, and the public items nothing outside reads but that
+//! would be dead code unexported.
 
 mod e1;
 mod launch;
@@ -32,12 +49,50 @@ mod verify;
 mod report;
 mod rows;
 
-pub use e1::*;
-pub use launch::*;
-pub use units::*;
-pub use verify::*;
-pub use report::*;
-pub use rows::*;
+pub use e1::{
+    p4e_e1_debt, p4e_e1_edits, p4e_e1_k8, p4e_e1_owes_bits, p4e_e1_structure, p4e_e1_unit_text, p4e_k8_edits,
+    p4e_k8_step, p4e_k8_step_release, p4e_logits_symbol, p4e_rc_body, p4e_rc_edits, p4e_rc_layout,
+    p4e_token_symbol_loads, rc_body_is_flat, rc_body_one_chunk, K8State, K8Step, RcPhase, P4E_E1_ARMS, P4E_K8_BLK,
+    P4E_K8_FILL_SYMBOL, P4E_LOCAL_SUFFIX, P4E_RC_PROBES,
+};
+pub use launch::{
+    med_range, p4e_after_launch, p4e_attn_ring, p4e_reset, p4e_scratch_bytes, p4e_settle, p4e_smem_bytes,
+    p4e_smem_bytes_form, step_a_plan, P4eArgsHost, P4eCounters, P4eFault, P4eLaunch, P4eLayerHost, P4eOTHost,
+    P4eQkvHost, SegArgsHost, SegLaunch, SegTetraHost, SegmentPlan, P4E_ARGS_BYTES, P4E_ARGS_HEAD, P4E_LAUNCH_BYTES,
+    P4E_LAYER_BYTES, P4E_LAYER_MLP, P4E_LAYER_OT, P4E_LAYER_QKV, P4E_OT_BYTES, P4E_QKV_BYTES, SEG_ARGS_BYTES,
+    SEG_LAUNCH_BYTES,
+};
+pub use report::{
+    p4e_events, p4e_phase_report, p4e_report_lines, p4e_rows_prefetch, p4e_stamp_symbol, p4e_symbol, P4ePhase,
+    P4eReport, P4E_LAYER, P4E_SUBS,
+};
+pub use rows::{
+    ctr_expected, ctr_groups, persall_groups, persall_site_words, q4rows_bytes, q4rows_site_words, q4rows_sites,
+    q4rows_smem_bytes, tetra_row_f64, tetra_stride, trows_classes, trows_clock_mhz, trows_counters, trows_cpa_ok,
+    trows_cpa_smem_bytes, trows_cta_spread, trows_k2_smem_bytes, trows_site_words, trows_small_only, trows_smem_bytes,
+    trows_tile_stride, trows_unit_text, vrows_i16_check, vrows_lean, vrows_lever_bar, vrows_site_words,
+    vrows_smem_bytes, vrows_unit_text, I16Check, TrowsClass, VrowsOwes, CTR_ARMS, K11_LEVER, K3B_GAIN_US, K4_DEAD,
+    K4_LEVER, PERSALL_GROUP_ROWS, PERSALL_VARIANTS, Q4ROWS_ARMS, ROWS_GRID_DEAD, ROWS_GRID_LEVER, TROWS_ARMS,
+    VROWS_ARMS, VROWS_FAIL, VROWS_I16_TOL, VROWS_PASS,
+};
+pub use units::{
+    pers_unit_text, served_unit_text, served_unit_text_tiled, PERS_UNIT_PARTS, SERVED_DEFINES_SM89, SERVED_UNIT_PARTS,
+    SERVED_UNIT_TILE_PART,
+};
+pub use verify::{
+    n_bar_4et, n_bar_a9, p4g_area_floats, p4t_a10_symbol, p4t_a10_unit_text, p4t_a10rc_symbol, p4t_a10rc_unit_text,
+    p4t_a10t2_symbol, p4t_a10t2_unit_text, p4t_a10t_symbol, p4t_a10t_unit_text, p4t_a11_symbol, p4t_a11_unit_text,
+    p4t_a11i_symbol, p4t_a11i_unit_text, p4t_a12_symbol, p4t_a12_unit_text, p4t_a12ip_symbol, p4t_a12ip_unit_text,
+    p4t_a12ipg32_symbol, p4t_a12ipg32_unit_text, p4t_a12ipg_symbol, p4t_a12ipg_unit_text, p4t_a4_symbol,
+    p4t_a4_unit_text, p4t_a5_symbol, p4t_a5_unit_text, p4t_a6_symbol, p4t_a6_unit_text, p4t_a8_symbol,
+    p4t_a8_unit_text, p4t_a9_symbol, p4t_a9_unit_text, p4t_area_floats, p4t_fpart_floats, p4t_ft_unit_text,
+    p4t_ftickets, p4t_iparts, p4t_parts, p4t_phases, p4t_phases_a9, p4t_plan, p4t_prefetch_volume, p4t_served_words,
+    p4t_slice_steps, p4t_splits, p4t_splits_balanced, p4t_splits_stream, p4t_stream_cap, p4t_stream_symbol,
+    p4t_stream_unit_text, p4t_symbol, p4t_tiled_symbol, p4t_tiled_unit_text, p4t_tiled_words, p4t_unit_text,
+    p4t_wait_classes, p4v_act_floats, p4v_phases, p4v_symbol, p4v_unit_text, pers_ft_edit, P4tLaunch, P4vLaunch,
+    P4G_RG, P4T_IPARTS, P4T_LAUNCH_BYTES, P4T_PARTS, P4T_PHASES, P4T_PHASES_A9, P4T_RMAX, P4T_ROW_PHASES, P4V_KMAX,
+    P4V_LAUNCH_BYTES, P4V_PHASES, P4V_SSM,
+};
 
 /// One projection of a layer, in served order.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

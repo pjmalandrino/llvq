@@ -2,7 +2,7 @@
 //! pass (`pers_4et*.cu`) with its arms, plans, phase readers and the
 //! attention tile's full-tile path. One file for one family of modules.
 
-use super::*;
+use super::{n_bar_4e, p4e_attn_ring, p4e_rows_define, pers_unit_text, SMEM_HEADER, TABLE_BYTES};
 
 // ---- 4E's verify pass (`kernels/pers_4ev.cu`): n rows of the decode a launch ----
 
@@ -103,7 +103,7 @@ pub const P4V_SSM: u32 = 640;
 /// at once when it fits (the staged `small`, the widest of hidden, the
 /// context and inter times the rows, the head's maxima), else as much as
 /// fits, a multiple of 4. Refused when it cannot hold one row of each phase
-/// or attention's stage ([`p4e_smem_bytes_form`]'s at form 7): then no group
+/// or attention's stage ([`p4e_smem_bytes_form`](crate::pers::p4e_smem_bytes_form)'s at form 7): then no group
 /// size works.
 pub fn p4v_act_floats(hidden: u32, inter: u32, d_ctx: u32, groups: u32, smem_max: u32) -> Result<u32, String> {
     let attn = (16 * 1024 * p4e_attn_ring(7) + 4 * 4 * groups * 130 + 4 * groups * 128).div_ceil(4);
@@ -129,7 +129,7 @@ pub fn p4v_unit_text(tile_define: &str) -> String {
 }
 
 /// `pers_4ev.cu`, embedded so the Mac hashes what the card compiles.
-pub const P4V_PART: (&str, &str) = ("pers_4ev.cu", include_str!("../../kernels/pers_4ev.cu"));
+pub(super) const P4V_PART: (&str, &str) = ("pers_4ev.cu", include_str!("../../kernels/pers_4ev.cu"));
 
 // ---- the tree verify pass (`kernels/pers_4et.cu`, docs/plan-verify-tree.md) ----
 
@@ -219,7 +219,7 @@ pub fn p4t_area_floats(nw: u32, rs: u32, widest: u32, groups: u32) -> u32 {
 /// 48-column sub-steps (two sub-steps a slice at least). A property of the
 /// model and the grid, never of the rows a launch carries: identity needs
 /// it (plan section 6).
-pub fn p4t_split(tiles: u32, nw: u32, d_in: u32, grid: u32) -> u32 {
+pub(super) fn p4t_split(tiles: u32, nw: u32, d_in: u32, grid: u32) -> u32 {
     let blocks = tiles.div_ceil(nw).max(1);
     let s = (grid + blocks / 2) / blocks;
     s.clamp(1, (d_in.div_ceil(48) / 2).max(1))
@@ -704,7 +704,7 @@ pub fn p4t_a11i_symbol(form: u32) -> Result<&'static str, String> {
 }
 
 /// `pers_4et_a11i.cu`, embedded so the Mac hashes what the card compiles.
-pub const P4T_A11I_PART: (&str, &str) = ("pers_4et_a11i.cu", include_str!("../../kernels/pers_4et_a11i.cu"));
+pub(super) const P4T_A11I_PART: (&str, &str) = ("pers_4et_a11i.cu", include_str!("../../kernels/pers_4et_a11i.cu"));
 
 /// a11i's unit parts, in slot order (`pers_4et_a11i.cu`).
 pub const P4T_IPARTS: [&str; 6] = ["units", "staging", "loop fast", "loop slow", "close wait", "to arrival"];
@@ -811,7 +811,7 @@ pub fn p4t_a10rc_symbol(rows: u32, form: u32) -> Result<&'static str, String> {
 }
 
 /// `pers_4et_a10rc.cu`, embedded so the Mac hashes what the card compiles.
-pub const P4T_A10RC_PART: (&str, &str) = ("pers_4et_a10rc.cu", include_str!("../../kernels/pers_4et_a10rc.cu"));
+pub(super) const P4T_A10RC_PART: (&str, &str) = ("pers_4et_a10rc.cu", include_str!("../../kernels/pers_4et_a10rc.cu"));
 
 /// The module text of the thread-count arms a10t384 and a10t256
 /// (`pers_4et_a10t.cu`: a10's pass under `__launch_bounds__(threads, 1)`),
@@ -863,7 +863,7 @@ pub fn p4t_a10t2_symbol(arm: &str, form: u32) -> Result<&'static str, String> {
 }
 
 /// `pers_4et_a10t2.cu`, embedded so the Mac hashes what the card compiles.
-pub const P4T_A10T2_PART: (&str, &str) = ("pers_4et_a10t2.cu", include_str!("../../kernels/pers_4et_a10t2.cu"));
+pub(super) const P4T_A10T2_PART: (&str, &str) = ("pers_4et_a10t2.cu", include_str!("../../kernels/pers_4et_a10t2.cu"));
 
 /// The module text of arm a12 (`pers_4et_a12.cu`: a10t384r16 with the
 /// drafter's taps), after [`p4t_a10rc_unit_text`] at 16 rows, which keeps
@@ -940,7 +940,7 @@ pub fn p4t_a12ipg32_symbol(form: u32) -> Result<&'static str, String> {
 }
 
 /// `pers_4et_a12g32.cu`, embedded so the Mac hashes what the card compiles.
-pub const P4T_A12G32_PART: (&str, &str) = ("pers_4et_a12g32.cu", include_str!("../../kernels/pers_4et_a12g32.cu"));
+pub(super) const P4T_A12G32_PART: (&str, &str) = ("pers_4et_a12g32.cu", include_str!("../../kernels/pers_4et_a12g32.cu"));
 
 // ---------------------------------------------------------------------------
 // The attention tile's full-tile path (ft arms,
@@ -952,7 +952,7 @@ pub const P4T_A12G32_PART: (&str, &str) = ("pers_4et_a12g32.cu", include_str!(".
 // ---------------------------------------------------------------------------
 
 /// `pers_attn_full.cuh`, inserted by [`pers_ft_edit`] in the ft arms only.
-pub const PERS_FT_PART: (&str, &str) = ("pers_attn_full.cuh", include_str!("../../kernels/pers_attn_full.cuh"));
+pub(super) const PERS_FT_PART: (&str, &str) = ("pers_attn_full.cuh", include_str!("../../kernels/pers_attn_full.cuh"));
 
 /// `pers_attn_tile`'s head in `llvq_pers.cuh`, the ft edit's anchor.
 const PERS_FT_ANCHOR: &str = "__device__ __forceinline__ void pers_attn_tile(const float* qrow, float* row, bool own, const uint4* ks,
@@ -976,7 +976,7 @@ pub fn pers_ft_edit() -> (&'static str, String, String) {
 
 /// A module text with the ft edit applied; refuses a text that does not hold
 /// `pers_attn_tile`'s head exactly once.
-pub fn pers_ft_apply(text: &str) -> Result<String, String> {
+pub(super) fn pers_ft_apply(text: &str) -> Result<String, String> {
     let (_, from, to) = pers_ft_edit();
     let n = text.matches(from.as_str()).count();
     if n != 1 {
@@ -1009,7 +1009,7 @@ pub fn p4g_area_floats(nw: u32, rs: u32, widest: u32, groups: u32) -> u32 {
 }
 
 /// `pers_4et_a12g.cu`, embedded so the Mac hashes what the card compiles.
-pub const P4T_A12G_PART: (&str, &str) = ("pers_4et_a12g.cu", include_str!("../../kernels/pers_4et_a12g.cu"));
+pub(super) const P4T_A12G_PART: (&str, &str) = ("pers_4et_a12g.cu", include_str!("../../kernels/pers_4et_a12g.cu"));
 
 /// u32 words of a projection in the served order, as the tree pass reads it
 /// in place: Tetra `stride_u32` a row, int4 d_in / 8. The bytes a12ip reads
@@ -1019,13 +1019,13 @@ pub fn p4t_served_words(int4: bool, d_out: u32, stride_u32: u32, d_in: u32) -> u
 }
 
 /// `pers_4et_a12.cu`, embedded so the Mac hashes what the card compiles.
-pub const P4T_A12_PART: (&str, &str) = ("pers_4et_a12.cu", include_str!("../../kernels/pers_4et_a12.cu"));
+pub(super) const P4T_A12_PART: (&str, &str) = ("pers_4et_a12.cu", include_str!("../../kernels/pers_4et_a12.cu"));
 
 /// `pers_4et_a10t.cu`, embedded so the Mac hashes what the card compiles.
-pub const P4T_A10T_PART: (&str, &str) = ("pers_4et_a10t.cu", include_str!("../../kernels/pers_4et_a10t.cu"));
+pub(super) const P4T_A10T_PART: (&str, &str) = ("pers_4et_a10t.cu", include_str!("../../kernels/pers_4et_a10t.cu"));
 
 /// `pers_4et_a11.cu`, embedded so the Mac hashes what the card compiles.
-pub const P4T_A11_PART: (&str, &str) = ("pers_4et_a11.cu", include_str!("../../kernels/pers_4et_a11.cu"));
+pub(super) const P4T_A11_PART: (&str, &str) = ("pers_4et_a11.cu", include_str!("../../kernels/pers_4et_a11.cu"));
 
 /// What a11 prefetches into L2 for one layer, per row phase (q/k/v, o,
 /// gate/up, down with `int4_down` or Tetra): the phase's bytes in all and the
@@ -1076,25 +1076,25 @@ pub fn p4t_prefetch_volume(splits: [u32; 5], hidden: u32, inter: u32, d_ctx: u32
 }
 
 /// `pers_4et_a10.cu`, embedded so the Mac hashes what the card compiles.
-pub const P4T_A10_PART: (&str, &str) = ("pers_4et_a10.cu", include_str!("../../kernels/pers_4et_a10.cu"));
+pub(super) const P4T_A10_PART: (&str, &str) = ("pers_4et_a10.cu", include_str!("../../kernels/pers_4et_a10.cu"));
 
 /// `pers_4et_a9.cu`, embedded so the Mac hashes what the card compiles.
-pub const P4T_A9_PART: (&str, &str) = ("pers_4et_a9.cu", include_str!("../../kernels/pers_4et_a9.cu"));
+pub(super) const P4T_A9_PART: (&str, &str) = ("pers_4et_a9.cu", include_str!("../../kernels/pers_4et_a9.cu"));
 
 /// `pers_4et_a8.cu`, embedded so the Mac hashes what the card compiles.
-pub const P4T_A8_PART: (&str, &str) = ("pers_4et_a8.cu", include_str!("../../kernels/pers_4et_a8.cu"));
+pub(super) const P4T_A8_PART: (&str, &str) = ("pers_4et_a8.cu", include_str!("../../kernels/pers_4et_a8.cu"));
 
 /// `pers_4et_a6.cu`, embedded so the Mac hashes what the card compiles.
-pub const P4T_A6_PART: (&str, &str) = ("pers_4et_a6.cu", include_str!("../../kernels/pers_4et_a6.cu"));
+pub(super) const P4T_A6_PART: (&str, &str) = ("pers_4et_a6.cu", include_str!("../../kernels/pers_4et_a6.cu"));
 
 /// `pers_4et_a5.cu`, embedded so the Mac hashes what the card compiles.
-pub const P4T_A5_PART: (&str, &str) = ("pers_4et_a5.cu", include_str!("../../kernels/pers_4et_a5.cu"));
+pub(super) const P4T_A5_PART: (&str, &str) = ("pers_4et_a5.cu", include_str!("../../kernels/pers_4et_a5.cu"));
 
 /// `pers_4et_a4.cu`, embedded so the Mac hashes what the card compiles.
-pub const P4T_A4_PART: (&str, &str) = ("pers_4et_a4.cu", include_str!("../../kernels/pers_4et_a4.cu"));
+pub(super) const P4T_A4_PART: (&str, &str) = ("pers_4et_a4.cu", include_str!("../../kernels/pers_4et_a4.cu"));
 
 /// `pers_4et_stream.cu`, embedded so the Mac hashes what the card compiles.
-pub const P4T_STREAM_PART: (&str, &str) = ("pers_4et_stream.cu", include_str!("../../kernels/pers_4et_stream.cu"));
+pub(super) const P4T_STREAM_PART: (&str, &str) = ("pers_4et_stream.cu", include_str!("../../kernels/pers_4et_stream.cu"));
 
 /// The tree kernel's symbol for a RoPE form (512 threads only).
 pub fn p4t_symbol(form: u32) -> Result<&'static str, String> {
@@ -1113,4 +1113,4 @@ pub fn p4t_unit_text(tile_define: &str) -> String {
 }
 
 /// `pers_4et.cu`, embedded so the Mac hashes what the card compiles.
-pub const P4T_PART: (&str, &str) = ("pers_4et.cu", include_str!("../../kernels/pers_4et.cu"));
+pub(super) const P4T_PART: (&str, &str) = ("pers_4et.cu", include_str!("../../kernels/pers_4et.cu"));

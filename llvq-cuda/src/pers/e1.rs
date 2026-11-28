@@ -2,7 +2,7 @@
 //! prefetch arms, the rc row bodies and the k8 int8 cache, with their
 //! layouts. One file because every arm is v9's text plus edits, checked alike.
 
-use super::*;
+use super::{p4e_attn_ring, p4e_rows_define, pers_ft_edit, PERS_UNIT_PARTS};
 
 // ---------------------------------------------------------------------------
 // Experiment E1 (docs/mesures/large-4e-budget-2026-11-11.txt, cut 1): where
@@ -33,7 +33,7 @@ pub const P4E_E1_ARMS: [&str; 14] =
 /// 2 flat (pers_4e_rc.cuh); 3 ep2, 4 ep3, 5 fl2, 6 fl3 (pers_4e_rc2.cuh, the
 /// lighter variants after the first card run refused 1 and 2 for 8 B of
 /// local memory, docs/mesures/recherche-debit-jeton-2026-11-13.txt).
-pub const P4E_RC_ARMS: [(&str, u32); 6] = [("v9ep", 1), ("v9fl", 2), ("v9ep2", 3), ("v9ep3", 4), ("v9fl2", 5), ("v9fl3", 6)];
+pub(super) const P4E_RC_ARMS: [(&str, u32); 6] = [("v9ep", 1), ("v9fl", 2), ("v9ep2", 3), ("v9ep3", 4), ("v9fl2", 5), ("v9fl3", 6)];
 
 /// Load probes of the endpass body (`LLVQ_PERS_4E=check:` only, never timed,
 /// never launched): E1's v9 with pers_4e_rc.cuh inserted and the body on ONE
@@ -47,7 +47,7 @@ pub const P4E_RC_PROBES: [(&str, usize); 5] = [("v9pe0", 0), ("v9peq", 1), ("v9p
 
 /// The gate/up call site of an R6d arm ([`P4E_RC_GU_ARMS`]).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum RcGu {
+pub(super) enum RcGu {
     /// v9's own gate/up text: edit 2 of [`p4e_rc_edits`] dropped.
     V9,
     /// [`P4E_RC_GU_TWO_CALLS`] in place of edit 2's replacement: the CTA's
@@ -62,7 +62,7 @@ pub enum RcGu {
 ///   v9fn flat, v9's gate/up: flat's rows on the other sites, so flat's bound;
 ///   v9fg flat, two calls: flat's rows everywhere, so v9fl's chain byte for byte;
 ///   v9eg endpass, two calls: v9's arithmetic, so the bits.
-pub const P4E_RC_GU_ARMS: [(&str, u32, RcGu); 3] = [("v9fn", 2, RcGu::V9), ("v9fg", 2, RcGu::TwoCalls), ("v9eg", 1, RcGu::TwoCalls)];
+pub(super) const P4E_RC_GU_ARMS: [(&str, u32, RcGu); 3] = [("v9fn", 2, RcGu::V9), ("v9fg", 2, RcGu::TwoCalls), ("v9eg", 1, RcGu::TwoCalls)];
 
 /// The two-call gate/up site of R6d (replaces the same v9 text as edit 2 of
 /// [`p4e_rc_edits`]). Call 1 parks silu(g) of each gate row in `act`; call 2
@@ -71,7 +71,7 @@ pub const P4E_RC_GU_ARMS: [(&str, u32, RcGu); 3] = [("v9fn", 2, RcGu::V9), ("v9f
 /// CTA reads them before the grid barrier after the MLP's gate/up part; each
 /// body ends on a barrier after its last epilogue, so call 2 reads what call 1
 /// wrote. No value is kept in shared memory across the calls.
-pub const P4E_RC_GU_TWO_CALLS: &str = "        // rc, two calls: the CTA's gate rows, silu of each parked in act; after the body's last barrier its up
+pub(super) const P4E_RC_GU_TWO_CALLS: &str = "        // rc, two calls: the CTA's gate rows, silu of each parked in act; after the body's last barrier its up
         // rows, each product exact_hmul(silu[g], u), the stream's own. One matrix a call, no value kept in shared.
         const u32 glo = PERS_SEG_GU(0u), ghi = PERS_SEG_GU(1u);
         const u32 nb = A->gate.nblocks, tw = A->gate.tail_w;
@@ -105,7 +105,7 @@ pub fn p4e_rc_body(arm: &str) -> Option<u32> {
 /// The edits of an R6d arm: [`p4e_rc_edits`] of its body, edit 2 (gate/up)
 /// dropped (v9fn) or its replacement swapped for [`P4E_RC_GU_TWO_CALLS`]
 /// (v9fg, v9eg). The text, q/k, down and o edits are the body's own.
-pub fn p4e_rc_gu_edits(arm: &str) -> Result<Vec<(&'static str, String, String)>, String> {
+pub(super) fn p4e_rc_gu_edits(arm: &str) -> Result<Vec<(&'static str, String, String)>, String> {
     let &(_, body, gu) =
         P4E_RC_GU_ARMS.iter().find(|a| a.0 == arm).ok_or_else(|| format!("4E rc: {arm:?} is not an R6d arm"))?;
     let mut v = p4e_rc_edits(body)?;
@@ -173,7 +173,7 @@ pub fn p4e_e1_k8(arm: &str) -> bool {
 
 /// The int8 cache's text (arm v9k8), inserted at the head of pers_4e.cu by
 /// [`p4e_k8_edits`].
-pub const P4E_K8_PART: (&str, &str) = ("pers_4e_k8.cuh", include_str!("../../kernels/pers_4e_k8.cuh"));
+pub(super) const P4E_K8_PART: (&str, &str) = ("pers_4e_k8.cuh", include_str!("../../kernels/pers_4e_k8.cuh"));
 
 /// The symbol of the fill a v9k8 module carries: positions of the prefill's
 /// binary16 cache quantized into the int8 caches (pers_4e_k8.cuh).
@@ -310,17 +310,17 @@ pub fn p4e_k8_edits() -> Vec<(&'static str, String, String)> {
 
 /// The research phase's row bodies as 4E row forms (step R6 of
 /// docs/CERVEAU.md O11): inserted into llvq_pers.cuh by [`p4e_rc_edits`].
-pub const PERS_RC_PART: (&str, &str) = ("pers_4e_rc.cuh", include_str!("../../kernels/pers_4e_rc.cuh"));
+const PERS_RC_PART: (&str, &str) = ("pers_4e_rc.cuh", include_str!("../../kernels/pers_4e_rc.cuh"));
 
 /// The lighter variants (bodies 3 to 6), inserted after [`PERS_RC_PART`].
-pub const PERS_RC2_PART: (&str, &str) = ("pers_4e_rc2.cuh", include_str!("../../kernels/pers_4e_rc2.cuh"));
+const PERS_RC2_PART: (&str, &str) = ("pers_4e_rc2.cuh", include_str!("../../kernels/pers_4e_rc2.cuh"));
 
 /// The f32 slots of a body (`PERS_RC_SLOTS` of pers_4e_rc.cuh).
-pub const PERS_RC_SLOTS: u32 = 2048;
+const PERS_RC_SLOTS: u32 = 2048;
 
 /// `pers_rc_padded_floats`: flat's padded staging of a `d_in` vector (block b
 /// at 24 b + b / 8, the tail after), rounded to 16 bytes.
-pub fn rc_padded_floats(d_in: u32) -> u32 {
+pub(super) fn rc_padded_floats(d_in: u32) -> u32 {
     let (nb, tw) = (d_in / 24, d_in % 24);
     (24 * nb + nb / 8 + tw + 3) & !3
 }
@@ -551,7 +551,7 @@ pub fn p4e_rc_layout(body: u32, hidden: u32, inter: u32, d_ctx: u32, tetra_o: bo
 
 /// The mv arm's helpers (`pers_4e_e1.cuh`), inserted at the head of
 /// `pers_segment.cu`'s text in that arm's module only.
-pub const P4E_E1_PRE: (&str, &str) = ("pers_4e_e1.cuh", include_str!("../../kernels/pers_4e_e1.cuh"));
+const P4E_E1_PRE: (&str, &str) = ("pers_4e_e1.cuh", include_str!("../../kernels/pers_4e_e1.cuh"));
 
 /// The logits symbols every E1 module carries: `pers_4e_body` with a
 /// fourth template parameter, false by default (the token and stamp symbols
@@ -668,7 +668,7 @@ pub fn p4e_e1_edits(arm: &str) -> Result<Vec<(&'static str, String, String)>, St
 
 /// The module text of an E1 arm at a tile: row form 7's define, then
 /// [`PERS_UNIT_PARTS`] with the arm's edits ([`p4e_e1_edits`]), joined as
-/// [`pers_unit_text`] joins them. Refuses an edit whose text is not in its
+/// [`pers_unit_text`](crate::pers::pers_unit_text) joins them. Refuses an edit whose text is not in its
 /// part exactly once.
 pub fn p4e_e1_unit_text(tile_define: &str, arm: &str) -> Result<String, String> {
     let mut parts: Vec<(&str, String)> = PERS_UNIT_PARTS.iter().map(|p| (p.0, p.1.to_string())).collect();

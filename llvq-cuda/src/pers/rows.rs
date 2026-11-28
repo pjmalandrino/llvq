@@ -2,7 +2,7 @@
 //! vrows, trows, q4rows and counter arms, their byte ledgers, levers and
 //! stamp readers. One file for the row bench's host mirror.
 
-use super::*;
+use super::{pers_unit_text, SMEM_HEADER, TABLE_BYTES};
 
 /// Rows a `tv_tetra48_persall` work group covers: one per warp of its
 /// 256-thread CTA, as `tv_tetra48_seg` lays its rows.
@@ -204,11 +204,11 @@ pub fn vrows_i16_check(got: &[u16], want: &[u16], d_outs: &[u32]) -> I16Check {
 
 /// `VROWS_TABLE_BYTES` of the kernel: rows, prefixes, branches, suffixes, GA,
 /// GB, invnorm.
-pub const VROWS_TABLE_BYTES: u32 = 16_384 + 128 + 2_048 + 128 + 256 + 512 + 128;
+const VROWS_TABLE_BYTES: u32 = 16_384 + 128 + 2_048 + 128 + 256 + 512 + 128;
 
 /// `vrows_area_bytes`: one int16 activation of `nb` blocks, its bf16 scales,
 /// padded to 16, and 64 bytes of f32 tail.
-pub fn vrows_area_bytes(nb: u32) -> u32 {
+fn vrows_area_bytes(nb: u32) -> u32 {
     ((50 * nb + 15) & !15) + 64
 }
 
@@ -422,7 +422,7 @@ pub const K3B_GAIN_US: f64 = 0.3;
 
 /// CTR8's group size and the counters it needs at a grid (one 32-u32 line
 /// each, `CTR_LINE`).
-pub const CTR_GROUP: u32 = 8;
+const CTR_GROUP: u32 = 8;
 pub fn ctr_groups(grid: u32) -> u32 {
     grid.div_ceil(CTR_GROUP)
 }
@@ -516,7 +516,7 @@ impl TrowsClass {
 }
 
 /// Rows a warp takes from a CTA's slice [lo, hi), `pers_warp_rows` on the host.
-pub fn trows_warp_rows(lo: u32, hi: u32, warp: u32, nw: u32) -> u32 {
+pub(super) fn trows_warp_rows(lo: u32, hi: u32, warp: u32, nw: u32) -> u32 {
     if hi > lo + warp {
         (hi - lo - warp).div_ceil(nw)
     } else {

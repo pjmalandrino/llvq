@@ -2,7 +2,7 @@
 //! shared bytes, barrier counters, route P's segment plan and the argument
 //! images the host writes. One file because each struct's offsets meet here.
 
-use super::*;
+use super::{n_bar_4e, ModelShape, SMEM_HEADER, TABLE_BYTES};
 
 /// The shared scratch after the activation staging (`PERS_4E_SCRATCH`):
 /// form 3's split rows, form 4's staged rows of the rotations' `small`,
