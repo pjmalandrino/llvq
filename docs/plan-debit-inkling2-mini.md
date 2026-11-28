@@ -96,22 +96,22 @@ in the weights.
 - The head widens the whole output table from BF16 to f32 at every token, in 13 chunks
   (`llvq-llm/src/inkling/mod.rs:398-411`): 0.92 GB read, 1.84 GB written, 1.84 GB read by the product.
 - The cache grows by concatenation. Each visit copies its whole key and value history, then copies them three more
-  times for the 24 query heads, then once more for the transpose (`layers.rs:341-348`, `308-314`, `413`). That is
+  times for the 24 query heads, then once more for the transpose (`layers/attn.rs`). That is
   2.16 MB a cached position a token: 0.07 GB at 32 tokens, 19.5 GB at 9,000.
 - The sliding layers keep and scan their whole history under a mask. They are 40 of the 48 visits and need 1,024
   positions each. The cache holds 393 KB a position in f32: 3.54 GB at 9,000 tokens, 12.9 GB at 32,768.
 - The router reads its scores back to the processor at every visit, and its constant bias too
-  (`layers.rs:222-223`): 96 device reads a token.
+  (`layers/moe.rs`): 96 device reads a token.
 - A resident MoE call loops over 8 experts on the processor (`resident.rs:294-317`). Each expert costs 2 uploads,
   2 rotations, 3 products and about 10 separate tensor operations.
 - The relative bias, its mask and its keep flags are built on the processor for every visit and uploaded
-  (`layers.rs:285-305`): three vectors of rows times cached positions.
+  (`layers/attn.rs`): three vectors of rows times cached positions.
 - The prompt is read in one call (`mod.rs:336`). At 9,000 tokens one visit would hold 7.8 GB of attention scores.
   A long agent prompt cannot be read today. This was not tried.
 - The attention matrices are widened to f32 at load (`loader.rs:88-90`): 2.58 GB on the device for 1.29 GB in the
   file.
 - Every resident record is its own buffer in the library's pool: up to 16 an expert, 30,720 at 15 layers and
-  49,152 at 24 (`fused_metal.rs:610-613`, `1202-1203`). The 4B has about 1,300. candle 0.9.2 walks that pool when
+  49,152 at 24 (`fused_metal/`). The 4B has about 1,300. candle 0.9.2 walks that pool when
   it allocates an output (`find_available_buffer`) and rebuilds it at every command-buffer flush, every 50
   operations (`drop_unused_buffers`, `metal_backend/device.rs`). What this costs a token is not measured.
 
@@ -139,18 +139,18 @@ One debt stands before any class B item is called green. Gate 3c of the resident
 | id | what | in our code | source | class | gain a token (*estimated*) | memory |
 |---|---|---|---|---|---|---|
 | D0 | All 24 layers resident. No new code: it is tonight's file. | `inkling/resident.rs` | ours | A | 0.228 s becomes 0.017 s; decode 0.31 s | experts 6.27 GB resident, no dense copy |
-| K1 | Resident data out of the library's pool: allocated on the device directly, or in a few large buffers. | `fused_metal.rs:610-613`, `1202-1203` | ours | A | no figure; removes a cost that grows with the resident layers | none |
+| K1 | Resident data out of the library's pool: allocated on the device directly, or in a few large buffers. | `fused_metal/` | ours | A | no figure; removes a cost that grows with the resident layers | none |
 | K2 | Command-buffer cadence set for this model. It is a setting of the library, 50 operations a buffer by default. | startup of `bin/inkrun` and of the runtime | ours; on the 4B the setting alone moved a step between 33.9 and 27.7 tokens a second (header of `bin/metalrun.rs`) | A | no figure; one sweep | none |
-| D1 | Read the router bias once. At one row, skip the gather, the scatter and the 16 uploads of an MoE call. | `layers.rs:223`, `resident.rs:300-316` | ours | A | 0.01 to 0.03 s | none |
-| D10 | A visit written for one row: no row gather, no transposed copies, convolution states in a ring instead of a concatenation. | `layers.rs:59-73`, `366-424` | ours | A | about 100 operations a visit become about 60 | none |
-| D2 | Routing on the device: scores, bias, top 8 and weights in one f32 kernel, with the reference tie rule (higher score, then lower index). The expert ids stay in a device buffer. | `layers.rs:221-241` | `fast_kernels.py:2918-3055` | B | 48 reads removed, 0.005 to 0.015 s | none |
-| D3 | One launch a side of the MoE for the 8 experts. The 128 experts of a layer sit in one buffer with an offset table, and the kernel reads the ids D2 left. The weighted sum stays in f32, in ascending expert order. | `resident.rs`, `fused_metal.rs`, `fused_cuda.rs` | `fast_kernels.py:2726-2831`, `1877-2025`; `model.py:637-665` | A aimed, B accepted | 40 launches a call become 4; 0.089 s becomes 0.010 to 0.020 s | offset tables, kilobytes |
-| D4 | Head through the int4 kernel, reading the table as the chosen file stores it. | `mod.rs:398-411`, `fused_metal.rs:270` | ours; `fast_kernels.py:1380-1456` | the file's own values | 4.6 GB of traffic becomes 0.25 GB; 0.03 to 0.05 s | -0.68 GB |
-| D5 | Cache written in place in preallocated buffers. A ring of 1,024 for the 40 sliding visits. Query heads read their key-value head without a copy, the grouped form `docs/ETAT.md` already serves on the 4B. | `layers.rs:308-348`, `SlotCache` | ours for in place and grouped; `model.py:272-504` for the ring | A in place, B ring and grouped | nil at 32 tokens; 19.5 GB of copies a token removed at 9,000 | 3.54 GB becomes 0.93 GB at 9,000; 12.9 becomes 2.48 at 32,768 |
-| D6 | Relative bias and mask computed on the device. | `layers.rs:285-305` | `fast_kernels.py:4284-4534` | A | small in decode, required by P2 | none |
-| D7 | Fused glue kernels in f32: block residual, message gates and norm in one launch; the five products that read the attention input in one launch; convolutions with their norm; weighted sum, convolution and residual. | `layers.rs:366-424`, `576-656` | `fast_kernels.py:3194-4789`, `model.py:1426-1572` | B | about 100 operations a visit become about 12; 0.225 s becomes 0.012 to 0.08 s | -1.29 GB if the kernel reads attention as stored |
+| D1 | Read the router bias once. At one row, skip the gather, the scatter and the 16 uploads of an MoE call. | `layers/moe.rs`, `resident.rs:300-316` | ours | A | 0.01 to 0.03 s | none |
+| D10 | A visit written for one row: no row gather, no transposed copies, convolution states in a ring instead of a concatenation. | `layers/` | ours | A | about 100 operations a visit become about 60 | none |
+| D2 | Routing on the device: scores, bias, top 8 and weights in one f32 kernel, with the reference tie rule (higher score, then lower index). The expert ids stay in a device buffer. | `layers/moe.rs` | `fast_kernels.py:2918-3055` | B | 48 reads removed, 0.005 to 0.015 s | none |
+| D3 | One launch a side of the MoE for the 8 experts. The 128 experts of a layer sit in one buffer with an offset table, and the kernel reads the ids D2 left. The weighted sum stays in f32, in ascending expert order. | `resident.rs`, `fused_metal/`, `fused_cuda/` | `fast_kernels.py:2726-2831`, `1877-2025`; `model.py:637-665` | A aimed, B accepted | 40 launches a call become 4; 0.089 s becomes 0.010 to 0.020 s | offset tables, kilobytes |
+| D4 | Head through the int4 kernel, reading the table as the chosen file stores it. | `mod.rs:398-411`, `fused_metal/embed.rs` | ours; `fast_kernels.py:1380-1456` | the file's own values | 4.6 GB of traffic becomes 0.25 GB; 0.03 to 0.05 s | -0.68 GB |
+| D5 | Cache written in place in preallocated buffers. A ring of 1,024 for the 40 sliding visits. Query heads read their key-value head without a copy, the grouped form `docs/ETAT.md` already serves on the 4B. | `layers/attn.rs`, `SlotCache` (`layers/cache.rs`) | ours for in place and grouped; `model.py:272-504` for the ring | A in place, B ring and grouped | nil at 32 tokens; 19.5 GB of copies a token removed at 9,000 | 3.54 GB becomes 0.93 GB at 9,000; 12.9 becomes 2.48 at 32,768 |
+| D6 | Relative bias and mask computed on the device. | `layers/attn.rs` | `fast_kernels.py:4284-4534` | A | small in decode, required by P2 | none |
+| D7 | Fused glue kernels in f32: block residual, message gates and norm in one launch; the five products that read the attention input in one launch; convolutions with their norm; weighted sum, convolution and residual. | `layers/` | `fast_kernels.py:3194-4789`, `model.py:1426-1572` | B | about 100 operations a visit become about 12; 0.225 s becomes 0.012 to 0.08 s | -1.29 GB if the kernel reads attention as stored |
 | D8 | Pipelined loop: the argmax and the next embedding stay on the device, and step k+1 is encoded before token k is read. | decode loop, `lm.rs` | `generate.py:388-410` | A | the GPU no longer waits for the processor; pays after D7 | +0.25 GB, embed table int4 resident |
-| D9 | Rotation fused into its neighbour, same signs, no re-encode. | rotation of `fused_metal.rs` | `fast_kernels.py:482-721`, `3398-3629` | A aimed | 4 launches a call become 3 | none |
+| D9 | Rotation fused into its neighbour, same signs, no re-encode. | rotation of `fused_metal/rot.rs` | `fast_kernels.py:482-721`, `3398-3629` | A aimed | 4 launches a call become 3 | none |
 
 Four notes.
 
@@ -166,10 +166,10 @@ Four notes.
 
 | id | what | in our code | source | class | gain (*estimated*) | memory |
 |---|---|---|---|---|---|---|
-| P1 | The rows kernel writes f32 rows. | rows tuning of `fused_metal.rs` | ours | A against the one-row kernel | 2,048 tokens in 28 s instead of 56 s, without the 31 of 32 | none |
-| P2 | Prompt read in chunks of query rows over a cache already filled, so the scores stay under a set budget. | `mod.rs:336`, `layers.rs:366-424` | ours; `model.py:1745-1757` | A | a 9,000-token prompt becomes readable: about 125 s at P1's rate | scores bounded, 0.44 GB at 512 rows |
+| P1 | The rows kernel writes f32 rows. | rows tuning of `fused_metal/tuning.rs` | ours | A against the one-row kernel | 2,048 tokens in 28 s instead of 56 s, without the 31 of 32 | none |
+| P2 | Prompt read in chunks of query rows over a cache already filled, so the scores stay under a set budget. | `mod.rs:336`, `layers/attn.rs` | ours; `model.py:1745-1757` | A | a 9,000-token prompt becomes readable: about 125 s at P1's rate | scores bounded, 0.44 GB at 512 rows |
 | P3 | Each expert a visit uses is decoded once into a transient dense tile and applied to all its rows by a plain product. One decode an expert a visit, instead of one a row. At one row the fused kernel stays. | `resident.rs:254-277`, a decode-only kernel | ours; the source decodes once a tile of 32 rows (`fast_kernels.py:2372-2681`, `2860-2918`) | B | 255,000 launches become about 18,000 decodes at 2,048 tokens; 28 s becomes 3 to 6 s | transient, 32 MB an expert in f32 |
-| P4 | Attention of the prompt in one kernel, bias and mask inside, no score tensor. | `layers.rs:366-424` | `fast_kernels.py:4284-4534` | B | with P3, a 9,000-token prompt in 10 to 30 s | removes the score tensor |
+| P4 | Attention of the prompt in one kernel, bias and mask inside, no score tensor. | `layers/attn.rs` | `fast_kernels.py:4284-4534` | B | with P3, a 9,000-token prompt in 10 to 30 s | removes the score tensor |
 | P5 | Prefix reuse across requests: a snapshot of the 4 convolution states at the end of each turn (3.8 MB), the cache cut back to it when the next prompt starts with the same tokens. | `InklingCache`, `llvq-runtime/src/engine.rs:672` | ours; the source rereads the whole prompt | A | an agent's long prompt is read once a session, not once a request | 3.8 MB a snapshot |
 | P7 | The cache after a static system prompt saved to disk, and loaded when a new session starts with the same tokens. | `llvq-runtime/src/prefix.rs`, `llvq-llm/src/inkling/snapshot.rs` | ours | A | the first request of a session skips the read: done, 3.90 s instead of 155 to 202 s (§0) | disk only: 1.41 GB for 8,704 tokens, keys and values in f32 |
 | P6 | Draft by n-gram lookup in the prompt, accepted only where it equals the greedy token. | `llvq-runtime` | `generate.py:46-247` | A once P1 holds | pays only when the answer copies the prompt, which code agents do | none; needs S3 |

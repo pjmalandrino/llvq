@@ -75,8 +75,8 @@ J6's encode hours, *computed* in §1.
 | J1 | Python 1,200 to 1,800, Rust 300 to 500 | `bin/hcapture.rs` 281, `bin/extq.rs` 508, `bin/gsm8k.rs` 519 | 4 to 7 | 15 to 25 | 0 |
 | J2 | Rust 600 to 1,000 | `bin/seal.rs` 189, `hfpack.rs` 861, `artifact2.rs` 763 | 3 to 5 | 1 to 3 | 0 |
 | J3 | Python 500 to 900 | `fused.py` 307, `integration.py` 217 | 4 to 7 | 2 to 5 | 1 to 3 |
-| J4 | Rust 3,000 to 4,500 | Qwen3 forward in `model.rs` (5,402 with the served paths) | 10 to 20 | 5 to 15 | 0 |
-| J5 | CUDA and host 4,000 to 7,000 | `pers.rs` 6,230, `persist4e_cuda.rs` 2,709, `llvq_pers.cuh` 2,069 | 20 to 40 | | 20 to 60 |
+| J4 | Rust 3,000 to 4,500 | Qwen3 forward in `model/` (5,402 with the served paths) | 10 to 20 | 5 to 15 | 0 |
+| J5 | CUDA and host 4,000 to 7,000 | `pers/` 6,230, `persist4e_cuda/` 2,709, `llvq_pers.cuh` 2,069 | 20 to 40 | | 20 to 60 |
 | J6 | 300 to 800 | `ops/llvqtune` adapters | 2 to 5 | 12 to 17 | 20 to 80 |
 
 J5 assumes 10 to 25 card jobs at the $1 to $3 of recent bench jobs (`docs/data/jobs.csv`). J6 holds row scales on an
@@ -97,7 +97,7 @@ tables (`llvq-llm/src/embedquant.rs:22`); `int4_record` for the g128 records (`l
 Extended: the capture. In passes 2 and 3 the query, key and value inputs differ, each through its own message gate
 (`modeling_inkling2_loop.py:961-967`). Attention thus needs four Hessians a layer, summed over passes: the query stream
 (read by `wq_du`, `gate_attn`, `wr_du`, the sinks), the key stream, the value stream, the gated output (width 3,072).
-`calib.rs` assumes four activations and seven matrices a block (`model.rs:38-82`, `calib.rs:668-685`), so attention
+`calib.rs` assumes four activations and seven matrices a block (`model/capture.rs`, `calib.rs:668-685`), so attention
 goes through a generic (W, H) driver beside `extq`.
 
 New: the whole-model evaluator (KL, top-1, perplexity, all 24 layers, the rival files in full) and generation for
@@ -111,10 +111,10 @@ their bits, under a prereg stamped before the first measurement.
 ### J2, the artifact
 
 9,216 expert records (24 x 128 x 3) fit format v5 unchanged: names are `u32`-prefixed strings, shapes two `u32`
-(`llvq-artifact/src/format.rs:670-675`), the record count a `u32` (`format.rs:1569`). The index map and
+(`llvq-artifact/src/format/write.rs`), the record count a `u32` (`format/header.rs`). The index map and
 `codebook_fingerprint` do not move.
 
-Two facts constrain it. `split_name` expects `model.layers.{b}.{proj}.weight` (`format.rs:1534-1545`), and the native
+Two facts constrain it. `split_name` expects `model.layers.{b}.{proj}.weight` (`format/decode.rs`), and the native
 names start `model.llm.layers`, so the seal renames to the repository's convention. The sealed stream carries raw
 tensors as f16 or affine integers only (`llvq-artifact/src/sealed.rs:83-87`), so BF16 and F32 tensors either become f16
 (lossy on the F32 router bias and queries) or travel in a sidecar safetensors (decision 3).
@@ -127,7 +127,7 @@ file is read back and decoded against the reconstruction bit for bit before it i
 New: an Inkling seal that gathers these records with the attention records and the tables, `rtbits` over file and
 sidecar, and `hfpack` for these names (`hfpack.rs:458` writes a Qwen2 tokenizer config).
 
-Gate J2: every record decodes through `decode_matrix` (`format.rs:1510`) to tonight's reconstruction bit for bit, a
+Gate J2: every record decodes through `decode_matrix` (`format/decode.rs`) to tonight's reconstruction bit for bit, a
 flipped code fails the check, and `rtbits` gives the whole-model b/param. The full suite runs before any commit.
 
 ### J3, a first door through `transformers`
@@ -144,7 +144,7 @@ Speed is measured, not promised.
 ### J4, the Rust forward pass
 
 No model trait exists. `ppl` and `gsm8k` build `Qwen3::new` directly (`bin/ppl.rs:106`, `bin/gsm8k.rs:173`), and
-`Qwen3` is a struct over candle's Qwen3 `Config` (`model.rs:27`, `model.rs:2546`). The minimal abstraction is a
+`Qwen3` is a struct over candle's Qwen3 `Config` (`model/qwen3.rs`). The minimal abstraction is a
 `CausalLm` trait in a new `llvq-llm/src/lm.rs`: forward over a prompt, one decode step on a cache, the vocabulary.
 `Qwen3` implements it by delegation, so its paths do not move. The Inkling model lives in `llvq-llm/src/inkling/`.
 
@@ -170,7 +170,7 @@ prefill and in decode; then `ppl` on the reconstruction equal to J1's perplexity
 
 ### J5, kernels and serving
 
-4E knows three shapes (`llvq-cuda/src/pers.rs:611-613`) and a fixed site list (`pers.rs:178`). A routed token picks
+4E knows three shapes (`llvq-cuda/src/pers/`) and a fixed site list (`pers/mod.rs`). A routed token picks
 its sites on the device: 8 experts x 3 records x 48 visits, 1,152 matrices. New: a gathered decode and matvec launch,
 a persistent schedule over 48 visits, a grouped prefill, the Metal or MLX door. Widths stay at 3,072 or less, under
 the `rot_apply` wall (`docs/format-noyau.md` §8).

@@ -200,7 +200,7 @@ Breakdown over 3,616,358,400 (*computed*, loop to the seventh digit):
 | if tail and scales were f16 | 2.0799 (+4.0%) |
 
 The headroom is the f32 → f16 tail, 0.075026 b/weight; the f64 scales cannot be reduced without breaking the
-bit-for-bit proof. `format.rs` documents 0.0146 (f64 overhead over f16), the README 0.020 (total cost): two conventions,
+bit-for-bit proof. `llvq-artifact/src/format/mod.rs` documents 0.0146 (f64 overhead over f16), the README 0.020 (total cost): two conventions,
 neither false.
 
 | compression | value | label |

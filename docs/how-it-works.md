@@ -296,6 +296,6 @@ served under the same ±0.12 % perplexity tolerance (*measured*, [mlx-pooled](me
 | GPTQ, block loop, reconstruction | `llvq-quant/src/{gptq,quantizer}.rs` |
 | the file format and the VRAM transcoding | `llvq-artifact/src/`, `tetra48.rs` |
 | the served Tetra decode | `llvq-cuda/kernels/{llvq_f1rank_v3,llvq_tetra48}.cuh` |
-| 4E | `llvq-cuda/kernels/llvq_pers.cuh`, `llvq-cuda/src/pers.rs`, `llvq-llm/src/persist4e_cuda.rs` |
+| 4E | `llvq-cuda/kernels/llvq_pers.cuh`, `llvq-cuda/src/pers/`, `llvq-llm/src/persist4e_cuda/` |
 | served configs and their checks | `configs/`, `llvq-llm/src/served.rs` |
 | the layouts, accounting and measurement traps | [`format-noyau.md`](format-noyau.md) |

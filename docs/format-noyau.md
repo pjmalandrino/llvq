@@ -59,7 +59,7 @@ Four states: *absent* (no code selects it), *wired*
 (`LLVQ_FUSED_LAYOUT` accepts it, so it is measurable), *measured as served,
 not default* (`Planes12x` since G3), *served* (the default, where the
 published numbers come from). `LLVQ_FUSED_LAYOUT` refuses any other value
-(`llvq-llm/src/fused.rs`).
+(`llvq-llm/src/fused/layout.rs`).
 
 E3, which decoded the file index inside the kernel, is buried on paper:
 3.0444 b/weight kernel against a criterion of 2.60 (*computed*,

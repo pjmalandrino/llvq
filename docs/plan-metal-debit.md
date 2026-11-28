@@ -165,7 +165,7 @@ replay's. None changes a served config.
 
 | piece | where | how it is held |
 |---|---|---|
-| tiled int4 route | `fused_metal.rs`: `Q4_TILE_COLS`, `int4_tile_for`, `upload_int4_tiled` | `llvq-metal/tests/q4_tiled_matches_served.rs` (8 tests), `llvq-llm/tests/q4_metal_candle.rs` |
+| tiled int4 route | `fused_metal/`: `Q4_TILE_COLS`, `int4_tile_for`, `upload_int4_tiled` | `llvq-metal/tests/q4_tiled_matches_served.rs` (8 tests), `llvq-llm/tests/q4_metal_candle.rs` |
 | Tetra row-loop twins `_lutp`, `_lutd`, `_lutdp`, `_lutd2`, `_lutd4`, `_lutdt` | `kernels/llvq_tetra48_rows.metal`, compiled after the served unit | `llvq-llm/tests/tetra48_metal_rows.rs` |
 | half-io twins (`+h`) | Tetra and int4 kernels storing f16 | the same two test files; 13 mutants, 13 killed |
 | prefill kernels `tv_tetra48_metal_lutdr` (`+p`), `tv_q4_metal_rows` (`+pq`) | the same units | 11 mutants: 10 killed, P4 after a test fix; H1 survives by construction (the binding offset is always 0) |

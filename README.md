@@ -257,7 +257,7 @@ divided.
 
 ## Licence
 
-Code: MIT OR Apache-2.0. The Qwen3 forward pass in `llvq-llm/src/model.rs` is derived from
+Code: MIT OR Apache-2.0. The Qwen3 forward pass in `llvq-llm/src/model/` is derived from
 [candle-transformers](https://github.com/huggingface/candle) (MIT OR Apache-2.0). The published models are Apache 2.0,
 inherited from Qwen3 and from Inkling 2 Mini, whose use is also bound by Thinking Machines'
 [Model Acceptable Use Policy](https://thinkingmachines.ai/model-acceptable-use-policy/). The QTIP kernel used in one bench is GPL v3 upstream and is not redistributed

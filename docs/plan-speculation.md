@@ -38,7 +38,7 @@ on GSM8K with the same head (*measured*, [eagle-tree](mesures/eagle-tree-2026-11
   does not move.
 - **The proof on the host.** Each row equals the served chain run token by token: tokens, KV caches, residual, at
   the 4B's widths, the 8B's Tetra o and untied head, rows across the first attention split, every staging size
-  (`llvq-cuda/tests/pers_matches_served.rs`, `the_4e_verify_*`, 11 mutants killed).
+  (`llvq-cuda/tests/pers_matches_served/verify.rs`, `the_4e_verify_*`, 11 mutants killed).
 - **The loop.** `llvq-llm/src/speculative.rs`: greedy acceptance, the target's caches rewound to the kept prefix, the
   drafter's rewound or fed its missing token when every draft was kept. Tested against the plain greedy loop on toy
   models whose output depends on the whole cache. `Decoder::continue_speculative` runs it on two 4E engines.

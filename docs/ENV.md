@@ -16,15 +16,15 @@ which has no config file, refuses the names of `BELOW_THE_DOOR` and of `REMOVED`
 | variable | read by | values and default | category |
 |---|---|---|---|
 | `LLVQ_CONFIG` | `served.rs`; `hcapture`, `hratio` refuse it | path to `configs/*.json`; unset = bench | served |
-| `LLVQ_FUSED_LAYOUT` | `fused.rs` | `planes14` (default), `planes12x`, `slot32`, `golay70`, `tetra48` | served (config `layout`) |
-| `LLVQ_EMBED` | `fused.rs` | `f16` (default), `q8`, `q4` | served (config `embed`) |
+| `LLVQ_FUSED_LAYOUT` | `fused/layout.rs` | `planes14` (default), `planes12x`, `slot32`, `golay70`, `tetra48` | served (config `layout`) |
+| `LLVQ_EMBED` | `fused/layout.rs` | `f16` (default), `q8`, `q4` | served (config `embed`) |
 | `LLVQ_ROT_SHARE` | `rotplan.rs` | `0`, `1` | served (config `rot_share`) |
-| `LLVQ_FUSE` | `fused.rs` | `0`, `1` | served (config `fuse`) |
+| `LLVQ_FUSE` | `fused/kernels.rs` | `0`, `1` | served (config `fuse`) |
 | `LLVQ_KV` | `kvq.rs` | `f16` (default), `q8` | served (config `kv`) |
-| `LLVQ_KERNEL_DIR` | `fused.rs`, `fused_cuda.rs`, `llvq-cuda`, `planesbench` | directory of kernel sources read instead of the built-in text | served, refused beside a config |
+| `LLVQ_KERNEL_DIR` | `fused/kernels.rs`, `fused_cuda/`, `llvq-cuda`, `planesbench` | directory of kernel sources read instead of the built-in text | served, refused beside a config |
 | `LLVQ_TILE_BLOCKS` | `llvq-cuda/src/tile.rs` | unset or `auto` = the card's row; power of two in 32..=512 | served, refused beside a config |
 | `LLVQ_PREFILL` | `llvq-cuda/src/tile.rs` | `rows:tile` of the prefill kernel, e.g. `8:64`; unset = served pair | mode, refused beside a config |
-| `LLVQ_METAL_KERNEL` | `fused_metal.rs` | `lut` (served, default), `c3`, `ar`, `u2`, `plain`; anything else refused | mode, refused beside a config |
+| `LLVQ_METAL_KERNEL` | `fused_metal/` | `lut` (served, default), `c3`, `ar`, `u2`, `plain`; anything else refused | mode, refused beside a config |
 | `LLVQ_NVRTC_ARCH` | `llvq-cuda/src/gpu.rs` | `compute_NN`, default `compute_89` | served (names the card, never refused) |
 | `LLVQ_HOME` | `llvq-runtime` store | directory, default `~/.llvq` | served |
 | `LLVQ_HOST` | `llvq-runtime` client and server | `host:port`, default `127.0.0.1:11435` | served |
@@ -117,7 +117,7 @@ fails instead of measuring something else.
 | `LLVQ_HF_FIXTURE`, `LLVQ_HF_MINI_FIXTURE` | `llvq-llm/tests/hfpack.rs` | rewrite the packed fixtures |
 | `LLVQ_Q4_WIDE_FIXTURE_WRITE` | `llvq-llm/tests/proj_q4_wide.rs` | rewrite the wide int4 fixture |
 | `LLVQ_ROT_FIXTURE_WRITE` | `llvq-cuda/tests/rotation_matches_rust.rs` | rewrite the rotation fixture |
-| `LLVQ_P4T_DUMP` | `llvq-cuda/src/pers.rs`, a lib test of the tree modules | directory: writes the tree module texts NVRTC compiles (`tree_rows.cu`, `tree_tiled.cu`, `tree_stream.cu`), for an offline nvcc SASS probe; moves no output |
+| `LLVQ_P4T_DUMP` | `llvq-cuda/src/pers/tests.rs`, a lib test of the tree modules | directory: writes the tree module texts NVRTC compiles (`tree_rows.cu`, `tree_tiled.cu`, `tree_stream.cu`), for an offline nvcc SASS probe; moves no output |
 | `LLVQ_TOKENIZER` | `llvq-runtime/examples/overhead.rs` | tokenizer file when no path is given |
 | `LLVQ_UPDATE_OPENAPI` | `llvq-runtime/tests/openapi.rs` | rewrite the committed OpenAPI document |
 | `LLVQ_QWEN3_TOKENIZER` | `llvq-runtime/src/tools.rs`, an ignored lib test | Qwen3's `tokenizer.json`, for the test that holds the per-piece ids of a tool prompt to `transformers`'; default, the Qwen3-4B snapshot of the Hub cache |
