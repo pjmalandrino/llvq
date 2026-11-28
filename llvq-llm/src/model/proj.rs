@@ -12,7 +12,6 @@ use crate::rotplan::{check_key, drive_rows_batched, RotShare};
 #[cfg(doc)]
 use super::Block;
 
-/// One transformer block, with its seven projections reachable by name.
 /// A projection: dense weights, or a device kernel reading encoded ones.
 ///
 /// The dense arm is what every published perplexity refers to and what the
@@ -56,6 +55,15 @@ pub enum Proj {
         rank: usize,
     },
 }
+
+/// Where a caller may hand over an already-built projection.
+///
+/// Called once per `(layer, "self_attn.q_proj")` pair. Returning `Some` means
+/// the `VarBuilder` is **not** consulted for that weight — which is the whole
+/// point: in fused mode the dense weights do not exist anywhere, and building
+/// them to overwrite them a line later would allocate the eight gigabytes the
+/// format exists to avoid.
+pub type ProjSource<'a> = dyn FnMut(usize, &str) -> Option<Proj> + 'a;
 
 /// An activation, in the basis the projections that consume it were quantized
 /// in.

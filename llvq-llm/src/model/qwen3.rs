@@ -10,10 +10,10 @@ use crate::rotplan::RotShare;
 
 use super::capture::{fence, TapCapture};
 use super::decode::build_causal_mask;
-use super::proj::row_block;
+use super::proj::{row_block, ProjSource};
 use super::{
     argmax_last, logp_of, Block, Capture, Embed, Head, KvCache, KvRoundTrip, NoCapture, PairedDecode, PhaseReport,
-    Proj, Rotary, TimedGeneration, MAX_PREFILL_ROWS,
+    Rotary, TimedGeneration, MAX_PREFILL_ROWS,
 };
 
 /// Qwen3, loaded for scoring.
@@ -44,15 +44,6 @@ pub struct Qwen3 {
     device: Device,
     dtype: DType,
 }
-
-/// Where a caller may hand over an already-built projection.
-///
-/// Called once per `(layer, "self_attn.q_proj")` pair. Returning `Some` means
-/// the `VarBuilder` is **not** consulted for that weight — which is the whole
-/// point: in fused mode the dense weights do not exist anywhere, and building
-/// them to overwrite them a line later would allocate the eight gigabytes the
-/// format exists to avoid.
-pub type ProjSource<'a> = dyn FnMut(usize, &str) -> Option<Proj> + 'a;
 
 impl Qwen3 {
     pub fn new(cfg: &Config, vb: VarBuilder, kv: KvMode) -> Result<Self> {

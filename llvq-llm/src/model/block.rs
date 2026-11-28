@@ -57,6 +57,7 @@ impl Head {
     }
 }
 
+/// One transformer block, with its seven projections reachable by name.
 pub struct Block {
     /// Cache mode this block's `forward` builds its scratch cache in.
     kv: KvMode,

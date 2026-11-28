@@ -28,7 +28,7 @@
 //! | `rotary` | the rotary position tables |
 //! | `cache` | one block's [`KvCache`] and the helpers its growth needs |
 //! | `attention` | the unexpanded attention forms, the masked softmax, the `Kernel` dispatch |
-//! | `proj` | [`Proj`], the [`Rotated`] activation, the row caps, the grouped forward |
+//! | `proj` | [`Proj`], [`ProjSource`], the [`Rotated`] activation, the row caps, the grouped forward |
 //! | `block` | the embedding, the head, one transformer [`Block`], the batch entry points |
 //! | `qwen3` | [`Qwen3`], the whole model |
 //! | `decode` | the greedy token, a log-probability, the decode records, the causal mask |
@@ -50,8 +50,8 @@ pub use block::{batch_group, Block, Embed, Head};
 pub use cache::{KvCache, KvRoundTrip};
 pub use capture::{Act, Capture, NoCapture, PhaseReport};
 pub use decode::{argmax_last, logp_of, PairedDecode, TimedGeneration};
-pub use proj::{group_forward, row_cap, Proj, Rotated, MAX_PREFILL_ROWS, MAX_ROWS};
-pub use qwen3::{ProjSource, Qwen3};
+pub use proj::{group_forward, row_cap, Proj, ProjSource, Rotated, MAX_PREFILL_ROWS, MAX_ROWS};
+pub use qwen3::Qwen3;
 pub use rotary::Rotary;
 
 /// The tiny test model, for the host tests of other modules.
