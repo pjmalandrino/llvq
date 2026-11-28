@@ -2,7 +2,28 @@
 //! methods every served projection goes through. One file because the struct
 //! and its main `impl` are one unit; the additive entry points live beside it.
 
-use super::*;
+use std::collections::HashMap;
+
+use candle_core::cuda_backend::cudarc::driver::{CudaFunction, CudaSlice};
+use candle_core::{DType, Device, Shape, Tensor};
+use half::f16;
+
+use crate::fused::{
+    load_planes_sources, matvec_kernel_name, seg_kernel_name, EmbedMode, FuseMode, FusedLayout, FusedModel, RotKey,
+    EMBED_GROUP,
+};
+
+use super::launch::{
+    check_int4_half_parity, check_int4_tile_parity, check_int4_wide_parity, launch_q4_h, launch_q4_hs, upload_group,
+    upload_int4, upload_matrix, upload_rotation,
+};
+use super::ops::{
+    EmbedOp, FusedInt4Op, FusedOp, FusedRowsOp, FusedSegOp, HeadOp, Int4Path, RotOp, RotRowsOp, RotSegOp,
+};
+use super::{
+    load_emb_sources, FusedInt4Proj, FusedProj, FusedSegProj, Loaded, MoeKernels, QuantEmbed, RotBuffers, TetraTabs,
+    WideFns, REC_WORDS, TABLE_ENTRIES, THREADS,
+};
 
 /// The module, the shared tables, and the device everything lives on.
 pub struct FusedRuntime {

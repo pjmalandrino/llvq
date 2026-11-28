@@ -2,7 +2,14 @@
 //! layer of expert references, and the custom ops that launch them. One file
 //! because it is one additive module on the runtime's stream.
 
-use super::*;
+use candle_core::cuda_backend::cudarc::driver::{CudaFunction, CudaSlice, LaunchConfig, PushKernelArg};
+use candle_core::{CudaStorage, Layout, Shape, Tensor};
+use half::f16;
+
+use crate::fused::{load_planes_sources, FusedLayout};
+
+use super::adapters::dev_addr;
+use super::{DeviceStream, ExtRotation, FusedProj, FusedRuntime, THREADS};
 
 // ---------------------------------------------------------------------------
 // The routed experts of one decoded token in four launches (`moe_tetra.cu`),

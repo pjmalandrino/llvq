@@ -1,7 +1,10 @@
 //! The int4 g64 output head of an f32 model through `ink_head.cu`. One file
 //! because it is one additive module with its own table and op.
 
-use super::*;
+use candle_core::cuda_backend::cudarc::driver::{CudaFunction, CudaSlice, LaunchConfig, PushKernelArg};
+use candle_core::{CudaStorage, DType, Layout, Shape, Tensor};
+
+use super::{FusedRuntime, THREADS};
 
 // ---------------------------------------------------------------------------
 // The int4 g64 output head of an f32 model (`ink_head.cu`), CUDA twin of

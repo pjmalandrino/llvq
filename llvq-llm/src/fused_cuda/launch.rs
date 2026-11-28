@@ -2,7 +2,12 @@
 //! parity checks, and the `launch_*` wrappers around each kernel. One file
 //! because these are the free functions the ops and the loader share.
 
-use super::*;
+use candle_core::cuda_backend::cudarc::driver::{CudaFunction, CudaSlice, LaunchConfig, PushKernelArg};
+use half::f16;
+
+use crate::fused::{seg_kernel_name, FusedGroup, FusedLayout, FusedMatrix, HostStream, RotationTables};
+
+use super::{DeviceStream, FusedInt4Proj, FusedProj, FusedSegProj, RotBuffers, TetraTabs, THREADS};
 
 pub(super) fn upload_rotation(
     cuda: &llvq_cuda::gpu::Cuda,

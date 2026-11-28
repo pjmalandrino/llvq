@@ -3,7 +3,13 @@
 //! map. One file because they are one additive block, reached through new
 //! entry points only.
 
-use super::*;
+use candle_core::{CudaStorage, DType, Layout, Shape, Tensor};
+use half::f16;
+
+use crate::fused::{FusedLayout, FusedMatrix, RotKey, RotationTables};
+
+use super::launch::{upload_matrix, upload_rotation};
+use super::{FusedProj, FusedRuntime, RotBuffers};
 
 // ---------------------------------------------------------------------------
 // Resident experts: additive entry points (Inkling 2 Mini, 2026-11-22).

@@ -67,17 +67,27 @@
 //! follows writes every element of it: (U) the kernel stores each element of
 //! `[0, len)` exactly once, from the row's own warp, never accumulates into
 //! it, and the grid covers every row.
+//!
+//! ## The files
+//!
+//! | file | holds |
+//! |---|---|
+//! | `mod` | the projection types ([`FusedProj`], [`FusedInt4Proj`], [`FusedSegProj`]), the device buffers and constants the children share |
+//! | `runtime` | [`FusedRuntime`]: the compiled module, the shared tables, the methods every projection goes through |
+//! | `launch` | the uploads, the int4 parity checks and the `launch_*` wrappers around each kernel |
+//! | `ops` | the candle custom ops that launch the served kernels, and [`QuantEmbed`] |
+//! | `adapters` | the device-port adapters ([`CudaLattice`], [`CudaInt4`], [`CudaEmbed`]) and the read-only views |
+//! | `load` | [`load_with`] and [`load_resolved`] |
+//! | `ext` | [`ExtRotation`] and the additive uploads of resident experts |
+//! | `moe` | the routed-expert kernels and ops ([`MoeKernels`], [`MoeLayer`]) |
+//! | `head` | [`Q4HeadF32`], the int4 g64 head of an f32 model |
+//!
+//! Each child imports what it uses by name. This file re-exports only what
+//! the rest of the workspace names, plus the types its public signatures carry.
 
-use std::collections::HashMap;
+use candle_core::cuda_backend::cudarc::driver::{CudaFunction, CudaSlice};
 
-use candle_core::cuda_backend::cudarc::driver::{CudaFunction, CudaSlice, LaunchConfig, PushKernelArg};
-use candle_core::{CudaStorage, DType, Device, Layout, Shape, Tensor};
-use half::f16;
-
-use crate::fused::{
-    load_planes_sources, matvec_kernel_name, seg_kernel_name, EmbedMode, FuseMode, FusedGroup,
-    FusedLayout, FusedMatrix, FusedModel, HostStream, RotKey, RotationTables, EMBED_GROUP,
-};
+use crate::fused::RotKey;
 
 mod adapters;
 mod ext;
@@ -88,14 +98,14 @@ mod moe;
 mod ops;
 mod runtime;
 
-pub use adapters::*;
-pub use ext::*;
-pub use head::*;
-pub use launch::*;
-pub use load::*;
-pub use moe::*;
-pub use ops::*;
-pub use runtime::*;
+pub use adapters::{CudaEmbed, CudaInt4, CudaLattice, EmbedView, Int4View, RotView, TableView, TetraView};
+pub use ext::ExtRotation;
+pub use head::Q4HeadF32;
+pub use launch::set_int4_wide_check;
+pub use load::{load_resolved, load_with, FusedSealed};
+pub use moe::{MoeExpertRefs, MoeKernels, MoeLayer, MOE_MAX_SELECTED};
+pub use ops::QuantEmbed;
+pub use runtime::FusedRuntime;
 
 /// Threads per block for `tv_slot` and for the int4 launches (`tv_q4_h`,
 /// `tv_q4_hs`): 256 = eight rows per block, the shape the bench has always
@@ -292,7 +302,7 @@ impl FusedProj {
 /// A bare `words` field rather than a one-variant [`DeviceStream`]: the
 /// guarantee `DeviceStream` buys (a `Planes14` launch cannot be handed a bases
 /// array) is bought here by the *type of the struct itself* — a group is
-/// `Planes14` by construction and [`upload_group`] refuses anything else, so
+/// `Planes14` by construction and [`upload_group`](crate::fused_cuda::launch::upload_group) refuses anything else, so
 /// there is no second shape for this variant to distinguish it from.
 pub struct FusedSegProj {
     /// The group key, `"{layer:03}.{act:?}"` — what an error message names.

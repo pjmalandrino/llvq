@@ -2,7 +2,15 @@
 //! rotation, the lattice and int4 matvecs, the rows and the segmented forms.
 //! One file because each is a thin adapter from a candle storage to a launch.
 
-use super::*;
+use candle_core::cuda_backend::cudarc::driver::{CudaFunction, CudaSlice, LaunchConfig, PushKernelArg};
+use candle_core::{CudaStorage, Layout, Shape};
+use half::f16;
+
+use super::launch::{
+    launch_golay70_h, launch_planes12x_h, launch_planes_h, launch_planes_seg_h, launch_q4_h, launch_q4_hs,
+    launch_tetra48_h, launch_tetra48_rows_h,
+};
+use super::{DeviceStream, FusedInt4Proj, FusedProj, FusedRuntime, FusedSegProj, THREADS};
 
 /// One quantized g64 embedding table (int8 or int4), resident on the device.
 ///

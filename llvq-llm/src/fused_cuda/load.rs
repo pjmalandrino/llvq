@@ -1,7 +1,15 @@
 //! The loaders: a sealed artifact onto the fused path (`load_with`,
 //! `load_resolved`). One file because both build the same `Loaded` tuple.
 
-use super::*;
+use std::collections::HashMap;
+
+use candle_core::{DType, Device, Tensor};
+
+use crate::fused::{EmbedMode, FuseMode, FusedLayout};
+
+use super::adapters::CudaSeg;
+use super::launch::INT4_WIDE_CHECK;
+use super::{CudaEmbed, CudaInt4, CudaLattice, FusedRuntime, QuantEmbed};
 
 /// Re-exported so `fused_cuda::FusedSealed` keeps resolving. The type
 /// itself moved to [`crate::fused`] with the device port: a loader's

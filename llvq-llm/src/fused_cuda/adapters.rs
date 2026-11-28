@@ -2,7 +2,12 @@
 //! the persistent and batched paths read their buffers through. One file
 //! because every type here only forwards to the runtime that owns the buffers.
 
-use super::*;
+use candle_core::cuda_backend::cudarc::driver::CudaSlice;
+use candle_core::Tensor;
+
+use crate::fused::{EmbedMode, RotKey};
+
+use super::{DeviceStream, FusedInt4Proj, FusedProj, FusedRuntime, FusedSegProj, QuantEmbed};
 
 // ---------------------------------------------------------------------------
 // The CUDA adapters: the device port of `crate::device`, implemented here.
@@ -222,7 +227,7 @@ impl FusedRuntime {
 }
 
 /// One row-concatenated group on a card, launched once for every part.
-pub struct CudaSeg {
+pub(super) struct CudaSeg {
     pub(super) rt: std::sync::Arc<FusedRuntime>,
     pub(super) group: FusedSegProj,
 }
