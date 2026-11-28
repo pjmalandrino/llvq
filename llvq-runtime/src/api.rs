@@ -188,13 +188,20 @@ pub async fn accepted(rx: &mut crate::engine::Events) -> Result<(), (u16, String
     }
 }
 
-/// The engine's events as a stream, ending after `Done` or `Error`.
+/// What a stream ends with when the engine dropped it before `Done`.
+pub const CUT_SHORT: &str = "the engine stopped before the end of the answer";
+
+/// The engine's events as a stream, ending after `Done` or `Error`. A channel
+/// that closes before either ends with an `Error`: every route then tells its
+/// client the answer was cut (an error line, and `[DONE]` on the SSE routes),
+/// whoever held the request when its sender went, a panic on the batch-1
+/// path included, where no handler can see the request.
 pub fn events(rx: crate::engine::Events) -> impl futures_util::Stream<Item = Event> + Send {
     futures_util::stream::unfold((rx, false), |(mut rx, over)| async move {
         if over {
             return None;
         }
-        let e = rx.recv().await?;
+        let e = rx.recv().await.unwrap_or_else(|| Event::Error { status: 500, message: CUT_SHORT.into() });
         let end = matches!(e, Event::Done(_) | Event::Error { .. });
         Some((e, (rx, end)))
     })
@@ -795,7 +802,7 @@ async fn answer(
             Event::Accepted { .. } => {}
         }
     }
-    error(500, "the engine stopped before the end of the answer")
+    error(500, CUT_SHORT)
 }
 
 /// A chat turn: the whole history in, the answer streamed out.
@@ -1025,7 +1032,7 @@ async fn answer_tools(
         thinking.push_str(&r);
         made.extend(m);
     }
-    error(500, "the engine stopped before the end of the answer")
+    error(500, CUT_SHORT)
 }
 
 /// A completion of one prompt, through the template or raw.
@@ -1308,6 +1315,27 @@ mod tests {
         assert!(check_origin(Some("127.0.0.1:11435"), Some("http://127.0.0.1.evil.example")).is_err());
         assert!(check_origin(Some("192.168.1.20:11435"), Some("http://192.168.1.21:11435")).is_err());
         assert!(check_origin(Some("127.0.0.1:11435"), Some("file:///tmp/x.html")).is_err());
+    }
+
+    /// An engine that drops a request's sender before `Done` (a panic on the
+    /// batch-1 path under `LLVQ_BATCH`, where the request lives on the
+    /// stack) leaves the routes an error to send. The stream used to just
+    /// end, and `llvq run` kept the partial text as a whole answer.
+    #[test]
+    fn a_stream_the_engine_drops_ends_with_an_error() {
+        let rt = tokio::runtime::Builder::new_current_thread().build().unwrap();
+        let (tx, rx) = tokio::sync::mpsc::channel(8);
+        tx.try_send(Event::Delta { content: "half".into(), thinking: String::new() }).unwrap();
+        drop(tx);
+        let got: Vec<Event> = rt.block_on(events(rx).collect());
+        assert_eq!(got.len(), 2, "{got:?}");
+        assert!(matches!(&got[1], Event::Error { status: 500, message } if message == CUT_SHORT), "{got:?}");
+        // A clean end adds nothing.
+        let (tx, rx) = tokio::sync::mpsc::channel(8);
+        tx.try_send(Event::Done(Stats::default())).unwrap();
+        drop(tx);
+        let got: Vec<Event> = rt.block_on(events(rx).collect());
+        assert!(matches!(&got[..], [Event::Done(_)]), "{got:?}");
     }
 
     #[test]

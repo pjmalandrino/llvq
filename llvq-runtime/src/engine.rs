@@ -1414,7 +1414,9 @@ impl Engine {
                     // queue, leaves it. The reason is sent if there is room:
                     // a client whose channel is full has stopped reading, and
                     // waiting on it would hold the weights while the next
-                    // request loads another copy.
+                    // request loads another copy. A request the batch-1 path
+                    // held on its stack loses its sender in the unwind: the
+                    // routes end its stream with an error (`api::events`).
                     for l in live.drain(..) {
                         let _ = l.job.events.try_send(Event::Error { status: 500, message: msg.clone() });
                     }

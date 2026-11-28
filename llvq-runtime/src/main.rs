@@ -378,6 +378,7 @@ fn turn(client: &Client, model: &str, history: &[Value], o: &RunOpts) -> anyhow:
     }
     let mut answer = String::new();
     let mut thinking = false;
+    let mut done = false;
     let mut out = std::io::stdout();
     client.stream("/api/chat", &body, &mut |v| {
         let m = &v["message"];
@@ -398,6 +399,7 @@ fn turn(client: &Client, model: &str, history: &[Value], o: &RunOpts) -> anyhow:
         }
         out.flush()?;
         if v.get("done").and_then(Value::as_bool) == Some(true) {
+            done = true;
             if thinking {
                 write!(out, "\x1b[0m")?;
             }
@@ -425,6 +427,9 @@ fn turn(client: &Client, model: &str, history: &[Value], o: &RunOpts) -> anyhow:
         }
         Ok(())
     })?;
+    // A stream that ends without `done` was cut: the text so far is not the
+    // answer, and the history must not keep it as one.
+    anyhow::ensure!(done, "the stream ended before the end of the answer");
     Ok(answer)
 }
 
@@ -576,5 +581,49 @@ fn main() -> anyhow::Result<()> {
         Some(Cmd::Stop { model }) => stop(&client, &model),
         Some(Cmd::Rm { models }) => rm(&client, &models),
         Some(Cmd::Cp { source, destination }) => cp(&client, &source, &destination),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::io::BufRead;
+
+    /// A server that answers one request with `body` as NDJSON, then closes.
+    fn one_answer(body: &'static str) -> String {
+        let l = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = l.local_addr().unwrap().to_string();
+        std::thread::spawn(move || {
+            let (s, _) = l.accept().unwrap();
+            let mut r = std::io::BufReader::new(s.try_clone().unwrap());
+            let mut len = 0usize;
+            loop {
+                let mut line = String::new();
+                r.read_line(&mut line).unwrap();
+                if let Some(v) = line.to_ascii_lowercase().strip_prefix("content-length:") {
+                    len = v.trim().parse().unwrap();
+                }
+                if line == "\r\n" {
+                    break;
+                }
+            }
+            let mut req = vec![0u8; len];
+            r.read_exact(&mut req).unwrap();
+            let mut s = s;
+            write!(s, "HTTP/1.1 200 OK\r\nContent-Type: application/x-ndjson\r\nConnection: close\r\n\r\n{body}").unwrap();
+        });
+        addr
+    }
+
+    /// A stream that ends without `done` is a failed turn: the text so far is
+    /// not a whole answer. `llvq run` used to keep it as one.
+    #[test]
+    fn a_turn_whose_stream_ends_without_done_fails() {
+        let o = RunOpts { think: false, verbose: false, temperature: None, keepalive: None };
+        let c = Client::new(&one_answer("{\"message\": {\"content\": \"half\"}, \"done\": false}\n"));
+        let e = turn(&c, "tiny:test", &[], &o).expect_err("a cut stream read as a whole answer");
+        assert!(format!("{e:#}").contains("before the end of the answer"), "{e:#}");
+        let c = Client::new(&one_answer("{\"message\": {\"content\": \"whole\"}, \"done\": false}\n{\"done\": true}\n"));
+        assert_eq!(turn(&c, "tiny:test", &[], &o).unwrap(), "whole");
     }
 }

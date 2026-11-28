@@ -525,7 +525,7 @@ async fn complete(st: &AppState, name: ModelName, request: Request, stream: bool
             }
         }
     }
-    oai_error(500, "the engine stopped before the end of the answer")
+    oai_error(500, crate::api::CUT_SHORT)
 }
 
 /// The conversation with tools a request carries, or `None` when it offers
