@@ -90,6 +90,6 @@ The method is [arXiv:2603.11021](https://arxiv.org/abs/2603.11021), van der
 Ouderaa, van Baalen, Whatmough and Nagel, 2026. This is an independent
 implementation in Rust, with this package as its Python reader. The code, the
 measurement logs and the preregistrations are at
-[github.com/pjmalandrino/llvq](https://github.com/pjmalandrino/llvq).
+[github.com/pjmalandrino/llvq-tetra](https://github.com/pjmalandrino/llvq-tetra).
 
 Apache-2.0 or MIT, your choice.

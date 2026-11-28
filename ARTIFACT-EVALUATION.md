@@ -22,7 +22,7 @@ under its optional `fast-linalg` feature) and can be read end to end.
 
 | | |
 |---|---|
-| Code | <https://github.com/pjmalandrino/llvq>, MIT OR Apache-2.0 |
+| Code | <https://github.com/pjmalandrino/llvq-tetra>, MIT OR Apache-2.0 |
 | Published model | <https://huggingface.co/Pier-Jean/Qwen3-4B-LLVQ-2bit> (Apache-2.0) |
 | Paper sources | `paper/`, builds with `make`; submitted to ACM TACO on 2026-08-24 (TACO-2026-428) at commit `e21a8bb` |
 | Measurement journals | `docs/mesures/` (69 files) |
@@ -138,7 +138,7 @@ proceed if a table has drifted from its data (§4).
 No GPU, no network after the clone, no Python.
 
 ```bash
-git clone https://github.com/pjmalandrino/llvq && cd llvq
+git clone https://github.com/pjmalandrino/llvq-tetra && cd llvq-tetra
 cargo test --release
 ```
 

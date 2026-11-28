@@ -33,7 +33,7 @@ also need `llvq-search` and `llvq-core` for the Leech index.
 Prerequisite: stable Rust. The download is the only step that touches the network.
 
 ```bash
-git clone https://github.com/pjmalandrino/llvq && cd llvq
+git clone https://github.com/pjmalandrino/llvq-tetra && cd llvq-tetra
 hf download Pier-Jean/Qwen3-4B-LLVQ-2bit qwen3-4b-llvq.bin --local-dir .
 shasum -a 256 qwen3-4b-llvq.bin        # expected: 9db213ef…84b0, 1,770,527,533 bytes
 ```
