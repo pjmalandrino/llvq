@@ -70,10 +70,11 @@ Two test loops, two orders of magnitude. `cargo test` in debug skips the heavy t
 (`cfg_attr(debug_assertions, ignore)`) and runs in minutes. `cargo test --release -- --include-ignored` takes tens of
 minutes. The sealed-archive tests carry an unconditional `#[ignore]`, need `~/llvq-q4b.llvq`, and fail naming that file
 if it is missing.
-CI (`.github/workflows/ci.yml`) runs eight jobs in parallel: clippy with the dependency-free and `forbid` checks, the
+CI (`.github/workflows/ci.yml`) runs nine jobs in parallel: clippy with the dependency-free and `forbid` checks, the
 Python checks that need no GPU (image lists, big files, the MLX door's refusals, `llvqtune`), the tests under the `ci`
-profile, the core crates in debug, `llvq-quant` with `faer`, the `llvq-tetra` suite on the CPU, and the CUDA half
-and the macOS half type-checked by `ops/check-cuda-types.sh` and `ops/check-macos-types.sh`.
+profile, the core crates in debug, `llvq-quant` with `faer`, the `llvq-tetra` suite on the CPU, the CUDA half
+and the macOS half type-checked by `ops/check-cuda-types.sh` and `ops/check-macos-types.sh`, and the host tests of
+`llvq-cuda` through `ops/run-cuda-host-tests.sh`, in five shards.
 
 ```bash
 cargo test                                            # fast loop
@@ -114,6 +115,7 @@ CUDARC_CUDA_VERSION=12040 cargo clippy --target x86_64-unknown-linux-gnu -p llvq
 ops/check-linux-cuda.sh clippy -p llvq-llm --features cuda --all-targets                          # the cuda half of llvq-llm on a Mac (stand-in nvcc and cc, links nothing)
 ops/check-cuda-types.sh clippy --locked -p llvq-llm --features cuda --all-targets -- -D warnings   # the same on Linux, as CI runs it (stand-in nvcc, links nothing)
 ops/check-macos-types.sh clippy --locked -p llvq-llm --features metal --all-targets -- -D warnings   # the macOS and Metal half from Linux (aarch64-apple-darwin, stand-in C compiler, links nothing)
+ops/run-cuda-host-tests.sh test --locked --profile ci -p llvq-cuda                                   # llvq-cuda's host tests on Linux (stand-in CUDA libraries that abort if called, clang++, no GPU); CI runs it in five shards
 uv run ops/run.py estimate|selftest|publish|oracle|launch|monitor                                   # HF Jobs
 uv run --with opentimestamps ops/otsaudit.py                                                        # state of the .ots anchors
 uv run ops/awq_speed.py … | uv run ops/awq_dequant.py check                                         # AWQ, unpinned revision refused
