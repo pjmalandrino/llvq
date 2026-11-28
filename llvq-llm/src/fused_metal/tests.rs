@@ -1,8 +1,9 @@
 //! The unit tests of the fused Metal module: the served tuning, the `LLVQ_METAL_KERNEL` names and `h2f`. One
 //! file because they test the module through its own paths, as the old inline `mod tests` did.
 
-use super::tuning::TETRA_PREFILL_MAX;
-use super::{h2f, kernel_named, MetalTuning, Q4_TILE_COLS, SERVED_TETRA};
+use super::runtime::h2f;
+use super::tuning::{kernel_named, TETRA_PREFILL_MAX};
+use super::{MetalTuning, Q4_TILE_COLS, SERVED_TETRA};
 use crate::served::MetalKernels;
 
 /// The default tuning is the served path of every config before

@@ -6,7 +6,9 @@ use candle_core::backend::BackendStorage;
 use candle_core::{CpuStorage, CustomOp2, DType, Layout, MetalStorage, Result, Shape, Tensor};
 
 use super::moe::{moe_off_msl, moe_shape};
-use super::{MetalMoeSlab, MetalRuntime, GROUP, LANES};
+use super::launch::{GROUP, LANES};
+use super::types::MetalRuntime;
+use super::MetalMoeSlab;
 
 // ---------------------------------------------------------------------------
 // A prompt's rows through the resident experts of a layer in a few launches

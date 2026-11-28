@@ -9,10 +9,9 @@ use candle_core::{DType, Result, Tensor};
 use super::embed::MetalEmbed;
 use super::port::{MetalInt4, MetalLattice};
 use super::tuning::check_threadgroup_memory;
-use super::{
-    compose_c3, kernel_from_env, MetalEmbedTable, MetalRotation, MetalRuntime, MetalTables, MetalTetraProj,
-    MetalTuning, MOE_DOWN_SG_DEFAULT, Q4_TILE_COLS,
-};
+use super::tuning::kernel_from_env;
+use super::types::{compose_c3, MetalRuntime, MetalTables, MetalTetraProj};
+use super::{MetalEmbedTable, MetalRotation, MetalTuning, MOE_DOWN_SG_DEFAULT, Q4_TILE_COLS};
 
 // ---------------------------------------------------------------------------
 // The loader. One door, and after it `model/` names no backend.

@@ -8,7 +8,9 @@ use candle_core::{CpuStorage, CustomOp1, DType, Layout, MetalStorage, Result, Sh
 use candle_metal_kernels::metal::Buffer;
 
 use super::tuning::{group_within, int4_tile_for, TETRA_PREFILL_MAX};
-use super::{MetalRuntime, MetalTuning, GROUP, LANES};
+use super::launch::{GROUP, LANES};
+use super::types::MetalRuntime;
+use super::MetalTuning;
 
 // ---------------------------------------------------------------------------
 // The int4 arm: `v_proj` on the served mixed file, 36 of the 252 projections.

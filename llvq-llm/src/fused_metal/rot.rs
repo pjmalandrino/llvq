@@ -7,7 +7,8 @@ use candle_core::backend::BackendStorage;
 use candle_core::{CpuStorage, CustomOp1, DType, Layout, MetalStorage, Result, Shape, Tensor};
 use candle_metal_kernels::metal::Buffer;
 
-use super::{MetalRuntime, LANES, THREADGROUP_LIMIT};
+use super::launch::{LANES, THREADGROUP_LIMIT};
+use super::types::MetalRuntime;
 
 // ---------------------------------------------------------------------------
 // The rotation.

@@ -8,7 +8,9 @@ use candle_core::backend::BackendStorage;
 use candle_core::{CpuStorage, DType, Layout, MetalStorage, Result, Shape, Tensor};
 use candle_metal_kernels::metal::Buffer;
 
-use super::{HostProj, MetalRotation, MetalRuntime, MetalTetraProj, GROUP, LANES, SERVED_TETRA};
+use super::launch::{GROUP, LANES};
+use super::types::{HostProj, MetalRuntime, MetalTetraProj};
+use super::{MetalRotation, SERVED_TETRA};
 
 // ---------------------------------------------------------------------------
 // Wave 2 of the Inkling 2 Mini throughput plan, item D3: the routed experts

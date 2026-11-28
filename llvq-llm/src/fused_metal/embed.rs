@@ -8,7 +8,8 @@ use candle_core::{CpuStorage, CustomOp1, DType, Layout, MetalStorage, Result, Sh
 use candle_metal_kernels::metal::Buffer;
 
 use super::tuning::{group_exactly, group_within};
-use super::{MetalRuntime, GROUP, LANES, THREADGROUP_LIMIT};
+use super::launch::{GROUP, LANES, THREADGROUP_LIMIT};
+use super::types::MetalRuntime;
 
 // ---------------------------------------------------------------------------
 // The q8 embedding, and the lm_head that reads the same table.

@@ -13,10 +13,11 @@ use super::tuning::{
     check_threadgroup_memory, group_within, tetra_half_twin, tetra_loops_rows, tetra_reads_direct, tetra_rows_per_simd,
     TETRA_PREFILL_MAX, TETRA_TG_LOOP_ROWS, TETRA_TG_TABLES,
 };
-use super::{
-    compose_c3, h2f, kernel_from_env, source_of, HostProj, HostTables, Key, MetalRuntime, MetalTables, MetalTetraProj,
-    GROUP, LANES, MOE_DOWN_SG_DEFAULT, ORDER, Q4_TILE_COLS,
-};
+use super::launch::{GROUP, LANES, ORDER};
+use super::source::source_of;
+use super::tuning::kernel_from_env;
+use super::types::{compose_c3, HostProj, HostTables, Key, MetalRuntime, MetalTables, MetalTetraProj};
+use super::{MOE_DOWN_SG_DEFAULT, Q4_TILE_COLS};
 
 impl MetalRuntime {
     /// Upload the decoder tables and take the device.
@@ -718,4 +719,39 @@ fn host_quads(t: &HostTables, lo: u32, hi16: u32) -> [u32; 6] {
         quad(row3, c3 & 0xf),
         quad(row3 >> 16, c3 >> 4),
     ]
+}
+
+/// f16 bits widened exactly, which is what the shader's `float(half)` does.
+///
+/// A transcription of `h2f` in `llvq-cuda/kernels/matvec.cu:44-77`, branch for
+/// branch, and it is a transcription because an earlier version here was
+/// written from memory and was wrong on 4,094 of the 65,536 patterns: every
+/// subnormal had its exponent one too low and its mantissa shifted one too
+/// far, and there was no `exp == 31` arm at all, so infinities came back as
+/// 65536 and NaN payloads were lost. The gate could not see it, because its
+/// fixtures draw from a Gaussian and never produce one.
+pub(super) fn h2f(h: u16) -> f32 {
+    let h = h as u32;
+    let sign = (h & 0x8000) << 16;
+    let exp = (h >> 10) & 0x1f;
+    let mut man = h & 0x3ff;
+    let bits = if exp == 0 {
+        if man == 0 {
+            sign
+        } else {
+            // Normalise: shift until the hidden bit appears, one exponent a shift.
+            let mut e = 127 - 15 + 1;
+            while man & 0x400 == 0 {
+                man <<= 1;
+                e -= 1;
+            }
+            sign | (e << 23) | ((man & 0x3ff) << 13)
+        }
+    } else if exp == 31 {
+        // inf / NaN, payload kept.
+        sign | 0x7f80_0000 | (man << 13)
+    } else {
+        sign | ((exp + 127 - 15) << 23) | (man << 13)
+    };
+    f32::from_bits(bits)
 }

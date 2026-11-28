@@ -5,7 +5,8 @@ use std::sync::Arc;
 
 use candle_core::{DType, Result, Tensor};
 
-use super::{MetalInt4Proj, MetalRotation, MetalRuntime, MetalTetraProj};
+use super::types::{MetalRuntime, MetalTetraProj};
+use super::{MetalInt4Proj, MetalRotation};
 
 // ---------------------------------------------------------------------------
 // The port, implemented. From here `model/` cannot tell a card from a Mac.

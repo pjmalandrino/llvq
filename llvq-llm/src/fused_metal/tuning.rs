@@ -5,8 +5,9 @@
 use candle_core::Result;
 use candle_metal_kernels::metal::ComputePipeline;
 
+use super::launch::{LANES, THREADGROUP_LIMIT};
 use super::port::MetalLattice;
-use super::{source_of, LANES, THREADGROUP_LIMIT};
+use super::source::source_of;
 
 /// Columns `tv_q4_metal_tiled` stages a tile, for an int4 record whose whole
 /// activation does not fit in `THREADGROUP_LIMIT`.
@@ -331,4 +332,30 @@ pub(super) fn group_exactly(pipe: &ComputePipeline, name: &str, want: usize) -> 
         candle_core::bail!("{name}: the launch needs {want} threads a threadgroup, the pipeline allows {max}");
     }
     Ok(want)
+}
+
+/// The matvec named by `LLVQ_METAL_KERNEL`, or the served one.
+pub(super) fn kernel_from_env() -> Result<&'static str> {
+    kernel_named(std::env::var("LLVQ_METAL_KERNEL").ok().as_deref())
+}
+
+/// The matvec a value of `LLVQ_METAL_KERNEL` names. An unknown name is refused:
+/// falling back to the served kernel would label an A/B arm with a kernel it
+/// did not run.
+///
+/// The names are a subset of what [`MetalTuning::validate`] accepts. `ilp` is
+/// not one: `tv_tetra48_metal_ilp` gives a row 8 lanes, so on the 32-lane grid
+/// every launch uses it would write past the output.
+pub(super) fn kernel_named(v: Option<&str>) -> Result<&'static str> {
+    const SERVED: &str = "tv_tetra48_metal_lut";
+    Ok(match v {
+        None | Some("lut") => SERVED,
+        Some("c3") => "tv_tetra48_metal_c3",
+        Some("ar") => "tv_tetra48_metal_ar",
+        Some("u2") => "tv_tetra48_metal_u2",
+        Some("plain") => "tv_tetra48_metal",
+        Some(other) => candle_core::bail!(
+            "LLVQ_METAL_KERNEL={other:?} is not a matvec of this file: lut, c3, ar, u2 or plain"
+        ),
+    })
 }

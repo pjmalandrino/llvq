@@ -9,7 +9,9 @@ use candle_core::{CpuStorage, CustomOp1, DType, Layout, MetalStorage, Result, Sh
 use candle_metal_kernels::metal::Buffer;
 
 use super::tuning::TETRA_PREFILL_MAX;
-use super::{HostProj, MetalEmbedTable, MetalRotation, MetalRuntime, MetalTetraProj, GROUP, LANES, THREADGROUP_LIMIT};
+use super::launch::{GROUP, LANES, THREADGROUP_LIMIT};
+use super::types::{HostProj, MetalRuntime, MetalTetraProj};
+use super::{MetalEmbedTable, MetalRotation};
 
 // ---------------------------------------------------------------------------
 // Wave 1 of the Inkling 2 Mini throughput plan (`docs/plan-debit-inkling2-mini.md`).
