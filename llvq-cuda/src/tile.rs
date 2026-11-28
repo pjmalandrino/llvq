@@ -509,8 +509,28 @@ mod tests {
     #[test]
     fn no_launch_in_the_host_is_bounded_by_the_served_constant() {
         let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("..");
-        for rel in ["llvq-llm/src/fused_cuda.rs", "llvq-llm/src/model.rs", "llvq-llm/src/bin/fusedrun.rs"] {
-            let src = std::fs::read_to_string(root.join(rel)).expect("{rel} reads");
+        // `fused_cuda` and `model` are module directories since 2026-11-28: every file of each is read, and a
+        // directory that holds no Rust file fails the test instead of passing it on nothing.
+        let mut files = Vec::new();
+        for rel in ["llvq-llm/src/fused_cuda", "llvq-llm/src/model", "llvq-llm/src/bin/fusedrun.rs"] {
+            let path = root.join(rel);
+            if path.is_dir() {
+                let before = files.len();
+                for entry in std::fs::read_dir(&path).unwrap_or_else(|e| panic!("{rel} lists: {e}")) {
+                    let file = entry.unwrap_or_else(|e| panic!("{rel} lists: {e}")).path();
+                    if file.extension().is_some_and(|x| x == "rs") {
+                        let name = file.file_name().expect("a file name").to_string_lossy().into_owned();
+                        files.push((format!("{rel}/{name}"), file));
+                    }
+                }
+                assert!(files.len() > before, "{rel} holds no Rust file");
+            } else {
+                files.push((rel.to_string(), path));
+            }
+        }
+        files.sort();
+        for (rel, path) in &files {
+            let src = std::fs::read_to_string(path).unwrap_or_else(|e| panic!("{rel} reads: {e}"));
             for (i, line) in src.lines().enumerate() {
                 let code = line.split("//").next().unwrap_or("");
                 assert!(

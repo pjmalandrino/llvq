@@ -50,9 +50,14 @@ def main():
         "llvq-quant/src/gptq.rs", "llvq-quant/src/linalg.rs", "llvq-quant/src/rotation.rs",
         "llvq-search/src/rotation.rs", "llvq-search/src/shapegain.rs",
         "llvq-llm/src/tetra_diag.rs", "llvq-llm/src/bin/tetra_schur.rs",
-        "llvq-llm/src/model.rs", "llvq-llm/src/calib.rs", "llvq-llm/src/loader.rs",
+        "llvq-llm/src/calib.rs", "llvq-llm/src/loader.rs",
         "ops/prepare_tetra_schur.py", "proofs/BROUILLON-preregistration-tetra-schur-2026-09-14.md",
     ]]
+    # The forward pass is a module directory since 2026-11-28: every file of it, in a fixed order.
+    model = sorted((repository / "llvq-llm/src/model").glob("*.rs"))
+    if not model:
+        raise SystemExit("refused: llvq-llm/src/model holds no Rust file to hash")
+    sources += model
     files = sorted(output.glob("seed-*/*.json")) + sources + [binary, train, validation,
         checkpoint / "config.json", checkpoint / "tokenizer.json", checkpoint / "model.safetensors"]
     lines = []
