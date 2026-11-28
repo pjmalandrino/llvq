@@ -1152,6 +1152,10 @@ impl<M: TurnLm> Worker<M> {
             match out.deltas(deltas, send) {
                 None => break End::Gone,
                 Some(true) => break End::Stop,
+                // Nothing to send is not nobody to send to: a call's body
+                // streams nothing until its `<|end_message|>`, so no send can
+                // fail while it is written, and the channel is asked.
+                Some(false) if job.events.is_closed() => break End::Gone,
                 Some(false) => {}
             }
             if said.len() >= max_new {
@@ -1506,6 +1510,81 @@ mod tests {
         assert_eq!(r3[0], r2[0], "the logits of the second prompt's end");
         assert_ne!(r3[0], r1[0]);
         assert!(cached3 > cached);
+    }
+
+    /// A scripted model that writes the opening of a tool call, then one
+    /// byte of its body forever, and hangs up for the client: it drops the
+    /// request's receiver at its first decode step.
+    struct Caller {
+        script: Vec<u32>,
+        filler: u32,
+        ctx: usize,
+        /// Decode steps (feeds of one id) since the prompt.
+        steps: usize,
+        rx: Option<tokio::sync::mpsc::Receiver<Event>>,
+    }
+
+    impl TurnLm for Caller {
+        type Mark = usize;
+
+        fn feed(&mut self, ids: &[u32]) -> anyhow::Result<Tensor> {
+            self.ctx += ids.len();
+            if ids.len() == 1 {
+                self.steps += 1;
+                self.rx = None;
+            } else {
+                self.steps = 0;
+            }
+            let next = self.script.get(self.steps).copied().unwrap_or(self.filler);
+            let mut v = vec![0f32; test_ink::VOCAB];
+            v[next as usize] = 10.0;
+            Ok(Tensor::from_vec(v, (1, test_ink::VOCAB), &Device::Cpu)?)
+        }
+
+        fn held(&self) -> usize {
+            self.ctx
+        }
+
+        fn mark(&self) -> usize {
+            self.ctx
+        }
+
+        fn rollback(&mut self, m: &usize) -> anyhow::Result<()> {
+            self.ctx = *m;
+            Ok(())
+        }
+
+        fn reset(&mut self) {
+            self.ctx = 0;
+        }
+    }
+
+    /// While the model writes a call's body nothing streams, because the call
+    /// goes out whole at its `<|end_message|>`, so no send can fail. The
+    /// engine asks the channel instead of decoding to `num_predict` for
+    /// nobody while every other request waits.
+    #[test]
+    fn a_client_that_leaves_during_a_tool_call_stops_the_engine() {
+        let chat = InkChat::new(test_ink::byte_tokenizer()).unwrap();
+        let enc = |s: &str| chat.tokenizer().encode(s, false).unwrap().get_ids().to_vec();
+        let script = enc(r#"<|message_model|>list_dir<|content_invoke_tool_json|>{"name":"list_dir","args":{"path":""#);
+        let filler = enc("a")[0];
+        let (tx, rx) = tokio::sync::mpsc::channel(100_000);
+        let lm = Caller { script, filler, ctx: 0, steps: 0, rx: Some(rx) };
+        let mut w = Worker { lm, chat, context: 4096, backend: "script".into(), config: None, held: Vec::new(), prefix: None };
+        let msgs = FIRST.iter().map(|(role, c)| Msg { role: *role, content: c.to_string() }).collect();
+        let job = Job {
+            request: crate::engine::Request {
+                prompt: Prompt::Chat(msgs),
+                think: false,
+                options: crate::engine::Options { num_predict: Some(400), ..Default::default() },
+            },
+            events: tx,
+            keep_alive: crate::engine::KeepAlive::Forever,
+            queued_at: Instant::now(),
+        };
+        w.run(&job, Duration::ZERO);
+        assert!(w.lm.steps <= 2, "the engine decoded {} steps of a call nobody receives", w.lm.steps);
     }
 
     #[test]
