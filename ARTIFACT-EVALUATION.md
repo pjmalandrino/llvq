@@ -15,9 +15,10 @@ This file is the auditor-facing one.
 
 An independent Rust implementation of Leech-lattice vector quantization
 (LLVQ) for LLM weights, plus the fused CUDA kernel and the VRAM layouts the
-paper is about. Eight crates; the mathematical core (lattice, exact
+paper is about. Nine crates; the mathematical core (lattice, exact
 nearest-neighbour search, bijective indexing, GPTQ, artifact format) has
-**no external dependencies** and can be read end to end.
+**no external dependencies** by default (the GPTQ crate takes `faer` only
+under its optional `fast-linalg` feature) and can be read end to end.
 
 | | |
 |---|---|

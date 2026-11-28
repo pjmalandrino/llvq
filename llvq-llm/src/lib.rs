@@ -7,8 +7,10 @@
 //! `unsafe` is allowed here, as in `llvq-cuda` and `llvq-metal`, at hardware
 //! boundaries only: mapping a multi-gigabyte safetensors file (`unsafe` in
 //! `candle` by construction, the file could change underneath the mapping),
-//! launching a kernel, and reading a device buffer. The five core crates keep
-//! `forbid(unsafe_code)`.
+//! launching a kernel, reading a device buffer, and the CPU SIMD intrinsics
+//! (AVX2, NEON) of `tetra_cpu`. The five core crates forbid it for every
+//! target, by `unsafe_code = "forbid"` under `[lints.rust]` in their
+//! `Cargo.toml`.
 
 pub mod artifact;
 pub mod artifact2;

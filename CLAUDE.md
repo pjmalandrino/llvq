@@ -12,8 +12,11 @@ matvec in one CUDA kernel, then the whole token in one launch (4E).
 
 Three Qwen3 files, 4B, 8B and 14B, are sealed at about 2.7 b/param and public on the Hugging Face Hub. Paper 2 is
 written on them (`paper2/`), version 2 attached to release `v0.0.2`. Since 2026-11-07 all three are served on CUDA by
-4E v9 at 221.5, 142.5 and 86.3 tok/s on an L40S, and the 4B on the Mac by the MLX door. **No model above 14B is
-served, and the 32B has never been encoded.**
+4E v9 at 221.5, 142.5 and 86.3 tok/s on an L40S, and the 4B on the Mac by the MLX door. Inkling 2 Mini, a
+26.4-billion-parameter mixture of experts, is published as `Pier-Jean/Inkling-2-Mini-LLVQ-Tetra` and served by
+`llvq run inkling2:mini` on CUDA, Metal and the CPU; its code is `llvq-llm/src/inkling/`, the `ink*` binaries
+(`inkseal`, `inkrun`, `inkchat`, ...) and `llvq-runtime/src/inkling.rs`. **No dense model above 14B is served, and
+the Qwen3-32B has never been encoded.**
 
 ## Where to resume
 
@@ -43,15 +46,16 @@ Nine crates, members of `Cargo.toml`.
 | `llvq-bench` | rate-distortion, encoder throughput, decode cost | none | forbid |
 | `llvq-metal` | macOS GPU micro-benchmarks, MSL shaders | `metal` | allowed |
 | `llvq-cuda` | NVIDIA kernels compiled by NVRTC, 4E, benchmarks | `cudarc`, `cfg(target_os = "linux")` | allowed |
-| `llvq-llm` | forward pass, served configs, corpora, perplexity, MMLU, GSM8K, CPU backend (`fused_cpu`, `tetra_cpu`) | `candle`, `tokenizers`, `hf-hub`, `parquet`, `rayon` | allowed |
-| `llvq-runtime` | the `llvq` binary: model library, store, Ollama and OpenAI routes, OpenAPI | `axum`, `tokio`, `clap`, `utoipa`, `sha2`, `ureq` | forbid |
+| `llvq-llm` | forward pass, served configs, corpora, perplexity, MMLU, GSM8K, CPU backend (`fused_cpu`, `tetra_cpu`) | `candle`, `tokenizers`, `hf-hub`, `parquet`, `rayon`, `flate2`, `half`; on macOS `candle-metal-kernels`, `objc2-metal` | allowed |
+| `llvq-runtime` | the `llvq` binary: model library, store, Ollama and OpenAI routes, OpenAPI | `axum`, `tokio`, `clap`, `utoipa`, `sha2`, `ureq`, `native-tls`, `candle-core`, `tokenizers` | forbid |
 
 Beside the crates: `llvq-tetra/` is the Python package that reads a packed model in `transformers` (on PyPI; its wheel
 ships a copy of the served kernels that `bin/tetratables` makes). `ops/llvqtune` trains the row scales.
 `ops/mlx_tetra/` is the MLX door on the Mac, under `configs/mlx/`. `ops/metal-package/` is a prototype, not served.
 
-`unsafe` is allowed only at hardware boundaries: mmap, kernel launch, reading a device buffer. `#![forbid(unsafe_code)]`
-in a `lib.rs` does not cover integration tests; closing that needs `[workspace.lints]`, an operator decision. Without
+`unsafe` is allowed only at hardware boundaries: mmap, kernel launch, reading a device buffer, and the CPU SIMD
+intrinsics (AVX2, NEON) of `llvq-llm/src/tetra_cpu.rs`. The five core crates also set `unsafe_code = "forbid"` under
+`[lints.rust]` in their `Cargo.toml`, which covers their tests and binaries as well as the library. Without
 `--features fast-linalg` the factorization is about 40 times slower for a bit-identical result. The in-house algebra
 (`llvq-quant/src/linalg.rs`) stays the reference: `both_factorizations_agree` requires the same factor as `faer`. Do
 not delete it.
@@ -66,8 +70,10 @@ Two test loops, two orders of magnitude. `cargo test` in debug skips the heavy t
 (`cfg_attr(debug_assertions, ignore)`) and runs in minutes. `cargo test --release -- --include-ignored` takes tens of
 minutes. The sealed-archive tests carry an unconditional `#[ignore]`, need `~/llvq-q4b.llvq`, and fail naming that file
 if it is missing.
-CI (`.github/workflows/ci.yml`) runs four jobs in parallel in about 8 minutes: clippy with the dependency-free check,
-the tests under the `ci` profile, the core crates in debug, and `llvq-quant` with `faer`.
+CI (`.github/workflows/ci.yml`) runs seven jobs in parallel: clippy with the dependency-free and `forbid` checks, the
+Python checks that need no GPU (image lists, big files, the MLX door's refusals, `llvqtune`), the tests under the `ci`
+profile, the core crates in debug, `llvq-quant` with `faer`, the `llvq-tetra` suite on the CPU, and the CUDA half
+type-checked by `ops/check-cuda-types.sh`.
 
 ```bash
 cargo test                                            # fast loop
@@ -77,7 +83,8 @@ cargo run --release -p llvq-bench --bin llvq-bench    # also: rtbits; the format
 cargo run --release -p llvq-metal --bin thesis        # macOS; also: mslcheck, rankbench; matvec, decreal, p1v0 need --features archive
 cargo run --release -p llvq-cuda --bin planesbench -- <model.llvq>   # Linux + CUDA; also: preflight, nullkbench, attnbench
 LLVQ_MODEL=Qwen/Qwen3-4B LLVQ_CALIB=dclm-edu LLVQ_ARTIFACT=q4b.llvq cargo run --release -p llvq-llm --features metal,fast-linalg --bin smoke -- 64 2048 12 4096 metal nogs leech1c12 999 rot
-#   positional: n_calib · calib_len · n_eval · eval_ctx · device · nogs/gs/dc/sph · codebook (suffix f = free magnitude, L<n> = cap) · limit · rot
+#   positional: n_calib · calib_len · n_eval · eval_ctx · device · nogs/gs/dc/sph · codebook (suffix f = free magnitude, L<n> = cap) · limit · rot · save path
+#   (the save path writes the quantized projections with artifact::save; absent, nothing is written there)
 LLVQ_MODEL=Qwen/Qwen3-4B cargo run --release -p llvq-llm --bin seal -- q4b.llvq qwen3-4b-llvq.bin   # also: export, rowscale, embedq, int4swap
 cargo run --release -p llvq-llm --bin hfpack -- <sealed> out_dir/ && uv run ops/llvq_hf_check.py out_dir/  # the sealed file as safetensors, still compressed, and its bit-for-bit gate
 cargo run --release -p llvq-llm --bin hfdense -- <sealed> out_dir/llvq-dense-digest.json  # also: tetratables, tetravectors
@@ -105,6 +112,7 @@ ops/mlx-pooled.sh                                                               
 ops/metal-bench.sh [--long]                                                                          # the sealed 4B on the Mac, same tokens: dense, fused, _lutd; --long: expanded, grouped, attn_dec.metal at 4,096 (metalrun time|gate|phased|dispatch|ppl)
 CUDARC_CUDA_VERSION=12040 cargo clippy --target x86_64-unknown-linux-gnu -p llvq-cuda --all-targets  # type-checks the Linux half on a Mac
 ops/check-linux-cuda.sh clippy -p llvq-llm --features cuda --all-targets                          # the cuda half of llvq-llm on a Mac (stand-in nvcc and cc, links nothing)
+ops/check-cuda-types.sh clippy --locked -p llvq-llm --features cuda --all-targets -- -D warnings   # the same on Linux, as CI runs it (stand-in nvcc, links nothing)
 uv run ops/run.py estimate|selftest|publish|oracle|launch|monitor                                   # HF Jobs
 uv run --with opentimestamps ops/otsaudit.py                                                        # state of the .ots anchors
 uv run ops/awq_speed.py … | uv run ops/awq_dequant.py check                                         # AWQ, unpinned revision refused
@@ -128,7 +136,7 @@ be in `UPLOAD_ALLOW` of `ops/run.py`, or the Space dies after 12 minutes. `rankb
 | `LLVQ_FUSE` | `0`, `1` | q+k+v and gate+up fusion; served = `0` under `Tetra48`, which carries no segmented kernel; `FUSE=1` with `ROT_SHARE=0` refused |
 | `LLVQ_TILE_BLOCKS` | unset (default), `auto`, power of two in 32..=512 | blocks of the activation one CTA stages in shared memory. Unset reads the measured row for the card, 64 on sm_89 and 32 on sm_120, and falls back to 128 where no row exists. Zero bits, bit-identical output, worth +17.6% to Tetra from tile 128 to 64 on sm_89, where `Planes14` moves 1.1% across the whole sweep. On the A100 (sm_80, no row) 128 is the best of three. Every figure published before 2026-09-20 was measured at 128 |
 | `LLVQ_NVRTC_ARCH` | `compute_NN`, default `compute_89` | NVRTC target; `compute_80` for A100; any other form refused |
-| `LLVQ_DTYPE` | `f32` (`ppl` default), `f16` | evaluation dtype; comparing ppl or MMLU requires the same on both sides |
+| `LLVQ_DTYPE` | `f32` (`ppl` default), `f16` (`mmlu` default), `bf16`; any other name refused | evaluation dtype; comparing ppl or MMLU requires the same on both sides |
 | `LLVQ_CALIB` | `wikitext2` (default), `c4`, `dclm-edu`, `wikitext2-test` | `smoke`: calibration corpus; `dclm-edu` is the paper's own set and the one the sealed files use |
 | `LLVQ_ARTIFACT` | path | `smoke`: writes the compressed artifact; absent, nothing is written |
 | `LLVQ_RESUME` | path of a shard | `smoke`: resume from that shard; requires `LLVQ_ARTIFACT` |
@@ -140,7 +148,7 @@ be in `UPLOAD_ALLOW` of `ops/run.py`, or the Space dies after 12 minutes. `rankb
 | `LLVQ_MODEL` | HF repo or local directory | checkpoint; required by `RESTORE_*`, never a default in `mmlu` |
 | `LLVQ_MMLU_ALLOC` | `flat` (default), `proportional`, `proportional=<total>` | `mmlu`: how the budget spreads over the 57 subjects. `mmlupair` refuses two dumps of different plans, so re-barring a published arm costs a full run |
 | `LLVQ_GSM8K_DUMP`, `LLVQ_GSM8K_MAX_NEW`, `LLVQ_GSM8K_THINK` | path; count, default 1024; `0`, `1` | `gsm8k`: one JSON line per problem with the raw completion; the cap on generated tokens; Qwen3's reasoning block, off by default. `gsm8kpair` re-grades every row before pairing, vLLM dumps included |
-| `LLVQ_CALIB_SEED`, `LLVQ_DAMPING`, `LLVQ_H_SHRINK`, `LLVQ_GAIN_SCALE`, `LLVQ_SEQ_BLOCK`, `LLVQ_THREADS` | see `llvq-llm/src/bin/smoke.rs` | `smoke` knobs. Their default is the published path and is bit-identical; any other value of `LLVQ_SEQ_BLOCK` is refused by name. `LLVQ_THREADS` ≈ ncpu−4 on a shared machine; it also sizes the CPU backend's pool (`tetra_cpu::pool`, every core when unset) |
+| `LLVQ_CALIB_SEED`, `LLVQ_DAMPING`, `LLVQ_H_SHRINK`, `LLVQ_GAIN_SCALE`, `LLVQ_SEQ_BLOCK`, `LLVQ_THREADS` | see `llvq-llm/src/bin/smoke.rs` | `smoke` knobs. Their default is the published path and is bit-identical. `LLVQ_SEQ_BLOCK` unset, empty or `0` is that default, `1` turns the sequential block on, and any other value is refused by name. `LLVQ_THREADS` ≈ ncpu−4 on a shared machine; it also sizes the CPU backend's pool (`tetra_cpu::pool`, every core when unset) |
 | `LLVQ_SEALED_ARTIFACT` | path | `llvq-artifact` archive tests: moves the search for the sealed file |
 | `LLVQ_HOME` | directory, default `~/.llvq` | `llvq`: the store, `blobs/` and `manifests/` |
 | `LLVQ_HOST` | `host:port`, default `127.0.0.1:11435` | `llvq`: where `serve` binds and where the client commands connect |
