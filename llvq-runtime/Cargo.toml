@@ -38,3 +38,7 @@ cuda = ["llvq-llm/cuda"]
 candle-nn = "0.9"
 candle-transformers = "0.9"
 serde_yaml = "0.9"
+
+# Every target of the package, not only the lib and the bin: tests, examples, build script.
+[lints.rust]
+unsafe_code = "forbid"
