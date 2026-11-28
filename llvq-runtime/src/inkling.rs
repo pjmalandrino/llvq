@@ -729,15 +729,10 @@ pub(crate) fn serve(
         let ran = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| e.0.run(&job, l)));
         if let Err(p) = ran {
             let msg = format!("the engine of {name} panicked: {}", crate::engine::panic_message(&*p));
-            // The weights go now, as in the Qwen3 engine.
+            // The weights go now, as in the Qwen3 engine, and the engine
+            // fails without waiting on a client that stopped reading.
             drop(e);
-            *inf.state.lock().expect("state lock") = State::Failed(msg.clone());
-            let _ = job.events.blocking_send(Event::Error { status: 500, message: msg.clone() });
-            inf.busy.store(false, Ordering::SeqCst);
-            while let Ok(job) = rx.recv() {
-                inf.queue.fetch_sub(1, Ordering::SeqCst);
-                let _ = job.events.blocking_send(Event::Error { status: 500, message: msg.clone() });
-            }
+            crate::engine::fail_after_panic(job, rx, inf, msg);
             return;
         }
         *inf.expires.lock().expect("expires lock") = job.keep_alive.until(SystemTime::now());

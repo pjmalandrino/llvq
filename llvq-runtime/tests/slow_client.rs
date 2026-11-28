@@ -8,10 +8,18 @@
 //! so what the engine waits on is exactly what the test holds.
 
 mod common;
+#[path = "common/ink.rs"]
+mod ink;
 
-use llvq_runtime::engine::{Event, Events, KeepAlive, Loader, Models, Options, Prompt, Request};
+use candle_core::{Device, Tensor};
+use llvq_llm::inkchat::InkChat;
+use llvq_runtime::chat::{Msg, Role};
+use llvq_runtime::engine::{Built, Event, Events, KeepAlive, Loaded, Loader, Models, Options, Prompt, Request};
+use llvq_runtime::inkling::{InkEngine, TurnLm};
 use llvq_runtime::library::ModelName;
-use std::sync::Arc;
+use llvq_runtime::store::{Manifest, Store};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 /// The capacity of a request's channel (`Models::submit`).
@@ -124,4 +132,107 @@ fn a_slow_client_within_the_timeout_gets_every_event_in_order() {
         }
     }
     assert_eq!(untimed(slow), fast, "the slow client lost or reordered an event");
+}
+
+/// A scripted Inkling model that writes `a` for ever, and panics on the
+/// first decode step it takes once the held request's channel is full.
+/// `held` carries that channel; the prompt waits until it is there.
+struct Stuck {
+    script: Vec<u32>,
+    filler: u32,
+    ctx: usize,
+    steps: usize,
+    held: Arc<Mutex<Option<Events>>>,
+    panicked: Arc<AtomicBool>,
+}
+
+impl TurnLm for Stuck {
+    type Mark = usize;
+
+    fn feed(&mut self, ids: &[u32]) -> anyhow::Result<Tensor> {
+        self.ctx += ids.len();
+        if ids.len() > 1 {
+            self.steps = 0;
+            wait_for("the test hands over the held channel", || self.held.lock().unwrap().is_some());
+        } else {
+            self.steps += 1;
+            let full = self.held.lock().unwrap().as_ref().is_some_and(|r| r.len() == CHANNEL);
+            if full && !self.panicked.swap(true, Ordering::SeqCst) {
+                panic!("the scripted model panics");
+            }
+        }
+        let next = self.script.get(self.steps).copied().unwrap_or(self.filler);
+        let mut v = vec![0f32; ink::VOCAB];
+        v[next as usize] = 10.0;
+        Ok(Tensor::from_vec(v, (1, ink::VOCAB), &Device::Cpu)?)
+    }
+
+    fn held(&self) -> usize {
+        self.ctx
+    }
+
+    fn mark(&self) -> usize {
+        self.ctx
+    }
+
+    fn rollback(&mut self, m: &usize) -> anyhow::Result<()> {
+        self.ctx = *m;
+        Ok(())
+    }
+
+    fn reset(&mut self) {
+        self.ctx = 0;
+    }
+}
+
+struct StuckLoader {
+    held: Arc<Mutex<Option<Events>>>,
+    panicked: Arc<AtomicBool>,
+}
+
+impl Loader for StuckLoader {
+    fn load(&self, _: &ModelName, _: &Manifest, _: &Store) -> anyhow::Result<Loaded> {
+        anyhow::bail!("an Inkling engine: built by `build`")
+    }
+
+    fn build(&self, _: &ModelName, _: &Manifest, _: &Store) -> anyhow::Result<Built> {
+        let chat = InkChat::new(ink::byte_tokenizer())?;
+        let enc = |s: &str| chat.tokenizer().encode(s, false).unwrap().get_ids().to_vec();
+        let (script, filler) = (enc("<|message_model|><|content_text|>"), enc("a")[0]);
+        let lm = Stuck { script, filler, ctx: 0, steps: 0, held: self.held.clone(), panicked: self.panicked.clone() };
+        Ok(Built::Inkling(InkEngine::new(lm, chat, 4096, "script", None)))
+    }
+}
+
+fn hello() -> Request {
+    Request {
+        prompt: Prompt::Chat(vec![Msg { role: Role::User, content: "hello".into() }]),
+        think: false,
+        options: Options { num_predict: Some(1000), ..Options::default() },
+    }
+}
+
+/// A panic while the running request's client has stopped reading fails the
+/// engine without waiting on that client: the request queued behind it is
+/// answered with the panic's reason, and the held channel is let go. The
+/// handler sent the reason with a send that waited for room, and the thread
+/// stayed parked there, with every queued request.
+#[test]
+fn a_panic_does_not_wait_on_a_client_that_stopped_reading() {
+    let held = Arc::new(Mutex::new(None));
+    let loader = StuckLoader { held: held.clone(), panicked: Arc::new(AtomicBool::new(false)) };
+    let m = models("slow-panic", Arc::new(loader), None);
+    let a = ModelName::parse("tiny:test").unwrap();
+    let first = m.submit(&a, hello(), None).expect("queued");
+    let second = m.submit(&a, hello(), None).expect("queued behind the first");
+    *held.lock().unwrap() = Some(first);
+    let events = all(second, "the request queued behind the panic");
+    assert!(
+        matches!(events.as_slice(), [Event::Error { status: 500, message }] if message.contains("panicked")),
+        "{events:?}"
+    );
+    let first = held.lock().unwrap().take().expect("the held channel");
+    let first = all(first, "the held channel");
+    assert_eq!(first.len(), CHANNEL, "{:?}", first.last());
+    assert!(first.iter().all(|e| !matches!(e, Event::Done(_))));
 }

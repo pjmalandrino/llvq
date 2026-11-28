@@ -582,6 +582,20 @@ pub(crate) fn refuse_queue(rx: &std::sync::mpsc::Receiver<Job>, inf: &EngineInfo
     }
 }
 
+/// After a panic on the batch-1 path, whose weights the caller dropped: the
+/// engine fails, the running `job` gets the reason if its channel has room,
+/// and the queue is answered. A client whose channel is full has stopped
+/// reading; waiting on it would park the thread with every queued request.
+/// Dropping `job` closes its channel, and the routes end that stream with an
+/// error line (`api::events`).
+pub(crate) fn fail_after_panic(job: Job, rx: &std::sync::mpsc::Receiver<Job>, inf: &EngineInfo, msg: String) {
+    *inf.state.lock().expect("state lock") = State::Failed(msg.clone());
+    let _ = job.events.try_send(Event::Error { status: 500, message: msg.clone() });
+    drop(job);
+    inf.busy.store(false, Ordering::SeqCst);
+    refuse_queue(rx, inf, &msg);
+}
+
 /// The conversation state the thread carries between jobs.
 struct Worker {
     loaded: Loaded,
@@ -1643,10 +1657,7 @@ impl Engine {
                 Err(e) => {
                     let msg = format!("loading {name}: {e:#}");
                     *inf.state.lock().expect("state lock") = State::Failed(msg.clone());
-                    while let Ok(job) = rx.recv() {
-                        inf.queue.fetch_sub(1, Ordering::SeqCst);
-                        let _ = job.events.blocking_send(Event::Error { status: 500, message: msg.clone() });
-                    }
+                    refuse_queue(&rx, &inf, &msg);
                     return;
                 }
             };
@@ -1671,24 +1682,24 @@ impl Engine {
                     *inf.state.lock().expect("state lock") = State::Failed(msg.clone());
                     inf.busy.store(false, Ordering::SeqCst);
                     // The requests the panic cut: a live one ends its stream
-                    // with the reason; a pending one, never taken off the
-                    // queue, leaves it. The reason is sent if there is room:
-                    // a client whose channel is full has stopped reading, and
-                    // waiting on it would hold the weights while the next
-                    // request loads another copy. A request the batch-1 path
-                    // held on its stack loses its sender in the unwind: the
-                    // routes end its stream with an error (`api::events`).
-                    for l in live.drain(..) {
-                        let _ = l.job.events.try_send(Event::Error { status: 500, message: msg.clone() });
+                    // with the reason, after the events it still had queued;
+                    // a pending one, never taken off the queue, leaves it.
+                    // The reason is sent if there is room: a client whose
+                    // channel is full has stopped reading, and waiting on it
+                    // would hold the weights while the next request loads
+                    // another copy. A request the batch-1 path held on its
+                    // stack, and an answer that was draining, lose their
+                    // sender in the unwind or with the worker: the routes end
+                    // those streams with an error (`api::events`).
+                    for mut l in live.drain(..) {
+                        l.out.push(Event::Error { status: 500, message: msg.clone() });
+                        let _ = l.out.flush();
                     }
                     for job in pending.drain(..) {
                         inf.queue.fetch_sub(1, Ordering::SeqCst);
                         let _ = job.events.try_send(Event::Error { status: 500, message: msg.clone() });
                     }
-                    while let Ok(job) = rx.recv() {
-                        inf.queue.fetch_sub(1, Ordering::SeqCst);
-                        let _ = job.events.blocking_send(Event::Error { status: 500, message: msg.clone() });
-                    }
+                    refuse_queue(&rx, &inf, &msg);
                 }
                 return;
             }
@@ -1704,13 +1715,7 @@ impl Engine {
                     // The weights go now: this thread lives on until the
                     // engine leaves the list, which may be the next request.
                     drop(w);
-                    *inf.state.lock().expect("state lock") = State::Failed(msg.clone());
-                    let _ = job.events.blocking_send(Event::Error { status: 500, message: msg.clone() });
-                    inf.busy.store(false, Ordering::SeqCst);
-                    while let Ok(job) = rx.recv() {
-                        inf.queue.fetch_sub(1, Ordering::SeqCst);
-                        let _ = job.events.blocking_send(Event::Error { status: 500, message: msg.clone() });
-                    }
+                    fail_after_panic(job, &rx, &inf, msg);
                     return;
                 }
                 // A retiring engine is left to the reaper, which reads the
