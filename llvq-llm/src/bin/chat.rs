@@ -48,8 +48,9 @@ use candle_core::DType;
 use llvq_llm::repl::{ReplOptions, Sampler};
 use std::io::Write;
 
+/// A sampling parameter, refused by name unless finite ([`llvq_llm::repl::parse_chat_param`]).
 fn env_f32(key: &str, default: f32) -> anyhow::Result<f32> {
-    env_parse(key, default)
+    llvq_llm::repl::parse_chat_param(key, std::env::var(key).ok().as_deref(), default)
 }
 
 /// A variable read at its own type: the seed as a `u64` and the token cap as
@@ -82,6 +83,8 @@ fn main() -> anyhow::Result<()> {
     let kv_mode = llvq_llm::kvq::KvMode::from_env().map_err(anyhow::Error::msg)?;
     llvq_llm::served::check_removed(|v| std::env::var(v).ok()).map_err(anyhow::Error::msg)?;
     let temp = env_f32("LLVQ_CHAT_TEMP", 0.7)?;
+    // Read with the temperature, before the load, so a bad value costs a second.
+    let top_p = env_f32("LLVQ_CHAT_TOP_P", 0.9)?;
     // The served config, read and checked against the environment BEFORE the
     // load: a variable it refuses must cost a second, not eighty.
     let served = llvq_llm::served::Served::from_env().map_err(anyhow::Error::msg)?;
@@ -133,7 +136,7 @@ fn main() -> anyhow::Result<()> {
     let opts = ReplOptions {
         sampler: Sampler {
             temp,
-            top_p: env_f32("LLVQ_CHAT_TOP_P", 0.9)?,
+            top_p,
             state: env_parse::<u64>("LLVQ_CHAT_SEED", 0)? ^ 0x5EED_5EED_5EED_5EED,
         },
         max_new: env_parse::<usize>("LLVQ_CHAT_MAX_NEW", 512)?,

@@ -35,6 +35,11 @@ use std::io::{BufRead, Write};
 /// `temp == 0` is argmax and is exact: the same chain `generate` walks, so a
 /// chat started at zero reproduces `run` token for token, which is the only
 /// cheap way to tell a sampling bug from a model bug.
+///
+/// A NaN or infinite `temp` or `top_p` is refused at every pick, and so is a
+/// row with a NaN or a `+inf` logit when sampling: each made every weight NaN,
+/// and the nucleus then answered its last token instead of failing. The
+/// greedy path does not read the row and stays the argmax it was.
 pub struct Sampler {
     pub temp: f32,
     pub top_p: f32,
@@ -52,11 +57,23 @@ impl Sampler {
     }
 
     pub fn pick(&mut self, logits: &Tensor) -> anyhow::Result<u32> {
+        anyhow::ensure!(
+            self.temp.is_finite() && self.top_p.is_finite(),
+            "sampler: temperature {} and top_p {} must both be finite",
+            self.temp,
+            self.top_p
+        );
         if self.temp <= 0.0 {
             return Ok(logits.argmax(D::Minus1)?.to_scalar::<u32>()?);
         }
         let v = logits.to_vec1::<f32>()?;
+        // `-inf` is a masked token, weight zero; NaN and `+inf` poison every
+        // weight, and a row with no finite logit has nothing to weigh.
+        if let Some(i) = v.iter().position(|x| x.is_nan() || *x == f32::INFINITY) {
+            anyhow::bail!("sampler: logit {i} is {}, refused rather than sampled", v[i]);
+        }
         let max = v.iter().copied().fold(f32::NEG_INFINITY, f32::max);
+        anyhow::ensure!(max.is_finite(), "sampler: no finite logit in a row of {}", v.len());
         let p: Vec<(u32, f32)> = v
             .iter()
             .enumerate()
@@ -75,6 +92,17 @@ impl Sampler {
             }
         }
         Ok(p.last().expect("the nucleus keeps at least one token").0)
+    }
+}
+
+/// A sampling parameter of the chat tools (`LLVQ_CHAT_TEMP`, `LLVQ_CHAT_TOP_P`):
+/// unset is `default`, set is a finite number. `nan` and `inf` parse as
+/// `f32`, so they are refused here by name rather than at the first token.
+pub fn parse_chat_param(key: &str, v: Option<&str>, default: f32) -> anyhow::Result<f32> {
+    let Some(s) = v else { return Ok(default) };
+    match s.trim().parse::<f32>() {
+        Ok(x) if x.is_finite() => Ok(x),
+        _ => anyhow::bail!("{key}={s:?}: a finite number is needed"),
     }
 }
 
@@ -430,6 +458,47 @@ mod tests {
         for _ in 0..200 {
             let id = s.pick(&l).expect("a token");
             assert!(id == 1 || id == 3, "the nucleus returned {id}");
+        }
+    }
+
+    /// A NaN temperature used to fail `temp <= 0.0`, weigh every token NaN and
+    /// answer the last token of the nucleus, the least likely one.
+    #[test]
+    fn non_finite_parameters_are_refused_not_answered() {
+        let l = logits(&[0.1, 5.0, 0.2, 4.9]);
+        for (temp, top_p) in [(f32::NAN, 0.9), (f32::INFINITY, 0.9), (f32::NEG_INFINITY, 0.9), (0.7, f32::NAN), (0.7, f32::INFINITY), (0.0, f32::NAN)] {
+            let mut s = Sampler { temp, top_p, state: 5 };
+            let e = s.pick(&l).expect_err(&format!("temp {temp}, top_p {top_p}")).to_string();
+            assert!(e.contains("finite"), "temp {temp}, top_p {top_p}: {e}");
+        }
+    }
+
+    /// A NaN or a `+inf` logit makes every weight NaN; the row is refused.
+    /// A `-inf` logit is a token the model masked: weight zero, never drawn.
+    #[test]
+    fn a_non_finite_row_is_refused_when_sampling() {
+        for bad in [f32::NAN, f32::INFINITY] {
+            let mut s = Sampler { temp: 0.7, top_p: 0.9, state: 5 };
+            let e = s.pick(&logits(&[0.1, bad, 0.2, 4.9])).expect_err("a bad row").to_string();
+            assert!(e.contains("logit"), "{bad}: {e}");
+        }
+        let mut s = Sampler { temp: 0.7, top_p: 0.9, state: 5 };
+        assert!(s.pick(&logits(&[f32::NEG_INFINITY; 4])).is_err(), "a row with no finite logit");
+        let l = logits(&[f32::NEG_INFINITY, 5.0, f32::NEG_INFINITY, 4.9]);
+        for _ in 0..64 {
+            let id = s.pick(&l).expect("a masked row samples");
+            assert!(id == 1 || id == 3, "a masked token came back: {id}");
+        }
+    }
+
+    #[test]
+    fn a_chat_parameter_is_a_finite_number_or_refused() {
+        assert_eq!(parse_chat_param("K", None, 0.7).unwrap(), 0.7);
+        assert_eq!(parse_chat_param("K", Some("0"), 0.7).unwrap(), 0.0);
+        assert_eq!(parse_chat_param("K", Some("1.25"), 0.7).unwrap(), 1.25);
+        for bad in ["nan", "NaN", "inf", "-inf", "infinity", "", "warm"] {
+            let e = parse_chat_param("K", Some(bad), 0.7).expect_err(bad).to_string();
+            assert!(e.starts_with(&format!("K={bad:?}")), "{bad:?}: {e}");
         }
     }
 

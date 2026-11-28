@@ -10,6 +10,9 @@
 //! The rows cover what the shortcut takes and what it refuses: peaked rows,
 //! a wide head, flat rows, rows rounded to an f16 mantissa (ties), a NaN,
 //! both infinities, a constant row, and degenerate temperatures and `top_p`.
+//! Since 2026-11-28 `pick` refuses a non-finite parameter and, when sampling,
+//! a row with a NaN, a `+inf` or no finite logit, where the reference answered
+//! a token: on those inputs the test asks for the refusal instead.
 
 use candle_core::{Device, Tensor, D};
 use llvq_llm::repl::Sampler;
@@ -114,9 +117,25 @@ fn rows(seed: u64, n: usize) -> Vec<(String, Vec<f32>)> {
     out
 }
 
-/// `draws` successive draws from `seed` on both samplers.
+/// Whether `pick` refuses instead of drawing: a non-finite parameter, or,
+/// when sampling, a NaN or `+inf` logit or no finite logit. The reference
+/// answered a token there, the least likely one for a NaN temperature.
+fn refused(v: &[f32], temp: f32, top_p: f32) -> bool {
+    let bad_param = !temp.is_finite() || !top_p.is_finite();
+    let bad_row = v.iter().any(|x| x.is_nan() || *x == f32::INFINITY) || !v.iter().any(|x| x.is_finite());
+    bad_param || (temp > 0.0 && bad_row)
+}
+
+/// `draws` successive draws from `seed` on both samplers, or a refusal that
+/// leaves the generator untouched where [`refused`] says so.
 fn agree(v: &[f32], temp: f32, top_p: f32, seed: u64, draws: usize, what: &str) {
     let t = Tensor::from_slice(v, v.len(), &Device::Cpu).expect("a row");
+    if refused(v, temp, top_p) {
+        let mut new = Sampler { temp, top_p, state: seed };
+        assert!(new.pick(&t).is_err(), "{what}: temp {temp}, top_p {top_p}: a token instead of a refusal");
+        assert_eq!(new.state, seed, "{what}: a refusal stepped the generator");
+        return;
+    }
     let mut new = Sampler { temp, top_p, state: seed };
     let mut old = Sampler { temp, top_p, state: seed };
     for d in 0..draws {
