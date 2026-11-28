@@ -21,6 +21,20 @@
 //!
 //! Derived from the architecture as implemented in `candle-transformers`
 //! (MIT OR Apache-2.0), restructured for observability.
+//!
+//! | file | holds |
+//! |---|---|
+//! | `capture` | the activation names, the [`Capture`] trait and its two implementations, the fenced clock |
+//! | `rotary` | the rotary position tables |
+//! | `cache` | one block's [`KvCache`] and the helpers its growth needs |
+//! | `attention` | the unexpanded attention forms, the masked softmax, the `Kernel` dispatch |
+//! | `proj` | [`Proj`], the [`Rotated`] activation, the row caps, the grouped forward |
+//! | `block` | the embedding, the head, one transformer [`Block`], the batch entry points |
+//! | `qwen3` | [`Qwen3`], the whole model |
+//! | `decode` | the greedy token, a log-probability, the decode records, the causal mask |
+//!
+//! Each child imports what it uses by name. This file re-exports only what
+//! the rest of the workspace names, plus the types its public signatures carry.
 
 mod capture;
 mod rotary;
@@ -31,14 +45,14 @@ mod block;
 mod qwen3;
 mod decode;
 
-pub use capture::*;
-pub use rotary::*;
-pub use cache::*;
-pub use attention::*;
-pub use proj::*;
-pub use block::*;
-pub use qwen3::*;
-pub use decode::*;
+pub use attention::{set_softmax_whole_for_measurement, softmax_form};
+pub use block::{batch_group, Block, Embed, Head};
+pub use cache::{KvCache, KvRoundTrip};
+pub use capture::{Act, Capture, NoCapture, PhaseReport};
+pub use decode::{argmax_last, logp_of, PairedDecode, TimedGeneration};
+pub use proj::{group_forward, row_cap, Proj, Rotated, MAX_PREFILL_ROWS, MAX_ROWS};
+pub use qwen3::{ProjSource, Qwen3};
+pub use rotary::Rotary;
 
 /// The tiny test model, for the host tests of other modules.
 #[cfg(test)]

@@ -9,6 +9,14 @@ use crate::fused::RotKey;
 use crate::kvq::KvMode;
 use crate::rotplan::RotShare;
 
+use super::attention::{
+    grouped_attention, in_place, kernel_prefill, kernel_rows, softmax_in_place, IN_PLACE_FROM, SOFTMAX_ROWS,
+    SOFTMAX_ROWS_T,
+};
+use super::cache::rows_contiguous;
+use super::decode::build_causal_mask;
+use super::proj::{regroup, row_views};
+
 /// A CPU int4 projection that declares `k` rows a launch, for the port's
 /// plumbing: `matvec_rows` is its own matvec row by row, as the port's
 /// contract demands of a real kernel, and it counts its launches.

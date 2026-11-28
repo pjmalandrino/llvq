@@ -2,8 +2,9 @@
 //! forms, and the `Kernel` form's dispatch of rows and prefill chunks. One file because they are
 //! free functions over the same `q`, `k`, `v` and mask, held to return the same bits.
 
-use super::*;
 use candle_core::{IndexOp, Result, Tensor};
+
+use super::cache::rows_contiguous;
 
 /// An attention form that reads the cached heads unexpanded: `q`, `k`, `v`,
 /// the mask (or `None` where it would be all zeros), the score scale.

@@ -84,7 +84,7 @@ pub trait Capture {
 /// The residual entering each of `layers` at every position of a prefill,
 /// kept as binary16 (a drafter's taps, `llvq_cuda::spec_loop`). Reads no
 /// activation, so the blocks keep their fused paths.
-pub struct TapCapture {
+pub(super) struct TapCapture {
     pub layers: Vec<usize>,
     /// One entry a chunk: `[layers][seq][hidden]` binary16 bits.
     pub chunks: Vec<(usize, Vec<Vec<u16>>)>,

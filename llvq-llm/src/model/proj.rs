@@ -178,7 +178,7 @@ pub fn row_cap(batch: usize) -> usize {
 ///
 /// A caller that cuts a prompt into chunks reads it so that no chunk is
 /// refused. The served Metal path batches nothing, so it is 256 there.
-pub fn group_row_cap(projs: &[&Proj]) -> usize {
+pub(super) fn group_row_cap(projs: &[&Proj]) -> usize {
     if projs.iter().all(|p| p.rot_key().is_none()) {
         return usize::MAX;
     }
@@ -518,7 +518,7 @@ fn prefill_rows_of(projs: &[&Proj]) -> usize {
     1
 }
 
-pub fn row_views(x: &Tensor) -> Result<Vec<Tensor>> {
+pub(super) fn row_views(x: &Tensor) -> Result<Vec<Tensor>> {
     let flat = row_block(x)?;
     (0..flat.dim(0)?).map(|r| flat.narrow(0, r, 1)).collect()
 }
@@ -529,7 +529,7 @@ pub fn row_views(x: &Tensor) -> Result<Vec<Tensor>> {
 /// chunk narrows it once and gets a view; a caller that wanted a vector of
 /// single rows and then stacked four of them back together was paying a device
 /// copy a row to rebuild a shape it already had.
-pub fn row_block(x: &Tensor) -> Result<Tensor> {
+pub(super) fn row_block(x: &Tensor) -> Result<Tensor> {
     let dims = x.dims();
     let d_in = *dims.last().expect("rank >= 1");
     let rows: usize = dims[..dims.len() - 1].iter().product();
@@ -558,7 +558,7 @@ fn int4_chunked(d: &dyn crate::device::Int4Proj, flat: &Tensor) -> Result<Tensor
 /// `dims` is the shape the caller handed to [`group_forward`]; the result is
 /// that shape with `d_out` as its last axis. Inverse of [`row_views`] up to
 /// the change of width.
-pub fn regroup(rows: &[Tensor], dims: &[usize], d_out: usize) -> Result<Tensor> {
+pub(super) fn regroup(rows: &[Tensor], dims: &[usize], d_out: usize) -> Result<Tensor> {
     let mut d = dims.to_vec();
     *d.last_mut().expect("rank >= 1") = d_out;
     Tensor::cat(rows, 0)?.reshape(d)

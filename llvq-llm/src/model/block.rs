@@ -2,13 +2,19 @@
 //! entry points that run a group of projections over several sequences. The batch entry points
 //! sit here because the block's batched step is their caller in the model.
 
-use super::*;
 use candle_core::{DType, Module, Result, Tensor};
 use candle_nn::{Activation, Embedding, Linear, RmsNorm, VarBuilder};
 use candle_transformers::models::qwen3::Config;
 
 use crate::kvq::KvMode;
 use crate::rotplan::{check_key, RotShare};
+
+use super::attention::{
+    grouped_attention, in_place, kernel_prefill, kernel_rows, shared_attention, softmax_in_place, AttnFn,
+};
+use super::cache::rows_contiguous;
+use super::proj::{group_row_cap, row_block};
+use super::{group_forward, Act, Capture, KvCache, Proj, ProjSource, Rotary, Rotated};
 
 /// The token embedding: a dense f16 table, or the int8 g64 payload the fused
 /// runtime keeps on the device (`LLVQ_EMBED=q8`).

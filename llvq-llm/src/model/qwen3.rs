@@ -1,13 +1,20 @@
 //! [`Qwen3`], the whole model: construction, prefill, decode, generation and scoring. The type
 //! and its one `impl` stay whole because together they fit under the size target.
 
-use super::*;
 use candle_core::{DType, Device, IndexOp, Module, Result, Tensor, D};
 use candle_nn::{RmsNorm, VarBuilder};
 use candle_transformers::models::qwen3::Config;
 
 use crate::kvq::KvMode;
 use crate::rotplan::RotShare;
+
+use super::capture::{fence, TapCapture};
+use super::decode::build_causal_mask;
+use super::proj::row_block;
+use super::{
+    argmax_last, logp_of, Block, Capture, Embed, Head, KvCache, KvRoundTrip, NoCapture, PairedDecode, PhaseReport,
+    Proj, Rotary, TimedGeneration, MAX_PREFILL_ROWS,
+};
 
 /// Qwen3, loaded for scoring.
 pub struct Qwen3 {

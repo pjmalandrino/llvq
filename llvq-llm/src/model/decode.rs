@@ -53,7 +53,7 @@ pub struct TimedGeneration {
 /// so the unit tests can exercise the exact object the model uses, not a
 /// re-derivation of it. Columns past `offset + i` are −inf: the causal rule
 /// is also the validity rule of a preallocated window's unwritten tail.
-pub fn build_causal_mask(
+pub(super) fn build_causal_mask(
     b: usize,
     l: usize,
     offset: usize,
