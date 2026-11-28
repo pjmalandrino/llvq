@@ -509,10 +509,10 @@ mod tests {
     #[test]
     fn no_launch_in_the_host_is_bounded_by_the_served_constant() {
         let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("..");
-        // `fused_cuda` and `model` are module directories since 2026-11-28: every file of each is read, and a
+        // The three are module directories since 2026-11-28: every file of each is read, and a
         // directory that holds no Rust file fails the test instead of passing it on nothing.
         let mut files = Vec::new();
-        for rel in ["llvq-llm/src/fused_cuda", "llvq-llm/src/model", "llvq-llm/src/bin/fusedrun.rs"] {
+        for rel in ["llvq-llm/src/fused_cuda", "llvq-llm/src/model", "llvq-llm/src/bin/fusedrun"] {
             let path = root.join(rel);
             if path.is_dir() {
                 let before = files.len();

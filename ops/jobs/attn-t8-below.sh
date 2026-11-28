@@ -48,7 +48,7 @@ print("band: inside" if ok else "band: not inside")'
 # The threshold the code carries, and the mode this run needs.
 grep -qx "pub const KERNEL_FROM: usize = $FROM;" llvq-llm/src/kvq.rs \
   || { echo "refused: llvq-llm/src/kvq.rs does not set KERNEL_FROM to $FROM" >&2; exit 1; }
-grep -qF '[c, w, f, "kernel0"]' llvq-llm/src/bin/fusedrun.rs \
+grep -rqF '[c, w, f, "kernel0"]' llvq-llm/src/bin/fusedrun/ \
   || { echo "refused: this fusedrun has no kernel0 arm" >&2; exit 1; }
 
 if [ "$DRY" = 1 ]; then
