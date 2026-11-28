@@ -74,7 +74,7 @@ required-features = ["archive"]
 
 [[bin]]
 name = "radixstudy"
-path = "src/bin/radixstudy.rs"
+path = "src/bin/radixstudy/main.rs"
 required-features = ["archive"]
 
 [[bin]]
