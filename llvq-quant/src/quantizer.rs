@@ -546,6 +546,18 @@ impl BlockQuantizer for LeechShapeGain {
 
     fn quantize(&mut self, v: &[f64], out: &mut [f64]) {
         let x: &[f64; DIM] = v.try_into().expect("block must be 24 weights");
+        // Refused by name, in release too, as `TetraShapeGain::quantize`
+        // refuses it. Past this line a NaN or an infinity is searched like any
+        // weight and comes out as an ordinary code, with nothing in the file
+        // to say the block was not a number. A finite block passes the test
+        // and runs the code below unchanged.
+        if let Some(i) = x.iter().position(|a| !a.is_finite()) {
+            panic!(
+                "non-finite weight {} at position {i} of a ball block: the ball has no \
+                 point for it",
+                x[i]
+            );
+        }
         let norm = x.iter().map(|a| a * a).sum::<f64>().sqrt();
         if norm == 0.0 {
             out.fill(0.0);
@@ -1033,6 +1045,43 @@ mod tests {
         let mut x = finite_block();
         x[23] = f64::NEG_INFINITY;
         quantize_tetra(&x);
+    }
+
+    fn quantize_ball(x: &[f64; DIM]) -> Option<BlockCode> {
+        let mut q = LeechShapeGain::with_shell_cap(vec![0.8, 1.2], 12);
+        q.quantize(x, &mut [0.0; DIM]);
+        q.last_code()
+    }
+
+    #[test]
+    #[should_panic(expected = "non-finite weight NaN at position 3 of a ball block")]
+    fn a_ball_block_with_one_nan_is_refused_by_name() {
+        let mut x = finite_block();
+        x[3] = f64::NAN;
+        quantize_ball(&x);
+    }
+
+    #[test]
+    #[should_panic(expected = "non-finite weight NaN at position 0 of a ball block")]
+    fn an_all_nan_ball_block_is_refused_not_coded() {
+        quantize_ball(&[f64::NAN; DIM]);
+    }
+
+    #[test]
+    #[should_panic(expected = "non-finite weight inf at position 11 of a ball block")]
+    fn an_infinite_weight_in_a_ball_block_is_refused_by_name() {
+        let mut x = finite_block();
+        x[11] = f64::INFINITY;
+        quantize_ball(&x);
+    }
+
+    /// The ball's side of the refusal: a finite block still codes, a zero
+    /// block is still the origin.
+    #[test]
+    fn finite_ball_blocks_still_code() {
+        let code = quantize_ball(&finite_block()).expect("a finite block has a code");
+        assert!(matches!(llvq_core::Leech::shell_index(&code.point), Some(m) if m > 0));
+        assert_eq!(quantize_ball(&[0.0; DIM]).expect("zero block").point, [0; DIM]);
     }
 
     /// The other side of the refusal: a finite block is coded by the
