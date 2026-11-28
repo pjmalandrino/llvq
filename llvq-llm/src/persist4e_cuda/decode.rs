@@ -3,7 +3,12 @@
 //! both settle the same flags and read the same caches in one cooperative
 //! launch.
 
-use super::*;
+use candle_core::cuda_backend::cudarc::driver::{CudaSlice, DevicePtr, LaunchConfig, PushKernelArg};
+use llvq_cuda::pers;
+
+use crate::model::KvCache;
+
+use super::{addr16, Counters4e, Mode4e, Runtime4e, Verify4e, MAX_CAP};
 
 impl Runtime4e {
     /// Decode up to `n` tokens from `tok` at position `pos0`, the caches

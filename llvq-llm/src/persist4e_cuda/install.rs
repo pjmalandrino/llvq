@@ -3,7 +3,15 @@
 //! module, the layer images and the scratch. One file because every door ends
 //! in `install_inner`.
 
-use super::*;
+use candle_core::cuda_backend::cudarc::driver::{CudaSlice, DevicePtr, LaunchConfig, PushKernelArg};
+use candle_core::{DType, Device, Tensor};
+use half::f16;
+use llvq_cuda::pers;
+
+use crate::model::{Embed, Head, Qwen3};
+
+use super::views::{int4_of, mlp_args, seg_tetra, tensor_addr, tetra_of};
+use super::{addr16, Kv8, Runtime4e, TreeModules, MAX_CAP};
 
 /// Run candle's rope on the card and each of the three forms on the same
 /// quads; the matching forms, in order.

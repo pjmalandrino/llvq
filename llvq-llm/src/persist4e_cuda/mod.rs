@@ -41,13 +41,24 @@
 //! wrote them so and the eager path reads the same buffers
 //! (`fused_cuda::upload_int4`, `tv_q4_tile.cu`): the int4 bytes are on the
 //! card once. On the bench door's file-order runtime v9 relays a copy.
+//!
+//! ## The files
+//!
+//! | file | holds |
+//! |---|---|
+//! | `mod` | [`Runtime4e`] and the private state it carries (verify, tree, int8 caches, counters) |
+//! | `install` | the RoPE probe, the public `install*` doors, the e1 arm checks, `install_inner` |
+//! | `prepare` | the caches grown, checked and re-uploaded before a launch, arm v9k8's int8 caches |
+//! | `decode` | the linear launches: N tokens a launch and the verify pass |
+//! | `tree` | the tree pass's types ([`TreeForm`], [`TreePlan`], [`TreeModules`], ...) and its install |
+//! | `tree_launch` | one tree launch, its moved and chain forms, the chain prefill |
+//! | `views` | the device views 4E reads: tensor addresses, Tetra and int4 views, the MLP arguments |
+//!
+//! Each child imports what it uses by name. This file re-exports only what
+//! the rest of the workspace names, plus the types its public signatures carry.
 
-use candle_core::cuda_backend::cudarc::driver::{CudaFunction, CudaSlice, DevicePtr, LaunchConfig, PushKernelArg};
-use candle_core::{DType, Device, Storage, Tensor};
-use half::f16;
+use candle_core::cuda_backend::cudarc::driver::{CudaFunction, CudaSlice, DevicePtr};
 
-use crate::fused_cuda::{CudaInt4, CudaLattice, TetraView};
-use crate::model::{Embed, Head, KvCache, Proj, Qwen3};
 use llvq_cuda::pers;
 
 mod decode;
@@ -57,9 +68,9 @@ mod tree;
 mod tree_launch;
 mod views;
 
-pub use install::*;
-pub use tree::*;
-pub use views::*;
+pub use install::{check_e1_arms, install, install_e1, install_e1_local, install_rows, install_rows_as, CHECK_ROPE_FORM};
+pub use tree::{ChainPrefill, TreeArm, TreeArmSpec, TreeForm, TreeModules, TreeOut, TreePlan};
+pub use views::is_int4;
 
 /// The positions 4E's attention scratch is sized for, at most. Defined in
 /// `served_decode`, which every build compiles, so a harness checks its

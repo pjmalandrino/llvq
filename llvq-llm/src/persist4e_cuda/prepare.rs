@@ -2,7 +2,13 @@
 //! the images re-uploaded when a buffer moved, and arm v9k8's int8 caches
 //! filled or released. One file because each step runs before a launch.
 
-use super::*;
+use candle_core::cuda_backend::cudarc::driver::{DevicePtr, LaunchConfig, PushKernelArg};
+use llvq_cuda::pers;
+
+use crate::model::KvCache;
+
+use super::views::tensor_addr;
+use super::{Kv8, Runtime4e, MAX_CAP};
 
 impl Runtime4e {
     /// The caches grown to hold a launch of `n` positions from `pos0`, and

@@ -2,7 +2,13 @@
 //! projection, and the MLP arguments. One file because they are the free
 //! functions the install path and the eager path share.
 
-use super::*;
+use candle_core::cuda_backend::cudarc::driver::DevicePtr;
+use candle_core::{DType, Storage, Tensor};
+use half::f16;
+use llvq_cuda::pers;
+
+use crate::fused_cuda::{CudaInt4, CudaLattice, TetraView};
+use crate::model::Proj;
 
 /// Is a projection the int4 one 4E reads (for the mode's refusals)?
 pub fn is_int4(p: &Proj) -> bool {
@@ -11,7 +17,7 @@ pub fn is_int4(p: &Proj) -> bool {
 
 // ---- the device views 4E reads, moved here from route P's host (2026-11-08) ----
 
-pub(crate) fn tensor_addr(t: &Tensor, stream: &candle_core::cuda_backend::cudarc::driver::CudaStream) -> candle_core::Result<u64> {
+pub(super) fn tensor_addr(t: &Tensor, stream: &candle_core::cuda_backend::cudarc::driver::CudaStream) -> candle_core::Result<u64> {
     let (st, lay) = t.storage_and_layout();
     match &*st {
         Storage::Cuda(cs) => Ok(cs.as_cuda_slice::<f16>()?.device_ptr(stream).0 + 2 * lay.start_offset() as u64),
@@ -19,18 +25,18 @@ pub(crate) fn tensor_addr(t: &Tensor, stream: &candle_core::cuda_backend::cudarc
     }
 }
 
-pub(crate) fn tetra_of(p: &Proj) -> Option<(TetraView, &CudaLattice)> {
+pub(super) fn tetra_of(p: &Proj) -> Option<(TetraView, &CudaLattice)> {
     let Proj::Lattice(d) = p else { return None };
     let c = d.as_any()?.downcast_ref::<CudaLattice>()?;
     Some((c.tetra_view()?, c))
 }
 
-pub(crate) fn int4_of(p: &Proj) -> Option<&CudaInt4> {
+pub(super) fn int4_of(p: &Proj) -> Option<&CudaInt4> {
     let Proj::Int4(d) = p else { return None };
     d.as_any()?.downcast_ref::<CudaInt4>()
 }
 
-pub(crate) fn seg_tetra(v: &TetraView) -> pers::SegTetraHost {
+pub(super) fn seg_tetra(v: &TetraView) -> pers::SegTetraHost {
     pers::SegTetraHost {
         words: v.words,
         rscale: v.rscale,
@@ -48,7 +54,7 @@ pub(crate) fn seg_tetra(v: &TetraView) -> pers::SegTetraHost {
 /// gate/up rotation and Tetra streams, and its Tetra or int4 down. Returns the
 /// image, whether the down is Tetra, and an int4 down's word order (`None`
 /// for a Tetra down).
-pub(crate) fn mlp_args(
+pub(super) fn mlp_args(
     block: &crate::model::Block,
     frt: &crate::fused_cuda::FusedRuntime,
     base: &pers::SegArgsHost,

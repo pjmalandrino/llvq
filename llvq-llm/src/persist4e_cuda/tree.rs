@@ -2,7 +2,10 @@
 //! how the tree modules load, the tiled module and the tree-tiled copies.
 //! One file because each type here is what `install_tree` reads or builds.
 
-use super::*;
+use candle_core::cuda_backend::cudarc::driver::{CudaFunction, CudaSlice, DevicePtr, LaunchConfig, PushKernelArg};
+use llvq_cuda::pers;
+
+use super::{addr16, Runtime4e, Tree4e, TreeTiled, MAX_CAP};
 
 /// The kernel an arm of the tree pass runs.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
