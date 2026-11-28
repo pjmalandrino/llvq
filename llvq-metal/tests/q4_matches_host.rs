@@ -226,6 +226,9 @@ fn run_with(m: &Int4Matrix, x: &[f32], exact: bool) -> Vec<f32> {
         enc.set_threadgroup_memory_length(0, tg_bytes as u64);
     });
 
+    // SAFETY: `Kernel::read`'s contract: `b_y` holds `d_out` f32 (`k.empty::<f32>(m.d_out)` above),
+    // the dispatch that writes it has returned, and `dispatch`, `time` and
+    // their kin wait for completion before returning; f32 takes any bits.
     unsafe { k.read::<f32>(&b_y, m.d_out) }
 }
 

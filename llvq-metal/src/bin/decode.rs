@@ -264,6 +264,9 @@ fn main() -> Result<(), String> {
     });
     let t_masks = report("masques imbriqués", t.seconds, t_floor);
     // Verify against the CPU reference before believing the timing.
+    // SAFETY: `Kernel::read`'s contract: `bout` holds `N` f32 (`floor.empty::<f32>(N)` above),
+    // the dispatch that writes it has returned, and `dispatch`, `time` and
+    // their kin wait for completion before returning; f32 takes any bits.
     let got: Vec<f32> = unsafe { masks.read(&bout, N) };
     for i in [0usize, 1, 5000, N - 1] {
         let w = decode_masks_cpu(codes[i], mags[i]);

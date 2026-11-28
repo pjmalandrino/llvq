@@ -141,7 +141,13 @@ mod gpu {
         ///
         /// # Safety
         /// `buf` must hold at least `len` values of type `T`, written by a
-        /// dispatch that has completed.
+        /// dispatch that has completed, with no command buffer still able to
+        /// write it while the copy runs. It must be a shared-storage buffer,
+        /// as [`Self::buffer`] and [`Self::empty`] make it, so that
+        /// `contents()` is a CPU address (a private buffer returns null).
+        /// Every bit pattern the GPU may have left must be a valid `T`: true
+        /// of the `f32` and `u32` every caller reads, not of `bool` or an
+        /// enum. Alignment holds: Metal places `contents()` on a page.
         pub unsafe fn read<T: Copy>(&self, buf: &metal::Buffer, len: usize) -> Vec<T> {
             std::slice::from_raw_parts(buf.contents() as *const T, len).to_vec()
         }

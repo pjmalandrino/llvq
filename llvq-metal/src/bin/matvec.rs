@@ -597,12 +597,18 @@ fn main() -> Result<(), String> {
 
     // ---- verify before timing ----
     kf16.dispatch(threads, 256, |e: &metal::ComputeCommandEncoderRef| bind_f16(e, 0));
+    // SAFETY: `Kernel::read`'s contract: `by` holds `d_out` f32 (`kf16.empty::<f32>(d_out)` above),
+    // the dispatch that writes it has returned, and `dispatch`, `time` and
+    // their kin wait for completion before returning; f32 takes any bits.
+    // The four reads below rest on the same.
     let got: Vec<f32> = unsafe { kf16.read(&by, d_out) };
     check("FP16", &got, &y16_ref, &scale);
     kg32.dispatch(threads, 256, |e: &metal::ComputeCommandEncoderRef| bind_g32(e, 0));
+    // SAFETY: as for the FP16 read above.
     let got: Vec<f32> = unsafe { kg32.read(&by, d_out) };
     check("LLVQ G32", &got, &y_ref, &scale);
     kflat.dispatch(threads, 256, |e: &metal::ComputeCommandEncoderRef| bind_flat(e, 0));
+    // SAFETY: as for the FP16 read above.
     let got: Vec<f32> = unsafe { kflat.read(&by, d_out) };
     check("LLVQ Flat32", &got, &y_ref, &scale);
     let sthreads = nsgroups.div_ceil(4) * 32;
@@ -610,9 +616,11 @@ fn main() -> Result<(), String> {
         bind_init(e, 0)
     });
     ksort.dispatch(sthreads, 256, |e: &metal::ComputeCommandEncoderRef| bind_sort(e, 0));
+    // SAFETY: as for the FP16 read above (`ksort` after `kinit`, both waited).
     let got: Vec<f32> = unsafe { ksort.read(&by, d_out) };
     check("LLVQ Sorted32", &got, &y_ref, &scale);
     kslot.dispatch(threads, 256, |e: &metal::ComputeCommandEncoderRef| bind_slot(e, 0));
+    // SAFETY: as for the FP16 read above.
     let got: Vec<f32> = unsafe { kslot.read(&by, d_out) };
     check("LLVQ Slot32", &got, &y_ref, &scale);
 

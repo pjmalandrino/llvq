@@ -145,6 +145,9 @@ fn untiled_on(k: &Kernel, m: &Int4Matrix, x: &[f32]) -> Vec<f32> {
         enc.set_bytes(6, 4, &gpr as *const u32 as *const std::ffi::c_void);
         enc.set_threadgroup_memory_length(0, (m.d_in * 4) as u64);
     });
+    // SAFETY: `Kernel::read`'s contract: `b_y` holds `d_out` f32 (`k.empty::<f32>(m.d_out)` above),
+    // the dispatch that writes it has returned, and `dispatch`, `time` and
+    // their kin wait for completion before returning; f32 takes any bits.
     unsafe { k.read::<f32>(&b_y, m.d_out) }
 }
 
@@ -171,6 +174,9 @@ fn tiled_on(k: &Kernel, m: &Int4Matrix, x: &[f32], tile: usize) -> Vec<f32> {
         enc.set_bytes(7, 4, &tc as *const u32 as *const std::ffi::c_void);
         enc.set_threadgroup_memory_length(0, (tile * 4) as u64);
     });
+    // SAFETY: `Kernel::read`'s contract: `b_y` holds `d_out` f32 (`k.empty::<f32>(m.d_out)` above),
+    // the dispatch that writes it has returned, and `dispatch`, `time` and
+    // their kin wait for completion before returning; f32 takes any bits.
     unsafe { k.read::<f32>(&b_y, m.d_out) }
 }
 

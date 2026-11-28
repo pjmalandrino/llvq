@@ -439,9 +439,15 @@ pub struct MoeShape {
 /// one of its dependencies), so the object lives as long as its owner.
 trait MoeHold: Send + Sync {}
 struct MoeHeld<T>(#[allow(dead_code)] T);
-// SAFETY: the held heap is never used through this handle, only kept alive;
-// Metal objects may be retained and released from any thread.
+// SAFETY: the field is private and never read, so the only thing another
+// thread can do with a `MoeHeld` is drop it, which releases the object. The
+// impl is generic, but the one construction (`upload_moe_layer`) holds the
+// placement heap, a retained Objective-C object whose release is atomic and
+// may run on any thread. A `MoeHeld` of a type whose drop is tied to a
+// thread would make this unsound; nothing builds one.
 unsafe impl<T> Send for MoeHeld<T> {}
+// SAFETY: as for `Send`: a shared `&MoeHeld` gives access to nothing, since
+// the field is private and unread.
 unsafe impl<T> Sync for MoeHeld<T> {}
 impl<T> MoeHold for MoeHeld<T> {}
 
@@ -550,7 +556,9 @@ impl MetalRuntime {
         let mut items: Vec<&[u8]> = Vec::with_capacity(experts.len() * 16);
         let mut tails = Vec::with_capacity(experts.len() * 3);
         fn bytes<T>(v: &[T]) -> &[u8] {
-            // SAFETY: plain numbers (u32, u16, f32), read as bytes.
+            // SAFETY: called on `u32`, `u16` and `f32` slices only (the
+            // records below), which have no padding, so every one of the
+            // `size_of_val(v)` bytes is initialised; the result borrows `v`.
             unsafe { std::slice::from_raw_parts(v.as_ptr().cast::<u8>(), core::mem::size_of_val(v)) }
         }
         for e in experts {
@@ -600,7 +608,15 @@ impl MetalRuntime {
             .newHeapWithDescriptor(&desc)
             .ok_or_else(|| candle_core::Error::msg(format!("Metal refused a placement heap of {total} B")))?;
         let alias = |off: usize, len: usize| -> Result<Arc<Buffer>> {
-            // SAFETY: `off` and `len` lie inside the heap, at its alignment.
+            // SAFETY: Metal asks that `off` be a multiple of the alignment
+            // `heapBufferSizeAndAlign` gave for this length and that the
+            // buffer fit the heap: `offs` places each record at its own
+            // alignment and the heap is `total >= cursor` bytes, `alias(0,
+            // total)` included. Lifetime: `_heap` in the returned slab holds
+            // the heap, but the aliases also leave in the `MoeSlabExpert`s
+            // returned beside it; that an alias outliving the slab is sound
+            // assumes Metal keeps a heap alive while a buffer placed in it
+            // lives, which this crate does not establish.
             let raw = unsafe { heap.newBufferWithLength_options_offset(len, opts, off) }
                 .ok_or_else(|| candle_core::Error::msg(format!("a heap buffer of {len} B at {off}")))?;
             Ok(Arc::new(Buffer::new(raw)))
@@ -608,8 +624,11 @@ impl MetalRuntime {
         let slab = alias(0, total)?;
         let base = slab.contents();
         for (it, &off) in items.iter().zip(&offs) {
-            // SAFETY: the record fits at `off` by construction of `offs`, and
-            // nothing reads the heap yet.
+            // SAFETY: `base` is the CPU address of the whole shared-storage
+            // heap (`slab` aliases it from 0 for `total` bytes); `off +
+            // it.len() <= cursor <= total` by construction of `offs`; the
+            // source is a host slice that cannot overlap device memory; no
+            // command buffer has seen the heap yet, so nothing reads it.
             unsafe { std::ptr::copy_nonoverlapping(it.as_ptr(), base.add(off), it.len()) };
         }
         let keep_host = self.tables.host.is_some();

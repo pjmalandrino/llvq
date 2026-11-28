@@ -812,6 +812,9 @@ fn main() -> Result<(), String> {
         let mut out: Vec<Vec<f32>> = Vec::with_capacity(arms.len());
         for (ai, (&arm, k)) in arms.iter().zip(&kernels).enumerate() {
             k.dispatch(threads, tg, |e: &metal::ComputeCommandEncoderRef| bind(e, m, arm));
+            // SAFETY: `Kernel::read`'s contract: `by` holds `by_len` f32, the widest `d_out` (`kernels[0].empty::<f32>(by_len)` above),
+            // the dispatch that writes it has returned, and `dispatch`, `time` and
+            // their kin wait for completion before returning; f32 takes any bits.
             let got: Vec<f32> = unsafe { k.read(&by, m.d_out) };
             let e = worst_error(&got, arm.reference(m), &m.scale);
             assert!(

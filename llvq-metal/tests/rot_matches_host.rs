@@ -486,6 +486,9 @@ fn run_metal_named(f: &Fixture, r: &Run, name: &'static str) -> Vec<f32> {
         }
     });
 
+    // SAFETY: `Kernel::read`'s contract: `b_out` holds `n` f32 (`kern.empty::<f32>(f.n)` above),
+    // the dispatch that writes it has returned, and `dispatch`, `time` and
+    // their kin wait for completion before returning; f32 takes any bits.
     unsafe { kern.read::<f32>(&b_out, f.n) }
 }
 
@@ -517,6 +520,9 @@ fn run_metal_rows(f: &Fixture, batch: &[u16], rows: usize, row_stride: usize) ->
         enc.set_bytes(10, 4, &stride as *const u32 as *const c_void);
     });
 
+    // SAFETY: `Kernel::read`'s contract: `b_out` holds `rows * n` f32 (`kern.empty::<f32>(rows * f.n)` above),
+    // the dispatch that writes it has returned, and `dispatch`, `time` and
+    // their kin wait for completion before returning; f32 takes any bits.
     unsafe { kern.read::<f32>(&b_out, rows * f.n) }
 }
 

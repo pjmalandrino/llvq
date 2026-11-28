@@ -237,6 +237,9 @@ fn run_gather(t: &Table, ids: &[u32], ids_off: u32, exact: bool) -> Vec<f32> {
         set_u32(enc, 6, &gpr);
         set_u32(enc, 7, &ids_off);
     });
+    // SAFETY: `Kernel::read`'s contract: `b_y` holds `ntok * d` f32 (`k.empty::<f32>(ntok * t.d)` above),
+    // the dispatch that writes it has returned, and `dispatch`, `time` and
+    // their kin wait for completion before returning; f32 takes any bits.
     unsafe { k.read::<f32>(&b_y, ntok * t.d) }
 }
 
@@ -286,6 +289,11 @@ fn run_head(
         set_u32(enc, 8, &y_off);
         enc.set_threadgroup_memory_length(0, tg_bytes);
     });
+    // SAFETY: `Kernel::read`'s contract: `b_y` holds `y_len` f32 (`k.buffer(&vec![sentinel; y_len])` above),
+    // the dispatch that writes it has returned, and `dispatch`, `time` and
+    // their kin wait for completion before returning; f32 takes any bits.
+    // The buffer starts filled, so rows the kernel must not touch read back
+    // as the sentinel.
     unsafe { k.read::<f32>(&b_y, y_len) }
 }
 

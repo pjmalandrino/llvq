@@ -316,6 +316,10 @@ fn run_named(f: &Fixture, exact: bool, name: &str) -> Vec<f32> {
         }
     });
 
+    // SAFETY: `b_y` is a shared-storage buffer of `d_out` f32 (`k.empty`
+    // above), so `contents()` points at that many aligned floats; `dispatch`
+    // returned after the GPU completed, and the slice is copied out before
+    // `b_y` drops. f32 takes any bits.
     let out = unsafe { std::slice::from_raw_parts(b_y.contents() as *const f32, f.d_out) };
     out.to_vec()
 }

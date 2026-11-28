@@ -107,7 +107,14 @@ fn decode_on_metal(data: &[u8], stride: usize, nblocks: usize, rows: usize) -> D
         enc.set_bytes(8, 4, &nb as *const u32 as *const std::ffi::c_void);
     });
 
+    // SAFETY: `b_out` and `b_shell` are shared-storage buffers of `n * 24`
+    // f32 and `n * 2` u32 (`k.empty` above), so `contents()` points at that many
+    // bytes, aligned for both types; `dispatch` returned after the GPU completed,
+    // so nothing writes them while the two slices live, and both are copied out
+    // before the buffers drop at the end of this function. f32 and u32 take any
+    // bits.
     let points = unsafe { std::slice::from_raw_parts(b_out.contents() as *const f32, n * DIM) };
+    // SAFETY: as for `points` just above, for `b_shell`.
     let shells = unsafe { std::slice::from_raw_parts(b_shell.contents() as *const u32, n * 2) };
     Decoded {
         points: points.to_vec(),

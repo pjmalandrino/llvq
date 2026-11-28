@@ -245,6 +245,9 @@ fn main() -> Result<(), String> {
         enc.set_buffer(4, Some(&bout), 0);
     });
     let t_f96 = report("Fixed96 (aligned)", t.seconds, t_floor);
+    // SAFETY: `Kernel::read`'s contract: `bout` holds `n` f32 (`floor.empty::<f32>(n)` above),
+    // the dispatch that writes it has returned, and `dispatch`, `time` and
+    // their kin wait for completion before returning; f32 takes any bits.
     let got: Vec<f32> = unsafe { kf.read(&bout, n) };
     verify("Fixed96", &got, &f96, &table, &x);
 
@@ -259,6 +262,9 @@ fn main() -> Result<(), String> {
         enc.set_buffer(5, Some(&bout), 0);
     });
     let t_g32 = report("Grouped32 (byte strides)", t.seconds, t_floor);
+    // SAFETY: `Kernel::read`'s contract: `bout` holds `n` f32 (`floor.empty::<f32>(n)` above),
+    // the dispatch that writes it has returned, and `dispatch`, `time` and
+    // their kin wait for completion before returning; f32 takes any bits.
     let got: Vec<f32> = unsafe { kg.read(&bout, n) };
     verify("Grouped32", &got, &g32, &table, &x);
 
