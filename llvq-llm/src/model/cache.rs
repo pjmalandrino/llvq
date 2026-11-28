@@ -5,6 +5,18 @@ use candle_core::{Result, Tensor};
 
 use crate::kvq::KvMode;
 
+/// The code of a cache mode the model does not own: the measurement arms of
+/// [`KvMode`] (`K8V4`, `K4V4C`, `K4V4H`). One per block, installed by
+/// [`super::Qwen3::set_kv_round_trip`] and handed to every append of that
+/// block's cache. The measurement module implements it in its own file, so
+/// the forward pass names none. `F16` and `Q8` never call it, and with none
+/// installed a block appends exactly what it appended before the hook existed.
+pub trait KvRoundTrip: Send + Sync {
+    /// Quantize this step's keys and values under `mode` and widen them back,
+    /// at the input's dtype and shape.
+    fn round_trip(&self, mode: KvMode, k: &Tensor, v: &Tensor) -> Result<(Tensor, Tensor)>;
+}
+
 /// One block's keys and values, for every position already seen.
 ///
 /// Stored **before** `repeat_kv`: the grouped-query expansion is a view over
@@ -62,14 +74,13 @@ impl KvCache {
         self.append_with(k, v, None)
     }
 
-    /// [`Self::append`], with what a ladder arm needs besides the tensors
-    /// ([`crate::kvladder::LadderAux`]): the block passes its own. `F16` and
-    /// `Q8` read nothing from it.
-    pub(super) fn append_with(
+    /// [`Self::append`], with the block's [`KvRoundTrip`] for the modes this
+    /// module does not code itself. `F16` and `Q8` never call it.
+    pub(crate) fn append_with(
         &mut self,
         k: &Tensor,
         v: &Tensor,
-        aux: Option<&crate::kvladder::LadderAux>,
+        round_trip: Option<&dyn KvRoundTrip>,
     ) -> Result<(Tensor, Tensor)> {
         let (k, v) = match self.mode {
             KvMode::F16 => (k.clone(), v.clone()),
@@ -77,9 +88,17 @@ impl KvCache {
                 crate::kvq::quantize_dequantize(k)?,
                 crate::kvq::quantize_dequantize(v)?,
             ),
-            // The measurement arms of `LLVQ_KV_LADDER`: same place, same
-            // once-per-position rule.
-            KvMode::K8V4 | KvMode::K4V4C | KvMode::K4V4H => crate::kvladder::round_trip(self.mode, k, v, aux)?,
+            // The measurement arms: coded by whoever installed the round trip,
+            // at the same place and under the same once-per-position rule.
+            KvMode::K8V4 | KvMode::K4V4C | KvMode::K4V4H => {
+                let r = round_trip.ok_or_else(|| {
+                    candle_core::Error::msg(format!(
+                        "a {} cache with no round trip installed: Qwen3::set_kv_round_trip before the first position",
+                        self.mode.name()
+                    ))
+                })?;
+                r.round_trip(self.mode, k, v)?
+            }
         };
         match self.store {
             crate::kvq::KvStore::Grow(chunk) => return self.append_grow(chunk, &k, &v),

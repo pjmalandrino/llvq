@@ -104,11 +104,10 @@ pub struct Block {
     /// carries ([`crate::kvq::PrefillAttn`]): set by
     /// [`Qwen3::set_prefill_attention`], `Grouped` everywhere else.
     prefill_attn: crate::kvq::PrefillAttn,
-    /// What a `LLVQ_KV_LADDER` arm needs to code this layer's cache (its
-    /// static key steps, the Hadamard matrix), installed by
-    /// [`Qwen3::set_kv_ladder_aux`]; `None` everywhere else, and the `F16`
-    /// and `Q8` caches never read it.
-    pub(super) kv_aux: Option<crate::kvladder::LadderAux>,
+    /// The code of this layer's cache under a measurement arm of
+    /// [`crate::kvq::KvMode`], installed by [`Qwen3::set_kv_round_trip`];
+    /// `None` everywhere else, and the `F16` and `Q8` caches never call it.
+    pub(super) kv_round_trip: Option<Box<dyn super::KvRoundTrip>>,
 }
 
 /// Take the supplied projection, or build the dense one.
@@ -215,7 +214,7 @@ impl Block {
             attn_kernel: None,
             kernel_from: crate::kvq::KERNEL_FROM,
             prefill_attn: crate::kvq::PrefillAttn::Grouped,
-            kv_aux: None,
+            kv_round_trip: None,
         })
     }
 
@@ -392,7 +391,7 @@ impl Block {
                 )
             })?;
             let grow = matches!(cache.store(), crate::kvq::KvStore::Grow(_));
-            let (k, v) = cache.append_with(&k, &v, self.kv_aux.as_ref())?;
+            let (k, v) = cache.append_with(&k, &v, self.kv_round_trip.as_deref())?;
             // A chunk of at most `kern.max_rows()` rows on a growing cache,
             // decode or prefill alike, sends its rows at `kernel_from` or later
             // to the kernel (`kernel_rows`). A longer chunk goes to the kernel
@@ -431,13 +430,13 @@ impl Block {
             }
         };
         if let Some(attend) = unexpanded {
-            let (k, v) = cache.append_with(&k, &v, self.kv_aux.as_ref())?;
+            let (k, v) = cache.append_with(&k, &v, self.kv_round_trip.as_deref())?;
             let (k, v) = (rows_contiguous(&k)?, rows_contiguous(&v)?);
             let ctx = attend(&q, &k, &v, mask, scale)?;
             return Ok(ctx);
         }
         let groups = self.n_heads / self.n_kv;
-        let (k, v) = cache.append_with(&k, &v, self.kv_aux.as_ref())?;
+        let (k, v) = cache.append_with(&k, &v, self.kv_round_trip.as_deref())?;
         let (k, v) = (
             candle_transformers::utils::repeat_kv(k, groups)?.contiguous()?,
             candle_transformers::utils::repeat_kv(v, groups)?.contiguous()?,

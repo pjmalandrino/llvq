@@ -83,7 +83,7 @@ pub(super) fn install_ladder(
     let aux = (0..n)
         .map(|i| LadderAux { key_step: steps.as_ref().map(|s| s[i].clone()), hadamard: hadamard.clone() })
         .collect();
-    model.set_kv_ladder_aux(Some(aux))?;
+    model.set_kv_round_trip(Some(LadderAux::boxed(aux)))?;
     Ok(())
 }
 

@@ -170,19 +170,19 @@ impl Qwen3 {
         self.kv
     }
 
-    /// MEASUREMENT ONLY (`LLVQ_KV_LADDER`): install what each layer's ladder
-    /// arm reads besides the tensors, one entry a block, or clear it with
-    /// `None`. A cache in `F16` or `Q8` never reads it, so the served path is
-    /// the same with or without it.
-    pub fn set_kv_ladder_aux(&mut self, aux: Option<Vec<crate::kvladder::LadderAux>>) -> Result<()> {
-        match aux {
-            None => self.blocks.iter_mut().for_each(|b| b.kv_aux = None),
+    /// MEASUREMENT ONLY: install the code of each layer's cache under a
+    /// measurement arm of [`KvMode`] ([`KvRoundTrip`]), one entry a block, or
+    /// clear it with `None`. A cache in `F16` or `Q8` never calls it, so the
+    /// served path is the same with or without it.
+    pub fn set_kv_round_trip(&mut self, codes: Option<Vec<Box<dyn KvRoundTrip>>>) -> Result<()> {
+        match codes {
+            None => self.blocks.iter_mut().for_each(|b| b.kv_round_trip = None),
             Some(a) => {
                 if a.len() != self.blocks.len() {
-                    candle_core::bail!("{} ladder entries for {} blocks", a.len(), self.blocks.len());
+                    candle_core::bail!("{} round-trip entries for {} blocks", a.len(), self.blocks.len());
                 }
                 for (b, x) in self.blocks.iter_mut().zip(a) {
-                    b.kv_aux = Some(x);
+                    b.kv_round_trip = Some(x);
                 }
             }
         }

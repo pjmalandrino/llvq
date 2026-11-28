@@ -495,7 +495,7 @@ fn main() -> anyhow::Result<()> {
             if let Some(l) = ladder.as_ref() {
                 install_ladder(&mut f.model, &f.tokenizer, l, &device)?;
                 run_ladder_ppl(&mut f.model, &ids, &spec, l)?;
-                f.model.set_kv_ladder_aux(None)?;
+                f.model.set_kv_round_trip(None)?;
                 return Ok(());
             }
             run_gqa_ppl(&mut f.model, &ids, &spec)?;

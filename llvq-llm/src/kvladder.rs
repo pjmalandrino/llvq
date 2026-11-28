@@ -44,6 +44,7 @@
 use candle_core::{DType, Device, Result, Tensor};
 
 use crate::kvq::KvMode;
+use crate::model::KvRoundTrip;
 
 /// Values per int4 affine group, keys of `k4v4h` and values of every int4
 /// arm. 64, not the 128 of the int4 weight records, for two reasons: it is
@@ -128,12 +129,29 @@ impl Ladder {
 
 /// What an arm needs besides the tensors: the static key steps of `k4v4c`,
 /// `[1, n_kv, 1, head_dim]` f32 for one layer, and the Hadamard matrix of
-/// `k4v4h` on the model's device. Installed on each block by
-/// [`crate::model::Qwen3::set_kv_ladder_aux`].
+/// `k4v4h` on the model's device. Installed on each block, as that block's
+/// [`KvRoundTrip`], by [`crate::model::Qwen3::set_kv_round_trip`] (see
+/// [`LadderAux::boxed`]).
 #[derive(Clone, Debug, Default)]
 pub struct LadderAux {
     pub key_step: Option<Tensor>,
     pub hadamard: Option<Tensor>,
+}
+
+impl LadderAux {
+    /// One entry a block, in the form [`crate::model::Qwen3::set_kv_round_trip`]
+    /// takes.
+    pub fn boxed(aux: Vec<LadderAux>) -> Vec<Box<dyn KvRoundTrip>> {
+        aux.into_iter().map(|a| Box::new(a) as Box<dyn KvRoundTrip>).collect()
+    }
+}
+
+/// The ladder's hook into the forward pass: a block's cache appends through
+/// [`round_trip`] with this block's state, so the model names no ladder type.
+impl KvRoundTrip for LadderAux {
+    fn round_trip(&self, mode: KvMode, k: &Tensor, v: &Tensor) -> Result<(Tensor, Tensor)> {
+        round_trip(mode, k, v, Some(self))
+    }
 }
 
 /// Quantize this step's keys and values under a ladder arm and widen them
@@ -147,7 +165,7 @@ pub fn round_trip(mode: KvMode, k: &Tensor, v: &Tensor, aux: Option<&LadderAux>)
             let step = aux.and_then(|a| a.key_step.as_ref()).ok_or_else(|| {
                 candle_core::Error::msg(
                     "k4v4c with no static key steps: calibrate (kvladder::calibrate) and install \
-                     them (Qwen3::set_kv_ladder_aux) before the first position",
+                     them (Qwen3::set_kv_round_trip) before the first position",
                 )
             })?;
             Ok((static_key(k, step)?, int4_affine(v)?))
@@ -588,5 +606,62 @@ mod tests {
         let wide = Tensor::zeros((1, 32, 1, HD), DType::F16, &Device::Cpu).unwrap();
         let e = static_key(&wide, &calibrated_steps(DEFAULT_CLIP)).expect_err("expanded heads");
         assert!(format!("{e}").contains("expanded heads"), "{e}");
+    }
+
+    /// The `kvq.rs` invariant through the cache, for every `LLVQ_KV_LADDER`
+    /// arm and both stores a ladder run uses: positions appended in one call
+    /// and the same positions appended one at a time hold the same bytes. The
+    /// arm reaches the cache as the block does, through [`KvRoundTrip`].
+    #[test]
+    fn ladder_caches_hold_a_prefill_as_its_decode_steps() {
+        use crate::kvq::KvStore;
+        use crate::model::KvCache;
+        let dev = Device::Cpu;
+        let (n_kv, hd, l) = (2usize, 128usize, 7usize);
+        let mut seed = 7u32;
+        let mut gen = |n: usize| -> Vec<f32> {
+            (0..n)
+                .map(|_| {
+                    seed = seed.wrapping_mul(1664525).wrapping_add(1013904223);
+                    (seed >> 8) as f32 / (1u32 << 23) as f32 - 1.0
+                })
+                .collect()
+        };
+        let k = Tensor::from_vec(gen(n_kv * l * hd), (1, n_kv, l, hd), &dev).unwrap();
+        let v = Tensor::from_vec(gen(n_kv * l * hd), (1, n_kv, l, hd), &dev).unwrap();
+        let stat: Vec<f32> = (0..n_kv * hd / 2).map(|i| 0.5 + (i % 9) as f32 * 0.1).collect();
+        let aux = LadderAux {
+            key_step: Some(key_steps(&stat, n_kv, hd, &dev).unwrap()),
+            hadamard: Some(hadamard_matrix(hd, &dev).unwrap()),
+        };
+        let hook: &dyn KvRoundTrip = &aux;
+        for mode in [KvMode::Q8, KvMode::K8V4, KvMode::K4V4C, KvMode::K4V4H] {
+            for store in [KvStore::Cat, KvStore::Grow(4)] {
+                let mut whole = KvCache::with_store(mode, store);
+                let mut steps = KvCache::with_store(mode, store);
+                whole.append_with(&k, &v, Some(hook)).unwrap();
+                for t in 0..l {
+                    let (kt, vt) = (k.narrow(2, t, 1).unwrap(), v.narrow(2, t, 1).unwrap());
+                    steps.append_with(&kt, &vt, Some(hook)).unwrap();
+                }
+                let (wk, wv) = whole.held().unwrap().unwrap();
+                let (sk, sv) = steps.held().unwrap().unwrap();
+                for (a, b, name) in [(&wk, &sk, "k"), (&wv, &sv, "v")] {
+                    let a: Vec<u32> = a.flatten_all().unwrap().to_vec1::<f32>().unwrap().iter().map(|x| x.to_bits()).collect();
+                    let b: Vec<u32> = b.flatten_all().unwrap().to_vec1::<f32>().unwrap().iter().map(|x| x.to_bits()).collect();
+                    assert_eq!(a, b, "{mode:?} on {store:?}: {name} of a prefill differs from its decode steps");
+                }
+                // And the arm is a code, not a copy.
+                let raw: Vec<f32> = k.flatten_all().unwrap().to_vec1().unwrap();
+                let held: Vec<f32> = wk.flatten_all().unwrap().to_vec1().unwrap();
+                assert!(raw != held, "{mode:?}: the keys came back unquantized");
+            }
+            // A measurement arm with no round trip installed is refused, never
+            // appended as f16.
+            if mode != KvMode::Q8 {
+                let e = KvCache::new(mode).append_with(&k, &v, None).expect_err("no round trip");
+                assert!(format!("{e}").contains("no round trip installed"), "{mode:?}: {e}");
+            }
+        }
     }
 }

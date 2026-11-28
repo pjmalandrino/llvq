@@ -687,55 +687,6 @@ fn paired_decode_scores_what_the_window_scores() {
     assert!(m.decode_nll_paired(&tokens[..1], [published, published]).is_err());
 }
 
-/// The `kvq.rs` invariant through the cache, for every `LLVQ_KV_LADDER`
-/// arm and both stores a ladder run uses: positions appended in one call
-/// and the same positions appended one at a time hold the same bytes.
-#[test]
-fn ladder_caches_hold_a_prefill_as_its_decode_steps() {
-    use crate::kvladder::{hadamard_matrix, key_steps, LadderAux};
-    use crate::kvq::{KvMode, KvStore};
-    let dev = Device::Cpu;
-    let (n_kv, hd, l) = (2usize, 128usize, 7usize);
-    let mut seed = 7u32;
-    let mut gen = |n: usize| -> Vec<f32> {
-        (0..n)
-            .map(|_| {
-                seed = seed.wrapping_mul(1664525).wrapping_add(1013904223);
-                (seed >> 8) as f32 / (1u32 << 23) as f32 - 1.0
-            })
-            .collect()
-    };
-    let k = Tensor::from_vec(gen(n_kv * l * hd), (1, n_kv, l, hd), &dev).unwrap();
-    let v = Tensor::from_vec(gen(n_kv * l * hd), (1, n_kv, l, hd), &dev).unwrap();
-    let stat: Vec<f32> = (0..n_kv * hd / 2).map(|i| 0.5 + (i % 9) as f32 * 0.1).collect();
-    let aux = LadderAux {
-        key_step: Some(key_steps(&stat, n_kv, hd, &dev).unwrap()),
-        hadamard: Some(hadamard_matrix(hd, &dev).unwrap()),
-    };
-    for mode in [KvMode::Q8, KvMode::K8V4, KvMode::K4V4C, KvMode::K4V4H] {
-        for store in [KvStore::Cat, KvStore::Grow(4)] {
-            let mut whole = KvCache::with_store(mode, store);
-            let mut steps = KvCache::with_store(mode, store);
-            whole.append_with(&k, &v, Some(&aux)).unwrap();
-            for t in 0..l {
-                let (kt, vt) = (k.narrow(2, t, 1).unwrap(), v.narrow(2, t, 1).unwrap());
-                steps.append_with(&kt, &vt, Some(&aux)).unwrap();
-            }
-            let (wk, wv) = whole.held().unwrap().unwrap();
-            let (sk, sv) = steps.held().unwrap().unwrap();
-            for (a, b, name) in [(&wk, &sk, "k"), (&wv, &sv, "v")] {
-                let a: Vec<u32> = a.flatten_all().unwrap().to_vec1::<f32>().unwrap().iter().map(|x| x.to_bits()).collect();
-                let b: Vec<u32> = b.flatten_all().unwrap().to_vec1::<f32>().unwrap().iter().map(|x| x.to_bits()).collect();
-                assert_eq!(a, b, "{mode:?} on {store:?}: {name} of a prefill differs from its decode steps");
-            }
-            // And the arm is a code, not a copy.
-            let raw: Vec<f32> = k.flatten_all().unwrap().to_vec1().unwrap();
-            let held: Vec<f32> = wk.flatten_all().unwrap().to_vec1().unwrap();
-            assert!(raw != held, "{mode:?}: the keys came back unquantized");
-        }
-    }
-}
-
 /// At every append, across chunk boundaries and appends wider than a
 /// chunk, the `Grow` store hands attention the very history `Cat` does,
 /// in buffers sized to a whole number of chunks.

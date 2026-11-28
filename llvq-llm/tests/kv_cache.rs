@@ -361,9 +361,9 @@ fn every_ladder_arm_is_wired_and_the_f16_arm_is_untouched() {
     let steps = calibrate(&m, &calib, 16, DEFAULT_CLIP).expect("calibrates");
     assert_eq!(steps.len(), 36);
     let h = hadamard_matrix(128, &dev).expect("hadamard");
-    m.set_kv_ladder_aux(Some(
+    m.set_kv_round_trip(Some(LadderAux::boxed(
         steps.into_iter().map(|s| LadderAux { key_step: Some(s), hadamard: Some(h.clone()) }).collect(),
-    ))
+    )))
     .expect("installs");
 
     for mode in [KvMode::Q8, KvMode::K8V4, KvMode::K4V4C, KvMode::K4V4H] {
