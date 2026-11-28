@@ -297,6 +297,12 @@ jobs:
           python-version: '3.12'
       - name: Install uv
         run: python3 -m pip install --quiet uv==0.11.32
+      # torch and transformers are several GB of wheels: the uv cache is kept
+      # under the lock's hash, so a run downloads them only when the lock moves.
+      - uses: actions/cache@v4
+        with:
+          path: ~/.cache/uv
+          key: llvq-tetra-uv-0.11.32-${{ hashFiles('llvq-tetra/uv.lock') }}
       - name: pytest
         working-directory: llvq-tetra
         run: uv run --locked --group dev --python 3.12 pytest -rs -p no:cacheprovider
