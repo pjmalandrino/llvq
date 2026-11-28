@@ -7,8 +7,9 @@ keeps the ones an agent needs to resume; this page is the complete list.
 Categories: **served** (a config field, the runtime, or a variable refused beside `LLVQ_CONFIG`), **tool** (a knob of
 an encoding or evaluation binary), **mode** (turns a binary into a bench of one thing), **test** (a test fixture or
 archive location). A served config refuses a variable that contradicts it, every name of `BELOW_THE_DOOR`, and, beside
-the persistent decode, every name of `MEASUREMENT_MODES` (`llvq-llm/src/served.rs`). `bin/fusedrun` refuses two of its
-modes set together (`ALONE` in that file).
+the persistent decode, every name of `MEASUREMENT_MODES` (`llvq-llm/src/served.rs`). The runtime's Inkling engine,
+which has no config file, refuses the names of `BELOW_THE_DOOR` and of `REMOVED` at load through `served::check_door`.
+`bin/fusedrun` refuses two of its modes set together (`ALONE` in that file).
 
 ## Served objects and the runtime
 
