@@ -31,7 +31,6 @@ use candle_core::{Device, Tensor};
 use super::config::InklingConfig;
 use super::head::OutputProjection;
 use super::layers;
-use super::loader::NativeCheckpoint;
 
 /// Name of the embedding table in its raw file.
 pub const EMBED_NAME: &str = "model.embed.weight";
@@ -117,14 +116,6 @@ impl EmbedTable {
             }
         }
         Tensor::from_vec(out, (ids.len(), self.hidden), dev)
-    }
-
-    /// `layers::embed` with this table's rows: the row, then the RMS norm with
-    /// the checkpoint's weight.
-    pub fn embed(&self, ck: &NativeCheckpoint, cfg: &InklingConfig, ids: &[u32], dev: &Device) -> candle_core::Result<Tensor> {
-        let rows = self.rows(ids, dev)?;
-        let w = ck.f32("embed_norm.weight", dev)?;
-        layers::rms_norm(&rows, &w, cfg.rms_norm_eps)
     }
 }
 

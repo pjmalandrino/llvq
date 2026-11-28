@@ -250,6 +250,10 @@ pub struct Inkling {
     /// `final_input.query` (`attn_res.output_query`), `[1, H]`.
     final_query: Tensor,
     norm: Tensor,
+    /// `embed_norm.weight` in f32 on the device, read once at load: the RMS
+    /// norm after the embedding row used to read, widen and upload it from
+    /// the mapping on every forward call.
+    embed_norm: Tensor,
     /// `unembed.weight` rows `0..unpadded_vocab_size`, BF16, `[V, H]`;
     /// `None` when [`LoadOptions::int4_head`] chose the int4 head at load.
     unembed: Option<Tensor>,
@@ -609,6 +613,7 @@ impl Inkling {
             .collect::<Result<Vec<_>>>()?;
         let final_query = ck.f32("attn_res.output_query", dev)?.unsqueeze(0)?;
         let norm = ck.f32("norm.weight", dev)?;
+        let embed_norm = ck.f32("embed_norm.weight", dev)?;
         // Inkling2UnpadVocab: the first `unpadded_vocab_size` rows (lm_head, line 1477)
         let (unembed, out_proj) = match &opts.int4_head {
             None => {
@@ -626,6 +631,7 @@ impl Inkling {
             message_queries,
             final_query,
             norm,
+            embed_norm,
             unembed,
             dev: dev.clone(),
             experts,
@@ -1022,10 +1028,12 @@ impl Inkling {
         }
         let lc = &self.cfg.loop_config;
         layers::phases::mark(&self.dev, layers::phases::Phase::Other)?;
-        let embed = match &self.embed_table {
-            Some(t) => t.embed(&self.ck, &self.cfg, ids, &self.dev)?,
-            None => layers::embed(&self.ck, &self.cfg, ids, &self.dev)?,
+        // `layers::embed` on either rows, with the weight kept from the load.
+        let rows = match &self.embed_table {
+            Some(t) => t.rows(ids, &self.dev)?,
+            None => self.ck.embed_rows(ids, &self.dev)?,
         };
+        let embed = layers::rms_norm(&rows, &self.embed_norm, self.cfg.rms_norm_eps)?;
         layers::phases::mark(&self.dev, layers::phases::Phase::Embed)?;
         let mut visits = vec![];
         let mut h = embed.clone();
@@ -1408,6 +1416,27 @@ mod tests {
             }
         }
         (d, s)
+    }
+
+    /// The normed embedding `forward` hands out, on the checkpoint's rows and
+    /// on a sealed table's, is bit for bit `layers::embed`, which reads
+    /// `embed_norm.weight` from the checkpoint at the call: the weight the
+    /// model keeps from its load is the file's.
+    #[test]
+    fn the_embedding_norm_is_the_checkpoints_on_both_arms() {
+        let mut m = tiny_model();
+        let ids = prompt(9);
+        let bits = |t: &Tensor| row(t).iter().map(|x| x.to_bits()).collect::<Vec<u32>>();
+        let reference = bits(&layers::embed(&m.ck, &m.cfg, &ids, &m.dev).unwrap());
+        let checkpoint_arm = m.forward(&ids, &mut m.new_cache(), false, false).unwrap();
+        assert_eq!(bits(&checkpoint_arm.embed), reference, "checkpoint rows");
+
+        let vocab = m.cfg.vocab_size;
+        let all: Vec<u32> = (0..vocab as u32).collect();
+        let rows = row(&m.ck.embed_rows(&all, &Device::Cpu).unwrap());
+        m.embed_table = Some(tables::EmbedTable::from_rows(rows, vocab, m.cfg.hidden_size).unwrap());
+        let table_arm = m.forward(&ids, &mut m.new_cache(), false, false).unwrap();
+        assert_eq!(bits(&table_arm.embed), reference, "table rows");
     }
 
     #[test]
