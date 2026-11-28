@@ -60,18 +60,19 @@ name: CI
 # request runs once (its `pull_request` event); a push runs only on main. Both
 # events used to fire on every PR push, two identical 35-45 minute suites side
 # by side, and the second one hit the timeout.
-# `paths` and not `paths-ignore`, the form GitHub documents for negations, since two
-# Markdown files are read by tests: `docs/ENV.md` (llvq-llm/tests/env_registry.rs)
-# and `configs/README.md` (llvq-runtime/src/library.rs). The order matters: a
+# `paths` and not `paths-ignore`, the form GitHub documents for negations, since four
+# files the negations hide are read by tests: `docs/ENV.md` (llvq-llm/tests/env_registry.rs),
+# `configs/README.md` (llvq-runtime/src/library.rs), and the two banners under
+# `docs/brand/ascii/` (llvq-runtime/src/banner.rs). The order matters: a
 # later positive pattern takes a path back after a negative one.
 on:
   push:
     branches: [main]
     paths: ['**', '!**.md', '!docs/**', '!paper/**', '!paper2/**', '!proofs/**', '!site/**',
-            'docs/ENV.md', 'configs/README.md']
+            'docs/ENV.md', 'configs/README.md', 'docs/brand/ascii/banner.txt', 'docs/brand/ascii/banner.ansi']
   pull_request:
     paths: ['**', '!**.md', '!docs/**', '!paper/**', '!paper2/**', '!proofs/**', '!site/**',
-            'docs/ENV.md', 'configs/README.md']
+            'docs/ENV.md', 'configs/README.md', 'docs/brand/ascii/banner.txt', 'docs/brand/ascii/banner.ansi']
 
 # Read-only, explicitly. No secret, no write scope, nothing that could push,
 # publish or bill anything.
@@ -85,7 +86,7 @@ concurrency:
 env:
   CARGO_TERM_COLOR: always
 
-# Six jobs in parallel, so the wall time is the slowest one, not the sum.
+# Seven jobs in parallel, so the wall time is the slowest one, not the sum.
 # Each caches its own target directory under its own key: one profile per
 # job, and actions/cache saves only after a job succeeds. Rust is pinned:
 # `-D warnings` on a floating toolchain turns the tree red overnight on code
@@ -276,6 +277,26 @@ jobs:
         run: >
           cargo test --locked --profile ci
           -p llvq-quant --features fast-linalg
+
+  # The published Python package `llvq-tetra/`, its whole suite on the CPU.
+  # The Metal tests skip by themselves on a host without an MPS device (86
+  # pass, 25 skip on 2026-11-28; install 17 s and run 21 s on a 4-core Linux
+  # box). uv installs the locked set, so torch is the PyPI build with its CUDA
+  # libraries, about 3 GB that the tests never load on a GPU.
+  llvq-tetra:
+    name: llvq-tetra (the transformers reader, CPU)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install uv
+        run: python3 -m pip install --quiet uv==0.11.32
+      - name: pytest
+        working-directory: llvq-tetra
+        run: uv run --locked --group dev --python 3.12 pytest -rs -p no:cacheprovider
 
   # The served CUDA code meets a compiler before the paid image build does.
   # A runner has no GPU and no CUDA toolkit: ops/check-cuda-types.sh gives
