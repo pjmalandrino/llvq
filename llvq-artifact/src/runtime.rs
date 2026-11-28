@@ -475,6 +475,21 @@ impl PlanesBlocks {
     }
 }
 
+/// Every gain rank has to fit the `bits`-wide field the stream gives it.
+/// `BitSink::push` only checks it under `debug_assertions`, and a release
+/// build would keep the low bits: a valid gain of a different block. A record
+/// of three or four centroids under a table built at `gain_bits = 1` is the
+/// case, and [`crate::tetra48::transcode_tetra48`] refuses it the same way.
+fn check_gains(gains: &[u32], bits: u32) -> Result<()> {
+    match gains.iter().position(|&g| u64::from(g) >> bits != 0) {
+        Some(b) => Err(Error::Inconsistent {
+            name: "runtime transcode".to_string(),
+            detail: format!("block {b}: gain {} overflows the {bits}-bit field", gains[b]),
+        }),
+        None => Ok(()),
+    }
+}
+
 /// Transcode raw `(index, gain)` codes into a [`PlanesBlocks`] stream.
 ///
 /// Same contract as [`transcode`]: one fast decode per block, an
@@ -494,6 +509,7 @@ pub fn transcode_planes14(
         1,
         "Planes14 freezes the gain field at bit 9, one bit wide"
     );
+    check_gains(gains, 1)?;
     let n = indices.len();
     let mut data = vec![0u8; n * PLANES14_BYTES];
     for (b, (&idx, &gain)) in indices.iter().zip(gains).enumerate() {
@@ -568,6 +584,7 @@ pub fn transcode(
         table.worst_width() <= FIXED96_BYTES as u32 * 8,
         "class table exceeds the fixed layout"
     );
+    check_gains(gains, table.gain_bits())?;
     let n = indices.len();
     let mut out = RuntimeBlocks {
         layout,

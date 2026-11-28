@@ -8,7 +8,7 @@
 //! reference implementation. The GPU shader of `llvq-metal` is a third,
 //! independent reading of the same bytes.
 
-use llvq_artifact::runtime::{transcode, ClassTable, Layout, FIXED96_BYTES, GROUP};
+use llvq_artifact::runtime::{transcode, transcode_planes14, ClassTable, Layout, FIXED96_BYTES, GROUP};
 use llvq_artifact::{QuantizedMatrix, DEFAULT_VERSION};
 use llvq_core::SplitMix64;
 use llvq_quant::quantizer::BlockCode;
@@ -286,4 +286,40 @@ fn slot32_zero_slots_have_zero_sign_bits() {
             }
         }
     }
+}
+
+/// A gain rank wider than the table's gain field is refused, not truncated:
+/// a truncated gain is a valid gain for a different block. Gains 2 and 3 are
+/// what a record of three or four centroids carries, and a table built at
+/// `gain_bits = 1` has one bit for them.
+#[test]
+fn a_gain_wider_than_the_table_field_is_refused_by_every_transcoder() {
+    let fd = FastDecoder::new();
+    let one = ClassTable::new(&fd, 1);
+    let idx = [1u64, 1000, 123_456_789];
+    for bad in [2u32, 3] {
+        let gains = [0, bad, 1];
+        for layout in [Layout::Fixed96, Layout::Grouped32, Layout::Flat32, Layout::Sorted32, Layout::Slot32] {
+            match transcode(&fd, &one, &idx, &gains, layout) {
+                Err(llvq_artifact::Error::Inconsistent { detail, .. }) => assert!(
+                    detail.contains(&format!("block 1: gain {bad}")) && detail.contains("1-bit"),
+                    "{layout:?}: {detail}"
+                ),
+                other => panic!("{layout:?}, gain {bad}: expected Inconsistent, got {:?}", other.err()),
+            }
+        }
+        match transcode_planes14(&fd, &one, &idx, &gains) {
+            Err(llvq_artifact::Error::Inconsistent { detail, .. }) => assert!(
+                detail.contains(&format!("block 1: gain {bad}")) && detail.contains("1-bit"),
+                "Planes14: {detail}"
+            ),
+            other => panic!("Planes14, gain {bad}: expected Inconsistent, got {:?}", other.err()),
+        }
+    }
+    // The same ranks under a two-bit table, and one-bit ranks under the
+    // one-bit table, still transcode.
+    let two = ClassTable::new(&fd, 2);
+    transcode(&fd, &two, &idx, &[0, 3, 2], Layout::Slot32).expect("gain 3 in a 2-bit field");
+    transcode(&fd, &one, &idx, &[0, 1, 1], Layout::Slot32).expect("gain 1 in a 1-bit field");
+    transcode_planes14(&fd, &one, &idx, &[0, 1, 1]).expect("gain 1 in Planes14");
 }
