@@ -330,6 +330,9 @@ fn the_store_routes_list_show_copy_delete_and_ps_follows_loads() {
     let s = c.send("POST", "/api/show", &json!({"model": "tiny:test"})).unwrap();
     assert_eq!(s["details"]["format"], "llvq");
     assert_eq!(s["llvq"]["repo"], "test/tiny");
+    assert_eq!(s["model_info"]["general.architecture"], "qwen3");
+    assert!(s["template"].as_str().unwrap().contains("<|im_start|>"), "{s}");
+    assert_eq!(s["capabilities"], json!(["completion", "thinking", "tools"]));
     c.send("POST", "/api/copy", &json!({"source": "tiny:test", "destination": "tiny:copy"})).unwrap();
     assert_eq!(names(&c), ["tiny:copy", "tiny:test"]);
     c.send("DELETE", "/api/delete", &json!({"model": "tiny:copy"})).unwrap();

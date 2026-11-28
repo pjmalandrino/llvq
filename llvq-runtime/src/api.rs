@@ -574,6 +574,21 @@ const TEMPLATE: &str = "<|im_start|>{{role}}\n{{content}}<|im_end|>\n ... <|im_s
 (<think>\n\n</think>\n\n when think is off). Built from token ids by llvq_llm::chatfmt, not from this text. \
 With tools, the official Qwen3 template's text (llvq_runtime::tools), encoded piece by piece.";
 
+/// Inkling 2's chat format, as `llvq_llm::inkchat` renders it.
+const INKLING_TEMPLATE: &str = "<|message_system|><|content_text|>{{system}}<|end_message|> ... \
+<|message_user|><|content_text|>{{content}}<|end_message|> (no generation prompt: the model writes its own \
+<|message_model|> and ends its turn with <|content_model_end_sampling|>). Rendered by llvq_llm::inkchat, held byte \
+for byte to the checkpoint's chat_template.jinja, not from this text; the reasoning effort is a system message.";
+
+/// What `/api/show` reports for a family: the architecture and the template.
+/// Every family but Inkling 2 is loaded as a Qwen3 (`engine::DeviceLoader`).
+fn family_info(family: &str) -> (&'static str, &'static str) {
+    match family {
+        crate::inkling::FAMILY => (crate::inkling::FAMILY, INKLING_TEMPLATE),
+        _ => ("qwen3", TEMPLATE),
+    }
+}
+
 /// A model's manifest, details and served config.
 #[utoipa::path(post, path = "/api/show", tag = "ollama", request_body = ShowRequest,
     responses((status = 200, body = ShowResponse), (status = 404, body = ErrorResponse)))]
@@ -592,10 +607,13 @@ pub async fn show(State(st): State<AppState>, body: Bytes) -> Response {
         Ok(Some(m)) => m,
     };
     let served = library::served_configs(&m.configs, &m.sha256);
+    let (architecture, template) = family_info(&m.family);
     let mut info = Map::new();
-    info.insert("general.architecture".into(), json!("qwen3"));
+    info.insert("general.architecture".into(), json!(architecture));
     info.insert("general.parameter_count_label".into(), json!(m.parameter_size));
     info.insert("llvq.bits_per_param".into(), json!(m.bits_per_param));
+    // Both families think: Qwen3 by its think block, Inkling 2 by the effort
+    // its template writes (`think` sets the template's default).
     let mut capabilities = vec!["completion".to_string()];
     capabilities.push("thinking".into());
     if ToolFormat::of_family(&m.family).is_ok() {
@@ -604,7 +622,7 @@ pub async fn show(State(st): State<AppState>, body: Bytes) -> Response {
     Json(ShowResponse {
         modelfile: String::new(),
         parameters: String::new(),
-        template: TEMPLATE.into(),
+        template: template.into(),
         details: details(&m),
         model_info: info,
         capabilities,

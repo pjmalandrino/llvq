@@ -268,6 +268,18 @@ fn a_streamed_call_comes_whole_in_one_chunk() {
     assert!(usage["usage"]["prompt_tokens"].as_u64().unwrap() > 0, "{usage}");
 }
 
+/// `/api/show` describes the family the manifest names: an Inkling model is
+/// not reported as a Qwen3, nor given Qwen3's template.
+#[test]
+fn show_reports_the_inkling_family() {
+    let (c, _) = serve("ink-show");
+    let s = c.send("POST", "/api/show", &json!({"model": "ink:test"})).unwrap();
+    assert_eq!(s["model_info"]["general.architecture"], "inkling2", "{s}");
+    let template = s["template"].as_str().unwrap();
+    assert!(template.contains("<|message_model|>") && !template.contains("<|im_start|>"), "{template}");
+    assert_eq!(s["capabilities"], json!(["completion", "thinking", "tools"]), "{s}");
+}
+
 #[test]
 fn refusals_come_back_by_name() {
     let (c, _) = serve("ink-refuse");
