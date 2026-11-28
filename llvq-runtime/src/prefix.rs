@@ -413,12 +413,22 @@ impl PrefixCache {
     }
 
     /// Write the state `save` writes as the prefix `ids[..b]`: to a temporary
-    /// file, then renamed; then the oldest files go until the directory is
-    /// under the cap. The path and the file's bytes.
+    /// file, then renamed; then the oldest other files go until the directory
+    /// is under the cap. The path and the file's bytes. A file that alone
+    /// would pass the cap is refused by name: the model does not tell the
+    /// state's size ahead, so the write stops at the cap and its temporary
+    /// file goes, before any digest or rename.
     pub fn save(&self, ids: &[u32], b: usize, save: &mut dyn FnMut(&mut dyn Write) -> anyhow::Result<()>) -> anyhow::Result<(PathBuf, u64)> {
         anyhow::ensure!(b <= ids.len(), "save at {b} of {} tokens", ids.len());
-        make_dir(&self.dir)?;
         let sha = tokens_sha256(&ids[..b]);
+        let header = serde_json::to_vec(&Header { key: self.key.clone(), tokens: b, tokens_sha256: sha.clone() })?;
+        // What the file holds besides the state: magic, header, tokens, digest.
+        let fixed = (MAGIC.len() + 4 + header.len() + 8 + 4 * b + 32) as u64;
+        let too_big = || anyhow::anyhow!("a prefix of {b} tokens passes the prefix cache's cap of {} bytes: not saved", self.max_bytes);
+        if fixed > self.max_bytes {
+            return Err(too_big());
+        }
+        make_dir(&self.dir)?;
         let path = self.dir.join(self.file_name(b, &sha));
         let tmp = self.dir.join(format!(
             ".{}.{}-{}.{PART}",
@@ -429,14 +439,18 @@ impl PrefixCache {
         let written = (|| -> anyhow::Result<u64> {
             let f = create_private(&tmp)?;
             let mut w = BufWriter::with_capacity(1 << 22, f);
-            let header = serde_json::to_vec(&Header { key: self.key.clone(), tokens: b, tokens_sha256: sha.clone() })?;
             w.write_all(MAGIC)?;
             w.write_all(&(header.len() as u32).to_le_bytes())?;
             w.write_all(&header)?;
             w.write_all(&(b as u64).to_le_bytes())?;
             let toks: Vec<u8> = ids[..b].iter().flat_map(|t| t.to_le_bytes()).collect();
             w.write_all(&toks)?;
-            save(&mut w)?;
+            let mut capped = Capped { inner: &mut w, left: self.max_bytes - fixed, over: false };
+            let r = save(&mut capped);
+            if capped.over {
+                return Err(too_big());
+            }
+            r?;
             let mut f = w.into_inner().map_err(|e| anyhow::anyhow!("{}: {}", tmp.display(), e.error()))?;
             let n = f.stream_position()?;
             // The digest of what was written, read back from the page cache on several threads.
@@ -455,7 +469,7 @@ impl PrefixCache {
             let _ = std::fs::remove_file(&tmp);
             anyhow::bail!("rename {}: {e}", tmp.display());
         }
-        self.evict()?;
+        self.evict_but(Some(&path))?;
         Ok((path, n))
     }
 
@@ -463,6 +477,12 @@ impl PrefixCache {
     /// at most the cap, and first the temporary files a write that never ended
     /// left more than [`STALE_PART`] ago. The names of the prefix files removed.
     pub fn evict(&self) -> anyhow::Result<Vec<String>> {
+        self.evict_but(None)
+    }
+
+    /// [`Self::evict`], `keep` never removed: a save's own file, which a
+    /// time from a clock set back could otherwise make the oldest.
+    fn evict_but(&self, keep: Option<&Path>) -> anyhow::Result<Vec<String>> {
         let now = std::time::SystemTime::now();
         for e in std::fs::read_dir(&self.dir)?.filter_map(|e| e.ok()) {
             let stale = e.file_name().to_string_lossy().ends_with(&format!(".{PART}"))
@@ -486,11 +506,38 @@ impl PrefixCache {
             if total <= self.max_bytes {
                 break;
             }
+            if keep == Some(p.as_path()) {
+                continue;
+            }
             std::fs::remove_file(&p)?;
             total -= len;
             gone.push(p.file_name().map(|f| f.to_string_lossy().into_owned()).unwrap_or_default());
         }
         Ok(gone)
+    }
+}
+
+/// A writer that takes at most `left` bytes, then fails and says so in
+/// `over`: what lets a save stop at the cap without knowing the state's size.
+struct Capped<'a, W: Write> {
+    inner: &'a mut W,
+    left: u64,
+    over: bool,
+}
+
+impl<W: Write> Write for Capped<'_, W> {
+    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+        if buf.len() as u64 > self.left {
+            self.over = true;
+            return Err(std::io::Error::other("the prefix cache's cap"));
+        }
+        let n = self.inner.write(buf)?;
+        self.left -= n as u64;
+        Ok(n)
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        self.inner.flush()
     }
 }
 
@@ -740,6 +787,46 @@ mod tests {
         std::thread::sleep(std::time::Duration::from_millis(20));
         let (p3, _) = save(&c, &p, 2048, &s);
         assert!(p1.exists() && !p2.exists() && p3.exists(), "{:?}", std::fs::read_dir(&d).unwrap().collect::<Vec<_>>());
+        let _ = std::fs::remove_dir_all(&d);
+    }
+
+    /// A state that alone passes the cap is refused by name, and leaves no
+    /// file: before, it was written, hashed and removed by its own save,
+    /// which still answered `Ok`.
+    #[test]
+    fn a_state_larger_than_the_cap_is_refused_and_leaves_nothing() {
+        let d = dir("toobig");
+        let c = PrefixCache::new(d.clone(), 8000, key());
+        let p = ids(2000, 6);
+        let e = c.save(&p, 1024, &mut |w| Ok(w.write_all(&state(10_000))?)).unwrap_err();
+        let e = format!("{e:#}");
+        assert!(e.contains("cap of 8000 bytes"), "{e}");
+        let left: Vec<_> = std::fs::read_dir(&d).unwrap().map(|e| e.unwrap().file_name()).collect();
+        assert!(left.is_empty(), "left behind: {left:?}");
+        // The tokens alone pass the cap: refused before the file is created.
+        let tiny = PrefixCache::new(d.clone(), 100, key());
+        let e = format!("{:#}", tiny.save(&p, 1024, &mut |_| panic!("the state was asked for")).unwrap_err());
+        assert!(e.contains("cap of 100 bytes"), "{e}");
+        assert_eq!(std::fs::read_dir(&d).unwrap().count(), 0);
+        let _ = std::fs::remove_dir_all(&d);
+    }
+
+    /// The file a save just wrote is never the one its eviction removes,
+    /// even when another file's time says it is newer (a clock set back).
+    #[test]
+    fn a_save_never_evicts_the_file_it_wrote() {
+        let d = dir("keepnew");
+        let big = PrefixCache::new(d.clone(), DEFAULT_MAX_BYTES, key());
+        let p = ids(3000, 7);
+        let s = state(9000);
+        let (p1, n1) = save(&big, &p, 1024, &s);
+        let ahead = std::time::SystemTime::now() + std::time::Duration::from_secs(3600);
+        std::fs::File::options().write(true).open(&p1).unwrap().set_modified(ahead).unwrap();
+        // room for one file, not two
+        let c = PrefixCache::new(d.clone(), n1 + 4096, key());
+        let (p2, _) = save(&c, &p, 1536, &s);
+        assert!(p2.exists(), "the save removed the file it had just written");
+        assert!(!p1.exists(), "the cap holds one file");
         let _ = std::fs::remove_dir_all(&d);
     }
 
