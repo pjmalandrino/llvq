@@ -11,7 +11,7 @@
 //!   row 0 is -0.3080684 fused against -0.57255346 separate
 //! ```
 //!
-//! The kernel was not the cause. `bin/planesbench.rs` reads two files. The
+//! The kernel was not the cause. `bin/planesbench/` reads two files. The
 //! separate Tetra launches read the second file, the Tetra one. The fused
 //! Tetra stream was transcoded from the first file, the ball one: its indices,
 //! its centroids, its row scales, its tail. The check compared two different

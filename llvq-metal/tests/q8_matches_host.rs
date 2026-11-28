@@ -430,7 +430,7 @@ fn a_different_activation_gives_a_different_answer() {
 
 /// The pragma, not the compile option, is what carries the arithmetic.
 ///
-/// The shipped path does not use `new_exact`: `llvq-llm/src/fused_metal.rs`
+/// The shipped path does not use `new_exact`: `llvq-llm/src/fused_metal/`
 /// compiles MSL through candle with `None` options, which is Metal's default
 /// and has fast math ON. If the answer depended on the option, the gate and
 /// the shipped path would be two different kernels and this file would judge

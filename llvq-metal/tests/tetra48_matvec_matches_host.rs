@@ -379,7 +379,7 @@ fn a_different_activation_gives_a_different_answer() {
 /// The pragma, not the compile option, is what carries the arithmetic.
 ///
 /// This matters because the SHIPPED path does not use `new_exact`:
-/// `llvq-llm/src/fused_metal.rs` compiles the same source through candle with
+/// `llvq-llm/src/fused_metal/` compiles the same source through candle with
 /// `None` options, which is Metal's default and has fast math ON. If the
 /// arithmetic depended on the option, the gate and the shipped path would be
 /// two different kernels and this whole file would be judging the wrong one.

@@ -574,7 +574,7 @@ PERS_4E_LOGITS(pers_4e_logits_f2_t512, 2)
 
 /// The edits of an E1 arm: (part of [`PERS_UNIT_PARTS`], text, replacement),
 /// each text present exactly once in its part. Every arm carries the logits
-/// edits; np and mv add theirs. `tests/pers_matches_served.rs` builds the
+/// edits; np and mv add theirs. `tests/pers_matches_served/` builds the
 /// host twin of each arm from the same edits.
 pub fn p4e_e1_edits(arm: &str) -> Result<Vec<(&'static str, String, String)>, String> {
     let e4 = "pers_4e.cu";

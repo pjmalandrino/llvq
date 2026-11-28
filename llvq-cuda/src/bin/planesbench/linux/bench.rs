@@ -542,11 +542,11 @@ pub fn run() -> Result<(), String> {
     // costs, not after.
     //
     // `read_record` is the only entry that walks a mixed file
-    // (`format.rs:1167`). Every other one — `read_matrix_raw` included,
+    // (`llvq-artifact/src/format/int4.rs`). Every other one — `read_matrix_raw` included,
     // which is what this bench used for four months — refuses an int4
     // record AFTER `get_record_head` has consumed the head, and the body
     // has no length prefix a stranded reader could skip over. That is
-    // deliberate (`format.rs:1899-1907`), and it is why the loop below
+    // deliberate (`llvq-artifact/src/format/read.rs`), and it is why the loop below
     // does not simply filter.
     let mut tetra: std::collections::HashMap<String, TetraSrc> =
         std::collections::HashMap::new();

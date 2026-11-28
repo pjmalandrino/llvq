@@ -314,7 +314,7 @@ fn the_spliced_stream_decodes_to_the_unfused_projections() {
 /// 🕳️ **The truncation has to remove a payload word, not the pad, and that is
 /// not a detail.** For an even block count `pack_plane_bytes`'s four spare
 /// bytes are an *equivalent mutant*: the word-alignment step alone already
-/// supplies exactly what the window needs (`fused.rs` proves the identity).
+/// supplies exactly what the window needs (`fused/group.rs` proves the identity).
 /// Dropping only the pad would therefore pass, and a test written that way
 /// would be green for the wrong reason. What must hold — and what is asserted
 /// — is that the window's far end is exactly the payload's end.

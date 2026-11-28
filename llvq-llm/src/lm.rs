@@ -5,7 +5,7 @@
 //! `bin/ppl` and `bin/gsm8k` build [`crate::model::Qwen3`] directly. This
 //! trait is the seam a second architecture (Inkling 2 Mini, `crate::inkling`)
 //! plugs into without moving the Qwen3 paths: [`Qwen3`] implements it by
-//! delegation to methods it already had, and nothing in `model.rs` changes.
+//! delegation to methods it already had, and nothing in `model/` changes.
 
 use candle_core::{Result, Tensor};
 

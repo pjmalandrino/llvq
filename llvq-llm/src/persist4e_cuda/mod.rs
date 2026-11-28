@@ -5,7 +5,7 @@
 //! 14B, kernel form from position 0).
 //!
 //! Every phase of the kernel equals the served chain bit for bit on the host
-//! (`llvq-cuda/tests/pers_matches_served.rs`), attention included as the
+//! (`llvq-cuda/tests/pers_matches_served/`), attention included as the
 //! "kernel" form computes it (`attn_ref.rs`). So on the card, with every
 //! decode row of the eager path sent to the attention kernel
 //! (`Qwen3::set_kernel_from_for_measurement(0)`), 4E owes that path's tokens.

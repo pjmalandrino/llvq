@@ -6,7 +6,7 @@
 //! The checks are those of `resident::ResidentExperts::load` (Metal): the
 //! `VERIFIED` file, three records and no trailing byte, the record name, the
 //! Tetra kind, the shape, one gain bit, the rotation seed. The matrix is built
-//! the way `crate::fused::load` builds one from a sealed file (`fused.rs`, the
+//! the way `crate::fused::load` builds one from a sealed file (`fused/load.rs`, the
 //! `FusedMatrix { .. }` of its read loop): same `nblocks`, `tail_w`, rotation
 //! key `(d_in, seed)`, gain centroids, row scales, binary16 tail and byte
 //! count. It lives apart from `resident_cuda` so that it compiles, and is

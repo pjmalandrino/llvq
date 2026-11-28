@@ -64,7 +64,7 @@ fn main() -> anyhow::Result<()> {
 
     let device = llvq_llm::eval::device(device_arg)?;
     let dtype = llvq_llm::eval::dtype(DType::F16)?;
-    // Resolved once, here: `model.rs` reads no environment variable, so the
+    // Resolved once, here: `model/` reads no environment variable, so the
     // mode travels by value from this line down to every `KvCache`. An unknown
     // name is an error, never a silent fallback — a typo would make an A/B lie.
     let kv_mode = llvq_llm::kvq::KvMode::from_env().map_err(anyhow::Error::msg)?;

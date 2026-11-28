@@ -82,7 +82,7 @@ impl crate::device::Int4Proj for CudaInt4 {
     }
 }
 
-// ---- read-only device views for 4E (`persist4e_cuda.rs`) ----
+// ---- read-only device views for 4E (`persist4e_cuda/`) ----
 //
 // Raw device addresses of what the runtime already holds, so the persistent
 // segment reads the very buffers the eager path reads: the same words, row

@@ -393,7 +393,7 @@ pub fn p4e_v6_inputs(addrs: &[(String, u64)], hidden: u32, inter: u32) -> Result
 /// uses, transcribed. Inside a full tile of 128 words, word `128 t + k` goes
 /// to `128 t + 4 (k mod 32) + k / 32`, so one 128-bit load gives lane l its
 /// words `128 t + l + 32 s`, s = 0..3; the words past the last full tile keep
-/// the served order. `tests/pers_matches_served.rs` compares it with the
+/// the served order. `tests/pers_matches_served/` compares it with the
 /// device function on every word of the served widths.
 pub fn q4_tile_index(wi: u32, nwords: u32) -> u32 {
     let nt = nwords >> 7;

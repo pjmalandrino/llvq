@@ -291,7 +291,7 @@ impl Runtime4e {
         let mut b = stream.launch_builder(func);
         b.arg(args).arg(&launch);
         // SAFETY: the kernel's own signature (Pers4eArgs*, Pers4tLaunch), the
-        // layout checked on the host (tree_verify_host.rs); one CTA a SM, past
+        // layout checked on the host (tests/tree_verify_host/); one CTA a SM, past
         // the occupancy check at install.
         unsafe { b.launch_cooperative(cfg) }.map_err(|e| anyhow::anyhow!("4E tree: {e}"))?;
         let ring = stream.clone_dtoh(&v.ring).map_err(|e| anyhow::anyhow!("D2H: {e}"))?;

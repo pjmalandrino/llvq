@@ -126,7 +126,7 @@ pub fn med_range(v: &[f64]) -> (f64, f64, f64) {
 }
 
 // ---------------------------------------------------------------------------
-// The device structs, mirrored byte for byte. `tests/pers_matches_served.rs`
+// The device structs, mirrored byte for byte. `tests/pers_matches_served/served_text.rs`
 // compiles the kernels' own struct definitions and checks every offset.
 // ---------------------------------------------------------------------------
 
@@ -235,7 +235,7 @@ pub struct SegLaunch {
 
 /// `sizeof(Pers4eQkv)`, `sizeof(Pers4eLayer)`, `sizeof(Pers4eArgs)`,
 /// `sizeof(Pers4eLaunch)`; the offsets below are checked against the kernel's
-/// own definitions by `tests/pers_matches_served.rs`.
+/// own definitions by `tests/pers_matches_served/served_text.rs`.
 pub const P4E_QKV_BYTES: usize = 152;
 pub const P4E_LAYER_BYTES: usize = 600;
 pub const P4E_ARGS_BYTES: usize = 240;

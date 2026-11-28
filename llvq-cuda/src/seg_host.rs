@@ -2,7 +2,7 @@
 // the host half of `tv_planes_seg` (kernels/planes_seg.cu) and of the
 // `tv_slot_seg` arm `bin/matvec.rs` already measures. Item A4.
 //
-// ⚠️ This file is `include!`d — by `bin/planesbench.rs` and by
+// ⚠️ This file is `include!`d — by `bin/planesbench/` and by
 // `tests/planes_segment_matches_unfused.rs` — rather than being a module of
 // `lib.rs`, for the reason `planes14_host.rs` gives: `lib.rs` belongs to
 // another lot, and this code has to be reachable from a bench and from a test
@@ -251,7 +251,7 @@ pub fn seg_concat_tetra48(parts: &[SegTetraPart]) -> SegmentedTetra48 {
     out
 }
 
-/// The fused Tetra stream of one group, as `bin/planesbench.rs` builds it.
+/// The fused Tetra stream of one group, as `bin/planesbench/` builds it.
 ///
 /// `ball` is the FIRST file's concatenation of the group, which the fused
 /// output is cut by. `parts` are the SECOND file's members, in the same order.

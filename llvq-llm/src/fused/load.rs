@@ -232,7 +232,7 @@ pub fn load_with(path: &str, layout: FusedLayout, fuse: FuseMode) -> Result<Fuse
 // ---------------------------------------------------------------------------
 // What a backend's loader hands back.
 //
-// It lived in `fused_cuda.rs` until the device port, where it was reachable
+// It lived in `fused_cuda/` until the device port, where it was reachable
 // only on a CUDA build. A second loader then had no return type, so "Metal
 // writes one new file" was false. Every field but one was already portable.
 // ---------------------------------------------------------------------------

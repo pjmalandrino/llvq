@@ -125,7 +125,7 @@ fn the_4e_verify_mutants_are_killed() {
     }
 }
 
-/// `pers.rs::P4vLaunch` against `Pers4vLaunch` of the verify kernel: its
+/// `pers/verify.rs::P4vLaunch` against `Pers4vLaunch` of the verify kernel: its
 /// size, its fields' offsets, and the row bound.
 #[test]
 fn the_verify_launch_mirror_matches_the_kernel() {

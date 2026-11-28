@@ -5,7 +5,7 @@
 //! that the sequencing hands every use the rotation of *its own* activation,
 //! that the hoist actually removes launches, and that it does so for the three
 //! runtime layouts alike. What cannot be checked here is listed in the lot's
-//! report — everything inside `llvq-llm/src/fused_cuda.rs`, which compiles on
+//! report — everything inside `llvq-llm/src/fused_cuda/`, which compiles on
 //! no target this machine has.
 //!
 //! ## Why correctness and efficiency are two disjoint tests
@@ -152,7 +152,7 @@ fn a_file_whose_groups_disagree_is_refused() {
 /// **T3.** The key partition is *not* the width partition — the mutation
 /// anyone extending the existing scratch pool would reach for first.
 ///
-/// `fused_cuda.rs` used to key its rotated-activation pool on `d_in`. On
+/// `fused_cuda/` used to key its rotated-activation pool on `d_in`. On
 /// Qwen3-4B that key merges `Attn` and `Mlp` inside every layer (both 2560)
 /// **and** merges all 36 layers with each other. Keying the hoist the same way
 /// would rotate `h` once and reuse it for `post_attention_layernorm(x)`, which
@@ -530,7 +530,7 @@ fn the_hoist_actually_hoists() {
 /// tokens matched the dense arm, the memory and the speed were real. Only the
 /// number the fusion gate rests on was short by exactly 36.
 ///
-/// Pinned here rather than beside the printing, because `fused_cuda.rs`
+/// Pinned here rather than beside the printing, because `fused_cuda/`
 /// compiles on no machine this suite runs on.
 #[test]
 fn the_matvec_counter_counts_the_int4_projections() {

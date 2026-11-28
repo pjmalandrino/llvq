@@ -2,7 +2,7 @@
 // `(index, gain)` codes, the GPU tables, and the bit-exact CPU decoder the
 // GPU kernel is checked against.
 //
-// ⚠️ This file is `include!`d — by `bin/planesbench.rs` and by
+// ⚠️ This file is `include!`d — by `bin/planesbench/` and by
 // `tests/golay70_decoder_matches_rust.rs` — rather than being a module of
 // `lib.rs`, so that adding the Golay70 arm touches no existing library file.
 // It therefore declares no `use` items: every path is fully qualified, so it

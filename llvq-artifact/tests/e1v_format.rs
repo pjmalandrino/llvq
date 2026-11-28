@@ -182,7 +182,7 @@ fn the_row_aligned_cut_never_straddles_a_row() {
 }
 
 /// The kernel accounting's three shape counts, mirroring `Shapes` in
-/// `llvq-bench/src/bin/rtbits.rs` and `Mat` in `planesbench.rs`.
+/// `llvq-bench/src/bin/rtbits.rs` and `Mat` in `planesbench/linux/mod.rs`.
 ///
 /// ⚠️ Its denominator is **every weight of the matrix**, `d_out · d_in`, tail
 /// columns included — not `24 · blocks`. Swapping the two is what turns 4.804

@@ -5,7 +5,7 @@
 //!
 //! `bin/cuhcheck` sweeps `llvq-cuda/kernels` and stops there, so the kernels
 //! this crate ships — `tv_tetra48_h.cu`, `tv_q4_h.cu`, `tv_planes_h.cu` — were
-//! parsed by nothing. `fused_cuda.rs` does not compile here either (it needs
+//! parsed by nothing. `fused_cuda/` does not compile here either (it needs
 //! nvcc and a Linux toolchain), so the first reader of that concatenation was
 //! NVRTC, on a rented card, at the end of a load. That is how `tv_planes_seg_h`
 //! was found missing on 2026-09-10, for $0.03.
@@ -312,7 +312,7 @@ fn dropping_any_source_breaks_the_served_unit() {
 /// past the card's ceiling: the base two, the device-staged rotation, then
 /// the f16-staged int4 kernel, with no include path. It is compiled only for
 /// such a model, never into the served unit, and its entry points are the
-/// ones `fused_cuda.rs` looks up.
+/// ones `fused_cuda/` looks up.
 #[test]
 fn the_wide_unit_parses_and_carries_its_entry_points() {
     let rot = ["llvq_slot.cuh", "matvec.cu", "llvq_rot.cuh", "rotate_wide.cu"];

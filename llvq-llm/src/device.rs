@@ -103,7 +103,7 @@ pub trait LatticeProj: Send + Sync {
     }
 
     /// The concrete projection, for a runtime that reaches its own device
-    /// buffers (4E's `tetra_of` and `int4_of`, `persist4e_cuda.rs`). `None`
+    /// buffers (4E's `tetra_of` and `int4_of`, `persist4e_cuda/views.rs`). `None`
     /// unless the backend says otherwise. The served persistent decode calls
     /// it through those helpers when it installs.
     fn as_any(&self) -> Option<&dyn std::any::Any> {
@@ -149,7 +149,7 @@ pub trait Int4Proj: Send + Sync {
     }
 
     /// The concrete projection, for a runtime that reaches its own device
-    /// buffers (4E's `tetra_of` and `int4_of`, `persist4e_cuda.rs`). `None`
+    /// buffers (4E's `tetra_of` and `int4_of`, `persist4e_cuda/views.rs`). `None`
     /// unless the backend says otherwise. The served persistent decode calls
     /// it through those helpers when it installs.
     fn as_any(&self) -> Option<&dyn std::any::Any> {
@@ -198,7 +198,7 @@ pub trait QuantEmbedTable: Send + Sync {
     fn project(&self, h: &Tensor) -> Result<Tensor>;
 
     /// The concrete table, for a runtime that reads its device buffers (4E,
-    /// `persist4e_cuda.rs`). `None` unless the backend says otherwise.
+    /// `persist4e_cuda/`). `None` unless the backend says otherwise.
     fn as_any(&self) -> Option<&dyn std::any::Any> {
         None
     }

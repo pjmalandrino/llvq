@@ -296,7 +296,7 @@ mod tests {
     }
 
     /// The pattern of `the_int4_staging_fits_the_card_at_every_sealed_size`
-    /// (`llvq-llm/src/fused.rs`), per entry point, with a 32B shape added.
+    /// (`llvq-llm/src/fused/tests.rs`), per entry point, with a 32B shape added.
     #[test]
     fn each_int4_entry_point_gets_its_own_size_at_every_shape() {
         let (d, o) = L40S;

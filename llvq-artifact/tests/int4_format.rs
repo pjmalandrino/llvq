@@ -399,7 +399,7 @@ fn an_int4_record_is_refused_by_every_lattice_entry() {
     let m = int4_matrix("v", 2, 256);
     let bytes = record_bytes(&m);
     // The one refusal that covers the benches, the five Metal binaries, the
-    // two CUDA ones, `fused.rs` and `export` without any of them being
+    // two CUDA ones, `fused/` and `export` without any of them being
     // touched.
     match read_matrix_raw(&mut &bytes[..], FIRST_KINDED_VERSION) {
         Err(Error::NotALatticeRecord { name, kind }) => {

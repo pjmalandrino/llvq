@@ -10,7 +10,7 @@
 //!
 //! The card runs it through `llvq_llm::persist4e_cuda` (its `Verifier`) and
 //! `bin/specbench`; the Mac runs it through the host twin
-//! (`tests/tree_verify_host.rs`).
+//! (`tests/tree_verify_host/`).
 
 use std::time::Instant;
 

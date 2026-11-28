@@ -1,10 +1,10 @@
 //! The port of `crate::device`, implemented for Metal: a lattice projection and an int4 projection as the
-//! model sees them. One file because it is the whole surface `model.rs` touches.
+//! model sees them. One file because it is the whole surface `model/` touches.
 
 use super::*;
 
 // ---------------------------------------------------------------------------
-// The port, implemented. From here `model.rs` cannot tell a card from a Mac.
+// The port, implemented. From here `model/` cannot tell a card from a Mac.
 // ---------------------------------------------------------------------------
 
 /// One Tetra projection, its runtime and its rotation, as the model sees it.

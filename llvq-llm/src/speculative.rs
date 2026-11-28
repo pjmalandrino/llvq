@@ -8,7 +8,7 @@
 //! target's own choice are kept, then the target's token after the last kept
 //! row: the greedy loop's next `a + 1` tokens. This holds when each verify row
 //! is the target's single-token step bit for bit, which the 4E verify pass
-//! owes (`llvq-cuda/tests/pers_matches_served.rs`), and when both caches hold
+//! owes (`llvq-cuda/tests/pers_matches_served/`), and when both caches hold
 //! exactly the kept prefix before every round, which this loop keeps:
 //!
 //! - the target's caches hold `pos + rows` after a verify; they are rewound to

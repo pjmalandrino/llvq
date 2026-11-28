@@ -224,10 +224,10 @@ pub fn is_selectable(arm: usize) -> bool {
 /// The name each arm carries in a published table — prettier than
 /// [`ARM_NAMES`], which is the `LLVQ_BENCH_ARMS` vocabulary.
 ///
-/// 🕳️ **This lived in `bin/planesbench.rs`, and that is why the CUDA image was
+/// 🕳️ **This lived in `bin/planesbench/`, and that is why the CUDA image was
 /// un-buildable for a day without anyone knowing.** It is declared
 /// `[&str; N_ARMS]` and indexed by the arm, so it must grow with the registry —
-/// but `planesbench.rs` is entirely under `cfg(target_os = "linux")`, so the
+/// but `bin/planesbench/` is entirely under `cfg(target_os = "linux")`, so the
 /// development machine never type-checked it. P4 took `N_ARMS` from 7 to 15 on
 /// 2026-08-15 and left seven literals behind; the error surfaced on
 /// 2026-08-16, in a build launched for something else entirely.

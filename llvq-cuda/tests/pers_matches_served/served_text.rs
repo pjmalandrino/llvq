@@ -208,7 +208,7 @@ fn the_argmax_key_is_tok_argmax_key() {
     assert_ne!(u32s(&run(&b, &cmd)), vec![0], "the bit reversal of the key survived");
 }
 
-/// The host mirrors of the device structs (`pers.rs`) against the kernels'
+/// The host mirrors of the device structs (`pers/launch.rs`, `pers/verify.rs`) against the kernels'
 /// own definitions: a field one word off would read a wrong pointer on the
 /// card, with no error.
 #[test]

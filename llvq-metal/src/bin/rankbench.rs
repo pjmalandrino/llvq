@@ -33,7 +33,7 @@
 //! that beats the floor on time does not beat the floor on work.
 //!
 //! ⚠️ **`masques` is not "the served path" and the journal must not say so.**
-//! The served layout is `Planes14`, on CUDA (`llvq-llm/src/fused.rs:68`); on
+//! The served layout is `Planes14`, on CUDA (`llvq-llm/src/fused/layout.rs`); on
 //! Metal it does not exist — `grep -rn "Planes" llvq-metal/src/` returns
 //! nothing. `masques` is here as the practical floor a rank decoder is judged
 //! against, nothing more.

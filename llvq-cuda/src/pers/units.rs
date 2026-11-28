@@ -31,7 +31,7 @@ pub fn pers_unit_text(tile_define: &str) -> String {
     std::iter::once(tile_define).chain(PERS_UNIT_PARTS.iter().map(|p| p.1)).collect::<Vec<_>>().join("\n")
 }
 
-/// The served unit of the 4B, in the order `fused_cuda.rs` assembles it for
+/// The served unit of the 4B, in the order `fused_cuda/` assembles it for
 /// a Tetra48 file with int4 records and `LLVQ_EMBED=q4`: the defines, then
 /// these ten parts. The L2 bench compiles it as its own module so its
 /// `tv_tetra48_h` is the served kernel's text, and prints its digest; the job
@@ -55,7 +55,7 @@ pub fn served_unit_text(defines: &str) -> String {
     std::iter::once(defines).chain(SERVED_UNIT_PARTS.iter().map(|p| p.1)).collect::<Vec<_>>().join("\n")
 }
 
-/// The tiled int4 readers (`tv_q4_tile.cu`), the part `fused_cuda.rs`
+/// The tiled int4 readers (`tv_q4_tile.cu`), the part `fused_cuda/`
 /// appends after [`SERVED_UNIT_PARTS`] for a runtime that holds its int4
 /// words tiled: a config whose rows are "v9".
 pub const SERVED_UNIT_TILE_PART: (&str, &str) = ("tv_q4_tile.cu", include_str!("../../../llvq-llm/kernels/tv_q4_tile.cu"));

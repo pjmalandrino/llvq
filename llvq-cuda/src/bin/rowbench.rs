@@ -80,7 +80,7 @@ mod linux {
     /// The read diagnostics and int4 arms timed in this run (the others keep their code).
     const TIMED_DIAG: [&str; 1] = ["pw_all"];
     const TIMED_Q4: [&str; 3] = ["q4", "q4t", "q4read"];
-    /// The known arms of the journals (pers.rs::TROWS_ARMS) F3 needs, timed on bare:all.
+    /// The known arms of the journals (pers/rows.rs::TROWS_ARMS) F3 needs, timed on bare:all.
     const KNOWN: [&str; 5] = ["v2", "v3", "v2u", "nc", "tile"];
 
     fn ptr<T>(s: &CudaSlice<T>, m: &Cuda) -> u64 {
@@ -271,7 +271,7 @@ mod linux {
             if q.group != 128 || q.bits != 4 || q.d_in % 256 != 0 || q.d_out % 8 != 0 {
                 return Err(format!("{}: int4 g{} {}x{}: K11's rows read g128, d_in a multiple of 256, whole launches of 8 rows", q.name, q.group, q.d_out, q.d_in));
             }
-            // little-endian: nibble i at bits 4 (i % 8) of word i / 8 (fused_cuda.rs)
+            // little-endian: nibble i at bits 4 (i % 8) of word i / 8 (fused_cuda/)
             let w: Vec<u32> = q.packed.chunks_exact(4).map(|c| u32::from_le_bytes([c[0], c[1], c[2], c[3]])).collect();
             v.push(QRec { d_out: q.d_out as u32, d_in: q.d_in as u32, wq: m.up_u32(&w)?, sc: m.up_u16(&q.scales)?, bi: m.up_u16(&q.biases)?, tiled: None });
         }

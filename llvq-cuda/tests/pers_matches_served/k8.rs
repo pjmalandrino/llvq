@@ -1,9 +1,9 @@
-//! O13: arm v9k8, the KV cache as group-affine int8 (`pers.rs::p4e_k8_edits`),
+//! O13: arm v9k8, the KV cache as group-affine int8 (`pers/e1.rs::p4e_k8_edits`),
 //! against kv8_ref. One file because every gate here reads the int8 cache.
 
 use super::*;
 
-// ---- O13: arm v9k8, the KV cache as group-affine int8 (pers.rs::p4e_k8_edits) ----
+// ---- O13: arm v9k8, the KV cache as group-affine int8 (pers/e1.rs::p4e_k8_edits) ----
 //
 // The reference is llvq-cuda/src/kv8_ref.rs: its quantizer, its layout, and
 // attn_ref's arithmetic on its values. The kernel text (pers_4e_k8.cuh) runs

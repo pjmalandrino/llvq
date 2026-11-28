@@ -160,7 +160,7 @@ fn encode_unset(map: &VarMap, dev: &Device, path: &str, which: &[usize], limit: 
 }
 
 /// sha256 of the unguided encode of the whole tiny model (two blocks, four windows, Tetra,
-/// rotation on), taken BEFORE `llvq-llm/src/guided.rs` and the changes to `calib.rs`, `smoke.rs`
+/// rotation on), taken BEFORE `llvq-llm/src/guided.rs` and the changes to `calib.rs`, `bin/smoke/`
 /// and `served.rs` existed. How, exactly: on 2026-11-13, in the worktree at HEAD 8d6c664 with every
 /// tracked file unmodified, this file existed as an untracked file holding only what precedes the
 /// line `// Guided weights on the tiny model.` below (the harness and this one test, the constant

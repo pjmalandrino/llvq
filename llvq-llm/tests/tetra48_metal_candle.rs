@@ -27,7 +27,7 @@
 //!
 //! ## The mutation run
 //!
-//! Six mutants of `fused_metal.rs`, four killed: the activation offset left
+//! Six mutants of `fused_metal/`, four killed: the activation offset left
 //! in ELEMENTS instead of bytes, `set_threadgroup_memory_length` omitted,
 //! `prefixes` and `branches` bound to each other's slots, and `rscale` bound
 //! where `gscale` belongs.

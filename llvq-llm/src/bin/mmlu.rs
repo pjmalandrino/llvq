@@ -516,7 +516,7 @@ fn main() -> anyhow::Result<()> {
     // confound the moment the two are compared. `LLVQ_DTYPE` moves either one
     // onto the other, and the resolved value is printed with the score.
     let dtype = llvq_llm::eval::dtype(DType::F16)?;
-    // Resolved once, here: `model.rs` reads no environment variable, so the
+    // Resolved once, here: `model/` reads no environment variable, so the
     // mode travels by value from this line down to every `KvCache`. An unknown
     // name is an error, never a silent fallback — a typo would make an A/B lie.
     let kv_mode = llvq_llm::kvq::KvMode::from_env().map_err(anyhow::Error::msg)?;

@@ -22,7 +22,7 @@
 //! Exactness, per kernel (gated by `tests/inkling_glue.rs`):
 //!   - `post_mlp`, and the residual `post_attn` writes, are the reference's
 //!     operations in the reference's order: bit for bit against `short_conv`
-//!     and the residual add of `layers.rs`, on the CPU and on Metal. The
+//!     and the residual add of `inkling/layers/`, on the CPU and on Metal. The
 //!     library is compiled with `fp contract(off)` for that: a fused
 //!     multiply-add would round once where candle rounds twice.
 //!   - `top8` is bit for bit against `route` on the same scores, ties and
@@ -35,7 +35,7 @@
 //! device that the kernel reads and rewrites in place, oldest row replaced,
 //! so no step concatenates.
 //!
-//! `LayerWeights::forward_fused` (`layers.rs`) calls them for a one-row step
+//! `LayerWeights::forward_fused` (`inkling/layers/decoder.rs`) calls them for a one-row step
 //! when `Inkling::set_glue` chose them; a slot then holds its two rings in a
 //! [`FusedRings`]. The inputs are plain tensors, so a change of the layer
 //! structs does not reach this file.
@@ -84,7 +84,7 @@ pub const MAX_RANK: usize = 256;
 pub const MAX_EXPERTS: usize = 1024;
 /// Threads of the per-row kernels' threadgroup.
 const TG: usize = 1024;
-/// The epsilon of `block_attn_res`, fixed in `layers.rs` whatever the config's.
+/// The epsilon of `block_attn_res`, fixed in `inkling/layers/mod.rs` whatever the config's.
 const BAR_EPS: f64 = 1e-6;
 /// Channels one simdgroup of `glue_gate_apply` handles: the grain of that
 /// launch. The result does not depend on it.

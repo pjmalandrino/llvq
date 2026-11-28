@@ -1,6 +1,6 @@
 //! `src/e1v_host.rs` builds what the format wrote, and counts what it built.
 //!
-//! The host file is `include!`d by `bin/planesbench.rs`, which is entirely
+//! The host file is `include!`d by `bin/planesbench/`, which is entirely
 //! under `cfg(target_os = "linux")` and therefore not compiled on the
 //! development machine at all. Without this test nothing here would type-check
 //! it, let alone run it — and it is the piece that decides what bytes reach the

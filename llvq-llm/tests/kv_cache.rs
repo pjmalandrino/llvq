@@ -113,7 +113,7 @@ fn deterministic(dev: &Device, swap_kv: bool) -> Qwen3 {
 ///     reach the arithmetic at all.
 ///
 /// The no-op-ness of `Proj::prepare` on a dense projection is pinned beside it,
-/// in `model.rs`'s own test module, where `Rotated`'s private fields are
+/// in `model/tests.rs`'s own test module, where `Rotated`'s private fields are
 /// reachable.
 #[test]
 fn the_restructured_block_is_the_same_calls_in_the_same_order() {

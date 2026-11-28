@@ -624,7 +624,7 @@ pub struct RunConfig {
 /// Base seed of the incoherence rotation. Historical value — changing it
 /// re-quantizes every model differently, so it is a constant, not a knob.
 ///
-/// Public, and in this module rather than in `bin/smoke.rs`, because the
+/// Public, and in this module rather than in `bin/smoke/`, because the
 /// capture pass of L36 has to rebuild the *encoding's* basis: a capture
 /// rotated by any other seed describes a matrix that model never saw.
 pub const ROTATION_SEED: u64 = 0x11_0FEED;

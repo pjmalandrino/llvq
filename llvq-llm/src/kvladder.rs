@@ -26,7 +26,7 @@
 //! ## Why the static key step is shared by a RoPE pair
 //!
 //! Keys are cached after RoPE. `candle_nn::rotary_emb::rope`, the form
-//! `model.rs` calls, rotates channel `i` with channel `i + head_dim/2` (the
+//! `model/block.rs` calls, rotates channel `i` with channel `i + head_dim/2` (the
 //! rotate-half form, not the interleaved `rope_i`). A per-channel step fixed
 //! on calibration positions would be wrong at other positions: the rotation
 //! moves energy between the two channels of a pair as the position changes.

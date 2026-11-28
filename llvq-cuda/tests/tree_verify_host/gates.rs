@@ -156,7 +156,7 @@ fn one_row_is_close_to_4e() {
     }
 }
 
-/// `pers.rs::P4tLaunch` against `Pers4tLaunch`: its size, every field's
+/// `pers/verify.rs::P4tLaunch` against `Pers4tLaunch`: its size, every field's
 /// offset in order, and the row bound.
 #[test]
 fn the_tree_launch_mirror_matches_the_kernel() {

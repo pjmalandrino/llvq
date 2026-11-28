@@ -12,7 +12,7 @@ use crate::rotplan::RotShare;
 /// Qwen3, loaded for scoring.
 pub struct Qwen3 {
     cfg: Config,
-    /// Cache mode, named by the caller at construction. `model.rs` reads no
+    /// Cache mode, named by the caller at construction. `model/` reads no
     /// environment variable; the binaries resolve `LLVQ_KV` and pass it here.
     kv: KvMode,
     /// Cache growth store — [`crate::kvq::KvStore::Cat`] unless a served

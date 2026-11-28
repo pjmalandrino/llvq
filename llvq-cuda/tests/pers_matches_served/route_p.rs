@@ -352,7 +352,7 @@ fn step1_row_loop_mutants_are_killed() {
         ("tile_next", 11, "if (t + 1u < nt) {\n            const u32* nx", "if (t + 2u < nt) {\n            const u32* nx"),
         ("tile_rem_hi", 11, "const unsigned short* rhi = reinterpret_cast<const unsigned short*>(rlo + rem);", "const unsigned short* rhi = reinterpret_cast<const unsigned short*>(rlo + rem + 1u);"),
         // A change of the stride alone is equivalent here (relayout and read
-        // share it); pers.rs pins it to the served stride at the 4B's widths.
+        // share it); pers/ pins it to the served stride at the 4B's widths.
         ("tile_put_rem_hi", 11, "h[2u * (192u * nt + rem) + rr] = (unsigned short)hi16;", "h[2u * (192u * nt + rem) + (rr ^ 1u)] = (unsigned short)hi16;"),
         ("bal_last_row", 12, "if (r >= hi) break;", "if (r + 1u >= hi) break;"),
     ];

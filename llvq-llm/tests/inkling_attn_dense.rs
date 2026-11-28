@@ -1,5 +1,5 @@
 //! The attention products of `inkling::attn_dense` against the functions of
-//! `inkling/layers.rs`, run on the CPU and on Metal.
+//! `inkling/layers/`, run on the CPU and on Metal.
 //!
 //! The reference for `stage_in` is the statement sequence of
 //! `AttnWeights::forward_chunked` up to the score step, written here with the

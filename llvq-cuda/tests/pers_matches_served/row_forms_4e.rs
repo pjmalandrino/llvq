@@ -372,7 +372,7 @@ fn the_4e_v8_mutants_are_killed() {
 /// The persistent side with 4E's row form 7 (4E v9: v8, and every int4 row of
 /// the token loop, v, o and the int4 down, read from words relaid by
 /// `pers_q4_tile_index`, K11 of plan-300). The harness relays the 4E side's
-/// records as `persist4e_cuda.rs` does on the card; the served side keeps
+/// records as `persist4e_cuda/` does on the card; the served side keeps
 /// the served words.
 pub(super) fn persistent_v9() -> &'static Path {
     static B: OnceLock<PathBuf> = OnceLock::new();
@@ -439,7 +439,7 @@ fn the_4e_v9_mutants_are_killed() {
     }
 }
 
-// ---- E1: where 4E v9 asks L2 for later rows (pers.rs::p4e_e1_edits) -------
+// ---- E1: where 4E v9 asks L2 for later rows (pers/e1.rs::p4e_e1_edits) -------
 
 /// The host twin of an E1 arm: the sources with the arm's edits, the ones
 /// `pers::p4e_e1_unit_text` applies to the card's module, under row form 7.
@@ -509,7 +509,7 @@ fn the_4e_e1_mv_slot_mutant_is_killed() {
     assert!(got.is_none_or(|o| o[..o.len() - 8] != want[..want.len() - 8]), "E1 mv mutant slot_on_v7 survived");
 }
 
-/// The two ft mutants of tree_verify_host.rs on arm v9ft, one site each in
+/// The two ft mutants of tree_verify_host/ on arm v9ft, one site each in
 /// the ft text (`persistent_e1` counts it): the full-tile body taken on a
 /// tile of 7, and position 3's chain reading position 4's K. Each moves the
 /// served chain on a run whose tiles hold 6, 7 and 8 positions (from 5) or

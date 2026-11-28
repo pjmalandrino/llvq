@@ -191,7 +191,7 @@ pub fn check_kinds(layout: FusedLayout, kinds: llvq_artifact::KindSet) -> Result
 
 /// The four constant tables `tv_tetra48_h` reads, in the shapes it declares.
 ///
-/// Built here rather than in `fused_cuda.rs` for the reason that module gives
+/// Built here rather than in `fused_cuda/` for the reason that module gives
 /// about `golay70_gpu_class_table`: encoder and decoder must not drift, so the
 /// tables come from the **same** `llvq_search::tetra::Tetra` the encoder used,
 /// and they are built where a machine without a card can check them.
@@ -254,8 +254,8 @@ pub fn tetra48_tables(t: &llvq_search::tetra::Tetra) -> Tetra48Tables {
 
 /// The int4 g128 projection source, for a file that carries `Int4G128` records.
 ///
-/// It lives here rather than in `fused_cuda.rs` for the reason this whole
-/// module is unconditional: `fused_cuda.rs` is `cfg(target_os = "linux",
+/// It lives here rather than in `fused_cuda/` for the reason this whole
+/// module is unconditional: `fused_cuda/` is `cfg(target_os = "linux",
 /// feature = "cuda")` and the development machine is a Mac, so a source list
 /// that lived there could not be reached by a test until it had already
 /// reached a card. `tv_q4_h.cu` has **never run on a GPU** — it is verified as
@@ -474,7 +474,7 @@ pub fn parse_int4_wide_fixture(text: &str) -> Result<Int4WideFixture, String> {
 
 /// The q4 embedding source, `emb_q4.cu`, appended under [`EmbedMode::Q4`].
 ///
-/// Here rather than in `fused_cuda.rs` for [`load_int4_sources`]'s reason: the
+/// Here rather than in `fused_cuda/` for [`load_int4_sources`]'s reason: the
 /// names the host looks up and the text that defines them are checked by a
 /// test on a machine with no card (`the_q4_embedding_kernel_names_match_its_source`).
 /// `LLVQ_KERNEL_DIR` overrides it on the same all-or-nothing terms.

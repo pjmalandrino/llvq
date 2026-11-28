@@ -7,7 +7,7 @@
 //! (command 'C', the persistent side) on RECORDED words, and its rows are held
 //! against the served reference on the same words and activation (the served
 //! side's `served_ref`: `tv_tetra48_h` with NVVM's three fusions, which
-//! `tests/pers_matches_served.rs::the_served_replay_is_the_served_text` pins to
+//! `tests/pers_matches_served/served_text.rs::the_served_replay_is_the_served_text` pins to
 //! the served text). An arm that owes the bits must give y and its f32 value
 //! bit for bit; an arm that declares a bound must stay under it, the relative
 //! error of each row against the rms of its site's served rows, reported as
@@ -922,7 +922,7 @@ fn rc_gate(bin: &Path, body: u32) -> Option<RowErrors> {
     folded
 }
 
-/// What each 4E row form owes (pers.rs::p4e_e1_owes_bits): endpass and its variants the bits, flat and its
+/// What each 4E row form owes (pers/e1.rs::p4e_e1_owes_bits): endpass and its variants the bits, flat and its
 /// variants the bound of 1e-5.
 fn rc_owes(body: u32) -> Owes {
     if llvq_cuda::pers::rc_body_is_flat(body) {

@@ -708,7 +708,7 @@ impl ResidentExperts {
     }
 
     /// Several rows in a few launches for the whole layer, the Metal twin of
-    /// `resident_cuda`'s `forward_rows_batched` (`fused_metal.rs`, section
+    /// `resident_cuda`'s `forward_rows_batched` (`fused_metal/moe_rows.rs`, section
     /// "A prompt's rows through the resident experts"). Every (token,
     /// expert) pair is a row, sorted by expert then token as
     /// [`Self::forward_general`] visits them; its chunks of at most

@@ -267,7 +267,7 @@ impl FusedRuntime {
             spill_checked.push("tv_planes_seg_h");
         }
         // Keyed on the mode that chose the source above, through the one
-        // table `fused.rs` pins against the source text.
+        // table `fused/` pins against the source text.
         if let Some((gather, head)) = crate::fused::emb_kernel_names(emode) {
             spill_checked.extend([gather, head]);
         }
@@ -299,7 +299,7 @@ impl FusedRuntime {
         }
         let f_matvec = cuda.func(matvec_name).map_err(candle_core::Error::msg)?;
         // The prefill entry point. `Some` is the authorisation, and it is
-        // keyed on the LAYOUT naming one — which `fused.rs` pins to the source
+        // keyed on the LAYOUT naming one — which `fused/` pins to the source
         // list, so the pair cannot drift the way `tv_planes_seg_h` did.
         // Formed from the SAME tile the module was compiled at, and refused
         // against the card rather than assumed: this kernel is loaded through

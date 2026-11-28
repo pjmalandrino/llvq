@@ -516,7 +516,7 @@ fn c4_text(role: C4Role, max_chars: usize) -> anyhow::Result<String> {
 
 
 // ---------------------------------------------------------------------------
-// Calibration windows. Moved here from `bin/smoke.rs` on 2026-09-13 so that
+// Calibration windows. Moved here from `bin/smoke/` on 2026-09-13 so that
 // the capture pass of L36 draws the *same* windows as the encoding it is
 // meant to describe. A copy would have drifted, and the drift would have
 // been invisible: an H captured on other windows is the right shape, the

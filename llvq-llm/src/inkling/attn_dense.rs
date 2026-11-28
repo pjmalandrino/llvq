@@ -3,7 +3,7 @@
 //!
 //! A visit's attention today runs seven candle GEMMs over weights widened to
 //! f32 at load, and about thirty small operations around them
-//! (`AttnWeights::forward_chunked` in `layers.rs`). These kernels do the same
+//! (`AttnWeights::forward_chunked` in `inkling/layers/attn.rs`). These kernels do the same
 //! work for ONE row in three launches, f32 accumulation throughout:
 //!
 //!   - [`AttnDense::stage_in`], launch 1 (`ad_products`): every product that
@@ -21,7 +21,7 @@
 //!     an output row, the gate product formed as the reference forms it.
 //!
 //! Exactness. The products sum in a SIMD-group order, not in candle's GEMM
-//! order, so every output is class B against `layers.rs` (gated at a
+//! order, so every output is class B against `inkling/layers/` (gated at a
 //! relative 1e-5 by `tests/inkling_attn_dense.rs`). Everything after a
 //! product is the reference's operations in the reference's order: the
 //! elementwise steps one for one (constants narrowed from f64 to f32 as
@@ -40,7 +40,7 @@
 //! `[kv_heads, 1, d]`, the relative logits `[heads, 1, extent]`, the sinks
 //! `[heads, 1, 1]`, the gate `[1, heads * d]`.
 //!
-//! `layers.rs` runs these kernels for a one-row visit when the loader chose
+//! `inkling/layers/` runs these kernels for a one-row visit when the loader chose
 //! them (`LayerWeights::load_dense`, through [`FusedAttn`]); the key and
 //! value rings then live in the slot ([`AttnSlot`]). Same candle traps as
 //! `crate::fused_metal` (its header) and `inkling::glue`: the compile runs

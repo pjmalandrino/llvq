@@ -1,5 +1,5 @@
 //! The fused glue kernels of `inkling::glue` against the functions of
-//! `inkling/layers.rs`, run on the CPU and on Metal.
+//! `inkling/layers/`, run on the CPU and on Metal.
 //!
 //! Synthetic inputs at the real shapes (hidden 2,304, gate rank 64, 128
 //! experts, top 8, 4 taps) and at a tiny config (hidden 48, rank 4, 8 experts,
@@ -535,7 +535,7 @@ fn post_attn_against_layers() -> Result<()> {
 
 // ---------- timing: candle glue against the kernels ----------
 
-/// The glue of one visit through the layers.rs functions on Metal, as
+/// The glue of one visit through the `inkling/layers/` functions on Metal, as
 /// `LayerWeights::forward` runs it (attention and experts replaced by fixed
 /// tensors): returns the layer output.
 /// The message gates of `pre` spread over threadgroups against the gates

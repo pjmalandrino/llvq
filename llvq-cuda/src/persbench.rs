@@ -24,14 +24,14 @@ use std::time::Instant;
 
 // SAFETY: route P's per-call struct (`kernels/pers_segment.cu`) is
 // `#[repr(C)]`, plain integers, and its layout is the kernel's
-// (`tests/pers_matches_served.rs::the_struct_mirrors_match_the_kernel_layouts`).
+// (`tests/pers_matches_served/served_text.rs::the_struct_mirrors_match_the_kernel_layouts`).
 unsafe impl DeviceRepr for pers::SegLaunch {}
 // SAFETY: the same for 4E's per-launch struct (`kernels/pers_4e.cu`).
 unsafe impl DeviceRepr for pers::P4eLaunch {}
 // SAFETY: the same for the verify pass's per-launch struct (`kernels/pers_4ev.cu`).
 unsafe impl DeviceRepr for pers::P4vLaunch {}
 // SAFETY: the same for the tree verify's per-launch struct (`kernels/pers_4et.cu`,
-// `tests/tree_verify_host.rs::the_tree_launch_mirror_matches_the_kernel`).
+// `tests/tree_verify_host/gates.rs::the_tree_launch_mirror_matches_the_kernel`).
 unsafe impl DeviceRepr for pers::P4tLaunch {}
 
 /// What the environment asks of the persistent sections.

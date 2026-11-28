@@ -591,7 +591,7 @@ fn an_attention_the_file_cannot_serve_is_refused() {
 /// 🚨 Metal serves the grouped form only from a config that names its Metal
 /// kernels.
 ///
-/// The form is backend-independent code in `model.rs`, which is exactly what
+/// The form is backend-independent code in `model/`, which is exactly what
 /// makes a silent acceptance easy: the Mac would serve a card config whose
 /// tolerance gate was passed on an L40S. On Metal the form read bit for bit
 /// with the expanded one, and the configs that serve it there are the ones

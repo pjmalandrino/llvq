@@ -1,7 +1,7 @@
 // Host-side Planes14: the transcoder from a Slot32 stream, and the bit-exact
 // CPU decoder the GPU kernel is checked against.
 //
-// ⚠️ This file is `include!`d — by `bin/planesbench.rs` and by
+// ⚠️ This file is `include!`d — by `bin/planesbench/` and by
 // `tests/planes_decoder_matches_rust.rs` — rather than being a module of
 // `lib.rs`, so that adding the Planes14 layout touches **no existing file**
 // (lot A owns `lib.rs` at the time of writing). It therefore declares no

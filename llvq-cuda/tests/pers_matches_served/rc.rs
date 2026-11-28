@@ -1,9 +1,9 @@
-//! R6: the research row bodies as 4E row forms (`pers.rs::p4e_rc_edits`), held
+//! R6: the research row bodies as 4E row forms (`pers/e1.rs::p4e_rc_edits`), held
 //! near the served chain by a distance, not bit for bit. One file for that measure.
 
 use super::*;
 
-// ---- R6: the research row bodies as 4E row forms (pers.rs::p4e_rc_edits) ---------
+// ---- R6: the research row bodies as 4E row forms (pers/e1.rs::p4e_rc_edits) ---------
 //
 // v9ep (endpass) owes the bits: it is in `the_4e_e1_arms_are_the_served_chain`
 // above, on every command there. v9fl (flat) owes a bound of 1e-5 on rows
@@ -217,7 +217,7 @@ fn the_4e_rc_call_site_mutants_are_killed() {
     }
 }
 
-/// Mutants of R6d's two-call gate/up site (pers.rs::P4E_RC_GU_TWO_CALLS), on
+/// Mutants of R6d's two-call gate/up site (pers/e1.rs::P4E_RC_GU_TWO_CALLS), on
 /// v9eg against the served chain bit for bit. Each twist is one site of the
 /// arm's replacement texts (`persistent_e1_twists` asserts it); a mutant of
 /// two twists names two sites. Commands: the rc mutants' two (smooth SiLU

@@ -189,7 +189,7 @@ fn get_str(r: &mut impl Read, what: &'static str) -> Result<String> {
 }
 
 /// Cap on any allocation sized from a length field of the file — same
-/// reasoning as its twin in `format.rs`: a corrupted length must fail as
+/// reasoning as its twin in `format/checks.rs`: a corrupted length must fail as
 /// [`Error::Truncated`] when the bytes run out, not abort on OOM before the
 /// read gets a chance to.
 const PREALLOC_CAP: usize = 1 << 20;

@@ -164,7 +164,7 @@ pub fn transcode_tetra48(
                 });
             }
             // The word, assembled exactly as `CodeMap::decode` assembles it for
-            // the reader (`format.rs`, "the pair is put back together as the
+            // the reader (`format/kinds.rs`, "the pair is put back together as the
             // 48-bit word the kernel reads"). One definition, two consumers.
             let word = idx | (u64::from(gain) << LABEL_BITS);
             debug_assert_eq!(word & !WORD_MASK, 0);

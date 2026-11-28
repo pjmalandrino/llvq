@@ -324,7 +324,7 @@ impl TetraMatvec<'_> {
     ///
     /// Added after an audit of 2026-09-21 found `metal_fwd` checking dtype and
     /// contiguity and nothing else, while `cpu_fwd` checked only the dtype.
-    /// The CUDA twin refuses all of this by name at `fused_cuda.rs:1491`, with
+    /// The CUDA twin refuses all of this by name at `fused_cuda/`, with
     /// a comment saying the missing check already cost one run.
     fn check(&self, dtype: DType, layout: &Layout) -> Result<()> {
         let p = self.proj;

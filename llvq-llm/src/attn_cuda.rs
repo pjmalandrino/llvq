@@ -8,7 +8,7 @@
 //! and hands them over.
 //!
 //! The module is compiled onto candle's own stream, for the reason
-//! `fused_cuda.rs` gives: ordering is then the stream's guarantee, not
+//! `fused_cuda/` gives: ordering is then the stream's guarantee, not
 //! something to remember. It is its own translation unit, so the projections'
 //! unit keeps its bytes and its printed sha256.
 

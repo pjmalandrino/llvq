@@ -14,7 +14,7 @@ const GOLAY_CUH_EMBED: &str = include_str!("../../../../kernels/llvq_golay.cuh")
 const GOLAY_CU_EMBED: &str = include_str!("../../../../kernels/golay70.cu");
 /// The segmented Planes14 kernel — item A4. One file, no header of its
 /// own: it reuses `llvq_planes.cuh`'s `planes_dot`. It lives apart from
-/// `planes.cu` on purpose — `llvq-llm/src/fused_cuda.rs` concatenates
+/// `planes.cu` on purpose — `llvq-llm/src/fused_cuda/` concatenates
 /// `llvq_planes.cuh` + `planes.cu` + `tv_planes_h.cu` as the *shipped*
 /// inference kernel, and appending to `planes.cu` would change that
 /// string's bytes and its sha256 for a bench's convenience.

@@ -27,7 +27,7 @@
 //!
 //! ## The mutation run
 //!
-//! Seven mutants of `model.rs`, seven killed, re-run after an adversarial
+//! Seven mutants of `model/`, seven killed, re-run after an adversarial
 //! review of 2026-09-20:
 //!
 //!   1. `forward_with` reads the caller's activation, not the prepared one
@@ -119,7 +119,7 @@ impl LatticeProj for FakeLattice {
         self.key
     }
     /// Refuses more than one row, exactly as `FusedRuntime::rotate` does
-    /// (`fused_cuda.rs`, "rotation requested for N vectors"). A fake that
+    /// (`fused_cuda/runtime.rs`, "rotation requested for N vectors"). A fake that
     /// accepted a chunk here would let the model call `prepare` where it owes
     /// `prepare_rows`, and that wiring dies on a card and nowhere else.
     fn prepare(&self, x: &Tensor) -> Result<Tensor> {
@@ -171,7 +171,7 @@ impl Int4Proj for FakeInt4 {
         self.w.dim(1).expect("2-D")
     }
     /// Refuses more than one vector and a non-zero start offset, exactly as
-    /// `CudaInt4::matvec` does (`fused_cuda.rs`, "activation of {len} values
+    /// `CudaInt4::matvec` does (`fused_cuda/ops.rs`, "activation of {len} values
     /// for d_in=" and the offset guard beside it).
     ///
     /// e1d2c9e claimed the fakes refuse what the adapters refuse. It was true

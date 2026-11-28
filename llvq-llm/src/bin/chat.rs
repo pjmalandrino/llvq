@@ -78,7 +78,7 @@ fn main() -> anyhow::Result<()> {
     // f16, the same choice `bin/run` makes and for the same reason: the model
     // ran at half precision anyway, and it is 7 GB of RAM against 15 on a 4B.
     let dtype = llvq_llm::eval::dtype(DType::F16)?;
-    // Resolved here and carried by value: `model.rs` reads no environment
+    // Resolved here and carried by value: `model/` reads no environment
     // variable, and an unknown name is an error rather than a silent fallback.
     let kv_mode = llvq_llm::kvq::KvMode::from_env().map_err(anyhow::Error::msg)?;
     llvq_llm::served::check_removed(|v| std::env::var(v).ok()).map_err(anyhow::Error::msg)?;

@@ -6,7 +6,7 @@ use super::*;
 
 // ---------------------------------------------------------------------------
 // The routed experts of one decoded token in four launches (`moe_tetra.cu`),
-// the CUDA twin of the Metal kernels of `fused_metal.rs`. Additive: a module
+// the CUDA twin of the Metal kernels of `fused_metal/`. Additive: a module
 // of its own on the runtime's stream, built on first use; the served unit and
 // its launches do not move. The expert records are the buffers
 // `upload_matrix_ext` and `upload_rotation_ext` made, read through a table of

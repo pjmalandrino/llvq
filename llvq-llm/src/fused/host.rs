@@ -182,7 +182,7 @@ pub const ROW_SCALE_BYTES: u64 = 4;
 /// It is not, and the reason is that the arm the fused path is *compared to*
 /// already rounds them:
 ///
-/// * `bin/fusedrun` runs both arms at `DType::F16` (`bin/fusedrun.rs`, the
+/// * `bin/fusedrun` runs both arms at `DType::F16` (`bin/fusedrun/main.rs`, the
 ///   `let dtype` beside the device);
 /// * its dense arm is `crate::sealed::load(path, dtype, device)`, which takes
 ///   `llvq_artifact::decode_matrix`'s `Vec<f32>` — tail columns restored into

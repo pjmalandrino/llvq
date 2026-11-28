@@ -77,7 +77,7 @@ pub(super) fn get_record_head(r: &mut impl Read, version: u32) -> Result<RecordH
 /// An [`CodeKind::Int4G128`] record is refused here, by name, before a width
 /// is derived. That refusal is what protects every lattice-only tool of this
 /// repository — the benches, the five Metal binaries, the two CUDA ones,
-/// `fused.rs`, `export` — without any of them being touched, and it holds
+/// `fused/`, `export` — without any of them being touched, and it holds
 /// even for a file whose header under-declares its own [`KindSet`].
 pub(super) fn read_lattice_body(r: &mut impl Read, head: RecordHead) -> Result<RawMatrix> {
     let RecordHead {

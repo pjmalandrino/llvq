@@ -48,7 +48,7 @@ pub struct Settings {
 impl Settings {
     /// The sealed Tetra recipe, as `bin/smoke` builds it for
     /// `smoke 64 2048 12 4096 <dev> nogs tetra1 999 rot` with no `LLVQ_DAMPING`,
-    /// `LLVQ_H_SHRINK` or `LLVQ_GAIN_SCALE` set (`smoke.rs` 749-783, 1120-1131).
+    /// `LLVQ_H_SHRINK` or `LLVQ_GAIN_SCALE` set (`bin/smoke/`).
     pub fn sealed_recipe(threads: usize) -> Self {
         let codebook = Codebook::Tetra {
             gain_bits: 1,

@@ -10,7 +10,7 @@
 //! assertion is an equality.
 //!
 //! Nothing runs through candle here: this proves the kernels, not the binding
-//! in `fused_metal.rs`.
+//! in `fused_metal/`.
 
 #![cfg(target_os = "macos")]
 

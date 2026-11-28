@@ -1,7 +1,7 @@
 // Host-side E1v: one matrix's row-aligned stream, and the tables the kernel
 // reads beside it.
 //
-// ⚠️ This file is `include!`d — by `bin/planesbench.rs` and by
+// ⚠️ This file is `include!`d — by `bin/planesbench/` and by
 // `tests/e1v_host_matches_format.rs` — rather than being a module of `lib.rs`,
 // following `planes14_host.rs`: `llvq-artifact` is a **dev-dependency** of this
 // crate, so a real module could not name it. It therefore declares no `use`

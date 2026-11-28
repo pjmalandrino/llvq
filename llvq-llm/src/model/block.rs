@@ -165,7 +165,7 @@ impl Block {
         // hint, so a VarMap-built test model gets ones as before),
         // kept beside the norm: route P's segment reads it in place.
         // The norms keep their weights beside them, fetched with candle_nn::rms_norm's
-        // own hint: 4E (persist4e_cuda.rs) reads them in place.
+        // own hint: 4E (persist4e_cuda/) reads them in place.
         let q_norm_w = a.pp("q_norm").get_with_hints(hd, "weight", candle_nn::Init::Const(1.0))?;
         let k_norm_w = a.pp("k_norm").get_with_hints(hd, "weight", candle_nn::Init::Const(1.0))?;
         let ln1_w = vb.pp("input_layernorm").get_with_hints(cfg.hidden_size, "weight", candle_nn::Init::Const(1.0))?;

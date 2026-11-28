@@ -156,7 +156,7 @@ fn the_int4_bytes_reach_the_footprint_the_runtime_prints() {
 /// The name the host hands the driver is the name the embedded source
 /// defines, and the group it hard-codes is the format's.
 ///
-/// `fused_cuda.rs` looks `INT4_KERNEL_NAME` up on a card and nowhere else,
+/// `fused_cuda/` looks `INT4_KERNEL_NAME` up on a card and nowhere else,
 /// so a typo in it is a `named symbol not found` at the end of a load —
 /// which is exactly how `tv_planes_seg_h` was found, on a rented card.
 #[test]
@@ -205,7 +205,7 @@ fn the_q4_embedding_kernel_names_match_its_source() {
 
 /// Every kernel a runtime looks up has its SOURCE in that runtime's unit.
 ///
-/// 🕳️ The one invariant `fused_cuda.rs` cannot check for itself: that file
+/// 🕳️ The one invariant `fused_cuda/` cannot check for itself: that module
 /// does not compile on this machine — it needs nvcc and a Linux cross
 /// toolchain — so a name it asks the driver for is only ever tested on a
 /// rented card, at the end of a load. On 2026-09-10 it asked for

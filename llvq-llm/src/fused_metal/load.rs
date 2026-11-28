@@ -1,10 +1,10 @@
 //! The loader: a runtime from the portable tables, and the one door that turns a resolved file into the
-//! model's projections. One file because after it `model.rs` names no backend.
+//! model's projections. One file because after it `model/` names no backend.
 
 use super::*;
 
 // ---------------------------------------------------------------------------
-// The loader. One door, and after it `model.rs` names no backend.
+// The loader. One door, and after it `model/` names no backend.
 // ---------------------------------------------------------------------------
 
 impl MetalRuntime {

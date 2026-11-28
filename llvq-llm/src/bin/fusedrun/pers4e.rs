@@ -330,7 +330,7 @@ pub(super) fn run_pers_4e(
     }
     // One more launch a geometry, on the phase-stamp symbol, after the timed
     // rounds and outside them: where the token's time goes, phase by phase
-    // and CTA by CTA (pers.rs::p4e_phase_report). The same tokens, or its
+    // and CTA by CTA (pers/report.rs::p4e_phase_report). The same tokens, or its
     // stamps are void.
     for (k, rt) in rts.iter_mut().enumerate() {
         if !rt.can_stamp() {

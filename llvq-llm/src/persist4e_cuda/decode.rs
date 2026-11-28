@@ -312,7 +312,7 @@ impl Runtime4e {
     /// positions. Returns each row's argmax, the target's token after it; the
     /// caches hold `pos0 + toks.len()` after (rewind them to what is kept).
     /// Each row is the 4E token at its position bit for bit
-    /// (`tests/pers_matches_served.rs::the_4e_verify_rows_are_the_served_chain`).
+    /// (`tests/pers_matches_served/verify.rs::the_4e_verify_rows_are_the_served_chain`).
     pub fn verify(&mut self, caches: &mut [KvCache], pos0: usize, toks: &[u32]) -> anyhow::Result<Vec<u32>> {
         Ok(self.verify_inner(caches, pos0, toks, false)?.0)
     }

@@ -1,4 +1,4 @@
-//! `inkling::attn_scores` against the attention forward of `inkling/layers.rs`.
+//! `inkling::attn_scores` against the attention forward of `inkling/layers/attn.rs`.
 //!
 //! The reference is `AttnWeights::forward` itself, on one decoded row, with
 //! its output gate saturated to exactly 1 and its output projection the
@@ -68,7 +68,7 @@ const REAL: Dims = Dims { hidden: 3072, nh: 24, nkv: 8, hd: 128 };
 const TINY: Dims = Dims { hidden: 48, nh: 4, nkv: 2, hd: 8 };
 
 /// The real config's attention values (`textonly/config.json`), or the tiny
-/// config of the `layers.rs` tests.
+/// config of the `inkling/layers/tests.rs` tests.
 fn config(real: bool) -> InklingConfig {
     let (h, nh, nkv, hd, win, d_rel, ext) = if real { (2304, 24, 8, 128, 1024, 16, 1024) } else { (48, 4, 2, 8, 4, 4, 6) };
     let v = serde_json::json!({
@@ -389,13 +389,13 @@ fn attn_row_near_ties() -> Result<()> {
     Ok(())
 }
 
-/// `[kv, T, d]` to `[kv * rep, T, d]`, as `layers.rs` does.
+/// `[kv, T, d]` to `[kv * rep, T, d]`, as `inkling/layers/attn.rs` does.
 fn repeat_kv(x: &Tensor, rep: usize) -> Result<Tensor> {
     let (kv, t, d) = x.dims3()?;
     x.unsqueeze(1)?.broadcast_as((kv, rep, t, d))?.reshape((kv * rep, t, d))
 }
 
-/// `score_bias` of `layers.rs`, copied for the timing (the original is private).
+/// `score_bias` of `inkling/layers/attn.rs`, copied for the timing (the original is private).
 fn score_bias(rel: &Tensor, offset: usize, s: usize, extent: usize, window: Option<usize>) -> Result<Tensor> {
     let (heads, t, _) = rel.dims3()?;
     let dev = rel.device();
