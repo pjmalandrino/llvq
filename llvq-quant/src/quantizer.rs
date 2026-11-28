@@ -12,20 +12,10 @@ use llvq_search::Searcher;
 use std::cell::RefCell;
 use std::sync::Arc;
 
-/// What a quantizer emitted for the block it just reconstructed — everything
-/// an artifact needs to rebuild that block, and nothing else.
-///
-/// The lattice point rather than its 48-bit index: bijective indexing costs a
-/// multiset-permutation rank per block, which has no business running inside
-/// the quantization loop. A layer's points are encoded once, when the layer is
-/// written out.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct BlockCode {
-    /// Direction, as a point of `√8·Λ₂₄ ⊂ Z²⁴`.
-    pub point: llvq_core::Point,
-    /// Rank of the gain level within the matrix's fitted centroids.
-    pub gain: u32,
-}
+// Moved down into `llvq-search`, so the artifact decoder can reach them
+// without depending on this crate. Re-exported here at their old paths:
+// every caller compiles unchanged and `BlockCode` stays one type.
+pub use llvq_search::shapegain::{index_bits, reconstruct_shape_gain, BlockCode};
 
 /// Reconstructs a block of weights from its quantized representation.
 ///
@@ -975,40 +965,6 @@ pub fn row_scale(row: &[f64]) -> f64 {
         return 0.0;
     }
     (row.iter().map(|a| a * a).sum::<f64>() / (n / DIM).max(1) as f64).sqrt()
-}
-
-/// The shape-gain reconstruction, free of any searcher: `point · g / √(16 m)`
-/// with `g = centroids[gain] · row_scale` and `m` the point's shell, the
-/// origin reconstructed as zero.
-///
-/// One function for both sides of a file: [`LeechShapeGain::reconstruct`]
-/// calls it, and so does `llvq_artifact::decode_matrix`, which used to build
-/// a whole `LeechShapeGain` — a ball searcher included — per matrix to reach
-/// these six lines. The direction code is not looked at: a Tetra point is a
-/// Λ₂₄ point like any other, and reconstructs through the same formula.
-pub fn reconstruct_shape_gain(code: &BlockCode, centroids: &[f64], row_scale: f64, out: &mut [f64]) {
-    assert_eq!(out.len(), DIM);
-    match llvq_core::Leech::shell_index(&code.point) {
-        Some(m) if m > 0 => {
-            let picked = centroids[code.gain as usize] * row_scale;
-            let scale = picked / ((16 * m) as f64).sqrt();
-            for (o, &p) in out.iter_mut().zip(code.point.iter()) {
-                *o = p as f64 * scale;
-            }
-        }
-        // The origin: a zero block, representable and reconstructed as is.
-        _ => out.fill(0.0),
-    }
-}
-
-/// Bits needed to index `Λ₂₄(cap) ∪ {0}` — `⌈log₂(N(cap) + 1)⌉`.
-///
-/// 48 for the full ball, 47 for `cap = 12`. That one bit is what makes a
-/// gain bit free at 2.000 bits/dim.
-pub fn index_bits(cap: u32) -> u32 {
-    let cs = llvq_search::classes::enumerate_classes(cap);
-    let n: u64 = (2..=cap).map(|m| cs.shell_cardinality(m)).sum();
-    (128 - (n as u128).leading_zeros()).max(1)
 }
 
 #[cfg(test)]

@@ -13,6 +13,12 @@
 //! Consequently there is no `anyhow` here either: errors are a small explicit
 //! enum. The crate that bridges to candle ([`llvq_llm`]) converts them.
 //!
+//! The only crates below it are the lattice ones, `llvq-core` and
+//! `llvq-search`, themselves free of external dependencies. It does not
+//! depend on `llvq-quant`: the rotation and the shape-gain reconstruction the
+//! decoder needs live in `llvq-search`, so GPTQ, the dense algebra and the
+//! optional `faer` are not part of what a reader of the format has to audit.
+//!
 //! ## The format, in one paragraph
 //!
 //! A file is a magic word, a matrix count, the writer's codebook fingerprint

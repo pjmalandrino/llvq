@@ -78,7 +78,7 @@
 use crate::{Error, Result};
 use core::fmt;
 use llvq_core::{Point, DIM};
-use llvq_quant::quantizer::{index_bits, reconstruct_shape_gain, BlockCode};
+use llvq_search::shapegain::{index_bits, reconstruct_shape_gain, BlockCode};
 use llvq_search::index::Indexer;
 use llvq_search::pack::{BitReader, BitWriter};
 use llvq_search::tetra::{Tetra, LABEL_BITS};
@@ -1703,7 +1703,7 @@ pub fn decode_matrix(m: &QuantizedMatrix) -> Vec<f32> {
     // With no row there is nothing to un-rotate, and building the rotation
     // anyway would cost its dense block for an empty matrix.
     if let (Some(seed), true) = (m.rotation_seed, m.d_out > 0) {
-        llvq_quant::rotation::Rotation::new(m.d_in, seed).unrotate_weight_rows(&mut w, m.d_out);
+        llvq_search::rotation::Rotation::new(m.d_in, seed).unrotate_weight_rows(&mut w, m.d_out);
     }
     w.into_iter().map(|v| v as f32).collect()
 }

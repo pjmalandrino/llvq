@@ -34,6 +34,12 @@
 //! This module covers m = 2 and m = 3 (hand-derived class
 //! decompositions, cross-checked by the G1/G2 suites). The generic
 //! engine for m ≤ 13 (2 bits/dim regime) is in `generic`.
+//!
+//! Two modules are not search. `rotation` (the incoherence rotation) and
+//! `shapegain` (the block code, its reconstruction and the index width) were
+//! moved here from `llvq-quant` so that `llvq-artifact` can decode a file
+//! without depending on the quantizer; `llvq-quant` re-exports them at their
+//! old paths.
 
 #![forbid(unsafe_code)]
 
@@ -45,6 +51,8 @@ pub mod generic_ref;
 pub mod index;
 pub mod pack;
 pub mod rankdec;
+pub mod rotation;
+pub mod shapegain;
 pub mod tetra;
 
 use llvq_core::{Leech, Point, DIM};

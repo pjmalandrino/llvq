@@ -9,11 +9,16 @@ description = "The LLVQ 2-bit artifact format: packed Leech lattice indices, and
 [dependencies]
 llvq-core = { path = "../llvq-core" }
 llvq-search = { path = "../llvq-search" }
-llvq-quant = { path = "../llvq-quant" }
 # Intentionally no external dependencies. Reading a quantized model must not
 # require a tensor runtime, an error crate, or anything else a reviewer would
 # have to audit — the decoder is the part a sceptical reader wants to check
-# line by line.
+# line by line. Nor llvq-quant: the rotation and the shape-gain reconstruction
+# the decoder uses live in llvq-search, and GPTQ is not part of a reader.
+
+[dev-dependencies]
+# The tests build matrices through the quantizer's paths
+# (`llvq_quant::quantizer::BlockCode`, `LeechShapeGain`, `rotation::Rotation`).
+llvq-quant = { path = "../llvq-quant" }
 
 # Every target of the package, not only the lib: bins, tests, examples, benches.
 [lints.rust]
