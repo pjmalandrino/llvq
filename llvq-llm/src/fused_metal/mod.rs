@@ -33,9 +33,27 @@
 //!      closed enum over 15 `include_str!` constants. This module carries its
 //!      own cache, and its key includes the injected tile, because a define
 //!      that fails to land changes the staging and not the arithmetic.
+//!
+//! ## The files
+//!
+//! | file | holds |
+//! |---|---|
+//! | this file | the kernel texts and their entry points, [`MetalRuntime`], [`MetalTables`], [`MetalTetraProj`] |
+//! | `tuning` | [`MetalTuning`], the Tetra kernel names and row loops, the int4 tile, the threadgroup checks |
+//! | `runtime` | the runtime's core methods, the Tetra matvec launches, the host oracle |
+//! | `rot` | [`MetalRotation`] and the Walsh-Hadamard launch |
+//! | `int4` | [`MetalInt4Proj`], its upload and its launches |
+//! | `embed` | [`MetalEmbedTable`], the token gather and the lm_head |
+//! | `port` | the `crate::device` port: the lattice and int4 projections the model sees |
+//! | `load` | [`load_resolved`], the one door from a resolved file to the model's projections |
+//! | `wave1` | the resident buffers, the f32 prefill rows kernel, the f32-input int4 head |
+//! | `moe` | [`MetalMoeSlab`] and one decoded token through the routed experts |
+//! | `moe_rows` | a prompt's rows through the resident experts |
+//!
+//! Each child imports what it uses by name. This file re-exports only what
+//! the rest of the workspace names, plus the types its public signatures carry.
 
-use candle_core::backend::BackendStorage;
-use candle_core::{CpuStorage, CustomOp1, DType, Layout, MetalStorage, Result, Shape, Tensor};
+use candle_core::Result;
 use candle_metal_kernels::metal::{Buffer, ComputePipeline};
 use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
@@ -51,15 +69,16 @@ mod wave1;
 mod moe;
 mod moe_rows;
 
-pub use tuning::*;
-pub use rot::*;
-pub use int4::*;
-pub use embed::*;
-pub use port::*;
-pub use load::*;
-use wave1::*;
-pub use moe::*;
-pub use moe_rows::*;
+pub use tuning::{tuning_of, MetalTuning, Q4_TILE_COLS, SERVED_TETRA, TETRA_ROW_LOOPS};
+pub use rot::MetalRotation;
+pub use int4::MetalInt4Proj;
+pub use embed::{MetalEmbed, MetalEmbedTable};
+pub use load::{load_resolved, load_resolved_tuned};
+pub use moe::{MetalMoeSlab, MoeHostExpert, MoeHostProj, MoeShape, MoeSlabExpert, MOE_DOWN_SG_DEFAULT, MOE_MAX_SELECTED};
+pub use moe_rows::MoeRowsMats;
+use moe::{SRC_MOE_ROT, SRC_MOE_TETRA};
+use moe_rows::SRC_MOE_ROWS;
+use wave1::{SRC_E4_XF, SRC_TETRA_ROWS_F32};
 
 #[cfg(test)]
 mod tests;

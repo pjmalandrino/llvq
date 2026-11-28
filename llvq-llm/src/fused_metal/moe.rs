@@ -2,7 +2,13 @@
 //! and one decoded token through them in four launches. One file because the slab's layout, its MSL offset
 //! record and the launches that index it are one contract.
 
-use super::*;
+use std::sync::Arc;
+
+use candle_core::backend::BackendStorage;
+use candle_core::{CpuStorage, DType, Layout, MetalStorage, Result, Shape, Tensor};
+use candle_metal_kernels::metal::Buffer;
+
+use super::{HostProj, MetalRotation, MetalRuntime, MetalTetraProj, GROUP, LANES, SERVED_TETRA};
 
 // ---------------------------------------------------------------------------
 // Wave 2 of the Inkling 2 Mini throughput plan, item D3: the routed experts

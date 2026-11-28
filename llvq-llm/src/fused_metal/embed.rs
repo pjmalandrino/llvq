@@ -1,7 +1,14 @@
 //! The quantized embedding table on the device, and the two ends that read it: the token gather and the
 //! lm_head. One file because both ends read the same table and must agree on its layout.
 
-use super::*;
+use std::sync::Arc;
+
+use candle_core::backend::BackendStorage;
+use candle_core::{CpuStorage, CustomOp1, DType, Layout, MetalStorage, Result, Shape, Tensor};
+use candle_metal_kernels::metal::Buffer;
+
+use super::tuning::{group_exactly, group_within};
+use super::{MetalRuntime, GROUP, LANES, THREADGROUP_LIMIT};
 
 // ---------------------------------------------------------------------------
 // The q8 embedding, and the lm_head that reads the same table.

@@ -2,7 +2,11 @@
 //! names and their row loops, the int4 tile, and the threadgroup checks. One file because every one of them
 //! answers the same question, which kernel and which launch shape a projection gets, before anything runs.
 
-use super::*;
+use candle_core::Result;
+use candle_metal_kernels::metal::ComputePipeline;
+
+use super::port::MetalLattice;
+use super::{source_of, LANES, THREADGROUP_LIMIT};
 
 /// Columns `tv_q4_metal_tiled` stages a tile, for an int4 record whose whole
 /// activation does not fit in `THREADGROUP_LIMIT`.
@@ -75,7 +79,7 @@ impl Default for MetalTuning {
 }
 
 /// Rows the Tetra prefill kernel can take a launch (`TETRA48_PREFILL_MAX`).
-pub const TETRA_PREFILL_MAX: usize = 8;
+pub(super) const TETRA_PREFILL_MAX: usize = 8;
 
 impl MetalTuning {
     /// The tuning a `bin/metalrun` arm names, `lutd+h+pq` for one: a Tetra
@@ -198,7 +202,7 @@ impl MetalTuning {
 }
 
 /// The half-store twin of a Tetra matvec, if it has one.
-pub fn tetra_half_twin(name: &str) -> Option<&'static str> {
+pub(super) fn tetra_half_twin(name: &str) -> Option<&'static str> {
     match name {
         "tv_tetra48_metal_lut" => Some("tv_tetra48_metal_luth"),
         "tv_tetra48_metal_lutd" => Some("tv_tetra48_metal_lutdh"),
@@ -222,18 +226,18 @@ pub const TETRA_ROW_LOOPS: [&str; 6] = [
 /// the faithful port and three other decoders of it (`_ar`, `_u2`, `_c3`).
 /// Each has the served kernel's arguments, 32 lanes a row, an f32 output, and
 /// no threadgroup memory but the staging at index 0 the host sizes.
-pub const TETRA_REFERENCES: [&str; 4] =
+const TETRA_REFERENCES: [&str; 4] =
     ["tv_tetra48_metal", "tv_tetra48_metal_ar", "tv_tetra48_metal_u2", "tv_tetra48_metal_c3"];
 
 /// Whether a Tetra matvec stages the decoder tables in threadgroup memory and
 /// loops its simdgroups over the rows (`_lutdt`, `_lutdth`): its own dispatch.
-pub fn tetra_loops_rows(name: &str) -> bool {
+pub(super) fn tetra_loops_rows(name: &str) -> bool {
     matches!(name, "tv_tetra48_metal_lutdt" | "tv_tetra48_metal_lutdth")
 }
 
 /// Rows a simdgroup of `_lutdt` takes, on average, from one copy of the tables.
 /// The threadgroup count is `ceil(d_out / (simdgroups * this))`.
-pub const TETRA_TG_LOOP_ROWS: usize = 4;
+pub(super) const TETRA_TG_LOOP_ROWS: usize = 4;
 
 /// Threadgroup bytes of `_lutdt`'s five tables, in binding order: rank rows
 /// (4,096 u32), branches (1,024 u16), prefixes and suffixes (128 u8 each),
@@ -257,7 +261,7 @@ pub(super) fn tetra_reads_direct(name: &str) -> bool {
 
 /// Rows a simdgroup of a Tetra matvec carries: 1 for every kernel but the
 /// multi-row twins, which keep 32 lanes a row and give a lane R rows.
-pub fn tetra_rows_per_simd(name: &str) -> usize {
+pub(super) fn tetra_rows_per_simd(name: &str) -> usize {
     match name {
         "tv_tetra48_metal_lutd2" => 2,
         "tv_tetra48_metal_lutd4" => 4,

@@ -1,7 +1,17 @@
 //! The loader: a runtime from the portable tables, and the one door that turns a resolved file into the
 //! model's projections. One file because after it `model/` names no backend.
 
-use super::*;
+use std::collections::HashMap;
+use std::sync::{Arc, RwLock};
+
+use candle_core::{DType, Result, Tensor};
+
+use super::port::{MetalInt4, MetalLattice};
+use super::tuning::check_threadgroup_memory;
+use super::{
+    compose_c3, kernel_from_env, MetalEmbed, MetalEmbedTable, MetalRotation, MetalRuntime, MetalTables, MetalTetraProj,
+    MetalTuning, MOE_DOWN_SG_DEFAULT, Q4_TILE_COLS,
+};
 
 // ---------------------------------------------------------------------------
 // The loader. One door, and after it `model/` names no backend.

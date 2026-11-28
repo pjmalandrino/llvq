@@ -2,7 +2,14 @@
 //! kernel and the f32-input int4 head. One file because the three items came in together, with their own MSL
 //! text appended to shipped units, and touch no served path.
 
-use super::*;
+use std::sync::Arc;
+
+use candle_core::backend::BackendStorage;
+use candle_core::{CpuStorage, CustomOp1, DType, Layout, MetalStorage, Result, Shape, Tensor};
+use candle_metal_kernels::metal::Buffer;
+
+use super::tuning::TETRA_PREFILL_MAX;
+use super::{HostProj, MetalEmbedTable, MetalRotation, MetalRuntime, MetalTetraProj, GROUP, LANES, THREADGROUP_LIMIT};
 
 // ---------------------------------------------------------------------------
 // Wave 1 of the Inkling 2 Mini throughput plan (`docs/plan-debit-inkling2-mini.md`).

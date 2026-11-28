@@ -2,7 +2,21 @@
 //! one-row and prefill-rows launches as candle ops, and the host oracle that replays the shader's order. One
 //! file because the oracle is only worth anything next to the launch it shadows.
 
-use super::*;
+use std::collections::HashMap;
+use std::sync::RwLock;
+
+use candle_core::backend::BackendStorage;
+use candle_core::{CpuStorage, CustomOp1, DType, Layout, MetalStorage, Result, Shape, Tensor};
+use candle_metal_kernels::metal::ComputePipeline;
+
+use super::tuning::{
+    check_threadgroup_memory, group_within, tetra_half_twin, tetra_loops_rows, tetra_reads_direct, tetra_rows_per_simd,
+    TETRA_PREFILL_MAX, TETRA_TG_LOOP_ROWS, TETRA_TG_TABLES,
+};
+use super::{
+    compose_c3, h2f, kernel_from_env, source_of, HostProj, HostTables, Key, MetalRuntime, MetalTables, MetalTetraProj,
+    GROUP, LANES, MOE_DOWN_SG_DEFAULT, ORDER, Q4_TILE_COLS,
+};
 
 impl MetalRuntime {
     /// Upload the decoder tables and take the device.

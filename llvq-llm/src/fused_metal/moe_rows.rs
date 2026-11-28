@@ -2,9 +2,11 @@
 //! `resident_cuda.rs`'s `forward_rows_batched`. One file because it is one path, built on the slab of
 //! `moe.rs`, with its own kernel text.
 
-use super::*;
-use super::moe::moe_off_msl;
-use candle_core::CustomOp2;
+use candle_core::backend::BackendStorage;
+use candle_core::{CpuStorage, CustomOp2, DType, Layout, MetalStorage, Result, Shape, Tensor};
+
+use super::moe::{moe_off_msl, moe_shape};
+use super::{MetalMoeSlab, MetalRuntime, GROUP, LANES};
 
 // ---------------------------------------------------------------------------
 // A prompt's rows through the resident experts of a layer in a few launches

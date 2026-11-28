@@ -1,14 +1,18 @@
 //! The port of `crate::device`, implemented for Metal: a lattice projection and an int4 projection as the
 //! model sees them. One file because it is the whole surface `model/` touches.
 
-use super::*;
+use std::sync::Arc;
+
+use candle_core::{DType, Result, Tensor};
+
+use super::{MetalInt4Proj, MetalRotation, MetalRuntime, MetalTetraProj};
 
 // ---------------------------------------------------------------------------
 // The port, implemented. From here `model/` cannot tell a card from a Mac.
 // ---------------------------------------------------------------------------
 
 /// One Tetra projection, its runtime and its rotation, as the model sees it.
-pub struct MetalLattice {
+pub(super) struct MetalLattice {
     pub(super) rt: Arc<MetalRuntime>,
     pub(super) proj: MetalTetraProj,
     pub(super) rot: Option<Arc<MetalRotation>>,
@@ -77,7 +81,7 @@ impl crate::device::LatticeProj for MetalLattice {
 }
 
 /// One int4 projection, as the model sees it.
-pub struct MetalInt4 {
+pub(super) struct MetalInt4 {
     pub(super) rt: Arc<MetalRuntime>,
     pub(super) proj: MetalInt4Proj,
 }

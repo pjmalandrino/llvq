@@ -1,7 +1,14 @@
 //! The int4 arm: a projection served as affine int4 g128, its upload and its one-row and rows launches. One
 //! file because it is the only record kind the lattice kernels do not read.
 
-use super::*;
+use std::sync::Arc;
+
+use candle_core::backend::BackendStorage;
+use candle_core::{CpuStorage, CustomOp1, DType, Layout, MetalStorage, Result, Shape, Tensor};
+use candle_metal_kernels::metal::Buffer;
+
+use super::tuning::{group_within, int4_tile_for, TETRA_PREFILL_MAX};
+use super::{MetalRuntime, MetalTuning, GROUP, LANES};
 
 // ---------------------------------------------------------------------------
 // The int4 arm: `v_proj` on the served mixed file, 36 of the 252 projections.
