@@ -39,6 +39,11 @@
 #     and nowhere else. The CUDA decoder's correctness tests are precisely the
 #     ones this CI cannot run.
 #
+# The `cuda-types` job below type-checks llvq-cuda and the `cuda` feature of
+# llvq-llm and llvq-runtime with a stand-in nvcc (ops/check-cuda-types.sh):
+# rustc's types and clippy's zero warnings, with nothing linked and nothing
+# run. Everything a GPU would execute stays in the list above.
+#
 # Covering them needs a self-hosted GPU runner, or a macos-* runner for the
 # clang++ half (10x minute multiplier on private repos). That is a spending
 # decision, not a technical one, so it is left to a human. K2 of
@@ -80,7 +85,7 @@ concurrency:
 env:
   CARGO_TERM_COLOR: always
 
-# Five jobs in parallel, so the wall time is the slowest one, not the sum.
+# Six jobs in parallel, so the wall time is the slowest one, not the sum.
 # Each caches its own target directory under its own key: one profile per
 # job, and actions/cache saves only after a job succeeds. Rust is pinned:
 # `-D warnings` on a floating toolchain turns the tree red overnight on code
@@ -271,3 +276,35 @@ jobs:
         run: >
           cargo test --locked --profile ci
           -p llvq-quant --features fast-linalg
+
+  # The served CUDA code meets a compiler before the paid image build does.
+  # A runner has no GPU and no CUDA toolkit: ops/check-cuda-types.sh gives
+  # cudarc its CUDA version through CUDARC_CUDA_VERSION and candle-kernels a
+  # stand-in nvcc, so `cargo clippy` proves the types of llvq-cuda and of the
+  # `cuda` feature of llvq-llm and llvq-runtime. It links nothing, sends no
+  # kernel text to NVRTC and runs no test.
+  cuda-types:
+    name: CUDA half type-checked (stand-in nvcc, links nothing)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install pinned Rust 1.95.0
+        run: |
+          rustup toolchain install 1.95.0 --profile minimal --component clippy
+          rustup default 1.95.0
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry/index
+            ~/.cargo/registry/cache
+            ~/.cargo/git/db
+            target
+          key: cuda-types-1.95.0-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: cuda-types-1.95.0-
+      - name: llvq-cuda
+        run: ops/check-cuda-types.sh clippy --locked -p llvq-cuda --all-targets -- -D warnings
+      - name: llvq-llm --features cuda
+        run: ops/check-cuda-types.sh clippy --locked -p llvq-llm --features cuda --all-targets -- -D warnings
+      - name: llvq-runtime --features cuda
+        run: ops/check-cuda-types.sh clippy --locked -p llvq-runtime --features cuda --all-targets -- -D warnings
