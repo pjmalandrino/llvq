@@ -346,14 +346,20 @@ fn golay70_refuses_a_two_bit_gain_table() {
 }
 
 /// A gain rank that overflows the 1-bit field must be refused too — pushed
-/// as-is it would corrupt the Golay rank's first bit.
+/// as-is it would corrupt the Golay rank's first bit. Refused as an `Err`,
+/// like an out-of-range index: it is what a three-centroid record carries,
+/// not a caller bug.
 #[test]
-#[should_panic(expected = "overflows the 1-bit field")]
 fn golay70_refuses_an_overflowing_gain_value() {
     let fd = FastDecoder::new();
     let table = ClassTable::new(&fd, 1);
     let g70 = Golay70Table::new(&fd);
-    let _ = transcode_golay70(&fd, &table, &g70, &[1], &[2]);
+    match transcode_golay70(&fd, &table, &g70, &[1], &[2]) {
+        Err(llvq_artifact::Error::Inconsistent { detail, .. }) => {
+            assert!(detail.contains("block 0: gain 2 overflows the 1-bit field"), "{detail}")
+        }
+        other => panic!("expected Inconsistent, got {:?}", other.err()),
+    }
 }
 
 /// An index outside the ball must refuse to transcode — same contract as the

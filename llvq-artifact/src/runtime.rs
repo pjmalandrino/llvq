@@ -1040,7 +1040,14 @@ fn encode_plane_record(
     data: &mut [u8],
     bit0: u64,
 ) -> Result<()> {
-    assert!(gain < 2, "gain {gain} overflows the 1-bit field");
+    // Both public callers refuse a wide gain up front, with its block; this
+    // is the same refusal for whichever caller comes next.
+    if gain >= 2 {
+        return Err(Error::Inconsistent {
+            name: "runtime transcode".to_string(),
+            detail: format!("gain {gain} overflows the 1-bit field"),
+        });
+    }
     let id = class_id(fd, idx)?;
     let rec = *table.record(id);
     assert!(
@@ -1172,6 +1179,7 @@ pub fn transcode_planes12x(
         1,
         "Planes12x freezes the gain field at bit 9, one bit wide"
     );
+    check_gains(gains, 1)?;
     let n = indices.len();
     assert!(
         u32::try_from(n).is_ok(),
@@ -1567,6 +1575,7 @@ pub fn transcode_golay70(
         1,
         "Golay70 freezes the gain field at bit 9, one bit wide"
     );
+    check_gains(gains, 1)?;
     let n = indices.len();
     assert!(
         u32::try_from(n).is_ok(),
@@ -1578,7 +1587,6 @@ pub fn transcode_golay70(
     let mut exc_idx: Vec<u32> = Vec::new();
     let mut exc_data: Vec<u8> = Vec::new();
     for (b, (&idx, &gain)) in indices.iter().zip(gains).enumerate() {
-        assert!(gain < 2, "block {b}: gain {gain} overflows the 1-bit field");
         let id = class_id(fd, idx)?;
         let bit0 = b as u64 * (GOLAY70_BYTES as u64 * 8);
         let mut w = BitSink::new(&mut data, bit0);
