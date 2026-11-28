@@ -6,6 +6,7 @@
 //! * [`chat`]: messages to ids, and the text streamed back.
 //! * [`tools`]: tool calls, a family's format: the prompt and the parser.
 //! * [`engine`]: one thread per loaded model, the queue, the keep-alive.
+//! * `outbox`: a request's events on their way to its client, the send timeout.
 //! * [`inkling`]: Inkling 2 from a local file, and its engine.
 //! * [`prefix`]: the prefix cache on disk of the Inkling engine.
 //! * [`api`]: the HTTP routes and the OpenAPI document.
@@ -17,6 +18,7 @@ pub mod banner;
 pub mod chat;
 pub mod tools;
 pub mod engine;
+mod outbox;
 pub mod inkling;
 pub mod prefix;
 pub mod library;

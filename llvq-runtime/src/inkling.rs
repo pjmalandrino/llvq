@@ -732,7 +732,7 @@ pub(crate) fn serve(
             // The weights go now, as in the Qwen3 engine, and the engine
             // fails without waiting on a client that stopped reading.
             drop(e);
-            crate::engine::fail_after_panic(job, rx, inf, msg);
+            crate::outbox::fail_after_panic(job, rx, inf, msg);
             return;
         }
         *inf.expires.lock().expect("expires lock") = job.keep_alive.until(SystemTime::now());
@@ -933,7 +933,7 @@ impl<M: TurnLm> Turns for Worker<M> {
             return;
         }
         // A send waits for a client that reads late, up to its send timeout.
-        let out = std::cell::RefCell::new(crate::engine::Outbox::new(job));
+        let out = std::cell::RefCell::new(crate::outbox::Outbox::new(job));
         let send = |e: Event| out.borrow_mut().send(e);
         if let Err(e) = self.run_inner(job, started, load, &send) {
             // The cache may hold half a feed: the next request starts empty.
