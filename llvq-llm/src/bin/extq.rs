@@ -74,11 +74,9 @@ fn seed(layer: u64, expert: u64, group: u64) -> u64 {
     ROTATION_SEED ^ (layer << 32) ^ (expert << 20) ^ (group << 16)
 }
 
+/// `LLVQ_THREADS`, else ncpu-4: this tool runs on machines someone works on.
 fn threads() -> Result<usize> {
-    match std::env::var("LLVQ_THREADS") {
-        Ok(s) => s.parse::<usize>().ok().filter(|t| *t > 0).with_context(|| format!("LLVQ_THREADS={s:?}")),
-        Err(_) => Ok(std::thread::available_parallelism().map(|n| n.get()).unwrap_or(8).saturating_sub(4).max(1)),
-    }
+    llvq_llm::eval::env_threads(std::thread::available_parallelism().map(|n| n.get()).unwrap_or(8).saturating_sub(4).max(1))
 }
 
 fn read_at(f: &mut File, offset: u64, bytes: usize) -> Result<Vec<u8>> {

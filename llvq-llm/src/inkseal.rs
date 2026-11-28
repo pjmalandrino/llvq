@@ -1550,12 +1550,10 @@ pub fn run_wh(manifest: &Path, out_dir: &Path, threads: usize) -> Result<Value> 
     Ok(summary)
 }
 
-/// The threads a tool of this module uses: `LLVQ_THREADS`, else 2.
+/// The threads a tool of this module uses: `LLVQ_THREADS`
+/// ([`crate::eval::env_threads`]), else 2.
 pub fn threads() -> Result<usize> {
-    match std::env::var("LLVQ_THREADS") {
-        Ok(s) => s.parse::<usize>().ok().filter(|t| *t > 0).with_context(|| format!("LLVQ_THREADS={s:?}")),
-        Err(_) => Ok(2),
-    }
+    crate::eval::env_threads(2)
 }
 
 /// The payload bits of one record as stored, the accounting of `bin/extq`'s

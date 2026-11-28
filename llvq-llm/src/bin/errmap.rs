@@ -311,7 +311,8 @@ fn main() -> anyhow::Result<()> {
         h_shrink: 1.0,
         gain_scale: 1.0,
         codebook,
-        threads: env_usize("LLVQ_THREADS", 0)?,
+        // Unset stays 0, which the GPTQ loop reads as one thread.
+        threads: llvq_llm::eval::env_threads(0)?,
         start: 0,
         limit,
         rotation_seed: Some(0x110feed),

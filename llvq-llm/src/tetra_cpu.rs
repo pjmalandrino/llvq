@@ -1184,18 +1184,10 @@ fn q4_group_scalar(bytes: &[u8], xe: &[f32], xo: &[f32]) -> f32 {
 // The pool and the whole-matrix calls.
 // ---------------------------------------------------------------------------
 
-/// Threads the CPU backend uses: `LLVQ_THREADS`, or every core.
+/// Threads the CPU backend uses: `LLVQ_THREADS` ([`crate::eval::env_threads`]),
+/// or every core when unset.
 pub fn threads() -> Result<usize, String> {
-    match std::env::var("LLVQ_THREADS") {
-        Ok(s) => {
-            let n: usize = s.trim().parse().map_err(|e| format!("LLVQ_THREADS={s:?} is not a number: {e}"))?;
-            if n == 0 {
-                return Err(format!("LLVQ_THREADS={s:?}: at least one is needed"));
-            }
-            Ok(n)
-        }
-        Err(_) => Ok(std::thread::available_parallelism().map_or(1, |n| n.get())),
-    }
+    crate::eval::env_threads(std::thread::available_parallelism().map_or(1, |n| n.get())).map_err(|e| e.to_string())
 }
 
 /// The pool every matvec of this module runs on, built at first use.

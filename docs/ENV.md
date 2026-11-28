@@ -47,7 +47,7 @@ modes set together (`ALONE` in that file).
 | `LLVQ_H_SHRINK` | `smoke`, `hcapture` | Hessian shrink ρ; unset = published | tool |
 | `LLVQ_GAIN_SCALE` | `smoke` | gain multiplier; unset = published | tool |
 | `LLVQ_SEQ_BLOCK` | `smoke` | unset, empty or `0` (default), `1`; any other value refused | tool |
-| `LLVQ_THREADS` | `smoke`, `errmap`, `f1recdump`, `tetra_cpu::pool` | thread count; about ncpu-4 on a shared machine; the CPU backend uses every core when unset | tool |
+| `LLVQ_THREADS` | `eval::env_threads`: `smoke`, `errmap`, `extq`, `inkseal`, `inkwh`, `tetra_cpu::pool`; also the example `f1recdump`, with its own parser (empty is its default, `0` reads as 1) | a positive integer; empty, `0` or anything else refused by name. Unset is each tool's default: every core for the CPU backend and `smoke`, ncpu-4 for `extq`, 2 for `inkseal` and `inkwh`, one thread for `errmap`. About ncpu-4 on a shared machine | tool |
 | `LLVQ_ARTIFACT` | `smoke` | path of the artifact to write; unset = none | tool |
 | `LLVQ_RESUME` | `smoke` | shard to resume from; requires `LLVQ_ARTIFACT` | tool |
 | `LLVQ_INT4_TYPES` | `smoke` | projection types written int4 g128, comma-separated | tool |

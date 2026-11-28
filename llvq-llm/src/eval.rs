@@ -82,6 +82,35 @@ pub fn env_flag(key: &str) -> anyhow::Result<bool> {
     parse_flag(key, std::env::var(key).ok().as_deref())
 }
 
+/// The thread count of every tool of the crate that takes one.
+pub const THREADS_ENV: &str = "LLVQ_THREADS";
+
+/// A thread count: unset is `default`, set is a positive integer.
+///
+/// Each caller keeps its own default because they differ on purpose (every
+/// core for the CPU backend, ncpu-4 for `extq` on a shared machine, 2 for
+/// `inkseal`). The value has one rule everywhere, so one exported value means
+/// the same thing in every tool: empty, `0` or anything not a number is
+/// refused, where `smoke` used to read empty as its default and `errmap` used
+/// to take `0`.
+pub fn parse_threads(v: Option<&str>, default: usize) -> anyhow::Result<usize> {
+    let Some(s) = v else { return Ok(default) };
+    match s.trim().parse::<usize>() {
+        Ok(n) if n > 0 => Ok(n),
+        _ => anyhow::bail!("{THREADS_ENV}={s:?}: a thread count is a positive integer; unset it for the tool's default"),
+    }
+}
+
+/// [`parse_threads`] on the environment. A value that is not UTF-8 is set,
+/// so it is refused rather than read as unset.
+pub fn env_threads(default: usize) -> anyhow::Result<usize> {
+    match std::env::var(THREADS_ENV) {
+        Ok(s) => parse_threads(Some(&s), default),
+        Err(std::env::VarError::NotPresent) => Ok(default),
+        Err(std::env::VarError::NotUnicode(s)) => anyhow::bail!("{THREADS_ENV}={s:?}: not valid UTF-8"),
+    }
+}
+
 /// Resolve the model dtype: `default`, unless `LLVQ_DTYPE` overrides it.
 pub fn dtype(default: DType) -> anyhow::Result<DType> {
     match std::env::var(DTYPE_ENV) {
@@ -192,6 +221,20 @@ mod tests {
         assert!(parse_flag("F", Some("1")).unwrap());
         assert!(parse_flag("F", Some("yes")).is_err(), "`yes` must not read as off");
         assert!(parse_flag("F", Some("true")).is_err());
+    }
+
+    /// One rule for every tool: unset is the caller's default, a positive
+    /// integer is taken, and empty, `0` or anything else stops the tool by name.
+    #[test]
+    fn a_thread_count_is_positive_or_refused() {
+        assert_eq!(parse_threads(None, 7).unwrap(), 7);
+        assert_eq!(parse_threads(None, 0).unwrap(), 0, "the caller's default passes through untouched");
+        assert_eq!(parse_threads(Some("1"), 7).unwrap(), 1);
+        assert_eq!(parse_threads(Some(" 12 "), 7).unwrap(), 12);
+        for bad in ["", " ", "0", "-1", "4x", "four", "1.5", "+"] {
+            let e = parse_threads(Some(bad), 7).expect_err(bad).to_string();
+            assert!(e.starts_with(&format!("{THREADS_ENV}={bad:?}")), "{bad:?}: {e}");
+        }
     }
 
     #[test]

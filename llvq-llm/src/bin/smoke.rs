@@ -669,18 +669,11 @@ fn main() -> anyhow::Result<()> {
     // `LLVQ_THREADS` caps the encoder pool. A full run wants every core, but
     // an A/B launched on a machine someone is working on should not take the
     // whole machine — the Leech encoder is the part that saturates it.
-    let threads = match std::env::var("LLVQ_THREADS") {
-        Ok(s) if !s.is_empty() => {
-            let n: usize = s
-                .parse()
-                .map_err(|e| anyhow::anyhow!("LLVQ_THREADS={s:?} is not a number: {e}"))?;
-            anyhow::ensure!(n > 0, "LLVQ_THREADS={s:?}: at least one is needed");
-            n
-        }
-        _ => std::thread::available_parallelism()
+    let threads = llvq_llm::eval::env_threads(
+        std::thread::available_parallelism()
             .map(|n| n.get())
             .unwrap_or(4),
-    };
+    )?;
     // F32 by default — every published run used it, and the identity control
     // depends on it. `LLVQ_DTYPE=bf16` halves the resident model, which is
     // what makes a 32B fit: 131 GB in f32 exceeds every single-card flavor,
