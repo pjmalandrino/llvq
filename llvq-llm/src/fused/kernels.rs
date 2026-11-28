@@ -2,7 +2,9 @@
 //! the `LLVQ_KERNEL_DIR` loaders and the int4 fixtures. One file because every
 //! `include_str!` of the fused path lives here, so the served text has one home.
 
-use super::*;
+use llvq_artifact::CodeKind;
+
+use super::{EmbedMode, FusedInt4, FusedLayout};
 
 // ---------------------------------------------------------------------------
 // The kernel sources a layout needs

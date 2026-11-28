@@ -1,7 +1,14 @@
 //! Reading a sealed file into a [`FusedModel`] without decoding it ([`load`],
 //! [`load_with`]), and [`FusedSealed`], what a backend's loader hands back.
 
-use super::*;
+use std::collections::HashMap;
+use std::io::Read;
+
+use super::host::runtime_bytes_of;
+use super::{
+    check_kinds, lattice_kind, matrix_side_bytes, seg_kernel_name, segment_matrices, serves_kind, tail_f16_bits,
+    EmbedMode, FuseMode, FusedInt4, FusedLayout, FusedMatrix, FusedModel, RotKey, RotationTables, Transcoder,
+};
 
 fn read_u32(r: &mut impl Read) -> Result<u32, String> {
     let mut b = [0u8; 4];

@@ -1,6 +1,11 @@
 //! Unit tests of the fused host side, one file because they reach the private
 //! helpers of every sibling through `super`.
 
+use llvq_artifact::CodeKind;
+use llvq_quant::rotation::Rotation;
+
+use super::host::{runtime_bytes_of, ROT_KMAX};
+use super::kernels::{EMB_Q4_CU_EMBED, Q4_H_CU_EMBED};
 use super::*;
 
 /// `LLVQ_FUSE` refuses anything that is not a mode — the [`FusedLayout::

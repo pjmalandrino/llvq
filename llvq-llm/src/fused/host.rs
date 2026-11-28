@@ -2,14 +2,16 @@
 //! [`FusedMatrix`], [`FusedInt4`]), the byte accounting of its side arrays, and
 //! the rotation tables shared by the projections that share an activation.
 
-use super::*;
+use llvq_quant::rotation::Rotation;
+
+use super::FusedGroup;
 
 /// Mirrors `LLVQ_ROT_KMAX` in `llvq-cuda/kernels/llvq_rot.cuh`.
 ///
 /// Duplicated across a language boundary on purpose — the kernel is in another
 /// crate that does not build on this machine — and pinned by
 /// `the_kmax_constant_matches_the_kernel` on the CUDA side.
-pub const ROT_KMAX: usize = 32;
+pub(super) const ROT_KMAX: usize = 32;
 
 /// One matrix's payload in one runtime layout, as the words a kernel indexes.
 ///
@@ -238,7 +240,7 @@ pub fn tail_f16_bits(tail: &[f64]) -> Vec<u16> {
 /// `quantized_weights` counts an int4 record's weights while this sum did not
 /// count its bytes. On the served mixed file that is 2.030 b/weight printed
 /// against a true 2.141, and a footprint 50 MB light.
-pub fn runtime_bytes_of(
+pub(super) fn runtime_bytes_of(
     matrices: &[FusedMatrix],
     groups: &[FusedGroup],
     int4: &[FusedInt4],

@@ -38,19 +38,20 @@
 //! projections as int4, so its 168 lattice projections share **96** rotations
 //! (36 for q/k, 36 for gate/up, one for each of the 24 Tetra `down_proj`);
 //! an all-lattice 4B has 144. The tables together weigh under a megabyte.
-
-use std::collections::HashMap;
-use std::io::Read;
-
-use llvq_artifact::CodeKind;
-use llvq_artifact::runtime::{
-    transcode, transcode_golay70, transcode_planes12x, transcode_planes14, ClassTable,
-    Golay70Blocks, Golay70Table, Layout, Planes12xBlocks, PlanesBlocks, RuntimeBlocks,
-    PLANES14_BYTES,
-};
-use llvq_quant::rotation::Rotation;
-use llvq_search::fastdec::FastDecoder;
-use llvq_search::Searcher;
+//!
+//! ## The files
+//!
+//! | file | holds |
+//! |---|---|
+//! | `layout` | [`FusedLayout`], [`EmbedMode`], the q8 and q4 embedding tables and their footprint |
+//! | `host` | one matrix's stream ([`HostStream`], [`FusedMatrix`], [`FusedInt4`]), the side bytes, [`RotationTables`] |
+//! | `transcode` | the packers, the Golay70 device tables, [`Transcoder`] |
+//! | `kernels` | the kernel text a layout needs, its entry point names, the int4 fixtures |
+//! | `group` | the row concatenation ([`FusedGroup`], [`SegPart`]) and [`FusedModel`] |
+//! | `load` | [`load`], [`load_with`] and [`FusedSealed`] |
+//!
+//! Each child imports what it uses by name. This file re-exports only what
+//! the rest of the workspace names, plus the types its public signatures carry.
 
 mod group;
 mod host;
@@ -59,12 +60,27 @@ mod layout;
 mod load;
 mod transcode;
 
-pub use group::*;
-pub use host::*;
-pub use kernels::*;
-pub use layout::*;
-pub use load::*;
-pub use transcode::*;
+pub use group::{
+    check_seg_spans, planes_payload_words, segment_matrices, splice_planes14, FusedGroup, FusedModel, SegPart,
+};
+pub use host::{
+    matrix_side_bytes, tail_f16_bits, FusedInt4, FusedMatrix, HostStream, RotKey, RotationTables, ROW_SCALE_BYTES,
+    TAIL_BYTES,
+};
+pub use kernels::{
+    check_fuse, check_kinds, emb_kernel_names, int4_shared_bytes, int4_synthetic, int4_tileable, int4_wide_unit_names,
+    lattice_kind, load_emb_q4_sources, load_int4_sources, load_int4_wide_sources, load_planes_sources,
+    matvec_kernel_name, parse_int4_wide_fixture, planes_source_names, rows_kernel_name, seg_kernel_name, serves_kind,
+    tetra48_tables, FuseMode, Int4Layout, Int4WideFixture, Tetra48Tables, INT4_HALF_KERNEL_NAME, INT4_KERNEL_NAME,
+    INT4_TILE_HALF_KERNEL_NAME, INT4_TILE_KERNEL_NAME, INT4_WIDE_CARD_CASES, INT4_WIDE_FIXTURE, INT4_WIDE_KERNEL_NAME,
+    Q4_TILE_CU_EMBED, Q4_WIDE_CU_EMBED,
+};
+pub use layout::{
+    carried_embed_tables, embed_q4, embed_q8, q4_device_bytes, q8_device_bytes, take_embed_tables, take_embed_tables_at,
+    EmbedMode, EmbedReport, EmbedTables, FusedLayout, EMBED_GROUP, EMBED_NAME, HEAD_NAME,
+};
+pub use load::{load, load_with, FusedSealed, PREALLOC_CAP};
+pub use transcode::{golay70_gpu_class_table, golay70_gpu_codewords, Transcoder};
 
 #[cfg(test)]
 mod tests;

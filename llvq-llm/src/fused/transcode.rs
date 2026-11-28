@@ -1,7 +1,15 @@
 //! From stored records to kernel words: the packers, the Golay70 device tables
 //! and [`Transcoder`], which turns one lattice matrix into one [`HostStream`].
 
-use super::*;
+use llvq_artifact::runtime::{
+    transcode, transcode_golay70, transcode_planes12x, transcode_planes14, ClassTable, Golay70Blocks, Golay70Table,
+    Layout, Planes12xBlocks, PlanesBlocks, RuntimeBlocks,
+};
+use llvq_artifact::CodeKind;
+use llvq_search::fastdec::FastDecoder;
+use llvq_search::Searcher;
+
+use super::{FusedLayout, HostStream};
 
 /// Pack a transcoded stream into `u32` words the kernel can index.
 ///
@@ -75,10 +83,10 @@ fn pack_aligned_bytes(bytes: &[u8]) -> Vec<u32> {
 
 /// `u32` words per entry of the Golay70 GPU class table — the kernel's
 /// `GolayClassRec { float v[4]; u32 flags; u32 is_odd; u32 pad0, pad1; }`.
-pub const GOLAY70_REC_WORDS: usize = 8;
+const GOLAY70_REC_WORDS: usize = 8;
 /// Entries of that table — 512 so the 9-bit class field cannot index out of
 /// bounds even from a corrupt stream (the `ClassRec` reasoning, unchanged).
-pub const GOLAY70_TABLE_ENTRIES: usize = 512;
+const GOLAY70_TABLE_ENTRIES: usize = 512;
 
 /// The 512-entry Golay70 GPU class table, 8 `u32` words per entry, matching
 /// `GolayClassRec` of `llvq_golay.cuh` field for field — values divided by

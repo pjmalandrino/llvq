@@ -169,7 +169,7 @@ pub fn embed_q4(t: llvq_artifact::RawTensor) -> Result<llvq_artifact::RawTensor,
 }
 
 /// The rule [`embed_q8`] and [`embed_q4`] share, at `bits`.
-pub fn embed_at(t: llvq_artifact::RawTensor, bits: u8) -> Result<llvq_artifact::RawTensor, String> {
+fn embed_at(t: llvq_artifact::RawTensor, bits: u8) -> Result<llvq_artifact::RawTensor, String> {
     match &t.data {
         llvq_artifact::RawData::F16(_) => {
             crate::embedquant::quantize_affine(&t, bits, EMBED_GROUP).map_err(|e| e.to_string())

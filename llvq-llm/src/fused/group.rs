@@ -2,7 +2,11 @@
 //! model those groups end up in ([`FusedModel`]). One file because a group is
 //! built only from a model's matrices and the model only holds what it built.
 
-use super::*;
+use std::collections::HashMap;
+
+use llvq_artifact::runtime::PLANES14_BYTES;
+
+use super::{matrix_side_bytes, FusedInt4, FusedLayout, FusedMatrix, HostStream, RotKey, RotationTables};
 
 // ---------------------------------------------------------------------------
 // Segmentation — the row-concatenation one fused launch reads
