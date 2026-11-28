@@ -1,7 +1,8 @@
 //! Inkling 2 Mini in the server: the local file that names its parts, and
 //! its engine.
 //!
-//! The file is not published, so it is not a library entry. A small JSON file
+//! The published model is a library entry (`library.json`); a copy on disk is
+//! served without a pull through this file. A small JSON file
 //! ([`LocalModel`]) names the parts `inkchat` and `inkgsm` load: the config,
 //! the checkpoint, the layers' codes, the tokenizer and the two tables.
 //! `llvq serve --local <file>` registers it in the store under its name, with

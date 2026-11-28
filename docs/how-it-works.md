@@ -288,39 +288,41 @@ served under the same ±0.12 % perplexity tolerance (*measured*, [mlx-pooled](me
 
 ## 13. A mixture of experts: Inkling 2 Mini
 
-Inkling 2 Mini holds its experts in the same Tetra code and nothing else. The model has 3,072 experts, 128 in each of 24
-layers, and routes 8 of them a token; its layers 6 to 17 run three times, so a token makes 48 layer visits. The 24 x 128
-x (gate, up, down) matrices are 24,461,180,928 parameters, 92.7 % of the model, and all of them are lattice codes
-(*computed* from the checkpoint header, [`plan-inkling2-mini.md`](plan-inkling2-mini.md) §1). The codes come from a
-Hessian-weighted search over calibration text, and nothing was trained
-([Hub card](hub/inkling2-mini-tetra.md)).
+Inkling 2 Mini holds its experts in the same Tetra code, and only its experts. The model has 3,072 experts, 128 in
+each of 24 layers, and routes 8 of them a token; its layers 6 to 17 run three times, so a token makes 48 layer visits.
+The 24 x 128 x (gate, up, down) matrices are 24,461,180,928 parameters, 92.7 % of the model, and all of them are
+lattice codes (*computed* from the checkpoint header, [`plan-inkling2-mini.md`](plan-inkling2-mini.md) §1). The codes
+come from a Hessian-weighted search over calibration text, and nothing was trained ([Hub
+card](hub/inkling2-mini-tetra.md)).
 
-The rest is not in the lattice code. The two vocabulary tables (untied, 926,318,592 parameters) are int4 in groups of 64.
-Attention, the router, the convolutions and the norms stay in 16 bits as shipped, because attention was the dearest place
-to save bytes, about 0.023 to 0.030 KL for each GB (*computed*), and the operator kept it as shipped on 2026-11-22
-([`plan-inkling2-mini.md`](plan-inkling2-mini.md) §3, "The week to a publication").
+The rest is not in the lattice code. The two vocabulary tables (untied, 926,318,592 parameters) are int4 in groups of
+64. Attention, the router, the convolutions and the norms stay in 16 bits as shipped, because attention was the
+dearest place to save bytes, about 0.023 to 0.030 KL for each GB (*computed*), and the operator kept it as shipped on
+2026-11-22 ([`plan-inkling2-mini.md`](plan-inkling2-mini.md) §3, "The week to a publication").
 
-Two accountings give two numbers, and bits per parameter count the whole text model, tables included. The text model is
-26,070,385,152 parameters and takes 8.059 GB, 2.473 b/param; with the 318,256,128 parameters of the vision tower kept as
-shipped it is 26,388,641,280 and 8.696 GB, 2.636 b/param (*computed*, kernel accounting, journal
-[inkling2-mini-whole-model](mesures/inkling2-mini-whole-model-2026-11-22.txt)). The published repository is text only: it
-downloads at 8.15 GB, 2.47 b/param, and the native model reads 19.53 GB, 5.92 b/param, over text and vision (*computed*,
-Hub card).
+Two accountings give two numbers, and bits per parameter count the whole text model, tables included. The text model
+is 26,070,385,152 parameters and takes 8.059 GB, 2.473 b/param; with the 318,256,128 parameters of the vision tower
+kept as shipped it is 26,388,641,280 and 8.696 GB, 2.636 b/param (*computed*, kernel accounting, journal
+[inkling2-mini-whole-model](mesures/inkling2-mini-whole-model-2026-11-22.txt)). The published repository is text only:
+it downloads at 8.15 GB, 2.47 b/param, and the native model reads 19.53 GB, 5.92 b/param, over text and vision
+(*computed*, Hub card).
 
-At serving time the experts stay in their codes on the card. Each expert's three records are read once, transcoded to the
-`Tetra48` stream and uploaded; the Metal, CUDA and CPU backends each supply them through one seam, and the CPU decodes
-them at every matvec ([`resident.rs`](../llvq-llm/src/inkling/resident.rs),
+At serving time the experts stay in their codes on the card. Each expert's three records are read once, transcoded to
+the `Tetra48` stream and uploaded; the Metal, CUDA and CPU backends each supply them through one seam, and the CPU
+decodes them at every matvec ([`resident.rs`](../llvq-llm/src/inkling/resident.rs),
 [`resident_cuda.rs`](../llvq-llm/src/inkling/resident_cuda.rs),
-[`experts_cpu.rs`](../llvq-llm/src/inkling/experts_cpu.rs)). A routed expert rotates the input into the gate basis once for
-gate and up, applies the softcapped SwiGLU, rotates into the down basis, runs the down matvec, then weights and adds the
-result, in ascending expert order. Each expert carries its own two rotations. 4E does not run it: the model is served through the fused stack, and
-that stack is not bit for bit with the dense reconstruction, because the rotation reads binary16 and a row sums in the
-kernel's order. It also reads the output table in 4 bits and a long prompt in pieces of 512 tokens (Hub card).
+[`experts_cpu.rs`](../llvq-llm/src/inkling/experts_cpu.rs)). A routed expert rotates the input into the gate basis
+once for gate and up, applies the softcapped SwiGLU, rotates into the down basis, runs the down matvec, then weights
+and adds the result, in ascending expert order. Each expert carries its own two rotations. 4E does not run it (no file
+of `llvq-llm/src/inkling/` names the persistent decode): the model is served through the fused stack, and that stack
+is not bit for bit with the dense reconstruction, because the rotation reads binary16 and a row sums in the kernel's
+order. It also reads the output table in 4 bits and a long prompt in pieces of 512 tokens (Hub card).
 
-The runtime serves it as a set of files pinned one by one by `llvq-files.json`, where a Qwen3 model is one sealed file. It
-keeps the conversation as segments with a cache mark after each, and rolls back to the last mark a request shares. A long
-static prompt can also be saved on disk as a prefix cache ([`inkling.rs`](../llvq-runtime/src/inkling.rs)). The speeds are
-in the Inkling section of [`README.md`](../README.md).
+The runtime serves it as a set of files pinned one by one by `llvq-files.json`, where a Qwen3 model is one sealed
+file. It keeps the conversation as segments with a cache mark after each, and rolls back to the last mark a request
+shares. A long static prompt can also be saved on disk as a prefix cache
+([`inkling.rs`](../llvq-runtime/src/inkling.rs)). The speeds are in the Inkling section of
+[`README.md`](../README.md).
 
 ## 14. Where to read the code
 

@@ -108,9 +108,10 @@ tools to the model and reads nothing for calls. `tool_choice` `required` or a na
 
 ## Inkling 2 Mini from local files
 
-The Inkling 2 Mini files are not published, so `llvq pull` refuses them. A small JSON file names its
-parts, and `llvq serve --local` registers it in the store under its name, family `inkling2`
-(`src/inkling.rs`). Relative paths are read from the file's own directory.
+Inkling 2 Mini is a library entry since its files were published, and `llvq pull` fetches them. A copy on disk
+can still be served without a pull: a small JSON file names its parts, and `llvq serve --local` registers it
+in the store under its name, family `inkling2` (`src/inkling.rs`). Relative paths are read from the file's own
+directory.
 
 ```json
 {
