@@ -67,8 +67,9 @@ Matching them puts the 2.7 b/param files behind tools people already use, with n
 - `served::load_resolved` loads a sealed file through the fused backend of the build. `Served::serve` applies a
   config's attention form, store and decode engine, and refuses what it does not serve on the device.
 - `KvCache::set_len` cuts a cache back to a shorter prefix. The REPL uses it after a 4E launch.
-- The engine runs batch 1. `Qwen3::hidden_cached` takes one sequence, and the caches belong to that sequence.
-- The model type is `Qwen3`. No other architecture loads.
+- One request decodes at a time by default: `Qwen3::hidden_cached` takes one sequence, and the caches belong to
+  that sequence. On CUDA, `LLVQ_BATCH` batches Qwen3 requests through the model's batch config.
+- Two model types load: `Qwen3`, and Inkling 2 through its own engine (`llvq-runtime/src/inkling.rs`).
 - The persistent decode (4E) takes the argmax on the card. `repl::check_served_chat` refuses a temperature above zero
   under it. 4E decodes at most 64 tokens a launch and 8,704 positions (`served_decode.rs`), on the 4B's shape only.
 - On Metal, `Served::check_device` refuses the grouped and kernel forms and 4E. Only an expanded config serves there.

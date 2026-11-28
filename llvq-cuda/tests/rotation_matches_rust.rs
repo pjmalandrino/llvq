@@ -41,7 +41,7 @@ use llvq_core::SplitMix64;
 use llvq_cuda::sha256::sha256_hex;
 use llvq_cuda::wide::{f32_le_bytes, parse_rot_fixture, rot_input_bytes, CARD_WIDTHS};
 use llvq_cuda::{f16_bits, f16_to_f64, ROT_KMAX};
-use llvq_quant::rotation::Rotation;
+use llvq_search::rotation::Rotation;
 use std::io::Write;
 use std::process::{Command, Stdio};
 
@@ -96,7 +96,7 @@ fn compile_driver() -> std::path::PathBuf {
 
 /// Everything the driver returns for one shape.
 struct Run {
-    /// The f64 reference, from `llvq_quant::rotation::Rotation`.
+    /// The f64 reference, from `llvq_search::rotation::Rotation`.
     want: Vec<f64>,
     /// `rot_apply` at 1 thread, then the replays at 7, 32, 256 and 1,024.
     got: Vec<Vec<f32>>,

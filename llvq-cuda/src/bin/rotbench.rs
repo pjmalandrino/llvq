@@ -70,7 +70,7 @@ mod linux {
         RotKernel, CARD_WIDTHS, ROT_FIXTURE,
     };
     use llvq_cuda::{f16_bits, f16_to_f64, ROT_KMAX};
-    use llvq_quant::rotation::Rotation;
+    use llvq_search::rotation::Rotation;
     use std::time::Instant;
 
     /// Ten times looser than what the host harness measures; a second net

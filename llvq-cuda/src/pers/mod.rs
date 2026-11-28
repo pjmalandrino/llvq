@@ -211,7 +211,7 @@ pub const TABLE_BYTES: u32 = 18_816;
 pub const SMEM_HEADER: u32 = 256;
 
 /// The register-WHT rotation prologue's plan for a width: `m` the largest
-/// power of two dividing `n`, `k = n / m`, as `llvq_quant::Rotation` and the
+/// power of two dividing `n`, `k = n / m`, as `llvq_search::rotation::Rotation` and the
 /// served `rot_apply` split it. The prologue runs the stages below 512 in
 /// registers (one warp a 512-chunk, 16 values a lane) and the stages from 512
 /// to `m/2` in shared memory, so it needs `m >= 512` and `k <= KMAX`.

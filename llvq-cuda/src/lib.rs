@@ -244,7 +244,7 @@ pub const F1RANK_V3_CUH: &str = include_str!("../kernels/llvq_f1rank_v3.cuh");
 pub const F1RANK_V3_CU: &str = include_str!("../kernels/f1rank_v3.cu");
 /// The served Tetra decode over the v3 word decode: the gain bit, the
 /// magnitude, the trio permutation and the origin. Verified bit for bit
-/// against `llvq_search::tetra` and `llvq_quant::reconstruct_shape_gain` by
+/// against `llvq_search::tetra` and `llvq_search::shapegain::reconstruct_shape_gain` by
 /// `tests/tetra48_matches_rust.rs`, through the same `clang++` shim.
 pub const TETRA48_CUH: &str = include_str!("../kernels/llvq_tetra48.cuh");
 pub const TETRA48_V3G_CU: &str = include_str!("../kernels/tetra48_v3g.cu");

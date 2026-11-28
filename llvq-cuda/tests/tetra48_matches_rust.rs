@@ -2,7 +2,7 @@
 //! gain bit, the magnitude, the trio permutation and the origin — compiled by
 //! `clang++` and diffed against the two functions the rest of the repository
 //! uses: `llvq_search::tetra::Tetra::decode` and
-//! `llvq_quant::reconstruct_shape_gain`.
+//! `llvq_search::shapegain::reconstruct_shape_gain`.
 //!
 //! The pattern of `f1rank_v3_matches_rust.rs`: the **same text** NVRTC will
 //! compile, through `host_shim.h`, on random words. Nothing in
@@ -57,7 +57,7 @@
 //! a skip: a test that quietly does not run is worse than no test.
 
 use llvq_core::{SplitMix64, DIM};
-use llvq_quant::quantizer::{reconstruct_shape_gain, BlockCode};
+use llvq_search::shapegain::{reconstruct_shape_gain, BlockCode};
 use llvq_search::tetra::{Tetra, WORD_MASK};
 use std::io::Write;
 use std::process::{Command, Stdio};

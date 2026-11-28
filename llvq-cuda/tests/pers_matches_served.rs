@@ -29,7 +29,7 @@
 //! by an assertion.
 
 use llvq_cuda::pers;
-use llvq_quant::rotation::Rotation;
+use llvq_search::rotation::Rotation;
 use llvq_search::tetra::Tetra;
 use std::io::Write;
 use std::path::{Path, PathBuf};

@@ -73,10 +73,6 @@ cudarc = { version = "0.19", default-features = false, features = [
 ] }
 llvq-core = { path = "../llvq-core" }
 llvq-search = { path = "../llvq-search" }
-# `bin/rotbench` needs the rotation the quantizer used — not a reimplementation
-# of it. No new closure: `llvq-artifact` already pulls `llvq-quant` in for
-# `decode_matrix`, so this only names what was reachable anyway.
-llvq-quant = { path = "../llvq-quant" }
 
 # Portable, and unconditional on purpose: the CUDA sources are checked against
 # the Rust decoder by compiling them as host C++ with `clang++`, and that test
@@ -87,10 +83,10 @@ llvq-bench = { path = "../llvq-bench" }
 llvq-core = { path = "../llvq-core" }
 llvq-search = { path = "../llvq-search" }
 llvq-artifact = { path = "../llvq-artifact" }
-# The rotation kernel's specification. `Rotation` is what quantized the sealed
-# artifact, so it is not a reimplementation to diff against — it is the basis
-# the stored weights are in.
-llvq-quant = { path = "../llvq-quant" }
+# The rotation kernel's specification is `llvq_search::rotation::Rotation`: it
+# is what quantized the sealed artifact, so it is not a reimplementation to
+# diff against, it is the basis the stored weights are in. `llvq-search` is a
+# normal dependency above, so nothing is named here for it.
 
 [[bin]]
 name = "planesbench"

@@ -286,10 +286,11 @@ published value.
 
 ## 7. Known limitations of this artifact
 
-- **No CI on GPU.** The repository's CI covers 6 of 8 crates on a
-  GPU-less runner; the two accelerator crates cannot even be *compiled*
-  there. The header of `.github/workflows/ci.yml` states at length what a
-  green badge does not mean.
+- **No CI on GPU.** The repository's CI builds and tests 7 of 9 crates on a
+  GPU-less runner. The two accelerator crates, and the `cuda` and `metal`
+  features of the crates above them, are type-checked there with stand-in
+  compilers and never run. The header of `.github/workflows/ci.yml` states at
+  length what a green badge does not mean.
 - **One reader.** `llvq-artifact` is the only implementation of the format.
   It is dependency-free and meant to be read, but there is no second
   implementation to cross-check it.

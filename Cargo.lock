@@ -1995,7 +1995,6 @@ dependencies = [
  "llvq-artifact",
  "llvq-bench",
  "llvq-core",
- "llvq-quant",
  "llvq-search",
 ]
 

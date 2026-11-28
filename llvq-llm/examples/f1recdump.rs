@@ -166,10 +166,8 @@ fn main() -> anyhow::Result<()> {
     let n_calib: usize = arg(&a, 2, 64);
     let calib_len: usize = arg(&a, 3, 2048);
     let device = llvq_llm::eval::device(a.get(4).map(String::as_str).unwrap_or("metal"))?;
-    let threads = match std::env::var("LLVQ_THREADS") {
-        Ok(s) if !s.is_empty() => s.parse::<usize>()?.max(1),
-        _ => std::thread::available_parallelism().map(|n| n.get()).unwrap_or(4),
-    };
+    let threads =
+        llvq_llm::eval::env_threads(std::thread::available_parallelism().map(|n| n.get()).unwrap_or(4))?;
     let repo = std::env::var("LLVQ_MODEL").unwrap_or_else(|_| "Qwen/Qwen3-0.6B".into());
     let damping = 1e-2;
     let target_block = 0usize;
