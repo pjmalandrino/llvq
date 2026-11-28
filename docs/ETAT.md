@@ -170,7 +170,8 @@ WikiText-2 windows 13 to 24 it reads -0.0103 % [-0.0847, +0.0642] by decode, ins
 served door's own speed is not measured. The Rust Metal path runs the sealed 4B fused at 52.1 tok/s, and `served.rs`
 accepts the grouped form on Metal only from the `-metal.json` configs of §2 and refuses the kernel form.
 
-**Above 14B.** No model above 14B is served, and the 32B has never been encoded. The `rot_apply` shared-memory wall of
+**Above 14B.** No dense model above 14B is served, and the 32B has never been encoded; Inkling 2 Mini, a mixture of
+experts of 26.4 billion parameters, is served (§2). The `rot_apply` shared-memory wall of
 [`format-noyau.md`](format-noyau.md) §8 is lifted on the card up to width 25,600 (*measured*,
 [lot1-4b](mesures/lot1-4b-2026-11-04.txt)).
 
