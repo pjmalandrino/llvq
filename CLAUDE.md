@@ -43,7 +43,7 @@ Nine crates, members of `Cargo.toml`.
 | `llvq-search` | exact NN search, v1 index, Tetra word and encoder, packing, the rotation and the shape-gain block code the decoder shares with the quantizer | none | forbid |
 | `llvq-quant` | GPTQ, dense algebra, block loop | `faer` 0.24, optional, feature `fast-linalg` | forbid |
 | `llvq-artifact` | `.llvq` format: writer, reader, decoder, VRAM transcoding | none | forbid |
-| `llvq-bench` | rate-distortion, encoder throughput, decode cost | none | forbid |
+| `llvq-bench` | rate-distortion, encoder throughput, decode cost; `f1/rank.rs`, the independent Rust reference the rank kernel's tests compare with (tests and benches only: no product crate depends on it) | none | forbid |
 | `llvq-metal` | macOS GPU micro-benchmarks, MSL shaders | `metal` | allowed |
 | `llvq-cuda` | NVIDIA kernels compiled by NVRTC, 4E, benchmarks | `cudarc`, `cfg(target_os = "linux")` | allowed |
 | `llvq-llm` | forward pass, served configs, corpora, perplexity, MMLU, GSM8K, CPU backend (`fused_cpu`, `tetra_cpu`) | `candle`, `tokenizers`, `hf-hub`, `parquet`, `rayon`, `flate2`, `half`; on macOS `candle-metal-kernels`, `objc2-metal` | allowed |
