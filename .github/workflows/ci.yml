@@ -42,7 +42,10 @@
 # The `cuda-types` job below type-checks llvq-cuda and the `cuda` feature of
 # llvq-llm and llvq-runtime with a stand-in nvcc (ops/check-cuda-types.sh):
 # rustc's types and clippy's zero warnings, with nothing linked and nothing
-# run. Everything a GPU would execute stays in the list above.
+# run. The `macos-types` job does the same for llvq-metal and the `metal`
+# feature of llvq-llm and llvq-runtime, on the aarch64-apple-darwin target
+# with a stand-in C compiler (ops/check-macos-types.sh). Everything a GPU
+# would execute stays in the list above.
 #
 # Covering them needs a self-hosted GPU runner, or a macos-* runner for the
 # clang++ half (10x minute multiplier on private repos). That is a spending
@@ -86,7 +89,7 @@ concurrency:
 env:
   CARGO_TERM_COLOR: always
 
-# Seven jobs in parallel, so the wall time is the slowest one, not the sum.
+# Eight jobs in parallel, so the wall time is the slowest one, not the sum.
 # Each caches its own target directory under its own key: one profile per
 # job, and actions/cache saves only after a job succeeds. Rust is pinned:
 # `-D warnings` on a floating toolchain turns the tree red overnight on code
@@ -329,3 +332,30 @@ jobs:
         run: ops/check-cuda-types.sh clippy --locked -p llvq-llm --features cuda --all-targets -- -D warnings
       - name: llvq-runtime --features cuda
         run: ops/check-cuda-types.sh clippy --locked -p llvq-runtime --features cuda --all-targets -- -D warnings
+
+  macos-types:
+    name: macOS half type-checked (aarch64-apple-darwin, links nothing)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install pinned Rust 1.95.0 and the macOS standard library
+        run: |
+          rustup toolchain install 1.95.0 --profile minimal --component clippy
+          rustup default 1.95.0
+          rustup target add aarch64-apple-darwin
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry/index
+            ~/.cargo/registry/cache
+            ~/.cargo/git/db
+            target
+          key: macos-types-1.95.0-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: macos-types-1.95.0-
+      - name: llvq-metal
+        run: ops/check-macos-types.sh clippy --locked -p llvq-metal --all-targets -- -D warnings
+      - name: llvq-llm --features metal
+        run: ops/check-macos-types.sh clippy --locked -p llvq-llm --features metal --all-targets -- -D warnings
+      - name: llvq-runtime --features metal
+        run: ops/check-macos-types.sh clippy --locked -p llvq-runtime --features metal --all-targets -- -D warnings
