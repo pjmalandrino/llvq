@@ -1283,3 +1283,9 @@ O13, the number the long-context speed phase took on main the next day.
   0.8 and moved. The grouped form on the CPU was given one chance in two to be bit for bit, and its
   first token at 2,048 tokens was predicted x1.1 [1.0, 1.4] faster and read x0.997.
 - `CERVEAU.md` gains A9 and A10 and goes from 78 claims to 80.
+
+## 2026-11-28. The runtime's plan catches up with its code; nothing served changes, $0
+
+- `docs/plan-runtime.md` said the engine was batch 1, batched decoding out of scope, and tool calls served for the
+  qwen3 family only. `LLVQ_BATCH` has batched Qwen3 requests on CUDA since 2026-11-08, and the inkling2 family has
+  served tool calls since 2026-11-24; the plan and `llvq-runtime/README.md` now say so.

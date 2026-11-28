@@ -98,8 +98,8 @@ Ollama: `/api/chat`, `/api/generate`, `/api/tags`, `/api/ps`, `/api/show`, `/api
 document is at `/openapi.json` and committed as `openapi.json`. Embeddings, `create`, `push`,
 blobs and `/v1/responses` answer `501` with the reason.
 
-Tool calls are served on `/v1/chat/completions` and `/api/chat` for the qwen3 family, in its
-official template's format (`src/tools.rs`): `tools` of type `function`, `role: tool` results,
+Tool calls are served on `/v1/chat/completions` and `/api/chat` for the qwen3 and inkling2
+families, each in its own template's format (`src/tools.rs`): `tools` of type `function`, `role: tool` results,
 assistant messages that carry `tool_calls`, and answers with `tool_calls` and, on the OpenAI route,
 `finish_reason: tool_calls`. A call is streamed whole in one chunk, with its `index`, once its
 closing marker has arrived. `tool_choice` `auto` and `none` are served; `none` does not show the

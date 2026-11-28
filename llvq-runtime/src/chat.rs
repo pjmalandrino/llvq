@@ -26,7 +26,9 @@ impl Role {
             "system" | "developer" => Ok(Role::System),
             "user" => Ok(Role::User),
             "assistant" => Ok(Role::Assistant),
-            "tool" => Err("role \"tool\": tool calls are not served by llvq".to_string()),
+            // The routes never get here with a tool result: a history that holds
+            // one takes the tool path (`tools::ToolRole`) before any plain parse.
+            "tool" => Err("role \"tool\": a tool result is read on the tool path (llvq_runtime::tools), not as a plain chat message".to_string()),
             o => Err(format!("role {o:?}: the roles are system, user and assistant")),
         }
     }

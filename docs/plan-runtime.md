@@ -142,8 +142,11 @@ Each loaded model is owned by one OS thread. That thread holds the `Qwen3`, its 
 conversation, and nothing else touches them. The HTTP side sends jobs on a channel and receives tokens on another.
 This keeps the candle and CUDA objects off the async runtime, so their `Send` and `Sync` bounds never come up.
 
-The engine is batch 1, so requests to one model run one after another, in arrival order. `GET /api/ps` shows the
-queue. Batching several sequences is out of scope: the engine has no batched decode.
+By default the engine decodes one request at a time, so requests to one model run one after another, in arrival
+order, and `GET /api/ps` shows the queue. Under `LLVQ_BATCH=<n>[:<positions>]` on CUDA, a Qwen3 model batches
+continuously through its `*-4e-v9-batch.json` config: a lone request decodes on 4E, and up to n step together through
+the batched GEMM, greedy only, with no conversation cache (`Worker::run_batch` in `engine.rs`). `LLVQ_BATCH` is
+refused on Metal and the CPU, and the Inkling engine decodes one request at a time whatever it says.
 
 Ollama's chat API is stateless: every request carries the whole history. Re-reading it every turn would cost the
 prefill again, about 3.929 ms a token through the served CUDA kernel (`f1e0-2026-09-10`, as quoted in
@@ -259,17 +262,17 @@ The code runs each decision as proposed below until the operator rules. Each one
 
 ## Out of scope
 
-Embeddings, `create` and the Modelfile, `push`, images, architectures other than Qwen3, batched decoding, and
-Windows. Each is answered `501` or refused by name rather than half-implemented.
+Embeddings, `create` and the Modelfile, `push`, images, architectures other than Qwen3 and Inkling 2, and Windows.
+Each is answered `501` or refused by name rather than half-implemented.
 
 Tool calls left this list on 2026-11-22. They are served on `/v1/chat/completions` and `/api/chat` for the qwen3
-family, in its official template's format (`llvq-runtime/src/tools.rs`). `tool_choice` `required`, a named function
+and inkling2 families, each in its own template's format (`llvq-runtime/src/tools.rs`). `tool_choice` `required`, a named function
 and `parallel_tool_calls: false` are refused by name, because the decode is not constrained. On the sealed 4B on
 Metal the model listed a directory, read a file and answered from it, on the three routes (*measured*, a scripted
 client, 2026-11-22). No coding agent has been run against it yet.
 
 ## Limits a user will meet
 
-Two clients on one model wait for each other: the engine is batch 1. The 4B under 4E holds at most 8,704 positions. A
+Two clients on one model wait for each other, unless `LLVQ_BATCH` is set on CUDA for a Qwen3 model. The 4B under 4E holds at most 8,704 positions. A
 4,096-token pasted prompt takes about 31.5 s to read on the M3 Max before the first answer token. On CUDA the target
 needs the NVRTC library, because the kernels are compiled at launch.
