@@ -6,10 +6,11 @@ use std::sync::{Arc, RwLock};
 
 use candle_core::{DType, Result, Tensor};
 
+use super::embed::MetalEmbed;
 use super::port::{MetalInt4, MetalLattice};
 use super::tuning::check_threadgroup_memory;
 use super::{
-    compose_c3, kernel_from_env, MetalEmbed, MetalEmbedTable, MetalRotation, MetalRuntime, MetalTables, MetalTetraProj,
+    compose_c3, kernel_from_env, MetalEmbedTable, MetalRotation, MetalRuntime, MetalTables, MetalTetraProj,
     MetalTuning, MOE_DOWN_SG_DEFAULT, Q4_TILE_COLS,
 };
 

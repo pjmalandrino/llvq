@@ -287,16 +287,21 @@ pub const INT4_KERNEL_NAME: &str = "tv_q4_h";
 /// output bits; the runtime checks the second claim on the card at load.
 pub const INT4_HALF_KERNEL_NAME: &str = "tv_q4_hh";
 
-/// The dynamic shared memory [`INT4_KERNEL_NAME`] asks for over a model's int4
-/// records: the widest activation, staged whole in f32; `0` when there is none.
+/// The dynamic shared memory [`INT4_KERNEL_NAME`] asked for over a model's int4
+/// records before `llvq_cuda::wide::int4_entry_bytes` took the sizing over: the
+/// widest activation, staged whole in f32; `0` when there is none.
 ///
-/// Not a hidden size any more. The sealed objects serve `o_proj` and
-/// `down_proj` in int4, and a `down_proj` stages the intermediate width:
-/// 9,728 floats at 4B (38,912 B), 12,288 at 8B (49,152 B, the default to the
-/// byte) and 17,408 at 14B (69,632 B, past it). The 14B sealed file was
-/// refused at load on 2026-09-25 against the 49,152 default (job
-/// 6ab6212752d0dbd7f1d8eae0), while the card offers 101,376 on request.
-pub fn int4_shared_bytes(d_ins: impl IntoIterator<Item = usize>) -> usize {
+/// Test-only now: the unit tests hold the served sizes against it, and check
+/// that `int4_entry_bytes` gives the served models exactly this size. The
+/// sealed objects serve `o_proj` and `down_proj` in int4, and a `down_proj`
+/// stages the intermediate width: 9,728 floats at 4B (38,912 B), 12,288 at 8B
+/// (49,152 B, the default to the byte) and 17,408 at 14B (69,632 B, past it).
+/// The 14B sealed file was refused at load on 2026-09-25 against the 49,152
+/// default (job 6ab6212752d0dbd7f1d8eae0), while the card offers 101,376 on
+/// request.
+// The tests that call it need `llvq-cuda`, a test dependency on macOS only.
+#[cfg(all(test, any(target_os = "macos", feature = "cuda")))]
+pub(super) fn int4_shared_bytes(d_ins: impl IntoIterator<Item = usize>) -> usize {
     d_ins.into_iter().map(|d| d * 4).max().unwrap_or(0)
 }
 

@@ -72,7 +72,7 @@ mod moe_rows;
 pub use tuning::{tuning_of, MetalTuning, Q4_TILE_COLS, SERVED_TETRA, TETRA_ROW_LOOPS};
 pub use rot::MetalRotation;
 pub use int4::MetalInt4Proj;
-pub use embed::{MetalEmbed, MetalEmbedTable};
+pub use embed::MetalEmbedTable;
 pub use load::{load_resolved, load_resolved_tuned};
 pub use moe::{MetalMoeSlab, MoeHostExpert, MoeHostProj, MoeShape, MoeSlabExpert, MOE_DOWN_SG_DEFAULT, MOE_MAX_SELECTED};
 pub use moe_rows::MoeRowsMats;

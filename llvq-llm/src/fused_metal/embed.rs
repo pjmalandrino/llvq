@@ -74,24 +74,14 @@ impl MetalRuntime {
 }
 
 /// The table plus the runtime that can launch it.
-pub struct MetalEmbed {
+pub(super) struct MetalEmbed {
     rt: Arc<MetalRuntime>,
     table: Arc<MetalEmbedTable>,
 }
 
 impl MetalEmbed {
-    pub fn new(rt: Arc<MetalRuntime>, table: Arc<MetalEmbedTable>) -> Self {
+    pub(super) fn new(rt: Arc<MetalRuntime>, table: Arc<MetalEmbedTable>) -> Self {
         Self { rt, table }
-    }
-
-    /// The inner table, so the loader can compare two ends with `Arc::ptr_eq`.
-    ///
-    /// The tie is NOT observable on the `MetalEmbed`: a tied model wraps one
-    /// table in two of them. It IS observable here, which is where
-    /// `load_resolved` checks it against `tie_word_embeddings`, exactly as the
-    /// CUDA loader does on its own buffers.
-    pub fn table(&self) -> &Arc<MetalEmbedTable> {
-        &self.table
     }
 }
 

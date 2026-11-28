@@ -68,7 +68,7 @@ pub use host::{
     TAIL_BYTES,
 };
 pub use kernels::{
-    check_fuse, check_kinds, emb_kernel_names, int4_shared_bytes, int4_synthetic, int4_tileable, int4_wide_unit_names,
+    check_fuse, check_kinds, emb_kernel_names, int4_synthetic, int4_tileable, int4_wide_unit_names,
     lattice_kind, load_emb_q4_sources, load_int4_sources, load_int4_wide_sources, load_planes_sources,
     matvec_kernel_name, parse_int4_wide_fixture, planes_source_names, rows_kernel_name, seg_kernel_name, serves_kind,
     tetra48_tables, FuseMode, Int4Layout, Int4WideFixture, Tetra48Tables, INT4_HALF_KERNEL_NAME, INT4_KERNEL_NAME,

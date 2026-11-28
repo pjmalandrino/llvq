@@ -30,6 +30,7 @@ fn fuse_mode_parse_refuses_anything_else() {
 // `llvq-cuda` is a test dependency on macOS only (llvq-llm/Cargo.toml).
 #[cfg(any(target_os = "macos", feature = "cuda"))]
 fn the_int4_staging_fits_the_card_at_every_sealed_size() {
+    use super::kernels::int4_shared_bytes;
     use llvq_cuda::shared::{plan, Fit};
     let (def, optin) = (49_152, 101_376);
     // (hidden, o_proj d_in, intermediate): Qwen3-4B, 8B, 14B.
@@ -57,6 +58,7 @@ fn the_int4_staging_fits_the_card_at_every_sealed_size() {
 // `llvq-cuda` is a test dependency on macOS only (llvq-llm/Cargo.toml).
 #[cfg(any(target_os = "macos", feature = "cuda"))]
 fn the_served_models_keep_todays_kernels_after_the_wall_lift() {
+    use super::kernels::int4_shared_bytes;
     use llvq_cuda::shared::rot_bytes;
     use llvq_cuda::wide::{int4_entry_bytes, rot_kernel, Int4EntryBytes, RotKernel};
     // (default, opt-in): L40S and RTX 5090 / RTX PRO 6000 (99 KiB, the
