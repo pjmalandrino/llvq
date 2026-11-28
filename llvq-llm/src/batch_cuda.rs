@@ -13,6 +13,25 @@
 //!
 //! The device buffers of a projection are reached through the views 4E reads
 //! (`tetra_view`, `int4_view`, `q4_view`), so nothing here owns weights.
+//!
+//! ## What the launches here rely on
+//!
+//! Every kernel argument that points at memory is a raw `u64` device address
+//! (`addr`, `slice_addr`, the views), so cudarc sees no buffer and the
+//! `fused_cuda` launch contract's clause L2 has to be argued by hand. It
+//! holds within each call: the projections arrive as `&dyn` borrows, the
+//! tensors as `&Tensor` (or are rebound in the function), and the scratch
+//! sits behind a `Mutex` guard held until the launch is enqueued; every
+//! module is compiled onto candle's stream (`Cuda::on_stream` in `new`), so
+//! a buffer the host drops after the call is freed in stream order, after
+//! the kernel. The one address kept across calls is `tables`, the
+//! runtime's Tetra tables, and `rt: Arc<FusedRuntime>` keeps those alive as
+//! long as this struct.
+//!
+//! What is NOT established here, by any launch: the device-side indices the
+//! kernels read from tensors (`pos` and `slots` of the attention) are in
+//! range. The shapes are checked; the values are trusted to
+//! `crate::batch::Pool`, which hands them out.
 
 use std::sync::{Arc, Mutex};
 
@@ -99,8 +118,11 @@ struct BgArgs {
     n_rows: u32,
 }
 
-// SAFETY: plain old data, `#[repr(C)]`, the layout of the kernel's struct
-// (the sizes are asserted in `tests`); the driver copies its bytes.
+// SAFETY: `DeviceRepr` asks for a type the driver may copy byte for byte as
+// a kernel parameter. `BgArgs` is `Copy`, `#[repr(C)]`, holds only `u64` and
+// `u32` (no padding: `BgSeg` is seven `u64` then twelve `u32`), and its
+// fields and `BgSeg`'s are those of `tv_batch_gemm.cu`'s structs in the same
+// order, read field for field; `tests` asserts the two sizes.
 unsafe impl candle_core::cuda_backend::cudarc::driver::DeviceRepr for BgArgs {}
 
 fn addr(t: &Tensor, stream: &candle_core::cuda_backend::cudarc::driver::CudaStream, elem: u64) -> candle_core::Result<u64> {
@@ -142,6 +164,12 @@ impl candle_core::CustomOp1 for Launch<'_> {
     }
     fn cuda_fwd(&self, s: &CudaStorage, _: &Layout) -> candle_core::Result<(CudaStorage, Shape)> {
         let stream = s.device.cuda_stream();
+        // SAFETY: `fused_cuda`'s clause U, unverified here: assumes the kernel
+        // `run` launches stores every one of the `out_elems` halves (the
+        // attention every `[b][nh][hd]` output, the split-K matvecs every
+        // `[n][d_out]` value through the last CTA of each row group); this
+        // file does not follow the kernels' store paths. `y` is on candle's
+        // stream, like every launch.
         let y = unsafe { stream.alloc::<f16>(self.out_elems) }
             .map_err(|e| candle_core::Error::msg(format!("{}: alloc: {e}", self.name)))?;
         (self.run)(slice_addr(&y, &stream))?;
@@ -369,6 +397,19 @@ impl crate::batch::BatchDevice for CudaBatch {
             let mut l = stream.launch_builder(f);
             l.arg(&aq).arg(&ak).arg(&av).arg(&akc).arg(&avc).arg(&apos).arg(&aslot).arg(&cap_i).arg(&c).arg(&part).arg(&ticket).arg(&out).arg(&ss);
             let cfg = LaunchConfig { grid_dim: (gx as u32, n_kv as u32, b as u32), block_dim: (llvq_cuda::attn::THREADS, 1, 1), shared_mem_bytes: 0 };
+            // SAFETY (open): L1 holds: the thirteen arguments of
+            // `attn_slot_g{4,5}_u64` (`attn_dec_batch.cu`, `ATTN_SLOT_ENTRY`),
+            // each pointer as a `u64` address and `cap`, `s_stride` as `i32`.
+            // L2 as the module doc says (`q`, `k_new`, `v_new` rebound above,
+            // the caches borrowed, the scratch under `sc`). L3 holds for
+            // `part` and `ticket` (grown to `need_p` and `b * n_kv` above)
+            // and `out`. It is not established for the cache: the kernel
+            // reads and writes slot `slots[z]` of `kc` and `vc` and row
+            // `pos[z]` of it, and only the shapes are checked here, not that
+            // each slot is below `kc`'s first dimension and each position
+            // below `cap`; `CudaBatch::attend` is reachable from safe
+            // code through `BatchDevice`. The kernel writes `kc` and `vc` in
+            // place through their addresses, behind candle's shared borrow.
             unsafe { l.launch(cfg) }.map_err(|e| candle_core::Error::msg(format!("attn_batch: {e}")))?;
             Ok(())
         };
@@ -405,6 +446,14 @@ impl crate::batch::BatchDevice for CudaBatch {
                 .arg(&t.invnorm).arg(&v.rscale).arg(&v.tail).arg(&ax).arg(&y).arg(&v.nblocks).arg(&v.tail_w)
                 .arg(&nr).arg(&di).arg(&dout).arg(&slice).arg(&part).arg(&ticket);
             let cfg = LaunchConfig { grid_dim: (dout / BM_ROWS as u32, s, 1), block_dim: (128, 1, 1), shared_mem_bytes: smem };
+            // SAFETY: L1: the twenty arguments of `tv_tetra48_mma_n{8,16,32}`
+            // (`tv_batch_mma.cu`, `BM_TETRA_ENTRY`) in order, pointers as `u64`
+            // addresses. L2: the module doc (`p` borrowed, `sc` held). L3:
+            // `xr` is `[n, d_in]` f32 (checked above), `y` `n * d_out`
+            // halves (the `Launch` op), `part` holds `s * n * d_out` floats
+            // (`split` caps `s` at `PART_FLOATS / (n * d_out)`) and `ticket`
+            // `d_out / 128` (`check_rows`). The weights are the view of a
+            // live `CudaLattice`. L4: `d_out % 128 == 0` (`check_rows`).
             unsafe { l.launch(cfg) }.map_err(|e| candle_core::Error::msg(format!("tv_tetra48_mma: {e}")))?;
             Ok(())
         };
@@ -619,6 +668,16 @@ impl CudaBatch {
             let mut l = stream.launch_builder(f);
             l.arg(&a);
             let cfg = LaunchConfig { grid_dim: (cta, 1, 1), block_dim: (BG_THREADS, 1, 1), shared_mem_bytes: smem };
+            // SAFETY: L1: `tv_bg_n*` and `tv_bgo_n*` take one `BgArgs` by
+            // value (`BG_ENTRY`), the struct whose layout the `DeviceRepr`
+            // impl above vouches for. L2: the module doc (every projection
+            // and input borrowed through `group`, `sc` held). L3: each
+            // segment's `x` is `[n, d_in]` f16 and 16-byte aligned (`bg_item`),
+            // its `y` lies inside the `total` halves of the `Launch` op, its
+            // `part` inside `gemm_part` (grown to the sum of `s * n * d_out`
+            // above) and its tickets inside `gemm_ticket`. `smem` is the
+            // entry's `bg_smem_bytes`, the size its function was loaded with.
+            // L4: every `d_out` a multiple of 128 (`bg_item`).
             unsafe { l.launch(cfg) }.map_err(|e| candle_core::Error::msg(format!("tv_bg: {e}")))?;
             Ok(())
         };
@@ -670,6 +729,14 @@ impl CudaBatch {
             l.arg(&wq).arg(&scales).arg(&biases).arg(&ax).arg(&y).arg(&di).arg(&dout).arg(&gpr).arg(&gshift)
                 .arg(&nr).arg(&slice).arg(&part).arg(&ticket);
             let cfg = LaunchConfig { grid_dim: (dout / BM_ROWS as u32, s, 1), block_dim: (128, 1, 1), shared_mem_bytes: smem };
+            // SAFETY: L1: the thirteen arguments of `tv_q4_mma_n{8,16,32}`
+            // (`tv_batch_mma.cu`, `BM_Q4_ENTRY`) in order. L2: the module doc
+            // (`x` rebound above, the table borrowed by the caller, `sc`
+            // held). L3: `x` is `[n, d_in]` f16 (converted and checked above),
+            // `y` `n * d_out` halves, `part` and `ticket` as in `lattice_mma`;
+            // the scales hold `d_out * gpr` (`int4_mma` checks `gpr * 128 ==
+            // d_in`; the head's `gpr = ceil(d / 64)` was sized by
+            // `upload_embed`). L4: `check_rows`.
             unsafe { l.launch(cfg) }.map_err(|e| candle_core::Error::msg(format!("tv_q4_mma: {e}")))?;
             Ok(())
         };

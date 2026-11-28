@@ -606,16 +606,23 @@ impl Runtime4e {
                 let cfg = LaunchConfig { grid_dim: (1024, 1, 1), block_dim: (256, 1, 1), shared_mem_bytes: 0 };
                 let mut b = stream.launch_builder(&tile_f);
                 b.arg(&src).arg(&buf).arg(&kind).arg(&stride).arg(&nsub).arg(&served).arg(&n);
-                // SAFETY: src is a live record of d_out rows of `stride` words, buf a
-                // fresh buffer of n words; the kernel reads src and writes buf only.
+                // SAFETY (open): seven arguments in `p4t_tile_words`' order
+                // (`pers_4et.cu`); `buf` is a fresh buffer of `n` words, the
+                // count the kernel writes. `src` is an address read back from
+                // `self.layers_host`, recorded at install: it is live only if
+                // the model this runtime was installed from still is, which
+                // nothing here guarantees (BUG-15). Assumes `src` holds
+                // `d_out` rows of `stride` words, as it did at install.
                 unsafe { b.launch(cfg) }.map_err(|e| anyhow::anyhow!("p4t_tile_words: {e}"))?;
                 if let Some(cf) = &check_f {
                     let bad = cudas[0].up_u32(&[0]).map_err(anyhow::Error::msg)?;
                     let mut b = stream.launch_builder(cf);
                     b.arg(&src).arg(&buf).arg(&kind).arg(&stride).arg(&d_in).arg(&d_out).arg(&served).arg(&bad);
-                    // SAFETY: src the same live record, buf its copy of n words
-                    // (tiles x sub-steps x 48 or 96), bad one word; the kernel
-                    // reads src and buf and adds to bad only.
+                    // SAFETY (open): eight arguments in `p4t_ip_check`'s order
+                    // (`pers_4et_a12.cu`); `buf` holds the `n` words just
+                    // written, `bad` one word the kernel only adds to. `src`
+                    // as in the launch above: live only while the model is
+                    // (BUG-15).
                     unsafe { b.launch(cfg) }.map_err(|e| anyhow::anyhow!("p4t_ip_check: {e}"))?;
                     let nbad = cudas[0].down_u32(&bad).map_err(anyhow::Error::msg)?[0];
                     if nbad != 0 {

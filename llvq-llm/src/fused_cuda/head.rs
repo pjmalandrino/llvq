@@ -104,6 +104,11 @@ impl candle_core::CustomOp1 for HeadF32Op<'_> {
             candle_core::bail!("{}: {} values for rows of {}", t.name, end - start, t.d);
         }
         let stream = self.rt.device.cuda_stream();
+        // SAFETY: clause U of the launch contract (`fused_cuda` module doc):
+        // launch `r` below writes `y[r * rows + row]` for every `row < rows`
+        // (one warp a row, `rows % 8 == 0` refused otherwise by
+        // `upload_head_q4_f32`), so all `n * rows` floats are stored, provided
+        // `y_off` fits a `u32` (next comment).
         let mut y = unsafe { stream.alloc::<f32>(n * t.rows) }
             .map_err(|e| candle_core::Error::msg(format!("{}: alloc of the logits: {e}", t.name)))?;
         let cfg = LaunchConfig {
@@ -118,6 +123,13 @@ impl candle_core::CustomOp1 for HeadF32Op<'_> {
             b.arg(&t.wq).arg(&t.scales).arg(&t.biases).arg(x).arg(&mut y).arg(&d).arg(&gpr).arg(&x_off).arg(&y_off);
             let probe = crate::inkling::probe_begin(|| stream.synchronize().is_ok());
                 crate::inkling::count_launch();
+                // SAFETY: the launch contract (`fused_cuda` module doc). L1:
+                // the nine arguments of `tv_emb_q4_xf` (`kernels/ink_head.cu`),
+                // `x` and `y` f32. L3: the table holds `rows * d / 8` words
+                // and `rows * gpr` scales and biases (`upload_head_q4_f32`);
+                // `x` holds `start + n * d` floats; `y` `n * rows`. Assumes
+                // `start + n * d` and `n * rows` fit a `u32` (unchecked casts
+                // above). L4: `rows % 8 == 0`. `t.f` holds its module alive.
                 unsafe { b.launch(cfg) }.map_err(|e| candle_core::Error::msg(format!("tv_emb_q4_xf: {e}")))?;
                 crate::inkling::probe_end(probe, "tv_emb_q4_xf", || stream.synchronize().is_ok());
         }

@@ -153,6 +153,13 @@ impl candle_core::CustomOp3 for AttnOp<'_> {
         }
         let n = c.n_heads * c.l * canon::HD;
         // Uninitialised on purpose: the combine writes every (head, row, dim).
+        //
+        // SAFETY: `alloc` leaves the `n` halves unset, and every bit pattern
+        // is a valid `f16`, so the obligation is that nothing reads `out`
+        // before `attend` writes it: assumes the combine stage of
+        // `attn_dec.cu` stores each of the `n_heads * l * HD` outputs, as the
+        // line above says; that store path is kernel text, not followed here.
+        // On candle's stream, like the launch (`llvq_cuda::attn`).
         let mut out = unsafe { self.rt.device.cuda_stream().alloc::<f16>(n) }
             .map_err(|e| candle_core::Error::msg(format!("alloc attention out: {e}")))?;
         self.rt

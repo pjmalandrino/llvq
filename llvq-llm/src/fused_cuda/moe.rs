@@ -45,6 +45,19 @@ pub struct MoeExpertRefs<'a> {
 
 /// What the four launches read of one layer: the address table of its experts
 /// and the shapes every expert shares.
+///
+/// SAFETY (open), the clause every `moe_*` launch below leans on: `ptr` holds
+/// raw device addresses of buffers owned by the `FusedProj` and
+/// `ExtRotation` values [`FusedRuntime::moe_layer`] borrowed, and nothing ties
+/// their lifetime to this struct. `moe_layer` is a `pub` safe function, so
+/// safe code can drop the experts and keep launching on this table, which
+/// then reads freed device memory (the BUG-15 shape). The one caller,
+/// `inkling::resident_cuda::ResidentExperts`, keeps both in private fields of
+/// one struct that never replaces `experts`, so the served path holds. Second
+/// gap: the kernels index the table by the expert ids in `sel` (or the
+/// `chunks`/`side` tables of the prompt ops) with no bound; the ops check the
+/// tables' lengths but not that each id is below `experts`, which the router
+/// guarantees as far as this crate shows.
 pub struct MoeLayer {
     ptr: CudaSlice<u64>,
     experts: usize,
@@ -230,6 +243,9 @@ impl candle_core::CustomOp1 for MoeActOp<'_> {
             _ => candle_core::bail!("moe activation: gate and up must be contiguous at offset 0"),
         }
         let stream = self.rt.device.cuda_stream();
+        // SAFETY: clause U of the launch contract (`fused_cuda` module doc):
+        // `moe_act` runs `ceil(n / THREADS)` blocks, returns past `i >= n`
+        // and stores `out[i]` for every `i < n`.
         let mut out = unsafe { stream.alloc::<f16>(n) }
             .map_err(|e| candle_core::Error::msg(format!("moe activation: alloc: {e}")))?;
         let cfg = LaunchConfig { grid_dim: ((n as u32).div_ceil(THREADS), 1, 1), block_dim: (THREADS, 1, 1), shared_mem_bytes: 0 };
@@ -239,6 +255,11 @@ impl candle_core::CustomOp1 for MoeActOp<'_> {
         b.arg(x).arg(&mut out).arg(&n32).arg(&inv_g).arg(&cap_g).arg(&inv_u).arg(&cap_u);
         let probe = crate::inkling::probe_begin(|| self.k.cuda.stream().synchronize().is_ok());
                 crate::inkling::count_launch();
+                // SAFETY: the launch contract (`fused_cuda` module doc). L1:
+                // the seven arguments of `moe_act` (`kernels/moe_tetra.cu`).
+                // L3: `x` holds `2n` f32 at offset 0 (checked above), `out`
+                // `n` halves; the kernel guards `i >= n`, so the rounded-up
+                // grid stays inside both. `self.k.cuda` is on candle's stream.
                 unsafe { b.launch(cfg) }.map_err(|e| candle_core::Error::msg(format!("moe_act: {e}")))?;
                 crate::inkling::probe_end(probe, "moe_act", || self.k.cuda.stream().synchronize().is_ok());
         Ok((CudaStorage::wrap_cuda_slice(out, self.rt.device.clone()), Shape::from((self.rows, self.inter))))
@@ -294,6 +315,12 @@ impl candle_core::CustomOp2 for MoeOp<'_> {
         let len = x1 - x0;
         let stream = self.rt.device.cuda_stream();
         let alloc = |n: usize| {
+            // SAFETY: clause U of the launch contract (`fused_cuda` module
+            // doc), for the three outputs of the match below: `moe_rot` writes
+            // `[0, n)` of each of its `nsel` rows, and `moe_tetra_gu` and
+            // `moe_tetra_down` store one value per output row from that row's
+            // warp over an exact grid (`inter` and `hidden` multiples of 8,
+            // `moe_layer`).
             unsafe { stream.alloc::<f32>(n) }.map_err(|e| candle_core::Error::msg(format!("moe: alloc of {n} floats: {e}")))
         };
         let tabs = self
@@ -319,6 +346,13 @@ impl candle_core::CustomOp2 for MoeOp<'_> {
                 b.arg(x).arg(&l.ptr).arg(sel).arg(&mut out).arg(&n).arg(&m).arg(&k).arg(&inv).arg(&x_off).arg(&stride).arg(&which);
                 let probe = crate::inkling::probe_begin(|| self.k.cuda.stream().synchronize().is_ok());
                 crate::inkling::count_launch();
+                // SAFETY (open): L1 holds (the eleven arguments of `moe_rot`,
+                // `kernels/moe_tetra.cu`), and L3 for `x` (`rows * n` halves
+                // from `x_off`, checked above), `out` (`nsel * n`) and `sel`
+                // (`2 * nsel` words); the shared request `n * 4` is what the
+                // kernel stages, below `rot_bytes` of the widest key the
+                // function was loaded with. The rotation tables are read
+                // through `l.ptr`: see the open note on `MoeLayer`.
                 unsafe { b.launch(cfg) }.map_err(|e| candle_core::Error::msg(format!("moe_rot: {e}")))?;
                 crate::inkling::probe_end(probe, "moe_rot", || self.k.cuda.stream().synchronize().is_ok());
                 Ok((CudaStorage::wrap_cuda_slice(out, self.rt.device.clone()), Shape::from((nsel, n as usize))))
@@ -338,6 +372,11 @@ impl candle_core::CustomOp2 for MoeOp<'_> {
                     .arg(&tabs.invnorm).arg(x).arg(&mut out).arg(&nblocks).arg(&tail_w).arg(&d_out).arg(&nsel32);
                 let probe = crate::inkling::probe_begin(|| self.k.cuda.stream().synchronize().is_ok());
                 crate::inkling::count_launch();
+                // SAFETY (open): L1 holds (the fourteen arguments of
+                // `moe_tetra_gu`); L3 for `x` (`nsel * hidden` f32 at offset 0,
+                // checked above) and `out` (`2 * nsel * inter`); L4: `inter`
+                // a multiple of 8 (`moe_layer`). The weights are read through
+                // `l.ptr`: see the open note on `MoeLayer`.
                 unsafe { b.launch(cfg) }.map_err(|e| candle_core::Error::msg(format!("moe_tetra_gu: {e}")))?;
                 crate::inkling::probe_end(probe, "moe_tetra_gu", || self.k.cuda.stream().synchronize().is_ok());
                 Ok((CudaStorage::wrap_cuda_slice(out, self.rt.device.clone()), Shape::from((2, nsel, l.inter))))
@@ -356,6 +395,12 @@ impl candle_core::CustomOp2 for MoeOp<'_> {
                     .arg(&tabs.invnorm).arg(x).arg(&mut out).arg(&nblocks).arg(&tail_w).arg(&nsel32);
                 let probe = crate::inkling::probe_begin(|| self.k.cuda.stream().synchronize().is_ok());
                 crate::inkling::count_launch();
+                // SAFETY (open): L1 holds (the thirteen arguments of
+                // `moe_tetra_down`); L3 for `x` (`nsel * inter` f32 at offset
+                // 0, checked above) and `out` (`hidden`); L4: `hidden` a
+                // multiple of 8 (`moe_layer`). The weights and the routing
+                // weights in `sel[nsel..]` are read through `l.ptr` and `sel`:
+                // see the open note on `MoeLayer`.
                 unsafe { b.launch(cfg) }.map_err(|e| candle_core::Error::msg(format!("moe_tetra_down: {e}")))?;
                 crate::inkling::probe_end(probe, "moe_tetra_down", || self.k.cuda.stream().synchronize().is_ok());
                 Ok((CudaStorage::wrap_cuda_slice(out, self.rt.device.clone()), Shape::from((1, l.hidden))))
@@ -448,6 +493,9 @@ impl candle_core::CustomOp2 for MoeWsumOp<'_> {
             candle_core::bail!("moe wsum: {ntok} tokens of {d} overflow the u32 index");
         }
         let stream = self.rt.device.cuda_stream();
+        // SAFETY: clause U of the launch contract (`fused_cuda` module doc):
+        // `moe_wsum` runs one thread per output, returns past
+        // `i >= ntok * d`, and stores each `out[i]` from `+0`.
         let mut out = unsafe { stream.alloc::<f32>(total as usize) }
             .map_err(|e| candle_core::Error::msg(format!("moe wsum: alloc of {total} floats: {e}")))?;
         let cfg = LaunchConfig { grid_dim: ((total as u32).div_ceil(THREADS), 1, 1), block_dim: (THREADS, 1, 1), shared_mem_bytes: 0 };
@@ -456,6 +504,12 @@ impl candle_core::CustomOp2 for MoeWsumOp<'_> {
         b.arg(y).arg(side).arg(&mut out).arg(&ntok32).arg(&d32).arg(&k32);
         let probe = crate::inkling::probe_begin(|| self.k.cuda.stream().synchronize().is_ok());
         crate::inkling::count_launch();
+        // SAFETY (open): L1 holds (the six arguments of `moe_wsum`); `out`
+        // holds `ntok * d`, guarded in the kernel, and the index fits a `u32`
+        // (checked above). Not established here: each pair index in
+        // `side[.. ntok * k]` is below `y1 / d`, the rows `y` holds; the
+        // kernel reads `y` at it unchecked, and only the caller's
+        // construction of `side` bounds it.
         unsafe { b.launch(cfg) }.map_err(|e| candle_core::Error::msg(format!("moe_wsum: {e}")))?;
         crate::inkling::probe_end(probe, "moe_wsum", || self.k.cuda.stream().synchronize().is_ok());
         Ok((CudaStorage::wrap_cuda_slice(out, self.rt.device.clone()), Shape::from((ntok, d))))
@@ -508,6 +562,9 @@ impl candle_core::CustomOp2 for MoeRowsOp<'_> {
                 candle_core::bail!("moe rows rotation: {len} values for {npairs} rows of {n}");
             }
             let x = xs.as_cuda_slice::<f16>()?;
+            // SAFETY: clause U of the launch contract (`fused_cuda` module
+            // doc): `moe_rot` runs one block per pair (`npairs` rows of `n`,
+            // `len == npairs * n` checked above) and writes `[0, n)` of each.
             let mut out = unsafe { stream.alloc::<f32>(len) }
                 .map_err(|e| candle_core::Error::msg(format!("moe rows: alloc of {len} floats: {e}")))?;
             let cfg = LaunchConfig { grid_dim: (npairs as u32, 1, 1), block_dim: (threads, 1, 1), shared_mem_bytes: n * 4 };
@@ -515,6 +572,11 @@ impl candle_core::CustomOp2 for MoeRowsOp<'_> {
             let mut b = self.k.cuda.stream().launch_builder(&self.k.f_rot);
             b.arg(x).arg(&l.ptr).arg(side).arg(&mut out).arg(&n).arg(&m).arg(&k).arg(&inv).arg(&x_off).arg(&n).arg(&which);
             crate::inkling::count_launch();
+            // SAFETY (open): L1 holds (`moe_rot`, eleven arguments, `side`
+            // in the place of `sel` and row stride `n`); L3 for `x` and
+            // `out` (`npairs * n` each). The expert of each pair is read from
+            // `side` and the tables through `l.ptr`: see the open note on
+            // `MoeLayer`.
             unsafe { b.launch(cfg) }.map_err(|e| candle_core::Error::msg(format!("moe_rot (rows): {e}")))?;
             return Ok((CudaStorage::wrap_cuda_slice(out, self.rt.device.clone()), Shape::from((npairs, n as usize))));
         }
@@ -533,6 +595,12 @@ impl candle_core::CustomOp2 for MoeRowsOp<'_> {
             candle_core::bail!("moe rows: {len} values of width {d_in}, {} table words, {warps} warps", s1);
         }
         let x = xs.as_cuda_slice::<f32>()?;
+        // SAFETY (open): clause U holds only if the `chunks` table covers
+        // every pair once, as `moe_matrix_pairs`' doc asks of the caller:
+        // `moe_tetra_rows` stores `y` for the rows of each chunk it is given
+        // (`r < n_rows`) and nothing else, and this op does not read the
+        // table, which lives on the device. A table that skips a pair leaves
+        // its rows uninitialised.
         let mut out = unsafe { stream.alloc::<f16>(nmat * npairs * d_out) }
             .map_err(|e| candle_core::Error::msg(format!("moe rows: alloc of {} halves: {e}", nmat * npairs * d_out)))?;
         let per_block = THREADS / 32;
@@ -546,6 +614,14 @@ impl candle_core::CustomOp2 for MoeRowsOp<'_> {
         b.arg(&l.ptr).arg(side).arg(&stride).arg(&tabs.rows).arg(&tabs.prefixes).arg(&tabs.branches).arg(&tabs.suffixes)
             .arg(&tabs.invnorm).arg(x).arg(&mut out).arg(&nblocks).arg(&tail_w).arg(&d_out32).arg(&nchunks32).arg(&npairs32).arg(&mat0);
         crate::inkling::count_launch();
+        // SAFETY (open): L1 holds (the sixteen arguments of `moe_tetra_rows`);
+        // L3 for `x` (`npairs * d_in` f32 at offset 0) and `out`; L4: the
+        // grid is `nmat * nchunks * d_out` warps, `d_out` a multiple of 8,
+        // and the count fits a `u32` (checked above). Not established here:
+        // each chunk's expert, first pair and count stay inside `experts`
+        // and `npairs` and its count within `prefill_rows`; the kernel reads
+        // them from the device table unchecked. See also the open note on
+        // `MoeLayer`.
         unsafe { b.launch(cfg) }.map_err(|e| candle_core::Error::msg(format!("moe_tetra_rows: {e}")))?;
         Ok((CudaStorage::wrap_cuda_slice(out, self.rt.device.clone()), Shape::from((nmat, npairs, d_out))))
     }

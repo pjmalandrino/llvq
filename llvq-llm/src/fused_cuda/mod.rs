@@ -38,6 +38,35 @@
 //! question; what sharing buys is **ordering**. On a separate stream, a
 //! `tv_slot` reading an activation candle has not finished writing is a race
 //! that reproduces once in a hundred runs, on the card, in a billed job.
+//!
+//! ## The launch contract
+//!
+//! Every `unsafe` block under this module is one of two cudarc calls, and the
+//! `// SAFETY:` comment at each names which of these clauses it rests on and
+//! where its own sizes come from.
+//!
+//! **Launch.** `LaunchArgs::launch` cannot check four things, so the caller
+//! owes them. (L1) The arguments match the kernel's `extern "C"` signature in
+//! `kernels/*.cu` in count, order and type, scalars included: a `u32` where
+//! the kernel takes `u32`, a `CudaSlice<f16>` or `<u16>` where it takes
+//! `unsigned short*`. (L2) Every buffer outlives the kernel that reads it.
+//! The builder borrows each `CudaSlice` until `launch` returns; after that,
+//! a slice dropped by the host is freed with `free_async` on its own stream
+//! (cudarc 0.19.8, `Drop for CudaSlice`), and every allocation, launch and
+//! free here is on candle's one stream (`Cuda::on_stream`, above), so the
+//! free is ordered after the kernel. (L3) Each buffer holds every element
+//! the grid makes the kernel touch: the projection kernels carry no bounds
+//! guard and read `d_out` rows of their stream, the activation from its base
+//! for `d_in` values, and write `y[0 .. d_out)`. (L4) The grid is exact:
+//! `d_out` a multiple of the rows a block covers (`THREADS / 32 = 8`), which
+//! the uploads refuse otherwise and the launchers assert again.
+//!
+//! **Uninitialised output.** `CudaStream::alloc` returns unset device memory.
+//! Every value type here (`f16`, `f32`, `u32`) is valid for any bit pattern,
+//! so the obligation is that nothing reads the buffer before the launch that
+//! follows writes every element of it: (U) the kernel stores each element of
+//! `[0, len)` exactly once, from the row's own warp, never accumulates into
+//! it, and the grid covers every row.
 
 use std::collections::HashMap;
 

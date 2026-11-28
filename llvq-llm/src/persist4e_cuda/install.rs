@@ -669,8 +669,11 @@ fn install_inner(
                 let cfg = LaunchConfig { grid_dim: (1024, 1, 1), block_dim: (256, 1, 1), shared_mem_bytes: 0 };
                 let mut b = cuda.stream().launch_builder(&relay);
                 b.arg(&src).arg(&buf).arg(&d_out).arg(&nwords);
-                // SAFETY: src is a live int4 record of d_out x nwords words, buf
-                // a fresh buffer of the same size; the kernel only moves words.
+                // SAFETY: the four arguments of `pers_4e_q4_tile_relayout`
+                // (`pers_4e.cu`). `src` is an int4 record of the model this
+                // function borrows for its whole run, `d_out x nwords` words
+                // (its view's shape), so it outlives the launch; `buf` is a
+                // fresh buffer of the same size; the kernel only moves words.
                 unsafe { b.launch(cfg) }.map_err(|e| anyhow::anyhow!("pers_4e_q4_tile_relayout: {e}"))?;
                 let p = buf.device_ptr(&stream).0;
                 bytes += 4 * u64::from(d_out) * u64::from(nwords);

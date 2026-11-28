@@ -290,9 +290,13 @@ impl Runtime4e {
         };
         let mut b = stream.launch_builder(func);
         b.arg(args).arg(&launch);
-        // SAFETY: the kernel's own signature (Pers4eArgs*, Pers4tLaunch), the
-        // layout checked on the host (tests/tree_verify_host/); one CTA a SM, past
-        // the occupancy check at install.
+        // SAFETY (open): the arm's symbol takes `const Pers4eArgs*` and
+        // `Pers4tLaunch` by value, the layout checked on the host
+        // (tests/tree_verify_host/); one CTA a SM, past the occupancy check at
+        // install. The images (`self.args`, or the tiled arms' own `args`)
+        // hold raw device addresses of the model's weights, and of the tiled
+        // copies `install_tiled` made from them, with no lifetime tie to the
+        // model (BUG-15).
         unsafe { b.launch_cooperative(cfg) }.map_err(|e| anyhow::anyhow!("4E tree: {e}"))?;
         let ring = stream.clone_dtoh(&v.ring).map_err(|e| anyhow::anyhow!("D2H: {e}"))?;
         let lg = if logits {

@@ -109,9 +109,17 @@ pub fn load_resolved(
         if ctx.is_in_multi_stream_mode() {
             println!("cudarc event tracking: kept on, the context holds several streams");
         } else {
-            // Safe because one stream orders every access by issue; anything
-            // that later creates a second stream on this context must revisit
-            // it, as `llvq_cuda::gpu::Cuda::new_on_fresh_stream` says.
+            // SAFETY: cudarc asks that, without events, no slice is freed
+            // before a use on another stream ends, used on another stream
+            // before its allocation ends, or written by two streams at once.
+            // With one stream all three are vacuous: the context is not in
+            // multi-stream mode (checked just above) and every allocation,
+            // launch and free of the served path goes on candle's stream
+            // (`Cuda::on_stream`). Nothing in this crate calls `new_stream`
+            // on this context; `new_on_fresh_stream` opens a context of its
+            // own. A later second stream here would void this, as
+            // `llvq_cuda::gpu::Cuda::new_on_fresh_stream` says, and nothing
+            // enforces that.
             unsafe { ctx.disable_event_tracking() };
             println!("cudarc event tracking: off (one stream, ordered by issue)");
         }

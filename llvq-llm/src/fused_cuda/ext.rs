@@ -180,6 +180,10 @@ impl candle_core::CustomOp1 for RotExtOp<'_> {
         if self.rot.n as usize != self.d_in {
             candle_core::bail!("{}: rotation of width {} for d_in={}", self.name, self.rot.n, self.d_in);
         }
+        // SAFETY: clause U of the launch contract (`fused_cuda` module doc):
+        // `rot.n == d_in` is checked just above, and `rot_apply` (one row) or
+        // `rot_apply_rows` (one block a row) writes every coordinate of each
+        // row's `[0, n)`, so the `n_rows * d_in` floats are stored.
         let mut xr = unsafe { self.rt.device.cuda_stream().alloc::<f32>(want) }
             .map_err(|e| candle_core::Error::msg(format!("alloc rot ext: {e}")))?;
         if self.n_rows == 1 {

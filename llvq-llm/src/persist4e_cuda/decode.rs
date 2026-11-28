@@ -181,8 +181,20 @@ impl Runtime4e {
         };
         let mut b = stream.launch_builder(f);
         b.arg(&self.args).arg(&launch);
-        // SAFETY: the kernel's own signature (Pers4eArgs*, Pers4eLaunch), the
-        // layouts checked on the host; one CTA a SM, past the occupancy check.
+        // SAFETY (open): what holds: the two arguments are the token symbol's
+        // (`const Pers4eArgs*`, `Pers4eLaunch` by value, `pers_4e.cu`;
+        // `pers::P4eLaunch` mirrors the struct field for field); the grid is
+        // one CTA a SM, past the occupancy check at install, which a
+        // cooperative launch needs; `ring`, `stamps` and `logits` are live
+        // through the launch and freed in stream order on this stream, which
+        // is candle's (`Cuda::on_stream`); the KV cache addresses in the
+        // images are re-read from `caches` by `prepare` above and re-uploaded
+        // when a buffer moved. What does not: the images in `self.layers`
+        // hold raw device addresses of the model's weights, taken from
+        // `&Qwen3` at install, and `Runtime4e` keeps no borrow or `Arc` of
+        // them (BUG-15). Safe code that drops the model and keeps this
+        // runtime launches on freed memory. The served path keeps both in
+        // one engine for the life of the server.
         unsafe { b.launch_cooperative(cfg) }.map_err(|e| anyhow::anyhow!("4E: {e}"))?;
         let ring = self.cuda.down_u32(&self.ring).map_err(anyhow::Error::msg)?;
         match self.settle()? {
@@ -380,8 +392,12 @@ impl Runtime4e {
         let cfg = LaunchConfig { grid_dim: (self.grid, 1, 1), block_dim: (v.threads, 1, 1), shared_mem_bytes: v.smem };
         let mut b = stream.launch_builder(&v.f);
         b.arg(&self.args).arg(&launch);
-        // SAFETY: the kernel's own signature (Pers4eArgs*, Pers4vLaunch), the
-        // layouts checked on the host; one CTA a SM, past the occupancy check.
+        // SAFETY (open): as in `launch`, for the verify symbol
+        // (`const Pers4eArgs*`, `Pers4vLaunch` by value): the scratch and
+        // ring of `self.verify` are owned by this runtime and live through
+        // the launch, `n` is at most `P4V_KMAX` (checked above), the caches
+        // are re-read by `prepare`; the weight addresses in the images carry
+        // no lifetime tie to the model (BUG-15).
         unsafe { b.launch_cooperative(cfg) }.map_err(|e| anyhow::anyhow!("4E verify: {e}"))?;
         let ring = stream.clone_dtoh(&v.ring).map_err(|e| anyhow::anyhow!("D2H: {e}"))?;
         match self.settle()? {

@@ -54,6 +54,13 @@ pub(super) fn launch_planes_h<T: candle_core::cuda_backend::cudarc::driver::Devi
     let mut b = cuda.stream().launch_builder(f);
     b.arg(words).arg(tab).arg(gscale).arg(rscale).arg(tail).arg(x).arg(y)
         .arg(&nblocks).arg(&tail_w);
+    // SAFETY: the launch contract (`fused_cuda` module doc). L1: the nine
+    // arguments are `tv_planes_h`'s, in order (`kernels/tv_planes_h.cu`);
+    // `T` must be a two-byte type, which every caller meets (`FusedOp`
+    // passes `CudaSlice<f16>`). L3 is the caller's: `x` holds `d_in` f32
+    // (`FusedOp::cuda_fwd` checks the length and a zero offset) and `y`
+    // `d_out` halves (allocated there); the stream arrays were sized by
+    // `upload_matrix`. L4: asserted above.
     unsafe { b.launch(cfg) }.map_err(|e| format!("tv_planes_h: {e}"))?;
     Ok(())
 }
@@ -357,6 +364,14 @@ pub(super) fn launch_q4_hs<
         .arg(&d_in)
         .arg(&p.gpr)
         .arg(&x_off);
+    // SAFETY: the launch contract (`fused_cuda` module doc). L1: `tv_q4_hs`'s
+    // eight arguments in order (`kernels/tv_q4_wide.cu`); `X` and `T` must be
+    // two-byte types (`unsigned short*`), which both callers meet (`u16` in
+    // `check_int4_wide_parity`, `f16` in `FusedInt4Op`). L3: `wq`, `scales`
+    // and `biases` were sized by `upload_int4` (`d_out * d_in / 8` words,
+    // `d_out * gpr` each); `x` holds `x_off + d_in` halves and `y` `d_out`,
+    // which the callers establish. The shared request is `d_in * 2` bytes,
+    // what the kernel stages. L4: asserted above.
     unsafe { b.launch(cfg) }.map_err(|e| format!("tv_q4_hs: {e}"))?;
     Ok(())
 }
@@ -394,6 +409,15 @@ pub(super) fn launch_q4_h<
         .arg(y)
         .arg(&d_in)
         .arg(&p.gpr);
+    // SAFETY: the launch contract (`fused_cuda` module doc). L1: the seven
+    // arguments of `tv_q4_h` (`x` f32), `tv_q4_hh` and `tv_q4_hht` (`x`
+    // unsigned short), which share one list; nothing ties `X` to `f`, so the
+    // caller pairs them: `FusedInt4Op` takes `x` as f32 for `Int4Path::F32`
+    // and as f16 otherwise, and the parity checks pass `u16` buffers to
+    // the f16 entry points and an `f32` one to `tv_q4_h`. `T` is two bytes at every caller. L3:
+    // the record's arrays were sized by `upload_int4`; `x` holds `d_in`
+    // values from its base and `y` `d_out` halves (callers). `p.shared` is
+    // the staging `upload_int4` checked against the card. L4: asserted above.
     unsafe { b.launch(cfg) }.map_err(|e| format!("tv_q4_h: {e}"))?;
     Ok(())
 }
@@ -464,6 +488,12 @@ pub(super) fn launch_tetra48_rows_h(
         .arg(&n_rows)
         .arg(&d_in)
         .arg(&d_out);
+    // SAFETY: the launch contract (`fused_cuda` module doc). L1: the
+    // seventeen arguments of `tv_tetra48_rows_h` in order
+    // (`kernels/tv_tetra48_h.cu`). L3: `x` holds `n_rows * d_in` f32 and `y`
+    // `n_rows * d_out` halves (`FusedRowsOp::cuda_fwd` checks the one and
+    // allocates the other); `n_rows <= rows`, asserted above, keeps the
+    // staging inside the `shared` the unit was compiled for. L4: asserted.
     unsafe { b.launch(cfg) }.map_err(|e| format!("tv_tetra48_rows_h: {e}"))?;
     Ok(())
 }
@@ -520,6 +550,14 @@ pub(super) fn launch_tetra48_h<T: candle_core::cuda_backend::cudarc::driver::Dev
         .arg(y)
         .arg(&nblocks)
         .arg(&tail_w);
+    // SAFETY: the launch contract (`fused_cuda` module doc). L1: the
+    // fourteen arguments of `tv_tetra48_h` in order
+    // (`kernels/tv_tetra48_h.cu`), `T` two bytes at every caller. L3: `x`
+    // holds `d_in` f32 from its base and `y` `d_out` halves
+    // (`FusedOp::cuda_fwd`). Assumes `words` holds `d_out` rows of
+    // `stride_u32` covering `nblocks` blocks, as `fused::transcode` builds
+    // it: `upload_matrix` uploads the host stream without re-checking that
+    // length. L4: asserted above.
     unsafe { b.launch(cfg) }.map_err(|e| format!("tv_tetra48_h: {e}"))?;
     Ok(())
 }
@@ -562,6 +600,12 @@ pub(super) fn launch_planes_seg_h<T: candle_core::cuda_backend::cudarc::driver::
     let mut b = cuda.stream().launch_builder(f);
     b.arg(words).arg(tab).arg(gscale).arg(gs_off).arg(rscale).arg(tail).arg(x).arg(y)
         .arg(&nblocks).arg(&tail_w);
+    // SAFETY: the launch contract (`fused_cuda` module doc). L1: the ten
+    // arguments of `tv_planes_seg_h` in order (`kernels/tv_planes_seg_h.cu`).
+    // L3: `gs_off` has one entry per row and each entry indexes `gscale`
+    // inside its length (`upload_group` sweeps every entry before upload);
+    // `x` holds `d_in` f32 and `y` `d_out` halves (`FusedSegOp::cuda_fwd`).
+    // L4: asserted above, and `upload_group` checks every part.
     unsafe { b.launch(cfg) }.map_err(|e| format!("tv_planes_seg_h: {e}"))?;
     Ok(())
 }
@@ -620,6 +664,13 @@ pub(super) fn launch_planes12x_h<T: candle_core::cuda_backend::cudarc::driver::D
     b.arg(arrays[0]).arg(arrays[1]).arg(arrays[2]).arg(arrays[3])
         .arg(tab).arg(gscale).arg(rscale).arg(tail).arg(x).arg(y)
         .arg(&nblocks).arg(&tail_w);
+    // SAFETY: the launch contract (`fused_cuda` module doc). L1: the twelve
+    // arguments of `tv_planes12x_h` in order (`kernels/tv_planes12x_h.cu`).
+    // L3: `row_exc` has `d_out + 1` entries and the exception arrays are
+    // never empty (`upload_matrix` gives an empty `exc_idx` a dummy word the
+    // kernel never reads); assumes the host packer's `row_exc` slices stay
+    // inside `exc_idx`, which no host check here re-reads. `x` and `y` as in
+    // `launch_planes_h`. L4: asserted above.
     unsafe { b.launch(cfg) }.map_err(|e| format!("tv_planes12x_h: {e}"))?;
     Ok(())
 }
@@ -665,6 +716,11 @@ pub(super) fn launch_golay70_h<T: candle_core::cuda_backend::cudarc::driver::Dev
         .arg(cwtab).arg(gtab)
         .arg(tab).arg(gscale).arg(rscale).arg(tail).arg(x).arg(y)
         .arg(&nblocks).arg(&tail_w);
+    // SAFETY: the launch contract (`fused_cuda` module doc). L1: the
+    // fourteen arguments of `tv_golay70_h` in order (`kernels/tv_golay70_h.cu`).
+    // L3: as in `launch_planes12x_h`, the same assumption on `row_exc`
+    // included; `cwtab` and `gtab` are the runtime's constant tables. L4:
+    // asserted above.
     unsafe { b.launch(cfg) }.map_err(|e| format!("tv_golay70_h: {e}"))?;
     Ok(())
 }

@@ -57,6 +57,10 @@ impl candle_core::CustomOp1 for EmbedOp<'_> {
         if ntok == 0 {
             candle_core::bail!("{} gather: zero tokens", self.rt.emode.name());
         }
+        // SAFETY: clause U of the launch contract (`fused_cuda` module doc):
+        // the gather below runs one block per token (`grid = ntok`) and each
+        // block's threads store every column `c < d` of its row, so the
+        // `ntok * d` halves are written before candle reads them.
         let mut y = unsafe {
             self.rt
                 .device
@@ -81,6 +85,15 @@ impl candle_core::CustomOp1 for EmbedOp<'_> {
             .arg(&d)
             .arg(&gpr)
             .arg(&ids_off);
+        // SAFETY (open): L1 holds (the eight arguments of `emb_q4_gather` and
+        // `emb_q8_gather`, `kernels/emb_q{4,8}.cu`), as do L2 and L4 (one
+        // block a token, no barrier on a partial grid). L3 does not hold for
+        // every input: the kernel reads row `ids[ids_off + i]` of the table
+        // with no bound, and nothing between `FusedRuntime::embed` (a `pub`
+        // function taking any `u32` tensor) and here checks `id < vocab`. A
+        // token id past the vocabulary reads past `words`, `scales` and
+        // `biases`. The served callers pass tokenizer output and sampled
+        // ids, which are below `vocab` as far as this crate shows.
         unsafe { b.launch(cfg) }
             .map_err(|e| candle_core::Error::msg(format!("{gather_name}: {e}")))?;
         Ok((
@@ -124,6 +137,11 @@ impl candle_core::CustomOp1 for HeadOp<'_> {
             candle_core::bail!("lm_head {}: {len} values for d={}", self.rt.emode.name(), self.q.d);
         }
         let rows = len / self.q.d;
+        // SAFETY: clause U of the launch contract (`fused_cuda` module doc):
+        // launch `r` below writes `y[r * vocab + row]` for every `row < vocab`
+        // (one warp a row, `vocab` a multiple of 8, refused otherwise by
+        // `upload_embed`), so all `rows * vocab` halves are stored, provided
+        // `y_off` fits a `u32`, as the next comment says.
         let mut y = unsafe {
             self.rt
                 .device
@@ -152,6 +170,14 @@ impl candle_core::CustomOp1 for HeadOp<'_> {
                 .arg(&gpr)
                 .arg(&x_off)
                 .arg(&y_off);
+            // SAFETY: the launch contract (`fused_cuda` module doc). L1: the
+            // nine arguments of `tv_emb_q4_h` and `tv_q8_h` in order
+            // (`kernels/emb_q{4,8}.cu`). L3: `x` holds `start + rows * d`
+            // halves, so `x_off + d` is inside it; `y` holds `rows * vocab`.
+            // Assumes `start + rows * d` and `rows * vocab` fit a `u32`: the
+            // casts above truncate without a check, which would move the
+            // offsets inside the buffers, not past them, but leave rows of
+            // `y` unwritten. L4: `vocab % 8 == 0` (`upload_embed`).
             unsafe { b.launch(cfg) }
                 .map_err(|e| candle_core::Error::msg(format!("{head_name}: {e}")))?;
         }
@@ -228,6 +254,10 @@ impl candle_core::CustomOp1 for RotRowsOp<'_> {
                 .get(&key)
                 .ok_or_else(|| candle_core::Error::msg(format!("rotation {key:?} missing")))?,
         };
+        // SAFETY: clause U of the launch contract (`fused_cuda` module doc):
+        // `rot_apply_rows` (or `_rows_dev`) runs one block a row and writes
+        // every coordinate of `[0, n)` of each row's output, `n = d_in`, so
+        // the `n_rows * d_in` floats are stored before anything reads them.
         let mut xr = unsafe { self.rt.device.cuda_stream().alloc::<f32>(want) }
             .map_err(|e| candle_core::Error::msg(format!("alloc rot rows: {e}")))?;
         self.rt.launch_rotation_rows(
@@ -288,6 +318,11 @@ impl candle_core::CustomOp1 for RotOp<'_> {
                 .get(&key)
                 .ok_or_else(|| candle_core::Error::msg(format!("rotation {key:?} missing")))?,
         };
+        // SAFETY: clause U of the launch contract (`fused_cuda` module doc):
+        // `rot_apply` (or `rot_apply_dev`) writes every coordinate of
+        // `[0, n)`, `n = d_in` (the type doc above), before anything reads.
+        // `rot.n == d_in` because the rotation is keyed `(d_in, seed)` and
+        // built at that width (`fused::load`).
         let mut xr = unsafe { self.rt.device.cuda_stream().alloc::<f32>(self.proj.d_in) }
             .map_err(|e| candle_core::Error::msg(format!("alloc rot: {e}")))?;
         self.rt.launch_rotation(rot, all, &mut xr, start as u32)?;
@@ -365,6 +400,9 @@ impl candle_core::CustomOp1 for FusedOp<'_> {
         //    budget is half launch latency;
         //  * nothing zeroes it: the kernel writes `y[row]` for every row, the
         //    grid is exact and there is no bounds guard.
+        //
+        // SAFETY: clause U of the launch contract (`fused_cuda` module doc),
+        // as the second point above says, for every arm of the match below.
         let mut y = unsafe { self.rt.device.cuda_stream().alloc::<f16>(self.proj.d_out) }
             .map_err(|e| candle_core::Error::msg(format!("alloc y: {e}")))?;
         let shared = self.rt.tile.shared_bytes();
@@ -569,6 +607,10 @@ impl candle_core::CustomOp1 for FusedInt4Op<'_> {
                  is appended only when the file carried an int4 record",
             )
         };
+        // SAFETY: clause U of the launch contract (`fused_cuda` module doc):
+        // each int4 entry point writes `y[row]` once for every `row < d_out`
+        // from that row's warp (exact grid, `upload_int4` refuses a ragged
+        // `d_out`). An early return below drops `y` unread.
         let mut y = unsafe { self.rt.device.cuda_stream().alloc::<f16>(self.proj.d_out) }
             .map_err(|e| candle_core::Error::msg(format!("alloc y: {e}")))?;
         // `as_cuda_slice` refuses a storage of the other dtype, so a `half`
@@ -687,6 +729,9 @@ impl candle_core::CustomOp1 for FusedRowsOp<'_> {
             DeviceStream::Tetra48 { stride_u32, .. } => *stride_u32,
             _ => unreachable!("checked above"),
         };
+        // SAFETY: clause U of the launch contract (`fused_cuda` module doc):
+        // `tv_tetra48_rows_h` writes `y[r * d_out + row]` for every activation
+        // row `r < n_rows` and output row `row < d_out`, from that row's warp.
         let mut y = unsafe {
             self.rt
                 .device
@@ -776,6 +821,10 @@ impl candle_core::CustomOp1 for RotSegOp<'_> {
                 .get(&key)
                 .ok_or_else(|| candle_core::Error::msg(format!("rotation {key:?} missing")))?,
         };
+        // SAFETY: clause U of the launch contract (`fused_cuda` module doc):
+        // `rot_apply` writes every coordinate of `[0, n)` before anything
+        // reads; the group's rotation is keyed `(d_in, seed)` and built at
+        // that width (`fused::load`), so `n == d_in`.
         let mut xr = unsafe { self.rt.device.cuda_stream().alloc::<f32>(self.group.d_in) }
             .map_err(|e| candle_core::Error::msg(format!("alloc rot: {e}")))?;
         self.rt.launch_rotation(rot, all, &mut xr, start as u32)?;
@@ -851,6 +900,9 @@ impl candle_core::CustomOp1 for FusedSegOp<'_> {
         // that row, so there is nothing to zero. ⚠️ If an exception region is
         // ever added to a segmented layout, this allocation becomes a memset in
         // the same commit.
+        //
+        // SAFETY: clause U of the launch contract (`fused_cuda` module doc),
+        // for the reason just given.
         let mut y = unsafe { self.rt.device.cuda_stream().alloc::<f16>(self.group.d_out) }
             .map_err(|e| candle_core::Error::msg(format!("alloc y: {e}")))?;
         let shared = self.rt.tile.shared_bytes();

@@ -691,6 +691,13 @@ impl FusedRuntime {
                     rot.m as usize,
                     rot.k as usize,
                 );
+                // SAFETY: device scratch for `rot_apply_dev`, sized by
+                // `rot_scratch_floats` as the kernel's header asks
+                // (`rotate_wide.cu`, "What the host owes"). `rot_load` writes
+                // `[0, n)` before the first barrier and every later stage reads
+                // only what an earlier one wrote; the `(KMAX - k) * m` tail
+                // exists for speculated reads whose values are discarded.
+                // Distinct from `xr` and `all`, as the kernel requires.
                 let mut scratch = unsafe { self.device.cuda_stream().alloc::<f32>(len) }
                     .map_err(|e| candle_core::Error::msg(format!("alloc rot scratch: {e}")))?;
                 self.cuda.launch_rot_dev(
@@ -725,6 +732,9 @@ impl FusedRuntime {
                     rot.m as usize,
                     rot.k as usize,
                 );
+                // SAFETY: as in `launch_rotation`, for `rot_apply_rows_dev`:
+                // row `r` stages in `scratch + r * n`, so `n_rows * n` plus
+                // the tail, and no block reads another's rows.
                 let mut scratch = unsafe { self.device.cuda_stream().alloc::<f32>(len) }
                     .map_err(|e| candle_core::Error::msg(format!("alloc rot scratch: {e}")))?;
                 self.cuda.launch_rot_rows_dev(
