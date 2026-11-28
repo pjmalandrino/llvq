@@ -21,8 +21,8 @@
 # The CUDA archive carries the CUDA run-time libraries the binary loads (lib/, found through an rpath of $ORIGIN/lib).
 # The NVIDIA driver is the one thing it cannot carry: it must be installed already.
 # A CPU archive carries the binary alone. It reads the Tetra codes at every matvec on the SIMD path the CPU reports
-# at run time (AVX2 + FMA or scalar on x86_64, NEON on arm64) and serves the Qwen3 models. Inkling 2 is refused on
-# the CPU: it needs CUDA or Metal.
+# at run time (AVX2 + FMA or scalar on x86_64, NEON on arm64) and serves the Qwen3 models and, since 0.1.3,
+# Inkling 2 Mini, whose measured speed there is in llvq-runtime/README.md.
 #
 # Variables:
 #   LLVQ_VERSION     the release to install, default the one this script shipped with.
@@ -221,6 +221,6 @@ esac
 if [ -t 2 ] && [ -z "${NO_COLOR:-}" ] && [ "${TERM:-}" != dumb ]; then A=$(printf '\033[38;2;180;80;45m'); R=$(printf '\033[0m'); else A=; R=; fi
 printf '%s\n' "   $A/$R$A\\$R" "  $A/$R/\\$A\\$R" " $A/$R//\\\\$A\\$R    tetra" "$A/$R///\\\\\\$A\\$R" >&2
 case "$FLAVOR" in
-  *-cpu) say "done. Next: llvq run qwen3:4b (1.4 GB to download). Inkling 2 needs CUDA or Metal and is refused on the CPU" ;;
+  *-cpu) say "done. Next: llvq run qwen3:4b (1.4 GB to download). Inkling 2 Mini also runs on the CPU, slowly: llvq run inkling2:mini (8 GB)" ;;
   *) say "done. Next: llvq run inkling2:mini (8 GB to download), or llvq run qwen3:4b (1.4 GB)" ;;
 esac
