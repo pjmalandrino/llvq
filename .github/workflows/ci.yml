@@ -10,10 +10,11 @@
 # ============================================================================
 # WHAT A GREEN CHECK HERE DOES **NOT** MEAN
 # ============================================================================
-# It covers 7 of the 9 crates. A GitHub-hosted runner has no GPU and no CUDA
-# toolkit, so the two GPU crates cannot be *compiled* here at all. That is a
-# structural limit, not a policy choice, and it was measured on 2026-08-08 on
-# the dev Mac (which has the Linux std target installed) rather than assumed:
+# It runs the tests of 7 of the 9 crates, and of llvq-cuda only what needs no
+# GPU. A GitHub-hosted runner has no GPU and no CUDA toolkit, so without the
+# stand-ins described below the two GPU crates do not even compile here. That
+# is a structural limit, not a policy choice, and it was measured on 2026-08-08
+# on the dev Mac (which has the Linux std target installed) rather than assumed:
 #
 #   cargo check --target x86_64-unknown-linux-gnu -p llvq-metal --all-targets
 #     -> exit 101, llvq-metal/src/lib.rs:728
@@ -32,12 +33,19 @@
 #     b/weight — on either backend;
 #   * llvq-llm's `metal`, `cuda` and `cudnn` features, i.e. every code path
 #     `bin/fusedrun` actually takes;
-#   * llvq-cuda/tests/*, the CUDA-vs-Rust decoder equivalence sweeps. Those
-#     need no GPU *by design* — K1 of docs/archive/portage-noyau-cuda.md has clang++
-#     compile the .cu text as host C++ — but building the package drags cudarc
-#     in, so they are unreachable on Linux. They run on the macOS dev machine
-#     and nowhere else. The CUDA decoder's correctness tests are precisely the
-#     ones this CI cannot run.
+#   * the CUDA kernels as NVRTC reads them and as a card executes them: the
+#     load-time checks against the Rust replays, memory ordering between CTAs
+#     that run at the same time, the inline PTX, and the tests behind an
+#     unconditional #[ignore] (dump tools, sweeps of sealed archives).
+#
+# The `cuda-host-tests` job below runs what of llvq-cuda needs no GPU: its
+# library unit tests (the pinned SHA-256 digests of the served kernel units,
+# the tests that read the host sources) and tests/*, the CUDA-vs-Rust
+# equivalence sweeps that compile the .cu text as host C++ with clang++ (K1 of
+# docs/archive/portage-noyau-cuda.md). Building the package links cudarc with
+# `dynamic-linking`, so ops/run-cuda-host-tests.sh hands the linker stand-in
+# CUDA libraries whose every function prints its name and aborts: a test that
+# reached the driver would fail, it could not pass on a made-up answer.
 #
 # The `cuda-types` job below type-checks llvq-cuda and the `cuda` feature of
 # llvq-llm and llvq-runtime with a stand-in nvcc (ops/check-cuda-types.sh):
@@ -47,8 +55,8 @@
 # with a stand-in C compiler (ops/check-macos-types.sh). Everything a GPU
 # would execute stays in the list above.
 #
-# Covering them needs a self-hosted GPU runner, or a macos-* runner for the
-# clang++ half (10x minute multiplier on private repos). That is a spending
+# Covering them needs a self-hosted GPU runner, and the Metal half a macos-*
+# runner (10x minute multiplier on private repos). That is a spending
 # decision, not a technical one, so it is left to a human. K2 of
 # docs/archive/portage-noyau-cuda.md already scopes the compile-only NVRTC job.
 #
@@ -89,7 +97,7 @@ concurrency:
 env:
   CARGO_TERM_COLOR: always
 
-# Eight jobs in parallel, so the wall time is the slowest one, not the sum.
+# Nine jobs in parallel (one of them a matrix of five shards), so the wall time is the slowest one, not the sum.
 # Each caches its own target directory under its own key: one profile per
 # job, and actions/cache saves only after a job succeeds. Rust is pinned:
 # `-D warnings` on a floating toolchain turns the tree red overnight on code
@@ -338,6 +346,68 @@ jobs:
         run: ops/check-cuda-types.sh clippy --locked -p llvq-llm --features cuda --all-targets -- -D warnings
       - name: llvq-runtime --features cuda
         run: ops/check-cuda-types.sh clippy --locked -p llvq-runtime --features cuda --all-targets -- -D warnings
+
+  # The host tests of llvq-cuda: the pinned digests of the served kernel units,
+  # the tests that read the host sources, and the CUDA-versus-Rust sweeps that
+  # compile the .cu text as host C++ with clang++. cudarc's `dynamic-linking`
+  # asks for libcuda, libnvrtc, libcublas and libcublasLt, which a runner does
+  # not have: ops/run-cuda-host-tests.sh links against stand-ins that export
+  # the symbols the linker names and abort if one is called. No GPU, no NVRTC.
+  # The ci profile, so the sweeps gated `cfg_attr(debug_assertions, ignore)`
+  # run; `--include-ignored` is not passed, since the unconditional #[ignore]
+  # tests are dump tools and sweeps of sealed archives no runner has.
+  # Five shards, because two binaries hold almost all the time: their mutant
+  # tests compile the kernel text with clang++ -O2 once per mutant. On a shared
+  # 4-core box (2026-11-28) pers_matches_served took 65 min alone, and
+  # tree_verify_host is split by module. `rest` is the library, the binaries'
+  # unit tests and every other file of llvq-cuda/tests, listed at run time so
+  # that a new test file lands in it; `tree-other` skips the two big modules
+  # rather than naming the small ones, for the same reason.
+  cuda-host-tests:
+    name: llvq-cuda host tests, ${{ matrix.shard }} (clang++, stand-in CUDA libraries)
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [rest, pers, tree-fold, tree-stream, tree-other]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install pinned Rust 1.95.0
+        run: |
+          rustup toolchain install 1.95.0 --profile minimal
+          rustup default 1.95.0
+      # attn_dec_matches_rust builds the kernel under -fsanitize=undefined,
+      # whose runtime Ubuntu ships apart from clang.
+      - name: Install clang and its sanitizer runtime
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends clang libclang-rt-dev
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry/index
+            ~/.cargo/registry/cache
+            ~/.cargo/git/db
+            target
+          key: cuda-host-tests-1.95.0-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: cuda-host-tests-1.95.0-
+      - name: tests
+        run: |
+          set -euo pipefail
+          case "${{ matrix.shard }}" in
+            pers) set -- --test pers_matches_served ;;
+            tree-fold) set -- --test tree_verify_host -- fold_arms:: ;;
+            tree-stream) set -- --test tree_verify_host -- stream_arms:: ;;
+            tree-other) set -- --test tree_verify_host -- --skip fold_arms:: --skip stream_arms:: ;;
+            rest)
+              set -- --lib --bins
+              for t in llvq-cuda/tests/*.rs llvq-cuda/tests/*/main.rs; do
+                n=${t#llvq-cuda/tests/}; n=${n%/main.rs}; n=${n%.rs}
+                case "$n" in pers_matches_served|tree_verify_host) ;; *) set -- "$@" --test "$n" ;; esac
+              done ;;
+          esac
+          ops/run-cuda-host-tests.sh test --locked --profile ci -p llvq-cuda "$@"
 
   macos-types:
     name: macOS half type-checked (aarch64-apple-darwin, links nothing)
