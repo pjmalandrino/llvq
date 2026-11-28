@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Type-check the Linux half of llvq-llm (`--features cuda`: fused_cuda.rs, fusedrun) on a Mac, with no Docker.
+# Type-check the Linux half of llvq-llm (`--features cuda`: fused_cuda/, fusedrun) on a Mac, with no Docker.
 #
 #   ops/check-linux-on-mac.sh            # clippy -p llvq-llm --features cuda --all-targets
 #   ops/check-linux-on-mac.sh check      # cargo check instead

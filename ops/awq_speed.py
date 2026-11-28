@@ -15,7 +15,7 @@ Why this file exists
 --------------------
 The project's comparison tables have one empty cell: the AWQ 4-bit arm has no
 tok/s, at any of the three sizes. Every LLVQ throughput figure comes from
-`llvq-llm/src/bin/fusedrun.rs`, which cannot load an AWQ checkpoint, and the AWQ
+`llvq-llm/src/bin/fusedrun/`, which cannot load an AWQ checkpoint, and the AWQ
 kernel we *did* time (2026-08-10, six-arm bench) is a port of `mit-han-lab`'s
 GEMV into our own harness — a kernel measurement, not a product measurement.
 

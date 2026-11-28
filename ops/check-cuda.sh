@@ -7,7 +7,7 @@
 #
 # First run builds the image and the dependency graph (~5 min). Every run
 # after that is INCREMENTAL: 6 s wall for a one-line edit, measured 2026-09-10.
-# Proof it is not decorative: a deliberate `u32 + &str` in `fused_cuda.rs` is
+# Proof it is not decorative: a deliberate `u32 + &str` in `fused_cuda/` is
 # invisible to `cargo clippy --all-targets` on the host and caught here.
 #
 # It is a TYPE check and nothing more. The two failures of 2026-09-10 were a

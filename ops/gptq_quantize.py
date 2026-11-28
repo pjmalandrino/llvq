@@ -24,7 +24,7 @@ their input.
 ## What is fixed here and why
 
 * `bits=2` — the point of the arm.
-* `group_size=128` — AutoGPTQ's field default, and what `llvq-llm/src/bin/smoke.rs:333`
+* `group_size=128` — AutoGPTQ's field default, and what `llvq-llm/src/bin/smoke/codebook.rs`
   already prices at `bits + 0.25` when it models the competition. Choosing
   anything else would make our own b/param model incomparable to itself.
 * `desc_act=True` — act-order. It is what makes 2-bit GPTQ survive at all, and
@@ -76,7 +76,7 @@ def token_fingerprint(ids) -> int:
 def calibration_windows(tok, want_windows: int, win: int):
     """The same stream `bin/smoke` builds: concatenate, then window.
 
-    `smoke.rs:1007` divides one tokenized stream by `calib_len`; the windows are
+    `bin/smoke/` divides one tokenized stream by `calib_len`; the windows are
     contiguous and non-overlapping, and the published artifacts took the prefix
     (no `LLVQ_CALIB_SEED`). Reproduced here rather than approximated.
     """

@@ -1,7 +1,7 @@
 # A type-checker for the half of this workspace the development machine cannot
 # compile — and nothing else.
 #
-# WHY IT EXISTS. `llvq-llm/src/fused_cuda.rs` is `cfg(all(target_os = "linux",
+# WHY IT EXISTS. `llvq-llm/src/fused_cuda/` is `cfg(all(target_os = "linux",
 # feature = "cuda"))`. On the Mac it is not compiled by anything: five C crates
 # in its tree need a Linux toolchain (`openssl-sys`, `ring`, `zstd-sys`,
 # `onig_sys`) and `candle-kernels` needs **nvcc**. So until 2026-09-10 a type

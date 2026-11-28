@@ -37,7 +37,7 @@ G = {
 _k = (28.33 - LANES[2560]) / (LANES[9728] - LANES[2560])
 G[4096] = {key: G[2560][key] + _k * (G[9728][key] - G[2560][key]) for key in G[2560]}
 
-BYTES = 0.9467e9  # the f16-tail family the L2 arms read (pers.rs::bare_file_bytes)
+BYTES = 0.9467e9  # the f16-tail family the L2 arms read (pers/mod.rs::bare_file_bytes)
 WORD_BYTES = 0.9083e9
 
 

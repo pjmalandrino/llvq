@@ -11,7 +11,7 @@ interval that no tpersall value inside its interval could produce.
 
 Measured inputs (journals): seg-tetra-2026-11-04 (tetra48 3.792 ms, tetra48seg
 3.032 ms, 7 rounds, 2 discarded); banc-252-2026-10-06 sweep-64. Bytes are
-computed from row formulas (llvq-cuda/src/pers.rs::bare_file_bytes).
+computed from row formulas (llvq-cuda/src/pers/mod.rs::bare_file_bytes).
 """
 
 PEAK = 864e9  # B/s, L40S DRAM, data sheet

@@ -7,7 +7,7 @@ Reads nothing: the geometries are Qwen3's configs, the measured peaks are the du
 (docs/mesures/duel-iq2-2026-11-08-brut/tetra/vram.txt, peak minus idle, 1 GB = 1e9 B), and
 every other line is arithmetic on the code paths named beside it. Three states:
 
-  today     the served prefill as it ran in the duel (model.rs before 2026-11-08):
+  today     the served prefill as it ran in the duel (`model/` before 2026-11-08):
             chunks of 4,096 rows, grouped attention with three live f16 score tensors,
             the f32 mask uploaded then cast, no stream sync inside a prefill;
   exact     the same arithmetic bit for bit: the softmax written back in place block by

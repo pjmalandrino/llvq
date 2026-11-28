@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Type-check the Linux CUDA half of llvq-llm (fused_cuda.rs, persist4e_cuda.rs, the cuda binaries) on a Mac.
+# Type-check the Linux CUDA half of llvq-llm (fused_cuda/, persist4e_cuda/, the cuda binaries) on a Mac.
 #
 #   ops/check-linux-cuda.sh check  -p llvq-llm --features cuda --all-targets
 #   ops/check-linux-cuda.sh clippy -p llvq-llm --features cuda --all-targets

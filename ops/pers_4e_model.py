@@ -3,7 +3,7 @@
     python3 -I ops/pers_4e_model.py
 
 The 4E kernel (llvq-cuda/kernels/pers_4e.cu) runs one CTA of 512 threads a SM, 142 CTAs, 16 warps a
-SM. Every phase gives each CTA a fixed contiguous slice of the rows (`nqkv * c / G`, pers.rs::slices),
+SM. Every phase gives each CTA a fixed contiguous slice of the rows (`nqkv * c / G`, pers/mod.rs::slices),
 and inside a CTA each warp claims one whole row at a time, one block (Tetra) or one word (int4) a lane
 per iteration, with no load of the next iteration in flight (pers_tetra_row<24, false, false>,
 pers_q4_row). A phase ends when its slowest CTA's last warp ends, then a grid barrier.

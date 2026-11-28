@@ -16,7 +16,7 @@ input rotation:
     model.norm                 -> the language head, tied to the embedding
 
 `bin/seal` carries every norm verbatim in f16 (`seal.rs:11-14`) and
-`model.rs:1369` applies it before the projections rotate their input. So a
+`model/block.rs` applies it before the projections rotate their input. So a
 trained multiplier `tau` folds exactly into `w <- w * tau`, and the rate does
 not move. The fold is rounded to f16 once, which is the width the file holds.
 

@@ -20,8 +20,8 @@ OUT=${OUT:-target/nvrtc-check}
 mkdir -p "$OUT"
 IMAGE=nvidia/cuda:12.4.1-devel-ubuntu22.04
 K=llvq-cuda/kernels
-# The persistent module, in the order of llvq-cuda/src/pers.rs::PERS_UNIT_PARTS
-# (pers.rs::tests::the_pers_unit_carries_every_symbol checks that list).
+# The persistent module, in the order of llvq-cuda/src/pers/units.rs::PERS_UNIT_PARTS
+# (pers/tests.rs::the_pers_unit_carries_every_symbol checks that list).
 PERS="$K/llvq_slot.cuh $K/matvec.cu $K/llvq_f1rank.cuh $K/llvq_f1rank_v3.cuh $K/llvq_tetra48.cuh $K/llvq_rot.cuh \
 $K/rotate.cu $K/llvq_pers.cuh $K/tetra48_pers.cu $K/tetra48_persall.cu $K/pers_ref.cu $K/pers_segment.cu \
 $K/pers_4e.cu"

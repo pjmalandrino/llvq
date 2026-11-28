@@ -1607,7 +1607,7 @@ def main() -> int:
     l.add_argument("--codebook", default="leech1c12",
                    help="default leech1c12, the protocol of every published figure; "
                         "an L<n> suffix caps the levels and costs +4.75%% of ppl")
-    # Mirrors `CalibCorpus` in `llvq-llm/src/bin/smoke.rs`. The binary now
+    # Mirrors `CalibCorpus` in `llvq-llm/src/corpus.rs`. The binary now
     # refuses an unknown corpus, but it does so **inside the container** —
     # i.e. after the job has started, been billed and pulled the image. The
     # same typo caught here costs nothing. Keep the two lists in step: a
