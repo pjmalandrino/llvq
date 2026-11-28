@@ -179,8 +179,17 @@ pub fn serve(store: Arc<Store>, hub: &str) -> String {
 
 /// [`serve`] with another loader.
 pub fn serve_with(store: Arc<Store>, hub: &str, loader: Arc<dyn Loader>) -> String {
+    serve_models(store, hub, loader).0
+}
+
+/// [`serve_with`], and the server's `Models`, so that a test can run the
+/// reaper itself instead of sleeping past its second.
+pub fn serve_models(store: Arc<Store>, hub: &str, loader: Arc<dyn Loader>) -> (String, Arc<Models>) {
     let models = Arc::new(Models::new(store, loader, 1, KeepAlive::For(Duration::from_secs(300))));
-    let state = AppState::new(models, hub.to_string());
+    (serve_state(AppState::new(models.clone(), hub.to_string())), models)
+}
+
+fn serve_state(state: AppState) -> String {
     let (tx, rx) = std::sync::mpsc::channel();
     std::thread::spawn(move || {
         let rt = tokio::runtime::Builder::new_multi_thread().worker_threads(2).enable_all().build().unwrap();

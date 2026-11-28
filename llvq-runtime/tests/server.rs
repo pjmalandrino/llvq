@@ -135,41 +135,22 @@ fn a_stateless_second_turn_reads_only_its_new_tokens_and_answers_as_the_stateful
     assert_eq!(cached, 10, "an edit must cut the reuse back to the edited message");
 }
 
+/// A client that leaves a streamed answer after its first line: the engine
+/// stops the answer, so the conversation cache never holds it. The engine
+/// would end the answer, and the cache hold it, if it ignored the closed
+/// channel; the test only waits for the engine to be idle.
 #[test]
 fn a_client_that_leaves_stops_the_engine() {
     let host = common::serve(common::store("cancel"), "http://127.0.0.1:9");
     let c = Client::new(&host);
-    let ask = |n: u64| {
-        json!({"model": "tiny:test", "messages": [{"role": "user", "content": "one two"}],
-               "options": {"temperature": 0, "num_predict": n}, "stream": false})
-    };
-    // Warm the model, then time 200 tokens to price the long answer.
-    c.send("POST", "/api/chat", &ask(1)).unwrap();
-    let t = Instant::now();
-    c.send("POST", "/api/chat", &ask(200)).unwrap();
-    let per_token = t.elapsed() / 200;
-    let long = 3000u32;
-
-    let agent = ureq::AgentBuilder::new().build();
-    let mut body = ask(long as u64);
-    body["stream"] = json!(true);
-    let resp = agent.post(&format!("http://{host}/api/chat")).send_json(body).unwrap();
+    let long = 1000;
+    let full = whole_answer(&c, long);
+    let resp = ureq::AgentBuilder::new().build().post(&format!("http://{host}/api/chat")).send_json(ask(long, true)).unwrap();
     let mut lines = BufReader::new(resp.into_reader()).lines();
     lines.next().unwrap().unwrap();
-    let left = Instant::now();
     drop(lines);
-
-    // The engine is free well before the whole answer would have ended.
-    let t = Instant::now();
-    c.send("POST", "/api/chat", &ask(1)).unwrap();
-    let waited = t.elapsed();
-    let whole = per_token * long;
-    assert!(
-        waited < whole / 4,
-        "the next request waited {waited:?}; the abandoned answer would have run {whole:?} \
-         ({per_token:?} a token), measured from {:?} after leaving",
-        left.elapsed()
-    );
+    wait_idle(&c, "the engine after its client left");
+    assert!(!holds_the_answer(&c, &full), "the engine answered to the end for a client that left");
 }
 
 #[test]
@@ -286,7 +267,9 @@ fn refusals_answer_with_their_status_and_a_reason() {
 #[test]
 fn a_page_from_another_site_cannot_drive_the_server() {
     let host = common::serve(common::store("origin"), "http://127.0.0.1:9");
-    let body = json!({"model": "tiny:test", "messages": [{"role": "user", "content": "hello"}], "stream": false});
+    // One token: the tiny model never stops on its own, and the test reads statuses only.
+    let body = json!({"model": "tiny:test", "messages": [{"role": "user", "content": "hello"}], "stream": false,
+                      "options": {"num_predict": 1}});
     let post = |origin: Option<&str>, host_header: Option<&str>| {
         let mut r = ureq::post(&format!("http://{host}/api/chat"));
         if let Some(o) = origin {
@@ -475,12 +458,70 @@ fn ask(n: u64, stream: bool) -> Value {
            "options": {"temperature": 0, "num_predict": n}, "stream": stream})
 }
 
-/// The engine's time a token on this machine, after a warm-up.
-fn per_token(c: &Client) -> Duration {
-    c.send("POST", "/api/chat", &ask(1, false)).unwrap();
+/// What bounds a wait in the tests below. A passing test never reaches it:
+/// each test waits on the condition it needs, and the bound only ends a
+/// failure.
+const BOUND: Duration = Duration::from_secs(60);
+
+/// Wait until `cond` holds; panic naming `what` past [`BOUND`].
+fn wait_for(what: &str, mut cond: impl FnMut() -> bool) {
     let t = Instant::now();
-    c.send("POST", "/api/chat", &ask(200, false)).unwrap();
-    t.elapsed() / 200
+    while !cond() {
+        assert!(t.elapsed() < BOUND, "{what}: still not so after {BOUND:?}");
+        std::thread::sleep(Duration::from_millis(2));
+    }
+}
+
+/// The loaded model's `busy` and `queue`, as `/api/ps` shows them.
+fn ps_state(c: &Client) -> (bool, u64) {
+    let ps = c.get("/api/ps").unwrap();
+    let m = &ps["models"][0]["llvq"];
+    (m["busy"].as_bool().unwrap_or(false), m["queue"].as_u64().unwrap_or(0))
+}
+
+/// Wait until the engine runs nothing and holds nothing queued.
+fn wait_idle(c: &Client, what: &str) {
+    wait_for(what, || ps_state(c) == (false, 0));
+}
+
+/// A request whose client the test controls: written whole on a connection
+/// of its own, which closes when the stream returned is dropped. Nothing is
+/// read from it.
+fn post_raw(host: &str, path: &str, body: &Value) -> std::net::TcpStream {
+    use std::io::Write;
+    let mut s = std::net::TcpStream::connect(host).unwrap();
+    let b = body.to_string();
+    write!(s, "POST {path} HTTP/1.1\r\nHost: {host}\r\nContent-Type: application/json\r\nContent-Length: {}\r\n\r\n{b}", b.len())
+        .unwrap();
+    s
+}
+
+/// Whether the conversation cache holds `content` as the whole answer to
+/// "one two": the next turn, sent with that answer in its history, then reads
+/// only its own 13 tokens. An answer the engine cut short leaves the cache at
+/// the user's message, and the turn reads the answer again.
+fn holds_the_answer(c: &Client, content: &str) -> bool {
+    let history = json!([
+        {"role": "user", "content": "one two"},
+        {"role": "assistant", "content": content},
+        {"role": "user", "content": "yes"},
+    ]);
+    let (_, _, last) =
+        chat(c, json!({"model": "tiny:test", "messages": history, "options": {"temperature": 0, "num_predict": 1}}));
+    let (n, cached) = (last["prompt_eval_count"].as_u64().unwrap(), last["prompt_eval_cached_count"].as_u64().unwrap());
+    wait_idle(c, "the engine after the probe of its cache");
+    // New: `<|im_start|>user\nyes<|im_end|>\n` (6) and the opening (7).
+    n - cached == 13
+}
+
+/// The whole greedy answer of `n` tokens to "one two", from the server,
+/// which also loads the model. The control: the cache then holds it.
+fn whole_answer(c: &Client, n: u64) -> String {
+    let v = c.send("POST", "/api/chat", &ask(n, false)).unwrap();
+    let full = v["message"]["content"].as_str().unwrap().to_string();
+    wait_idle(c, "the engine after the whole answer");
+    assert!(holds_the_answer(c, &full), "the control: the cache does not hold a whole answer");
+    full
 }
 
 fn counting(delay: Duration) -> (std::sync::Arc<std::sync::atomic::AtomicUsize>, std::sync::Arc<common::CountingLoader>) {
@@ -491,7 +532,7 @@ fn counting(delay: Duration) -> (std::sync::Arc<std::sync::atomic::AtomicUsize>,
 #[test]
 fn stopping_a_busy_model_keeps_one_copy_until_its_answer_ends() {
     let (loads, loader) = counting(Duration::ZERO);
-    let host = common::serve_with(common::store("stopbusy"), HUB, loader);
+    let (host, models) = common::serve_models(common::store("stopbusy"), HUB, loader);
     let c = Client::new(&host);
     let resp = ureq::post(&format!("http://{host}/api/chat")).send_json(ask(3000, true)).unwrap();
     let mut lines = BufReader::new(resp.into_reader()).lines();
@@ -504,12 +545,14 @@ fn stopping_a_busy_model_keeps_one_copy_until_its_answer_ends() {
     // A request now waits for that copy instead of loading a second one.
     let h = host.clone();
     let short = std::thread::spawn(move || Client::new(&h).send("POST", "/api/chat", &ask(1, false)));
-    std::thread::sleep(Duration::from_millis(200));
+    wait_for("the request queued behind the busy model", || ps_state(&c).1 == 1);
     drop(lines);
     short.join().unwrap().unwrap();
     assert_eq!(loads.load(std::sync::atomic::Ordering::SeqCst), 1, "a second copy was loaded beside the busy one");
-    // That request took the model back: it stays past the reaper's second.
-    std::thread::sleep(Duration::from_millis(1500));
+    // That request took the model back: idle, the reaper keeps it. The test
+    // runs the reaper itself rather than sleeping past its second.
+    wait_idle(&c, "the engine after the request that took it back");
+    models.reap(std::time::SystemTime::now());
     assert_eq!(c.get("/api/ps").unwrap()["models"].as_array().unwrap().len(), 1, "the model taken back was unloaded");
 }
 
@@ -533,7 +576,7 @@ fn a_model_stopped_while_busy_unloads_when_its_answer_ends() {
 fn a_request_abandoned_in_the_queue_leaves_the_cache_alone() {
     let host = common::serve(common::store("abandon"), HUB);
     let c = Client::new(&host);
-    let n = (Duration::from_millis(1500).as_nanos() / per_token(&c).as_nanos().max(1)).clamp(50, 3000) as u64;
+    let n = 1500;
     let opts = |k: u64| json!({"temperature": 0, "num_predict": k});
     let (a1, _, _) =
         chat(&c, json!({"model": "tiny:test", "messages": [{"role": "user", "content": "hello world"}], "options": opts(4)}));
@@ -542,17 +585,32 @@ fn a_request_abandoned_in_the_queue_leaves_the_cache_alone() {
         {"role": "assistant", "content": a1},
         {"role": "user", "content": "why the cat"},
     ]);
+    let (started_tx, started) = std::sync::mpsc::channel();
     let (h, body) = (host.clone(), json!({"model": "tiny:test", "messages": h1.clone(), "options": opts(n)}));
-    let long = std::thread::spawn(move || chat(&Client::new(&h), body));
-    std::thread::sleep(Duration::from_millis(300));
+    let long = std::thread::spawn(move || {
+        let (mut content, mut last, mut started_tx) = (String::new(), Value::Null, Some(started_tx));
+        Client::new(&h)
+            .stream("/api/chat", &body, &mut |v| {
+                if let Some(tx) = started_tx.take() {
+                    let _ = tx.send(());
+                }
+                content.push_str(v["message"]["content"].as_str().unwrap_or(""));
+                last = v.clone();
+                Ok(())
+            })
+            .unwrap();
+        (content, last)
+    });
+    started.recv_timeout(BOUND).expect("the long answer never streamed");
     // Another conversation, queued behind the long answer, then abandoned.
-    let gone = ureq::AgentBuilder::new()
-        .timeout(Duration::from_millis(200))
-        .build()
-        .post(&format!("http://{host}/api/chat"))
-        .send_json(json!({"model": "tiny:test", "messages": [{"role": "user", "content": "the dog sat"}], "stream": false}));
-    assert!(gone.is_err(), "the abandoned request was answered within its timeout");
-    let (x, _, last) = long.join().unwrap();
+    let gone = post_raw(
+        &host,
+        "/api/chat",
+        &json!({"model": "tiny:test", "messages": [{"role": "user", "content": "the dog sat"}], "stream": false}),
+    );
+    wait_for("the second request queued behind the long answer", || ps_state(&c).1 == 1);
+    drop(gone);
+    let (x, last) = long.join().unwrap();
     assert_eq!(last["done_reason"], "length");
     let mut h2 = h1.as_array().unwrap().clone();
     h2.push(json!({"role": "assistant", "content": x}));
@@ -563,58 +621,93 @@ fn a_request_abandoned_in_the_queue_leaves_the_cache_alone() {
     assert_eq!(n - cached, 13, "the abandoned request cut the cache: {cached} of {n} positions kept");
 }
 
+/// A client that leaves a non-streamed answer while the engine runs it: hyper
+/// drops the handler, the engine stops, and the cache never holds the answer.
+/// The test closes its connection once `/api/ps` shows the request running,
+/// and then only waits for the engine to be idle.
 #[test]
 fn a_client_that_leaves_a_non_streamed_answer_stops_the_engine() {
     let host = common::serve(common::store("cancel-nostream"), HUB);
     let c = Client::new(&host);
-    let pt = per_token(&c);
-    let long = 3000u32;
-    let gone = ureq::AgentBuilder::new()
-        .timeout(Duration::from_millis(300))
-        .build()
-        .post(&format!("http://{host}/api/chat"))
-        .send_json(ask(long as u64, false));
-    assert!(gone.is_err());
-    let t = Instant::now();
-    c.send("POST", "/api/chat", &ask(1, false)).unwrap();
-    let waited = t.elapsed();
-    eprintln!("the next request waited {waited:?} ({pt:?} a token)");
-    // About a millisecond once the engine asks the channel on a token that sends nothing
-    // (0.4 to 1.3 ms, *measured* 2026-11-20); before, as long as the router's longest silence.
-    assert!(waited < pt * long / 20, "the next request waited {waited:?} behind an answer nobody reads ({pt:?} a token)");
+    let long = 1000;
+    let full = whole_answer(&c, long);
+    let conn = post_raw(&host, "/api/chat", &ask(long, false));
+    wait_for("the request running", || ps_state(&c) == (true, 0));
+    drop(conn);
+    wait_idle(&c, "the engine after its client left");
+    assert!(!holds_the_answer(&c, &full), "the engine answered to the end for a client that left");
+}
+
+/// Which steps of the greedy answer `ids` stream nothing, as the engine's
+/// router sees them: the content and the reasoning (between `<think>` (3) and
+/// `</think>` (4)), each decoded whole and sent up to its last whole
+/// character. With them, the content sent before each step, and whether
+/// anything is held back after it.
+fn silences(ids: &[u32]) -> (Vec<bool>, Vec<String>, Vec<bool>) {
+    use llvq_runtime::chat::{scan, Scan, TextStream};
+    let tok = common::tokenizer();
+    let (mut content, mut thinking, mut inside) = (TextStream::default(), TextStream::default(), false);
+    let (mut silent, mut sent, mut held) = (Vec::new(), Vec::new(), Vec::new());
+    for &t in ids {
+        sent.push(content.sent.clone());
+        match t {
+            3 => inside = true,
+            4 => inside = false,
+            _ if inside => thinking.ids.push(t),
+            _ => content.ids.push(t),
+        }
+        let f = content.full(&tok).unwrap();
+        let upto = match scan(&f, &[]) {
+            Scan::Safe(n) | Scan::Stop(n) => n,
+        };
+        let c = content.take(&f, upto);
+        let tf = thinking.full(&tok).unwrap();
+        let r = thinking.take(&tf, llvq_llm::repl::printable(&tf).len());
+        silent.push(c.is_empty() && r.is_empty());
+        held.push(content.sent != f || thinking.sent != tf);
+    }
+    (silent, sent, held)
 }
 
 /// A client that leaves while the router has nothing to send: the tiny model
-/// answers long stretches of tokens that end no UTF-8 sequence, and during
-/// one no `Delta` goes out, so no send can fail. The stretch is found first,
-/// by streaming the same greedy answer, and the second client is made to
-/// leave a quarter of the way into it.
+/// answers long stretches of ids the tokenizer has no word for, and during
+/// one no `Delta` goes out, so no send can fail. The test finds the longest
+/// such stretch in the greedy answer, asks for an answer that ends on its
+/// last id, reads every line before it and leaves. An engine that only
+/// noticed the client at a send would decode the silence to the answer's
+/// end, with nothing left to send, and keep the whole answer in the cache;
+/// this one asks the channel during the silence and stops there.
 #[test]
 fn a_client_that_leaves_during_a_silence_stops_the_engine() {
     let host = common::serve(common::store("cancel-silence"), HUB);
     let c = Client::new(&host);
-    per_token(&c);
-    let t = Instant::now();
-    let mut at: Vec<Duration> = Vec::new();
-    c.stream("/api/chat", &ask(3000, true), &mut |_| {
-        at.push(t.elapsed());
-        Ok(())
-    })
-    .unwrap();
-    let (start, silence) =
-        at.windows(2).map(|w| (w[0], w[1] - w[0])).max_by_key(|&(_, d)| d).expect("the answer streams two lines");
-    assert!(silence > Duration::from_millis(40), "the tiny model's longest silence is {silence:?}: too short to aim at");
-    let gone = ureq::AgentBuilder::new()
-        .timeout(start + silence / 4)
-        .build()
-        .post(&format!("http://{host}/api/chat"))
-        .send_json(ask(3000, false));
-    assert!(gone.is_err());
-    let t = Instant::now();
-    c.send("POST", "/api/chat", &ask(1, false)).unwrap();
-    let waited = t.elapsed();
-    eprintln!("left at {:?} in a silence of {silence:?} from {start:?}; the next request waited {waited:?}", start + silence / 4);
-    assert!(waited < silence / 4, "the next request waited {waited:?} behind a silence of {silence:?} nobody listens to");
+    let ids = &reference(&["one two"], 3000)[0];
+    let (silent, sent, held) = silences(ids);
+    let first = silent.iter().position(|s| !s).expect("the answer sends something");
+    let (mut start, mut end, mut i) = (0, 0, first);
+    while i < ids.len() {
+        let j = (i..ids.len()).find(|&j| !silent[j]).unwrap_or(ids.len());
+        if j - i > end - start {
+            (start, end) = (i, j);
+        }
+        i = j + 1;
+    }
+    assert!(end - start >= 50, "the longest silence is {} ids: too short to leave in", end - start);
+    assert!(!held[end - 1], "the router holds text at the silence's end: the answer's end would send it");
+    let lines_before = silent[..start].iter().filter(|s| !**s).count();
+    let resp = ureq::post(&format!("http://{host}/api/chat")).send_json(ask(end as u64, true)).unwrap();
+    let mut lines = BufReader::new(resp.into_reader()).lines();
+    let mut got = String::new();
+    for _ in 0..lines_before {
+        let v: Value = serde_json::from_str(&lines.next().unwrap().unwrap()).unwrap();
+        assert_eq!(v["done"], false, "the answer ended before its silence");
+        got.push_str(v["message"]["content"].as_str().unwrap_or(""));
+    }
+    assert_eq!(got, sent[start], "the test's router and the engine's disagree before the silence");
+    drop(lines);
+    eprintln!("left at id {start} of a silence of {} ids, the answer ending on its last", end - start);
+    wait_idle(&c, "the engine after its client left");
+    assert!(!holds_the_answer(&c, &sent[start]), "the engine decoded a silence to the answer's end for a client that left");
 }
 
 #[test]
