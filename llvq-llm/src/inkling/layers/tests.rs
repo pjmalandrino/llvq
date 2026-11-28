@@ -1,5 +1,6 @@
 //! The unit tests of the layer pieces: the convolution state, the tiny random stack end to end and
 //! step by step, and the static convolution against a direct sum.
+use super::conv::conv_context;
 use super::*;
 
 /// The state kept after a prompt of several rows owns its `k - 1` rows and nothing else: a view into the

@@ -1,6 +1,9 @@
 //! The short convolutions of a layer: the history a slot keeps for each, the static depthwise
 //! form and the dynamic form of the full layers. One file because the three share [`ConvState`].
-use super::*;
+
+use candle_core::{IndexOp, Result, Tensor};
+
+use super::linear;
 
 /// The last `K - 1` inputs of one short convolution, oldest first
 /// (`conv_state`, lines 297, 379, 438). A prompt leaves a block `[K - 1, C]`;

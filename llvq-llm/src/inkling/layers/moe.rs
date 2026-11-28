@@ -1,7 +1,13 @@
 //! The mixture of experts: the two seams that supply experts, the routing on the host and the
 //! dense expert sum. One file because the router's output is the experts' input and both cite
 //! the same reference lines.
-use super::*;
+
+use candle_core::{Device, Result, Tensor};
+
+use crate::inkling::config::InklingConfig;
+use crate::inkling::loader::NativeExperts;
+
+use super::{linear, softcap};
 
 /// Every expert of a layer as f32 matrices: `(gate_up [2I, H], down [H, I])`.
 pub trait ExpertSource {
@@ -94,7 +100,7 @@ pub fn route(x: &Tensor, w_gate: &Tensor, bias: &Tensor, top_k: usize, scale: f6
 /// [`route`] with the bias already on the host: the layer reads it once at
 /// load ([`LayerWeights::router_bias_host`]), not at every visit. The same
 /// f32 values in the same additions, so the same routing bit for bit.
-pub fn route_host_bias(x: &Tensor, w_gate: &Tensor, bias: &[f32], top_k: usize, scale: f64) -> Result<Routing> {
+pub(super) fn route_host_bias(x: &Tensor, w_gate: &Tensor, bias: &[f32], top_k: usize, scale: f64) -> Result<Routing> {
     let scores = candle_nn::ops::sigmoid(&linear(x, w_gate)?)?.to_vec2::<f32>()?;
     if scores.first().is_some_and(|s| s.len() != bias.len()) {
         candle_core::bail!("route: {} scores and {} bias values", scores[0].len(), bias.len());

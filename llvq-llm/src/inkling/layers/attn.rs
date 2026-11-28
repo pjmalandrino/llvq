@@ -1,7 +1,14 @@
 //! The attention block: its weights in their three holdings (f32, the kernels' BF16, the CPU's
 //! BF16), the score bias and the window switch, and the forward with its chunked and windowed
 //! score paths. One file because every piece is read by [`AttnWeights`]'s forward and nothing else.
-use super::*;
+
+use candle_core::{Result, Tensor};
+
+use crate::fused_cpu::phases::{timed, ATTN_CACHE, ATTN_PROJ, ATTN_SCORES, CONVS};
+use crate::inkling::config::InklingConfig;
+
+use super::phases::{mark, Phase};
+use super::{dynamic_conv, l2_clip, linear, log_scale, rms_unweighted, short_conv, ConvState, SlotCache};
 
 /// The convolution of a key or value projection (lines 495-508).
 pub enum KvConv {
@@ -152,7 +159,7 @@ pub fn set_window_scores(on: bool) {
 }
 
 /// Whether [`set_window_scores`] is on.
-pub fn window_scores() -> bool {
+fn window_scores() -> bool {
     WINDOW_SCORES.load(std::sync::atomic::Ordering::Relaxed)
 }
 

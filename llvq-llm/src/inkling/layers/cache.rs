@@ -1,6 +1,9 @@
 //! What one layer visit keeps between calls: [`SlotCache`] with its growth, its window bound, its
 //! rollback marks and its snapshot form. One file because every method here owns the same buffers.
-use super::*;
+
+use candle_core::{Device, Result, Tensor};
+
+use super::ConvState;
 
 /// Positions a slot's key and value buffers are allocated in.
 const KV_GRAIN: usize = 256;

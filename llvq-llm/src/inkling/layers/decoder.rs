@@ -1,7 +1,19 @@
 //! One decoder layer: the message gates of the loop layers, [`LayerWeights`] with its loaders, the
 //! candle forward and the fused one-row forward. One file because the three forwards share the
 //! weights and the order of the reference's steps.
-use super::*;
+
+use candle_core::{DType, Device, Result, Tensor};
+
+use crate::fused_cpu::phases::{timed, CONVS, GLUE, ROUTER};
+use crate::inkling::config::InklingConfig;
+use crate::inkling::loader::NativeCheckpoint;
+
+use super::moe::route_host_bias;
+use super::phases::{mark, Phase};
+use super::{
+    block_attn_res, linear, rms_norm, rms_unweighted, short_conv, AttnWeights, CpuAttnProj, KvConv, MoeSource, Routing,
+    SlotCache, DEFAULT_ATTN_CHUNK,
+};
 
 /// `Inkling2LoopMessageGate`, lines 79-96: `(1 - forget) * h + gain * message`,
 /// both gates `tanh` of a rank-`gate_rank` projection of the two unweighted-

@@ -11,13 +11,24 @@
 //! (the convolution history is then zeros, which is the reference's left
 //! padding, lines 316-322 and 444), a step on the slot the prompt filled
 //! (`causal_conv1d_update`, lines 286-302, and `cache.update`, line 612).
+//!
+//! | file | holds |
+//! |---|---|
+//! | this file | the norms, the clip, the log scale, the block residual, the embedding, `linear` |
+//! | `attn` | [`AttnWeights`] in its three holdings, the score bias, the window switch, the forward |
+//! | `cache` | [`SlotCache`] with its growth, its rollback marks and its snapshot form |
+//! | `conv` | [`ConvState`], the short and the dynamic convolutions |
+//! | `decoder` | the message gates and [`LayerWeights`], with its candle and fused forwards |
+//! | `moe` | the two expert seams, the routing, the dense expert sum |
+//! | `phases` | the wall-time split of a forward, for `inkrun` |
+//!
+//! Each child imports what it uses by name. This file re-exports only what
+//! the rest of the workspace names, plus the types its public signatures carry.
 
 use candle_core::{DType, Device, IndexOp, Result, Tensor, D};
 
 use super::config::InklingConfig;
-use super::loader::{NativeCheckpoint, NativeExperts};
-use crate::fused_cpu::phases::{timed, ATTN_CACHE, ATTN_PROJ, ATTN_SCORES, CONVS, GLUE, ROUTER};
-use phases::{mark, Phase};
+use super::loader::NativeCheckpoint;
 
 #[cfg(ink_glue)]
 use super::{attn_bias, attn_dense, attn_scores, glue};
@@ -29,11 +40,14 @@ mod conv;
 mod decoder;
 mod moe;
 
-pub use attn::*;
-pub use cache::*;
-pub use conv::*;
-pub use decoder::*;
-pub use moe::*;
+pub use attn::{
+    score_bias_host, set_window_scores, window_score_chunks, AttnMats, AttnWeights, CpuAttnProj, KvConv,
+    DEFAULT_ATTN_CHUNK,
+};
+pub use cache::{SlotCache, SlotMark, DEFAULT_KV_SLACK};
+pub use conv::{dynamic_conv, short_conv, ConvState};
+pub use decoder::{LayerWeights, MessageGate, MessageGates};
+pub use moe::{experts_forward, route, ExpertSource, MoeSource, Routing};
 
 /// Wall time of a forward split by part, for the measurement flag of
 /// `inkrun`. Off by default: then [`mark`] is one atomic load and changes
