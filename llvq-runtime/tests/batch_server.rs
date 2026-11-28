@@ -442,3 +442,102 @@ fn a_failed_batched_step_leaves_the_model_to_its_keep_alive() {
         std::thread::sleep(std::time::Duration::from_millis(50));
     }
 }
+
+/// The answer and the reasoning of a request's `Delta`s, and its last event,
+/// read from the channel `Models::submit` returns; panics past 60 s without
+/// an end.
+fn read_all(mut rx: llvq_runtime::engine::Events, what: &str) -> ((String, String), Option<llvq_runtime::engine::Event>) {
+    use llvq_runtime::engine::Event;
+    let (mut text, mut last) = ((String::new(), String::new()), None);
+    let t = std::time::Instant::now();
+    loop {
+        match rx.try_recv() {
+            Ok(e) => {
+                if let Event::Delta { content, thinking } = &e {
+                    text.0.push_str(content);
+                    text.1.push_str(thinking);
+                }
+                last = Some(e);
+            }
+            Err(tokio::sync::mpsc::error::TryRecvError::Disconnected) => return (text, last),
+            Err(tokio::sync::mpsc::error::TryRecvError::Empty) => {
+                assert!(t.elapsed() < std::time::Duration::from_secs(60), "{what}: no end after 60 s");
+                std::thread::sleep(std::time::Duration::from_millis(1));
+            }
+        }
+    }
+}
+
+fn user(text: &str, max_new: i64) -> llvq_runtime::engine::Request {
+    use llvq_runtime::engine::{Options, Prompt, Request};
+    Request {
+        prompt: Prompt::Chat(vec![llvq_runtime::chat::Msg { role: llvq_runtime::chat::Role::User, content: text.into() }]),
+        think: false,
+        options: Options { temperature: Some(0.0), num_predict: Some(max_new), ..Options::default() },
+    }
+}
+
+/// Wait until `rx` holds at least `n` events unread.
+fn holds(rx: &llvq_runtime::engine::Events, n: usize, what: &str) {
+    let t = std::time::Instant::now();
+    while rx.len() < n {
+        assert!(t.elapsed() < std::time::Duration::from_secs(60), "{what}: fewer than {n} events after 60 s");
+        std::thread::sleep(std::time::Duration::from_millis(1));
+    }
+}
+
+/// Under the batch a client that stops reading does not stop the others: a
+/// request whose channel is full sits the steps out, the others decode on,
+/// and once its client reads again it gets the whole answer, every event in
+/// order. Its client never gives up here (no send timeout), so only an
+/// engine that does not wait on a full channel lets the others run. Two
+/// cases: the held request is alone on the batch-1 path when the reading one
+/// arrives, and the held request fills its channel in the pool, beside a
+/// reading one.
+#[test]
+fn under_the_batch_a_client_that_stops_reading_does_not_stop_the_others() {
+    use llvq_runtime::engine::{Event, KeepAlive, Models};
+    let loader = BatchLoader::new(2, Arc::new(AtomicUsize::new(0)));
+    let m = Models::new(common::store("batch-slow"), Arc::new(loader), 1, KeepAlive::For(std::time::Duration::from_secs(300)))
+        .with_send_timeout(None);
+    let name = ModelName::parse("tiny:test").unwrap();
+    let tok = common::tokenizer();
+    // The ids alone, routed as the engine routes them: the answer, and the
+    // reasoning between `<think>` (3) and `</think>` (4).
+    let want = |text: &str, n: usize| {
+        let (mut content, mut thinking, mut inside) = (Vec::new(), Vec::new(), false);
+        for t in alone(text, n) {
+            match t {
+                3 => inside = true,
+                4 => inside = false,
+                _ if inside => thinking.push(t),
+                _ => content.push(t),
+            }
+        }
+        (tok.decode(&content, false).unwrap(), tok.decode(&thinking, false).unwrap())
+    };
+    let done = |last: &Option<Event>, n: usize| matches!(last, Some(Event::Done(s)) if s.eval_count == n);
+
+    // Alone on the batch-1 path, then a reading request arrives.
+    let held = m.submit(&name, user("the cat sat on the mat", 400), None).expect("queued");
+    holds(&held, 64, "the held channel");
+    let (text, last) = read_all(m.submit(&name, user("why", 20), None).expect("queued"), "the reading request");
+    assert_eq!(text, want("why", 20), "the reading request");
+    assert!(done(&last, 20), "{last:?}");
+    let (text, last) = read_all(held, "the held request, read at last");
+    assert_eq!(text, want("the cat sat on the mat", 400), "the held request lost or reordered text");
+    assert!(done(&last, 400), "{last:?}");
+
+    // In the pool: a reading request decodes, a held one joins it and fills
+    // its channel at a step they share.
+    let reading = m.submit(&name, user("hello how are you", 400), None).expect("queued");
+    holds(&reading, 1, "the reading request");
+    let reader = std::thread::spawn(move || read_all(reading, "the reading request beside the held one"));
+    let held = m.submit(&name, user("one two", 300), None).expect("queued");
+    let (text, last) = reader.join().unwrap();
+    assert_eq!(text, want("hello how are you", 400), "the reading request beside the held one");
+    assert!(done(&last, 400), "{last:?}");
+    let (text, last) = read_all(held, "the request held in the pool, read at last");
+    assert_eq!(text, want("one two", 300), "the request held in the pool lost or reordered text");
+    assert!(done(&last, 300), "{last:?}");
+}

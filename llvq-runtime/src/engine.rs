@@ -8,7 +8,10 @@
 //! By default the engine is batch 1. Requests to one model run one after
 //! another, in arrival order, and `/api/ps` shows the queue. A client that
 //! disconnects drops its event receiver; the next send fails and the answer
-//! stops within one token on the eager path, one launch under 4E.
+//! stops within one token on the eager path, one launch under 4E. A client
+//! that stays connected and stops reading fills its channel of 64 events; the
+//! engine then waits for it at most `LLVQ_SEND_TIMEOUT` (60 s by default)
+//! and treats it as gone after that ([`Outbox`]).
 //!
 //! Under `LLVQ_BATCH` on CUDA the engine batches continuously
 //! ([`Worker::run_batch`]): a request takes a free slot of a pool as soon as
@@ -17,7 +20,8 @@
 //! without stopping the others. A request alone decodes on the batch-1 path
 //! (4E under a persistent config, the faster one for one sequence) and joins
 //! the pool when a second one arrives. The batched engine is greedy, and it
-//! keeps no conversation cache between requests.
+//! keeps no conversation cache between requests. No step waits on a client:
+//! a request whose channel is full sits the steps out until its client reads.
 
 use crate::chat::{self, Msg, Role, Scan, Segment, TextStream};
 use crate::library::{Backend, ModelName};
@@ -288,6 +292,9 @@ pub(crate) struct Job {
     pub(crate) events: tokio::sync::mpsc::Sender<Event>,
     pub(crate) keep_alive: KeepAlive,
     pub(crate) queued_at: Instant,
+    /// How long a send may wait on a client that stopped reading before the
+    /// client is treated as gone; `None` waits for ever (`LLVQ_SEND_TIMEOUT`).
+    pub(crate) patience: Option<Duration>,
 }
 
 /// What `/api/ps` reads about an engine.
@@ -367,39 +374,7 @@ impl KeepAlive {
     }
 
     pub fn parse_str(s: &str) -> Result<Self, String> {
-        let s = s.trim();
-        if s.starts_with('-') {
-            return Ok(KeepAlive::Forever);
-        }
-        if let Ok(n) = s.parse::<f64>() {
-            return secs(n);
-        }
-        let mut total = 0f64;
-        let mut num = String::new();
-        let mut chars = s.chars().peekable();
-        while let Some(c) = chars.next() {
-            if c.is_ascii_digit() || c == '.' {
-                num.push(c);
-                continue;
-            }
-            let unit = match (c, chars.peek()) {
-                ('m', Some('s')) => {
-                    chars.next();
-                    0.001
-                }
-                ('h', _) => 3600.0,
-                ('m', _) => 60.0,
-                ('s', _) => 1.0,
-                _ => return Err(format!("keep_alive {s:?}: units are h, m, s and ms")),
-            };
-            let n: f64 = num.parse().map_err(|_| format!("keep_alive {s:?}: a number before each unit"))?;
-            total += n * unit;
-            num.clear();
-        }
-        if !num.is_empty() {
-            return Err(format!("keep_alive {s:?}: a unit after the last number"));
-        }
-        secs(total)
+        Ok(duration("keep_alive", s)?.map_or(KeepAlive::Forever, KeepAlive::For))
     }
 
     /// When the model may go, `None` for never. A duration past what the
@@ -413,7 +388,50 @@ impl KeepAlive {
 }
 
 fn secs(s: f64) -> Result<KeepAlive, String> {
-    Duration::try_from_secs_f64(s).map(KeepAlive::For).map_err(|_| format!("keep_alive: {s} seconds is not a duration"))
+    seconds("keep_alive", s).map(KeepAlive::For)
+}
+
+fn seconds(what: &str, s: f64) -> Result<Duration, String> {
+    Duration::try_from_secs_f64(s).map_err(|_| format!("{what}: {s} seconds is not a duration"))
+}
+
+/// Ollama's duration forms, as `keep_alive` takes them: a number of seconds,
+/// or a string such as `"5m"`, `"1h30m"`, `"10s"`, `"250ms"`, `"0"`. A
+/// negative value is `None`, for ever. `what` names the setting in an error.
+pub fn duration(what: &str, s: &str) -> Result<Option<Duration>, String> {
+    let s = s.trim();
+    if s.starts_with('-') {
+        return Ok(None);
+    }
+    if let Ok(n) = s.parse::<f64>() {
+        return seconds(what, n).map(Some);
+    }
+    let mut total = 0f64;
+    let mut num = String::new();
+    let mut chars = s.chars().peekable();
+    while let Some(c) = chars.next() {
+        if c.is_ascii_digit() || c == '.' {
+            num.push(c);
+            continue;
+        }
+        let unit = match (c, chars.peek()) {
+            ('m', Some('s')) => {
+                chars.next();
+                0.001
+            }
+            ('h', _) => 3600.0,
+            ('m', _) => 60.0,
+            ('s', _) => 1.0,
+            _ => return Err(format!("{what} {s:?}: units are h, m, s and ms")),
+        };
+        let n: f64 = num.parse().map_err(|_| format!("{what} {s:?}: a number before each unit"))?;
+        total += n * unit;
+        num.clear();
+    }
+    if !num.is_empty() {
+        return Err(format!("{what} {s:?}: a unit after the last number"));
+    }
+    seconds(what, total).map(Some)
 }
 
 /// The sampler's defaults when a request names none. Greedy under 4E, which
@@ -425,6 +443,13 @@ pub fn default_temperature(greedy_only: bool) -> f32 {
     }
 }
 pub const DEFAULT_TOP_P: f32 = 0.9;
+
+/// How long the engine waits on a client that has stopped reading before it
+/// treats the client as gone (`LLVQ_SEND_TIMEOUT`): the Hub download's read
+/// timeout (`Store::read_timeout`), the patience the runtime already gives a
+/// peer that has stopped moving data, and far past any pause a reader that
+/// is merely slow makes.
+pub const DEFAULT_SEND_TIMEOUT: Duration = Duration::from_secs(60);
 
 /// From the request to now. A job queued while the model loaded has waited
 /// the load already, so the load is added only to what the job did not wait.
@@ -445,6 +470,118 @@ pub(crate) fn panic_message(p: &(dyn std::any::Any + Send)) -> String {
         .unwrap_or_else(|| "no message".into())
 }
 
+/// How often a send that found its client's channel full looks again.
+const POLL: Duration = Duration::from_millis(1);
+
+/// What [`Outbox::flush`] left.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Sent {
+    /// Every event is in the channel.
+    Clear,
+    /// The channel is full: the client has not read for a while, less than
+    /// its send timeout.
+    Blocked,
+    /// The client closed the channel, or left it full past the send timeout.
+    /// Final: nothing more is sent.
+    Gone,
+}
+
+/// A request's events on their way to its client, in order.
+///
+/// The engine thread never waits on a client inside `blocking_send`. An event
+/// goes to the back of `queue`, and a flush moves the queue's front into the
+/// channel until the queue is empty or the channel full; an event leaves the
+/// queue only once `try_send` took it, and only from the front. So a client
+/// that reads late gets every event, in the order the engine made them,
+/// whatever the delay. A client that leaves the channel full for its whole
+/// send timeout (`Job::patience`, counted from the last event it made room
+/// for) is gone, exactly as one that closed it: the request stops and the
+/// cache keeps what a departed client leaves.
+pub(crate) struct Outbox {
+    tx: tokio::sync::mpsc::Sender<Event>,
+    queue: VecDeque<Event>,
+    /// Since when the channel has been full with nothing taken.
+    blocked_since: Option<Instant>,
+    patience: Option<Duration>,
+    gone: bool,
+}
+
+impl Outbox {
+    pub(crate) fn new(job: &Job) -> Self {
+        Outbox { tx: job.events.clone(), queue: VecDeque::new(), blocked_since: None, patience: job.patience, gone: false }
+    }
+
+    pub(crate) fn push(&mut self, e: Event) {
+        if !self.gone {
+            self.queue.push_back(e);
+        }
+    }
+
+    /// Every event is in the channel.
+    pub(crate) fn is_clear(&self) -> bool {
+        self.queue.is_empty()
+    }
+
+    /// The client closed the channel, or was given up.
+    pub(crate) fn is_closed(&self) -> bool {
+        self.gone || self.tx.is_closed()
+    }
+
+    /// Move the queued events into the channel, oldest first, without waiting.
+    pub(crate) fn flush(&mut self) -> Sent {
+        let mut took = false;
+        while !self.gone {
+            let Some(e) = self.queue.pop_front() else {
+                self.blocked_since = None;
+                return Sent::Clear;
+            };
+            match self.tx.try_send(e) {
+                Ok(()) => took = true,
+                Err(tokio::sync::mpsc::error::TrySendError::Full(e)) => {
+                    self.queue.push_front(e);
+                    let now = Instant::now();
+                    let since = match (took, self.blocked_since) {
+                        (false, Some(t)) => t,
+                        _ => now,
+                    };
+                    self.blocked_since = Some(since);
+                    match self.patience {
+                        Some(p) if now.duration_since(since) >= p => break,
+                        _ => return Sent::Blocked,
+                    }
+                }
+                Err(tokio::sync::mpsc::error::TrySendError::Closed(_)) => break,
+            }
+        }
+        self.gone = true;
+        self.queue.clear();
+        Sent::Gone
+    }
+
+    /// Queue `e` and wait until the channel took everything: the batch-1
+    /// path, where nothing else runs meanwhile. False when the client is gone.
+    pub(crate) fn send(&mut self, e: Event) -> bool {
+        self.push(e);
+        loop {
+            match self.flush() {
+                Sent::Clear => return true,
+                Sent::Gone => return false,
+                Sent::Blocked => std::thread::sleep(POLL),
+            }
+        }
+    }
+}
+
+/// Answer every job `rx` brings with `msg`, until the engine leaves the list:
+/// what a failed engine does. A queued job's channel is empty, so `try_send`
+/// always finds room, and the thread never waits on a client.
+pub(crate) fn refuse_queue(rx: &std::sync::mpsc::Receiver<Job>, inf: &EngineInfo, msg: &str) {
+    while let Ok(job) = rx.recv() {
+        inf.queue.fetch_sub(1, Ordering::SeqCst);
+        let _ = job.events.try_send(Event::Error { status: 500, message: msg.to_string() });
+    }
+}
+
 /// The conversation state the thread carries between jobs.
 struct Worker {
     loaded: Loaded,
@@ -453,6 +590,9 @@ struct Worker {
     memo: Vec<Segment>,
     context: usize,
     load_duration: Option<Duration>,
+    /// Under the batch: the answers that ended while their client's channel
+    /// was full, their last events still queued.
+    draining: Vec<Outbox>,
 }
 
 /// A request's prompt as ids, checked against the context, and what the
@@ -529,6 +669,9 @@ impl Router {
 /// One request of the batched engine, from its admission to its last token.
 struct Live {
     job: Job,
+    /// Its events not yet in the channel. A live request whose outbox is not
+    /// clear sits the steps out until its client reads.
+    out: Outbox,
     slot: usize,
     router: Router,
     said: Vec<u32>,
@@ -579,7 +722,9 @@ impl Worker {
         if tx.is_closed() {
             return;
         }
-        let send = |e: Event| tx.blocking_send(e).is_ok();
+        // A send waits for a client that reads late, up to its send timeout.
+        let out = std::cell::RefCell::new(Outbox::new(job));
+        let send = |e: Event| out.borrow_mut().send(e);
         let load_duration = self.load_duration.take().unwrap_or_default();
         if let Err(e) = self.run_inner(job, started, load_duration, &send) {
             send(Self::error(500, format!("{e:#}")));
@@ -849,6 +994,12 @@ impl Worker {
     /// (stop token, stop string, its cap, or a client that left) gives its
     /// slot back at once.
     ///
+    /// No step waits on a client. A request whose client has not made room
+    /// for its last event sits the steps out, its slot held and its event
+    /// kept ([`Outbox`]), and steps again once the client reads; past its send
+    /// timeout it ends as a client that left. An answer that ended with its
+    /// last events still queued waits in `draining` and holds no slot.
+    ///
     /// `pending` and `live` belong to the caller, so that the requests they
     /// hold outlive a panic here and are answered with its reason.
     fn run_batch(
@@ -864,23 +1015,36 @@ impl Worker {
             Err(e) => {
                 let msg = format!("the batch pool of {} slots of {} positions: {e}", serve.max, serve.context);
                 *inf.state.lock().expect("state lock") = State::Failed(msg.clone());
-                while let Ok(job) = rx.recv() {
-                    inf.queue.fetch_sub(1, Ordering::SeqCst);
-                    let _ = job.events.blocking_send(Event::Error { status: 500, message: msg.clone() });
-                }
+                refuse_queue(rx, inf, &msg);
                 return;
             }
         };
         let mut open = true;
         loop {
+            self.draining.retain_mut(|o| o.flush() == Sent::Blocked);
             if live.is_empty() && pending.is_empty() {
-                inf.busy.store(false, Ordering::SeqCst);
-                if !open {
-                    return;
-                }
-                match rx.recv() {
-                    Ok(j) => pending.push_back(j),
-                    Err(_) => return,
+                if self.draining.is_empty() {
+                    inf.busy.store(false, Ordering::SeqCst);
+                    if !open {
+                        return;
+                    }
+                    match rx.recv() {
+                        Ok(j) => pending.push_back(j),
+                        Err(_) => return,
+                    }
+                } else {
+                    // Only answers waiting for their clients: look for a job
+                    // while they drain. The engine stays busy, so its weights
+                    // are not dropped under a thread that still runs.
+                    match rx.recv_timeout(POLL) {
+                        Ok(j) => pending.push_back(j),
+                        Err(std::sync::mpsc::RecvTimeoutError::Timeout) => continue,
+                        Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
+                            open = false;
+                            std::thread::sleep(POLL);
+                            continue;
+                        }
+                    }
                 }
             }
             loop {
@@ -914,10 +1078,29 @@ impl Worker {
                     *inf.expires.lock().expect("expires lock") = keep.until(SystemTime::now());
                 }
             }
+            // The clients that made room take their queued events; one gone,
+            // or past its send timeout, ends here.
+            let mut i = 0;
+            while i < live.len() {
+                match live[i].out.flush() {
+                    Sent::Gone => {
+                        let l = live.swap_remove(i);
+                        pool.release(l.slot);
+                        *inf.expires.lock().expect("expires lock") = l.job.keep_alive.until(SystemTime::now());
+                    }
+                    _ => i += 1,
+                }
+            }
             if live.is_empty() {
                 continue;
             }
-            let step: Vec<(usize, u32)> = live.iter().map(|l| (l.slot, l.next)).collect();
+            // A request whose channel is full sits this step out.
+            let stepping: Vec<usize> = (0..live.len()).filter(|&i| live[i].out.is_clear()).collect();
+            if stepping.is_empty() {
+                std::thread::sleep(POLL);
+                continue;
+            }
+            let step: Vec<(usize, u32)> = stepping.iter().map(|&i| (live[i].slot, live[i].next)).collect();
             let be = self.loaded.batch.as_ref().expect("the batched engine");
             let picks = match pool.step(&self.loaded.qwen, &step, be.dev.as_ref(), be.projs) {
                 Ok(p) => p,
@@ -925,17 +1108,18 @@ impl Worker {
                     // A failed step leaves every live cache in doubt: each
                     // request is answered with the reason and its slot freed,
                     // and its keep-alive starts as at a clean end.
-                    for l in live.drain(..) {
-                        let _ = l.job.events.blocking_send(Self::error(500, format!("the batched step failed: {e:#}")));
+                    for mut l in live.drain(..) {
+                        l.out.push(Self::error(500, format!("the batched step failed: {e:#}")));
                         pool.release(l.slot);
                         *inf.expires.lock().expect("expires lock") = l.job.keep_alive.until(SystemTime::now());
+                        Self::settle(&mut self.draining, l.out);
                     }
                     continue;
                 }
             };
             let mut ended: Vec<(usize, After)> = Vec::new();
-            for (i, (l, pick)) in live.iter_mut().zip(picks).enumerate() {
-                match self.advance(l, pick) {
+            for (&i, pick) in stepping.iter().zip(picks) {
+                match self.advance(&mut live[i], pick) {
                     After::Continue => {}
                     a => ended.push((i, a)),
                 }
@@ -947,6 +1131,7 @@ impl Worker {
                     self.finish(&mut l, reason);
                 }
                 *inf.expires.lock().expect("expires lock") = l.job.keep_alive.until(SystemTime::now());
+                Self::settle(&mut self.draining, l.out);
             }
             if live.len() == 1 && pending.is_empty() && self.back_to_solo(&live[0]) {
                 let l = live.pop().expect("one live");
@@ -958,6 +1143,49 @@ impl Worker {
                 }
             }
         }
+    }
+
+    /// The last events of an answer that ended: sent now if the channel has
+    /// room, otherwise kept in `draining` until the client reads them or is
+    /// given up. Dropped when the client is gone.
+    fn settle(draining: &mut Vec<Outbox>, mut out: Outbox) {
+        if out.flush() == Sent::Blocked {
+            draining.push(out);
+        }
+    }
+
+    /// Take the jobs `rx` brought since the last look: one that only loads
+    /// the model is answered at once, any other goes to `pending`. True when
+    /// one went to `pending`.
+    fn arrivals(
+        rx: &std::sync::mpsc::Receiver<Job>,
+        pending: &mut VecDeque<Job>,
+        open: &mut bool,
+        inf: &EngineInfo,
+        draining: &mut Vec<Outbox>,
+    ) -> bool {
+        let mut arrived = false;
+        loop {
+            match rx.try_recv() {
+                Ok(j) if matches!(j.request.prompt, Prompt::Load) => {
+                    inf.take_job();
+                    let mut out = Outbox::new(&j);
+                    Self::answer_load(&j, &mut out, Instant::now(), Duration::ZERO);
+                    Self::settle(draining, out);
+                    *inf.expires.lock().expect("expires lock") = j.keep_alive.until(SystemTime::now());
+                }
+                Ok(j) => {
+                    pending.push_back(j);
+                    arrived = true;
+                }
+                Err(std::sync::mpsc::TryRecvError::Empty) => break,
+                Err(std::sync::mpsc::TryRecvError::Disconnected) => {
+                    *open = false;
+                    break;
+                }
+            }
+        }
+        arrived
     }
 
     /// A request with no other live: prefilled and decoded on the batch-1
@@ -976,23 +1204,25 @@ impl Worker {
     ) -> Option<Live> {
         let started = Instant::now();
         let load = self.load_duration.take().unwrap_or_default();
-        let tx = job.events.clone();
-        if tx.is_closed() {
+        if job.events.is_closed() {
             return None;
         }
-        let send = |e: Event| tx.blocking_send(e).is_ok();
+        let mut out = Outbox::new(&job);
         if let Prompt::Load = job.request.prompt {
-            Self::answer_load(&job, started, load);
+            Self::answer_load(&job, &mut out, started, load);
+            Self::settle(&mut self.draining, out);
             return None;
         }
         let p = match self.prepare(&job.request, &[]) {
             Ok(Ok(p)) => p,
             Ok(Err(refusal)) => {
-                send(refusal);
+                out.push(refusal);
+                Self::settle(&mut self.draining, out);
                 return None;
             }
             Err(e) => {
-                send(Self::error(500, format!("{e:#}")));
+                out.push(Self::error(500, format!("{e:#}")));
+                Self::settle(&mut self.draining, out);
                 return None;
             }
         };
@@ -1001,16 +1231,19 @@ impl Worker {
         let h = match session.feed(&self.loaded.qwen, &p.prompt) {
             Ok(h) => h,
             Err(e) => {
-                send(Self::error(500, format!("{e:#}")));
+                out.push(Self::error(500, format!("{e:#}")));
+                Self::settle(&mut self.draining, out);
                 return None;
             }
         };
         let prompt_eval = t.elapsed();
-        if !send(Event::Accepted { prompt_tokens: p.prompt.len(), cached: 0 }) {
+        out.push(Event::Accepted { prompt_tokens: p.prompt.len(), cached: 0 });
+        if out.flush() == Sent::Gone {
             return None;
         }
         let l = Live {
             job,
+            out,
             slot: usize::MAX,
             router: Router::default(),
             said: Vec::new(),
@@ -1029,10 +1262,13 @@ impl Worker {
     /// path: it decodes there at 225.4 tok/s on 4E against 106.2 on the
     /// batched step at B = 1 (4B, batch-l40s-v4), so a request that outlived
     /// its neighbours ran its tail at 0.47x (audit 2026-11-08 §1.2). Not when
-    /// the batch-1 path has fewer positions left than one launch.
+    /// the batch-1 path has fewer positions left than one launch, nor while
+    /// its client has events to read: the batch-1 path waits on a full
+    /// channel, the pool does not.
     fn back_to_solo(&self, l: &Live) -> bool {
         let held = l.prompt.len() + l.said.len();
-        solo_room(self.loaded.decoder.max_positions(), held) > self.loaded.decoder.launch_tokens() as usize
+        l.out.is_clear()
+            && solo_room(self.loaded.decoder.max_positions(), held) > self.loaded.decoder.launch_tokens() as usize
     }
 
     /// [`Self::solo`] for a request taken out of the pool: its slot's caches
@@ -1076,6 +1312,10 @@ impl Worker {
     /// takes a slot of the pool with its caches and is returned live, its
     /// next token not yet fed. `None` when it ended here.
     ///
+    /// Alone, it waits for a client whose channel is full, as the batch-1
+    /// engine does, and looks for arrivals while it waits: one that comes
+    /// stops the wait, and the request goes to the pool with its event kept.
+    ///
     /// A job that only loads the model is answered at once and does not stop
     /// the decode: the model is loaded.
     #[allow(clippy::too_many_arguments)]
@@ -1090,8 +1330,6 @@ impl Worker {
         pool: &mut llvq_llm::batch::Pool,
         inf: &EngineInfo,
     ) -> Option<Live> {
-        let tx = l.job.events.clone();
-        let send = |e: Event| tx.blocking_send(e).is_ok();
         let tok = &self.loaded.tokenizer;
         let (think, stops) = (self.marks.think, self.marks.stops());
         let stop_strings = l.job.request.options.stop.clone();
@@ -1104,6 +1342,8 @@ impl Worker {
         let mut failure: Option<anyhow::Error> = None;
         let mut sampler = Sampler { temp: 0.0, top_p: 1.0, state: 0 };
         let mut whole = before.clone();
+        let out = &mut l.out;
+        let draining = &mut self.draining;
         let answer = session.answer(
             &self.loaded.qwen,
             &mut self.loaded.decoder,
@@ -1120,33 +1360,34 @@ impl Worker {
                     Ok((c, r, stop)) => {
                         // As in `run_inner`: a router that holds text must not hide a client that left.
                         let silent = c.is_empty() && r.is_empty();
-                        if (silent && tx.is_closed()) || (!silent && !send(Event::Delta { content: c, thinking: r })) {
+                        if silent && out.is_closed() {
                             gone = true;
                             return Flow::Cancel;
+                        }
+                        if !silent {
+                            out.push(Event::Delta { content: c, thinking: r });
+                        }
+                        loop {
+                            match out.flush() {
+                                Sent::Clear => break,
+                                Sent::Gone => {
+                                    gone = true;
+                                    return Flow::Cancel;
+                                }
+                                Sent::Blocked => {}
+                            }
+                            arrived |= Self::arrivals(rx, pending, open, inf, draining);
+                            if arrived {
+                                break;
+                            }
+                            std::thread::sleep(POLL);
                         }
                         if stop {
                             return Flow::Cancel;
                         }
                     }
                 }
-                loop {
-                    match rx.try_recv() {
-                        Ok(j) if matches!(j.request.prompt, Prompt::Load) => {
-                            inf.take_job();
-                            Self::answer_load(&j, Instant::now(), Duration::ZERO);
-                            *inf.expires.lock().expect("expires lock") = j.keep_alive.until(SystemTime::now());
-                        }
-                        Ok(j) => {
-                            pending.push_back(j);
-                            arrived = true;
-                        }
-                        Err(std::sync::mpsc::TryRecvError::Empty) => break,
-                        Err(std::sync::mpsc::TryRecvError::Disconnected) => {
-                            *open = false;
-                            break;
-                        }
-                    }
-                }
+                arrived |= Self::arrivals(rx, pending, open, inf, draining);
                 match arrived {
                     true => Flow::Cancel,
                     false => Flow::Continue,
@@ -1155,7 +1396,8 @@ impl Worker {
         );
         let answer = match (answer, failure) {
             (_, Some(e)) | (Err(e), None) => {
-                send(Self::error(500, format!("{e:#}")));
+                l.out.push(Self::error(500, format!("{e:#}")));
+                Self::settle(&mut self.draining, l.out);
                 return None;
             }
             (Ok(a), None) => a,
@@ -1176,6 +1418,7 @@ impl Worker {
         };
         if let Some(reason) = reason {
             self.finish(&mut l, reason);
+            Self::settle(&mut self.draining, l.out);
             return None;
         }
         match pool.adopt(&self.loaded.qwen, session.caches()) {
@@ -1185,16 +1428,17 @@ impl Worker {
             }
             Ok(None) => unreachable!("a lone request leaves every slot free"),
             Err(e) => {
-                let _ = l.job.events.blocking_send(Self::error(500, format!("joining the batch: {e:#}")));
+                l.out.push(Self::error(500, format!("joining the batch: {e:#}")));
+                Self::settle(&mut self.draining, l.out);
                 None
             }
         }
     }
 
     /// The answer to a job that only loads the model.
-    fn answer_load(job: &Job, started: Instant, load: Duration) {
-        let _ = job.events.blocking_send(Event::Accepted { prompt_tokens: 0, cached: 0 });
-        let _ = job.events.blocking_send(Event::Done(Stats {
+    fn answer_load(job: &Job, out: &mut Outbox, started: Instant, load: Duration) {
+        out.push(Event::Accepted { prompt_tokens: 0, cached: 0 });
+        out.push(Event::Done(Stats {
             done_reason: "load".into(),
             total_duration: nanos(total(job, started, load)),
             load_duration: nanos(load),
@@ -1207,23 +1451,25 @@ impl Worker {
     fn admit(&mut self, job: Job, pool: &mut llvq_llm::batch::Pool) -> Option<Live> {
         let started = Instant::now();
         let load = self.load_duration.take().unwrap_or_default();
-        let tx = job.events.clone();
-        if tx.is_closed() {
+        if job.events.is_closed() {
             return None;
         }
-        let send = |e: Event| tx.blocking_send(e).is_ok();
+        let mut out = Outbox::new(&job);
         if let Prompt::Load = job.request.prompt {
-            Self::answer_load(&job, started, load);
+            Self::answer_load(&job, &mut out, started, load);
+            Self::settle(&mut self.draining, out);
             return None;
         }
         let p = match self.prepare(&job.request, &[]) {
             Ok(Ok(p)) => p,
             Ok(Err(refusal)) => {
-                send(refusal);
+                out.push(refusal);
+                Self::settle(&mut self.draining, out);
                 return None;
             }
             Err(e) => {
-                send(Self::error(500, format!("{e:#}")));
+                out.push(Self::error(500, format!("{e:#}")));
+                Self::settle(&mut self.draining, out);
                 return None;
             }
         };
@@ -1232,17 +1478,20 @@ impl Worker {
             Ok(Some(s)) => s,
             Ok(None) => unreachable!("admitted only while a slot is free"),
             Err(e) => {
-                send(Self::error(500, format!("{e:#}")));
+                out.push(Self::error(500, format!("{e:#}")));
+                Self::settle(&mut self.draining, out);
                 return None;
             }
         };
         let prompt_eval = t.elapsed();
-        if !send(Event::Accepted { prompt_tokens: p.prompt.len(), cached: 0 }) {
+        out.push(Event::Accepted { prompt_tokens: p.prompt.len(), cached: 0 });
+        if out.flush() == Sent::Gone {
             pool.release(slot);
             return None;
         }
         let mut l = Live {
             job,
+            out,
             slot,
             router: Router::default(),
             said: Vec::new(),
@@ -1261,6 +1510,7 @@ impl Worker {
                 if let After::Done(reason) = a {
                     self.finish(&mut l, reason);
                 }
+                Self::settle(&mut self.draining, l.out);
                 None
             }
         }
@@ -1268,7 +1518,8 @@ impl Worker {
 
     /// One picked token of a live request: Session::answer's rules, the
     /// stop token not said, the cap counted on said tokens, the text routed
-    /// and streamed.
+    /// and queued. The queue is flushed without waiting: a full channel
+    /// leaves the request live, and it sits the next steps out.
     fn advance(&self, l: &mut Live, pick: u32) -> After {
         if self.marks.stops().contains(&pick) {
             return After::Done("stop");
@@ -1278,15 +1529,19 @@ impl Worker {
         let tok = &self.loaded.tokenizer;
         match l.router.step(&l.said, tok, self.marks.think, &l.job.request.options.stop) {
             Err(e) => {
-                let _ = l.job.events.blocking_send(Self::error(500, format!("{e:#}")));
+                l.out.push(Self::error(500, format!("{e:#}")));
                 return After::Gone;
             }
             Ok((c, r, stop)) => {
                 // As in `run_inner`: a router that holds text must not hide a client that left.
                 let silent = c.is_empty() && r.is_empty();
-                if (silent && l.job.events.is_closed())
-                    || (!silent && l.job.events.blocking_send(Event::Delta { content: c, thinking: r }).is_err())
-                {
+                if silent && l.out.is_closed() {
+                    return After::Gone;
+                }
+                if !silent {
+                    l.out.push(Event::Delta { content: c, thinking: r });
+                }
+                if l.out.flush() == Sent::Gone {
                     return After::Gone;
                 }
                 if stop {
@@ -1300,24 +1555,22 @@ impl Worker {
         After::Continue
     }
 
-    /// The tail of an answer that ended, and its last chunk.
+    /// The tail of an answer that ended, and its last chunk, queued.
     fn finish(&self, l: &mut Live, reason: &'static str) {
-        let events = l.job.events.clone();
-        let send = |e: Event| events.blocking_send(e).is_ok();
         if l.router.stopped_at.is_none() {
             match l.router.tail(&self.loaded.tokenizer) {
                 Ok((c, r)) => {
-                    if (!c.is_empty() || !r.is_empty()) && !send(Event::Delta { content: c, thinking: r }) {
-                        return;
+                    if !c.is_empty() || !r.is_empty() {
+                        l.out.push(Event::Delta { content: c, thinking: r });
                     }
                 }
                 Err(e) => {
-                    send(Self::error(500, format!("{e:#}")));
+                    l.out.push(Self::error(500, format!("{e:#}")));
                     return;
                 }
             }
         }
-        send(Event::Done(Stats {
+        l.out.push(Event::Done(Stats {
             done_reason: reason.into(),
             total_duration: nanos(total(&l.job, l.started, l.load)),
             load_duration: nanos(l.load),
@@ -1375,7 +1628,15 @@ impl Engine {
                 // (`Worker::solo_decode`) instead of failing there.
                 let context = loaded.batch.as_ref().map_or(context, |b| b.serve.context.min(rope));
                 let session = Session::new(&loaded.qwen);
-                Ok(Worker { loaded, marks, session, memo: Vec::new(), context, load_duration: Some(t0.elapsed()) })
+                Ok(Worker {
+                    loaded,
+                    marks,
+                    session,
+                    memo: Vec::new(),
+                    context,
+                    load_duration: Some(t0.elapsed()),
+                    draining: Vec::new(),
+                })
             });
             let mut w = match built {
                 Ok(w) => w,
@@ -1521,6 +1782,7 @@ pub struct Models {
     engines: Mutex<Vec<Engine>>,
     max_loaded: usize,
     default_keep_alive: KeepAlive,
+    send_timeout: Option<Duration>,
 }
 
 /// A loaded model as `/api/ps` reports it.
@@ -1536,10 +1798,25 @@ pub struct Running {
 
 impl Models {
     pub fn new(store: Arc<Store>, loader: Arc<dyn Loader>, max_loaded: usize, default_keep_alive: KeepAlive) -> Self {
-        Models { store, loader, engines: Mutex::new(Vec::new()), max_loaded: max_loaded.max(1), default_keep_alive }
+        Models {
+            store,
+            loader,
+            engines: Mutex::new(Vec::new()),
+            max_loaded: max_loaded.max(1),
+            default_keep_alive,
+            send_timeout: Some(DEFAULT_SEND_TIMEOUT),
+        }
     }
 
-    /// `LLVQ_MAX_LOADED` (default 1) and `LLVQ_KEEP_ALIVE` (default 5m).
+    /// How long the engine waits on a client that stopped reading before it
+    /// treats the client as gone; `None` waits for ever.
+    pub fn with_send_timeout(mut self, t: Option<Duration>) -> Self {
+        self.send_timeout = t;
+        self
+    }
+
+    /// `LLVQ_MAX_LOADED` (default 1), `LLVQ_KEEP_ALIVE` (default 5m) and
+    /// `LLVQ_SEND_TIMEOUT` (default 60 s, negative for never).
     pub fn from_env(store: Arc<Store>, loader: Arc<dyn Loader>) -> anyhow::Result<Self> {
         let max_loaded = match std::env::var("LLVQ_MAX_LOADED") {
             Ok(v) => v.trim().parse::<usize>().ok().filter(|n| *n > 0).ok_or_else(|| {
@@ -1551,7 +1828,11 @@ impl Models {
             Ok(v) => KeepAlive::parse_str(&v).map_err(|e| anyhow::anyhow!("LLVQ_KEEP_ALIVE: {e}"))?,
             Err(_) => KeepAlive::For(Duration::from_secs(300)),
         };
-        Ok(Self::new(store, loader, max_loaded, keep))
+        let send_timeout = match std::env::var("LLVQ_SEND_TIMEOUT") {
+            Ok(v) => duration("LLVQ_SEND_TIMEOUT", &v).map_err(anyhow::Error::msg)?,
+            Err(_) => Some(DEFAULT_SEND_TIMEOUT),
+        };
+        Ok(Self::new(store, loader, max_loaded, keep).with_send_timeout(send_timeout))
     }
 
     fn not_found(name: &ModelName) -> Refusal {
@@ -1624,7 +1905,7 @@ impl Models {
         let (tx, rx) = tokio::sync::mpsc::channel(64);
         let e = &engines[pos];
         *e.info.expires.lock().expect("expires lock") = None;
-        e.submit(Job { request, events: tx, keep_alive: keep, queued_at: Instant::now() })
+        e.submit(Job { request, events: tx, keep_alive: keep, queued_at: Instant::now(), patience: self.send_timeout })
             .map_err(|m| Refusal { status: 500, message: m })?;
         Ok(rx)
     }
@@ -1741,5 +2022,78 @@ mod tests {
             let r = KeepAlive::parse_str(bad);
             assert!(r.is_err(), "{bad:?} must be refused");
         }
+        assert_eq!(KeepAlive::parse_str("5x").unwrap_err(), "keep_alive \"5x\": units are h, m, s and ms");
+    }
+
+    /// `LLVQ_SEND_TIMEOUT` reads `keep_alive`'s forms, a negative value for
+    /// never, and an error names the variable.
+    #[test]
+    fn the_send_timeout_reads_keep_alives_forms() {
+        let d = |v: &str| duration("LLVQ_SEND_TIMEOUT", v);
+        assert_eq!(d("90s"), Ok(Some(Duration::from_secs(90))));
+        assert_eq!(d("2m"), Ok(Some(Duration::from_secs(120))));
+        assert_eq!(d("0"), Ok(Some(Duration::ZERO)));
+        assert_eq!(d("-1"), Ok(None));
+        assert_eq!(d("1h5"), Err("LLVQ_SEND_TIMEOUT \"1h5\": a unit after the last number".into()));
+    }
+
+    /// A job whose client never reads, on a channel of `cap`, given up after
+    /// `patience`.
+    fn held_job(cap: usize, patience: Option<Duration>) -> (Job, Events) {
+        let (tx, rx) = tokio::sync::mpsc::channel(cap);
+        let request = Request { prompt: Prompt::Raw(String::new()), think: false, options: Options::default() };
+        (Job { request, events: tx, keep_alive: KeepAlive::Forever, queued_at: Instant::now(), patience }, rx)
+    }
+
+    fn delta(s: &str) -> Event {
+        Event::Delta { content: s.into(), thinking: String::new() }
+    }
+
+    /// An outbox keeps what the channel refused, at its front, and the client
+    /// that reads again gets it before anything queued after it.
+    #[test]
+    fn an_outbox_keeps_order_through_a_full_channel() {
+        let (job, mut rx) = held_job(1, None);
+        let mut out = Outbox::new(&job);
+        for s in ["a", "b", "c"] {
+            out.push(delta(s));
+        }
+        assert_eq!(out.flush(), Sent::Blocked);
+        assert_eq!(rx.try_recv().unwrap(), delta("a"));
+        assert_eq!(out.flush(), Sent::Blocked);
+        out.push(delta("d"));
+        assert_eq!(rx.try_recv().unwrap(), delta("b"));
+        assert_eq!(out.flush(), Sent::Blocked);
+        assert_eq!(rx.try_recv().unwrap(), delta("c"));
+        assert_eq!(out.flush(), Sent::Clear);
+        assert!(out.is_clear());
+        assert_eq!(rx.try_recv().unwrap(), delta("d"));
+        assert!(rx.try_recv().is_err());
+        // Without a send timeout a client that never reads is never given up.
+        let (job, _rx) = held_job(1, None);
+        let mut out = Outbox::new(&job);
+        out.push(delta("a"));
+        out.push(delta("b"));
+        for _ in 0..3 {
+            assert_eq!(out.flush(), Sent::Blocked);
+        }
+    }
+
+    /// Past its send timeout the client is gone for good: nothing more is
+    /// queued, even once the channel has room. A timeout of zero gives up at
+    /// the first full channel.
+    #[test]
+    fn an_outbox_past_its_timeout_is_gone_for_good() {
+        let (job, mut rx) = held_job(1, Some(Duration::ZERO));
+        let mut out = Outbox::new(&job);
+        out.push(delta("a"));
+        out.push(delta("b"));
+        assert_eq!(out.flush(), Sent::Gone);
+        assert!(out.is_closed());
+        assert_eq!(rx.try_recv().unwrap(), delta("a"));
+        out.push(delta("c"));
+        assert_eq!(out.flush(), Sent::Gone, "a client given up came back");
+        assert!(!out.send(delta("d")));
+        assert!(rx.try_recv().is_err());
     }
 }

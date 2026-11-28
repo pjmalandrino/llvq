@@ -937,7 +937,9 @@ impl<M: TurnLm> Turns for Worker<M> {
         if tx.is_closed() {
             return;
         }
-        let send = |e: Event| tx.blocking_send(e).is_ok();
+        // A send waits for a client that reads late, up to its send timeout.
+        let out = std::cell::RefCell::new(crate::engine::Outbox::new(job));
+        let send = |e: Event| out.borrow_mut().send(e);
         if let Err(e) = self.run_inner(job, started, load, &send) {
             // The cache may hold half a feed: the next request starts empty.
             self.lm.reset();
@@ -1429,6 +1431,7 @@ mod tests {
             events: tx,
             keep_alive: crate::engine::KeepAlive::Forever,
             queued_at: Instant::now(),
+            patience: None,
         };
         PICKED.with(|p| p.borrow_mut().clear());
         w.run(&job, Duration::ZERO);
@@ -1588,9 +1591,44 @@ mod tests {
             events: tx,
             keep_alive: crate::engine::KeepAlive::Forever,
             queued_at: Instant::now(),
+            patience: None,
         };
         w.run(&job, Duration::ZERO);
         assert!(w.lm.steps <= 2, "the engine decoded {} steps of a call nobody receives", w.lm.steps);
+    }
+
+    /// A client that holds its channel and never reads is given up after its
+    /// send timeout, as one that left: the answer stops where the channel
+    /// filled and the engine returns. The worker runs on its own thread so
+    /// that an engine still waiting fails the test instead of holding it.
+    #[test]
+    fn a_client_that_stops_reading_is_given_up_after_its_send_timeout() {
+        let chat = InkChat::new(test_ink::byte_tokenizer()).unwrap();
+        let enc = |s: &str| chat.tokenizer().encode(s, false).unwrap().get_ids().to_vec();
+        let (script, filler) = (enc("<|message_model|><|content_text|>"), enc("a")[0]);
+        let (tx, rx) = tokio::sync::mpsc::channel(4);
+        let lm = Caller { script, filler, ctx: 0, steps: 0, rx: None };
+        let mut w = Worker { lm, chat, context: 4096, backend: "script".into(), config: None, held: Vec::new(), prefix: None };
+        let msgs = FIRST.iter().map(|(role, c)| Msg { role: *role, content: c.to_string() }).collect();
+        let job = Job {
+            request: crate::engine::Request {
+                prompt: Prompt::Chat(msgs),
+                think: false,
+                options: crate::engine::Options { num_predict: Some(1000), ..Default::default() },
+            },
+            events: tx,
+            keep_alive: crate::engine::KeepAlive::Forever,
+            queued_at: Instant::now(),
+            patience: Some(Duration::from_millis(50)),
+        };
+        let (done, ran) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            w.run(&job, Duration::ZERO);
+            let _ = done.send(w.lm.steps);
+        });
+        let steps = ran.recv_timeout(Duration::from_secs(30)).expect("the engine still waits on a client that stopped reading");
+        assert!(steps < 10, "the engine decoded {steps} steps for a client that read nothing");
+        assert_eq!(rx.len(), 4, "the events that fit before the client stopped reading");
     }
 
     #[test]

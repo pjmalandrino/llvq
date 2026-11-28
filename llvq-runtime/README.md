@@ -203,6 +203,11 @@ By default the engine decodes one sequence at a time, so requests to one model q
 `LLVQ_BATCH=<n>[:<positions>]` on CUDA, `llvq serve` batches continuously through each model's
 `*-4e-v9-batch.json` config: a lone request decodes on 4E, and up to n step together through the
 batched GEMM, greedy only, with no conversation cache. `LLVQ_BATCH` is refused on Metal and the CPU.
+A client that stays connected and stops reading (`llvq run ... | less` left unscrolled) gets 60 s
+(`LLVQ_SEND_TIMEOUT`, in `keep_alive`'s forms, negative for never) once its socket and its
+64-event channel are full. Past that it is treated as gone: its answer stops, and when it reads
+again its stream ends with an error line. Until then it loses nothing. Under `LLVQ_BATCH` the
+other requests decode meanwhile; outside it they queue behind it, as behind any answer.
 On CUDA the three models run 4E, which decodes greedily: a temperature above 0 is refused there.
 The 4B's chain prefill compiles two tree modules on a card's first start, then loads them from
 `LLVQ_MODULE_CACHE` (unset: `$XDG_CACHE_HOME/llvq/modules`, else `~/.cache/llvq/modules`). A chat history is read again
