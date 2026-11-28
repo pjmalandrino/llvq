@@ -281,9 +281,14 @@ impl Cuda {
         //
         // The call must precede every allocation — cudarc only skips the event
         // pair for slices *created after* it.
-        // `unsafe` because cudarc can no longer prove accesses are ordered:
-        // the caller takes that on. Here the proof is structural — one stream,
-        // and the driver orders a single stream by issue.
+        // SAFETY: cudarc's three conditions (no free before another
+        // stream's use ends, no use on another stream before the allocation
+        // ends, no concurrent writes from two streams) are vacuous while one
+        // stream does all the work: `ctx` is a context of its own (not
+        // candle's), no slice exists yet, and the one stream created below
+        // carries every upload and launch of the returned `Cuda`. Its default
+        // stream is never used for work here; a caller that does, or that
+        // opens a second stream on `self.ctx`, voids this.
         unsafe { ctx.disable_event_tracking() };
         let stream = ctx
             .new_stream()
@@ -598,6 +603,22 @@ impl Cuda {
 
 /// The read-only buffers every probe shares.
 ///
+/// SAFETY (open), the contract of every `launch_*` in this file: each is a
+/// safe `pub` function whose `unsafe` launch relies on four things. (L1) The
+/// arguments match the kernel's `extern "C"` signature, in count, order and
+/// type: checked by reading, site by site. (L2) Every buffer outlives the
+/// kernel: the builder borrows each `CudaSlice` until `launch` returns, and a
+/// dropped slice is freed with `free_async` on its own stream, which is this
+/// `Cuda`'s stream (or candle's, through [`Cuda::on_stream`]), so after the
+/// kernel. (L3) Every buffer holds what the grid makes the kernel touch:
+/// NOT checked here, except where a function says so (`launch_rot_rows`
+/// checks `xout`, the `_dev` forms check `scratch`). A caller that hands a
+/// `y` shorter than `d_out`, an `x` shorter than the activation, or a stream
+/// shorter than `nblocks` blocks a row gets an out-of-bounds device access
+/// from safe code. Every caller in this workspace sizes them from the same
+/// matrix; nothing enforces it. (L4) The grid is exact where the kernel has
+/// no guard (`row_grid` asserts `d_out % (threads / 32) == 0`).
+///
 /// Bundled rather than passed one by one: the kernels take six and seven
 /// arguments, and a positional list that long is exactly where a port swaps
 /// two pointers of the same type and gets a plausible wrong answer.
@@ -626,6 +647,10 @@ pub fn launch_decode_probe(
         .arg(&inp.nblocks)
         .arg(slots)
         .arg(cls);
+    // SAFETY (open): L1: the six arguments of `decode_probe`
+    // (`preflight.cu`). L3 is the caller's: `slots` and `cls` must hold what
+    // the probe writes for `nblocks` blocks, and the inputs `nblocks` blocks.
+    // See the contract on `Inputs`.
     unsafe { b.launch(cfg) }.map_err(|e| format!("decode_probe: {e}"))?;
     Ok(())
 }
@@ -646,6 +671,9 @@ pub fn launch_dot_probe(
         .arg(inp.x)
         .arg(&inp.nblocks)
         .arg(out);
+    // SAFETY (open): L1: the seven arguments of `dot_probe` (`preflight.cu`).
+    // L3 is the caller's (`out` and the inputs sized for `nblocks` blocks);
+    // see the contract on `Inputs`.
     unsafe { b.launch(cfg) }.map_err(|e| format!("dot_probe: {e}"))?;
     Ok(())
 }
@@ -678,6 +706,10 @@ impl Cuda {
         let mut b = self.stream.launch_builder(f);
         b.arg(words).arg(bases).arg(tab).arg(gscale).arg(rscale).arg(tail).arg(x).arg(y)
             .arg(&nblocks).arg(&tail_w);
+        // SAFETY (open): L1: the ten arguments of `tv_slot` (`matvec.cu`). L4:
+        // `row_grid`. L3 is the caller's: `y` `d_out` floats, `x` the
+        // activation, the stream `d_out` rows of `nblocks` blocks; see the
+        // contract on `Inputs`.
         unsafe { b.launch(cfg) }.map_err(|e| format!("tv_slot: {e}"))?;
         Ok(())
     }
@@ -722,6 +754,10 @@ impl Cuda {
         let mut b = self.stream.launch_builder(f);
         b.arg(words).arg(bases).arg(tab).arg(gscale).arg(rscale).arg(tail).arg(x).arg(y)
             .arg(&nblocks).arg(&tail_w);
+        // SAFETY (open): L1: the ten arguments of `tv_slot_h` (`matvec.cu`),
+        // provided `T` is a two-byte type (the kernel stores `unsigned short`);
+        // nothing bounds `T`. L4: `row_grid`. L3 is the caller's; see the
+        // contract on `Inputs`.
         unsafe { b.launch(cfg) }.map_err(|e| format!("tv_slot_h: {e}"))?;
         Ok(())
     }
@@ -752,6 +788,9 @@ impl Cuda {
         let mut b = self.stream.launch_builder(f);
         b.arg(words).arg(bases).arg(tab).arg(gscale).arg(gs_off).arg(rscale).arg(tail)
             .arg(x).arg(y).arg(&nblocks).arg(&tail_w);
+        // SAFETY (open): L1: the eleven arguments of `tv_slot_seg`
+        // (`matvec.cu`). L4: `row_grid`. L3 is the caller's, `gs_off` entries
+        // inside `gscale` included; see the contract on `Inputs`.
         unsafe { b.launch(cfg) }.map_err(|e| format!("tv_slot_seg: {e}"))?;
         Ok(())
     }
@@ -789,6 +828,9 @@ impl Cuda {
         let cfg = row_grid(d_out, threads, shared);
         let mut b = self.stream.launch_builder(f);
         b.arg(words).arg(bases).arg(tab).arg(x).arg(y).arg(&nblocks);
+        // SAFETY (open): L1: the six arguments of the `tv_floor_*` probes
+        // (`llvq_floor.cuh`). L4: `row_grid`. L3 is the caller's; see the
+        // contract on `Inputs`.
         unsafe { b.launch(cfg) }.map_err(|e| format!("floor probe: {e}"))?;
         Ok(())
     }
@@ -839,6 +881,12 @@ impl Cuda {
         let mut b = self.stream.launch_builder(f);
         b.arg(xin).arg(signbits).arg(small).arg(xout).arg(&n).arg(&m).arg(&k).arg(&inv)
             .arg(&x_off);
+        // SAFETY (open): L1: the nine arguments of `rot_apply` (`rotate.cu`),
+        // provided `T` is two bytes (the kernel reads `unsigned short`). The
+        // shared request is `n * 4`, what the kernel stages, and it is the
+        // caller's to keep under what `f` was loaded with (doc above). L3 is
+        // the caller's: `xin` holds `x_off + n` values and `xout` `n`; see the
+        // contract on `Inputs`.
         unsafe { b.launch(cfg) }.map_err(|e| format!("rot_apply: {e}"))?;
         Ok(())
     }
@@ -887,6 +935,10 @@ impl Cuda {
         let mut b = self.stream.launch_builder(f);
         b.arg(xin).arg(signbits).arg(small).arg(xout).arg(&n).arg(&m).arg(&k).arg(&inv)
             .arg(&x_off).arg(&row_stride);
+        // SAFETY (open): L1: the ten arguments of `rot_apply_rows`
+        // (`rotate.cu`), `T` two bytes. `xout` holds `n_rows * n` (checked
+        // above). Not checked: `xin` holds `x_off + (n_rows - 1) * row_stride
+        // + n` values; see the contract on `Inputs`.
         unsafe { b.launch(cfg) }.map_err(|e| format!("rot_apply_rows: {e}"))?;
         Ok(())
     }
@@ -930,6 +982,11 @@ impl Cuda {
         let mut b = self.stream.launch_builder(f);
         b.arg(xin).arg(signbits).arg(small).arg(xout).arg(scratch).arg(&n).arg(&m).arg(&k)
             .arg(&inv).arg(&x_off);
+        // SAFETY (open): L1: the ten arguments of `rot_apply_dev`
+        // (`rotate_wide.cu`), `T` two bytes; `scratch` is long enough (checked
+        // above) and, being `&mut`, cannot alias `xin` or `xout`. Not checked:
+        // `xin` holds `x_off + n` values and `xout` `n`; see the contract on
+        // `Inputs`.
         unsafe { b.launch(cfg) }.map_err(|e| format!("rot_apply_dev: {e}"))?;
         Ok(())
     }
@@ -981,6 +1038,10 @@ impl Cuda {
         let mut b = self.stream.launch_builder(f);
         b.arg(xin).arg(signbits).arg(small).arg(xout).arg(scratch).arg(&n).arg(&m).arg(&k)
             .arg(&inv).arg(&x_off).arg(&row_stride);
+        // SAFETY (open): L1: the eleven arguments of `rot_apply_rows_dev`
+        // (`rotate_wide.cu`), `T` two bytes; `xout` and `scratch` checked
+        // above. Not checked: the extent of `xin`; see the contract on
+        // `Inputs`.
         unsafe { b.launch(cfg) }.map_err(|e| format!("rot_apply_rows_dev: {e}"))?;
         Ok(())
     }
@@ -1000,6 +1061,9 @@ impl Cuda {
         let cfg = row_grid(d_out, threads, shared);
         let mut b = self.stream.launch_builder(f);
         b.arg(w).arg(x).arg(y).arg(&d_in);
+        // SAFETY (open): L1: the four arguments of `tv_f16` (`matvec.cu`). L4:
+        // `row_grid`. L3 is the caller's: `w` `d_out * d_in`, `x` `d_in`, `y`
+        // `d_out`; see the contract on `Inputs`.
         unsafe { b.launch(cfg) }.map_err(|e| format!("tv_f16: {e}"))?;
         Ok(())
     }

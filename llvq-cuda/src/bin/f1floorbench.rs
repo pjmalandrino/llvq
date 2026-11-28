@@ -172,6 +172,13 @@ mod linux {
                 let c = cfg(s, shared);
                 let mut b = cuda.stream().launch_builder(f);
                 b.arg(&s.rscale).arg(&s.tail).arg(&s.x).arg(&mut s.y).arg(&s.nblocks).arg(&s.tail_w);
+                // SAFETY: `tv_nullk` and `tv_f1_hash3` take the same six arguments
+                // (`nullk.cu`, `f1floor.cu`), in this order; the buffers are a `Shape`'s, built by `build` from one
+                // (name, d_out, d_in): `x` holds `d_in` floats, `y` `d_out`, `tail`
+                // `d_out * tail_w`, `rscale` `d_out`, and `d_out % 8 == 0` is asserted there,
+                // so the grid of `cfg` is exact. The builder borrows them until `launch`
+                // returns and they live in `shapes` past the `cuda.sync()` that ends the
+                // round, on this bench's one stream.
                 unsafe { b.launch(c) }.map_err(|e| format!("{}: {e}", s.name))?;
             }
         }
@@ -201,6 +208,9 @@ mod linux {
                     .arg(&mask)
                     .arg(&s.nblocks)
                     .arg(&s.tail_w);
+                // SAFETY: the eight arguments of `tv_f1_tab3` (`f1floor.cu`); `tab` holds
+                // `mask + 1` words, a power of two (asserted where the tables are built), so
+                // `& mask` keeps every lookup inside it; the rest as in `round_plain`.
                 unsafe { b.launch(c) }.map_err(|e| format!("{}: {e}", s.name))?;
             }
         }
@@ -235,6 +245,11 @@ mod linux {
                     .arg(&hot_frac)
                     .arg(&s.nblocks)
                     .arg(&s.tail_w);
+                // SAFETY: the ten arguments of `tv_f1_smem` and `tv_f1_smem_fill`
+                // (`f1floor.cu`); `shared` is the tile plus `hot_words * 4`, the size `f` was
+                // loaded with and checked against the card's opt-in by the caller, and
+                // `hot_words` (6 Ki or 12 Ki) is below the 1 Mi words of the table it is
+                // handed; the rest as in `round_tab`.
                 unsafe { b.launch(c) }.map_err(|e| format!("{}: {e}", s.name))?;
             }
         }

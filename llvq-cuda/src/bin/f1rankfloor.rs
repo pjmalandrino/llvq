@@ -363,6 +363,8 @@ mod linux {
         {
             let mut b = cuda.stream().launch_builder(f);
             b.arg(&mut words).arg(&n32).arg(&seed);
+            // SAFETY: the three arguments of `f1r_fill` (`f1rank.cu`); the grid rounds
+            // `n` up and the kernel stores only `i < n`, the length of `words`.
             unsafe { b.launch(c) }.map_err(|e| format!("f1r_fill: {e}"))?;
         }
         Ok(Stream { seed, words })
@@ -389,6 +391,12 @@ mod linux {
                 let c = cfg(s, shared);
                 let mut b = cuda.stream().launch_builder(f);
                 b.arg(&s.rscale).arg(&s.tail).arg(&s.x).arg(&mut s.y).arg(&s.nblocks).arg(&s.tail_w);
+                // SAFETY: the six arguments of `tv_nullk` (`nullk.cu`); the buffers are a `Shape`'s, built by `build` from one
+                // (name, d_out, d_in): `x` holds `d_in` floats, `y` `d_out`, `tail`
+                // `d_out * tail_w`, `rscale` `d_out`, and `d_out % 8 == 0` is asserted there,
+                // so the grid of `cfg` is exact. The builder borrows them until `launch`
+                // returns and they live in `shapes` past the `cuda.sync()` that ends the
+                // round, on this bench's one stream.
                 unsafe { b.launch(c) }.map_err(|e| format!("nullk/{}: {e}", s.name))?;
             }
         }
@@ -417,6 +425,10 @@ mod linux {
                     .arg(&mut s.y)
                     .arg(&s.nblocks)
                     .arg(&s.tail_w);
+                // SAFETY: the eight arguments of `tv_f1r_word` (`f1rank.cu`); each stream
+                // copy holds `d_out * stride_u32` words (filled at that length in `main`) and
+                // `build` asserts the stride covers the last block's two-word window; the
+                // other buffers as in `round_null`.
                 unsafe { b.launch(c) }.map_err(|e| format!("word/{}: {e}", s.name))?;
             }
         }
@@ -454,6 +466,11 @@ mod linux {
                     .arg(&mut s.y)
                     .arg(&s.nblocks)
                     .arg(&s.tail_w);
+                // SAFETY: the twelve arguments shared by `tv_f1r` and `tv_f1r_v1` to `_v3`
+                // (`f1rank*.cu`); `tab` holds the four rank tables uploaded once; the stream
+                // and the other buffers as in `round_word`. Assumes every rank the tables
+                // produce indexes inside them, which the dump control checks on the card
+                // for `NDUMP` blocks, not here.
                 unsafe { b.launch(c) }.map_err(|e| format!("{who}/{}: {e}", s.name))?;
             }
         }
@@ -493,6 +510,8 @@ mod linux {
                     .arg(&mut s.y)
                     .arg(&s.nblocks)
                     .arg(&s.tail_w);
+                // SAFETY: the fourteen arguments of `tv_f1r_v3g` (`tetra48_v3g.cu`); as in
+                // `round_table`, with the Tetra48 gain and norm tables of `t48`.
                 unsafe { b.launch(c) }.map_err(|e| format!("f1r_v3g/{}: {e}", s.name))?;
             }
         }
@@ -529,6 +548,9 @@ mod linux {
                     .arg(&mut s.y)
                     .arg(&s.nblocks)
                     .arg(&s.tail_w);
+                // SAFETY: the nine arguments of `tv_planes` (`planes.cu`); each Planes14
+                // copy was filled at `planes_words(d_out, nblocks)` words in `main`, and
+                // `pt` holds the class table and gains; the rest as in `round_null`.
                 unsafe { b.launch(c) }.map_err(|e| format!("planes14/{}: {e}", s.name))?;
             }
         }
@@ -671,6 +693,11 @@ mod linux {
                         .arg(&mut out)
                         .arg(&s.nblocks)
                         .arg(&ndump);
+                    // SAFETY: the nine arguments of `tv_f1r_dump` (`f1rank.cu`); threads
+                    // return past `j >= ndump` and thread `j` writes the 24 bytes at `24 j` of
+                    // `out`, which holds `NDUMP * 24` bytes. Assumes the copy holds `NDUMP`
+                    // blocks, which every shape of `SHAPES` exceeds by orders of magnitude; not
+                    // checked here.
                     unsafe { b.launch(c) }.map_err(|e| format!("dump/{}: {e}", s.name))?;
                 }
                 cuda.sync()?;
@@ -754,6 +781,9 @@ mod linux {
                     .arg(&mut out)
                     .arg(&s.nblocks)
                     .arg(&ndump);
+                // SAFETY: the eleven arguments of `tv_tetra48_dump` (`tetra48_v3g.cu`);
+                // `out` holds `NDUMP * 24` floats, the kernel returns past `i >= n`; the same
+                // assumption on the copy's length as in `dump_check`.
                 unsafe { b.launch(c) }.map_err(|e| format!("tetra48 dump/{}: {e}", s.name))?;
             }
             cuda.sync()?;

@@ -1,5 +1,12 @@
 //! The launch wrappers, one per kernel, with the AWQ and QTIP host helpers that fill their buffers. One file
 //! because each wrapper holds the geometry and argument order its kernel expects, and nothing else.
+//!
+//! Every `unsafe` launch below rests on the contract `llvq_cuda::gpu` writes on its `Inputs`: the argument
+//! list is the kernel's (checked by reading, named at each site), every buffer is a `CudaSlice` the builder
+//! borrows and cudarc frees in stream order on this bench's one stream, and the grid is exact where the kernel
+//! has no guard. What the wrappers do not check is the extent of each buffer (L3): the bench's callers pass
+//! buffers uploaded from the same matrix, the activation of `XLEN` floats that `bench.rs` refuses to let a
+//! `d_in` overrun, and outputs of `max_dout`. That holds for this binary by construction, not by type.
 
 use super::*;
 
@@ -38,6 +45,8 @@ pub(super) fn launch_planes(
     let mut b = cuda.stream().launch_builder(f);
     b.arg(words).arg(tab).arg(gscale).arg(rscale).arg(tail).arg(x).arg(y)
         .arg(&nblocks).arg(&tail_w);
+    // SAFETY: the contract in the module doc; the nine arguments of `tv_planes` (`planes.cu`), grid
+    // from `row_grid`.
     unsafe { b.launch(cfg) }.map_err(|e| format!("tv_planes: {e}"))?;
     Ok(())
 }
@@ -77,6 +86,8 @@ pub(super) fn launch_tetra48(
         .arg(&tabs.rows).arg(&tabs.prefixes).arg(&tabs.branches).arg(&tabs.suffixes)
         .arg(gscale).arg(&tabs.invnorm).arg(rscale).arg(tail)
         .arg(x).arg(y).arg(&nblocks).arg(&tail_w);
+    // SAFETY: the contract in the module doc; the fourteen arguments of `tv_f1r_v3g` (`tetra48_v3g.cu`),
+    // grid from `row_grid`.
     unsafe { b.launch(cfg) }.map_err(|e| format!("tv_f1r_v3g: {e}"))?;
     Ok(())
 }
@@ -115,6 +126,9 @@ pub(super) fn launch_tetra48_seg(
         .arg(&tabs.rows).arg(&tabs.prefixes).arg(&tabs.branches).arg(&tabs.suffixes)
         .arg(gscale).arg(gs_off).arg(&tabs.invnorm).arg(rscale).arg(tail)
         .arg(x).arg(y).arg(&nblocks).arg(&tail_w);
+    // SAFETY: the contract in the module doc; the fifteen arguments of `tv_tetra48_seg`
+    // (`tetra48_seg.cu`), grid from `row_grid`; assumes every `gs_off` entry indexes inside `gscale`,
+    // which this wrapper does not check.
     unsafe { b.launch(cfg) }.map_err(|e| format!("tv_tetra48_seg: {e}"))?;
     Ok(())
 }
@@ -149,6 +163,8 @@ pub(super) fn launch_planes_seg(
     let mut b = cuda.stream().launch_builder(f);
     b.arg(words).arg(tab).arg(gscale).arg(gs_off).arg(rscale).arg(tail).arg(x).arg(y)
         .arg(&nblocks).arg(&tail_w);
+    // SAFETY: the contract in the module doc; the ten arguments of `tv_planes_seg` (`planes_seg.cu`), grid
+    // from `row_grid`; assumes every `gs_off` entry indexes inside `gscale`, unchecked here.
     unsafe { b.launch(cfg) }.map_err(|e| format!("tv_planes_seg: {e}"))?;
     Ok(())
 }
@@ -193,6 +209,9 @@ pub(super) fn launch_planes12x(
     let mut b = cuda.stream().launch_builder(f);
     b.arg(words).arg(exc_idx).arg(exc_words).arg(tab).arg(gscale).arg(rscale)
         .arg(tail).arg(x).arg(y).arg(&nblocks).arg(&tail_w).arg(&row_cta).arg(&n_exc);
+    // SAFETY: the contract in the module doc; the thirteen arguments of `tv_planes12x` (`planes12.cu`);
+    // the grid is `row_cta` exact row CTAs plus `ceil(n_exc / 8)` correction CTAs, whose surplus warps
+    // the kernel returns on `e >= n_exc`; `y` was zeroed above on the same stream, before the launch.
     unsafe { b.launch(cfg) }.map_err(|e| format!("tv_planes12x: {e}"))?;
     Ok(())
 }
@@ -217,6 +236,8 @@ pub(super) fn launch_nullk(
     let cfg = row_grid(d_out, threads, shared);
     let mut b = cuda.stream().launch_builder(f);
     b.arg(rscale).arg(tail).arg(x).arg(y).arg(&nblocks).arg(&tail_w);
+    // SAFETY: the contract in the module doc; the six arguments of `tv_nullk` (`nullk.cu`), grid from
+    // `row_grid`.
     unsafe { b.launch(cfg) }.map_err(|e| format!("tv_nullk: {e}"))?;
     Ok(())
 }
@@ -255,6 +276,8 @@ pub(super) fn launch_e1v(
     let mut b = cuda.stream().launch_builder(f);
     b.arg(data).arg(bases).arg(tab).arg(pay).arg(binom).arg(golay).arg(gscale)
         .arg(rscale).arg(tail).arg(x).arg(y).arg(&nblocks).arg(&tail_w);
+    // SAFETY: the contract in the module doc; the thirteen arguments of `tv_e1v` (`e1v.cu`), grid from
+    // `row_grid`.
     unsafe { b.launch(cfg) }.map_err(|e| format!("tv_e1v: {e}"))?;
     Ok(())
 }
@@ -302,6 +325,8 @@ pub(super) fn launch_golay70(
     b.arg(words).arg(exc_idx).arg(exc_words).arg(cwtab).arg(gtab).arg(tab)
         .arg(gscale).arg(rscale).arg(tail).arg(x).arg(y)
         .arg(&nblocks).arg(&tail_w).arg(&row_cta).arg(&n_exc);
+    // SAFETY: the contract in the module doc; the fifteen arguments of `tv_golay70` (`golay70.cu`), the
+    // two-region grid of `launch_planes12x` and its zeroed `y`.
     unsafe { b.launch(cfg) }.map_err(|e| format!("tv_golay70: {e}"))?;
     Ok(())
 }
@@ -428,6 +453,9 @@ pub(super) fn launch_qtip(
     };
     let mut b = cuda.stream().launch_builder(f);
     b.arg(y).arg(compressed).arg(xh).arg(codebook);
+    // SAFETY: the contract in the module doc; the four arguments of `qtip_mv_<M>x<K>` (`qtip_glue.cu`),
+    // `x` and `codebook` read as `half2` pairs of the u16 buffers, upstream's grid, and the dynamic shared
+    // bytes `f` must have been loaded with (doc above; a wrong `f` is refused by the driver at launch).
     unsafe { b.launch(cfg) }.map_err(|e| format!("qtip_mv: {e}"))?;
     Ok(())
 }
@@ -469,6 +497,9 @@ pub(super) fn launch_awq(
     };
     let mut b = cuda.stream().launch_builder(f);
     b.arg(xh).arg(w).arg(z).arg(s).arg(y).arg(&d_in).arg(&d_out);
+    // SAFETY: the contract in the module doc; the seven arguments of `awq_gemv_g128` (`awq_gemv.cu`): `xh`
+    // read as `float4` (eight halves; cudarc allocations are at least 256-byte aligned), `IC` and `OC` as
+    // `int`, which the `u32` values are while below 2^31. The padded strides are `awq_strides`'.
     unsafe { b.launch(cfg) }.map_err(|e| format!("awq_gemv_g128: {e}"))?;
     Ok(())
 }

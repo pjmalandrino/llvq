@@ -239,6 +239,19 @@ impl AttnDec {
         let Scratch { part, ticket, .. } = &mut *s;
         b.arg(q).arg(&null).arg(&null).arg(kc).arg(vc).arg(&pos0).arg(&k).arg(&cap).arg(&c)
             .arg(part).arg(ticket).arg(out).arg(&ss);
+        // SAFETY (open): L1: the thirteen arguments of `attn_dec_g*_u*`
+        // (`attn_dec.cu`), `k_new` and `v_new` passed as null, which the
+        // kernel tests (`if (k_new != 0)`) before it writes the caches, so the
+        // shared `kc` and `vc` views are only read. L2: the views borrow
+        // their slices for the call, the scratch is held under `s`, and the
+        // module is on candle's stream or a fresh one of its own. L3:
+        // `check_lens` and `check_call` above bound `q`, `out`, `kc`, `vc`
+        // and the rows, counted in elements of `T`; that is only right for a
+        // two-byte `T` (the kernel reads `unsigned short`), and nothing bounds
+        // `T`, so `attend::<u8>` passes the checks with half the bytes. The
+        // partials hold `s_stride >= eager_grid` splits; a wider `grid_x`
+        // adds splits that start past `pos0 + k`, and assumes those skip the
+        // body (`base < lmax` in `attn_dec_body`) without touching `part`.
         unsafe { b.launch(self.config(grid_x)) }.map_err(|e| format!("{}: {e}", self.name))?;
         Ok(())
     }
@@ -275,6 +288,10 @@ impl AttnDec {
         let Scratch { part, ticket, .. } = &mut *s;
         b.arg(q).arg(k_new).arg(v_new).arg(kc).arg(vc).arg(&pos0).arg(&k).arg(&cap).arg(&c)
             .arg(part).arg(ticket).arg(out).arg(&ss);
+        // SAFETY (open): as in `attend`, with the fresh rows: `k_new` and
+        // `v_new` hold `n_kv * k * HD` (checked above) and the kernel writes
+        // them into `kc` and `vc`, which this function borrows `&mut`. The
+        // same gap on an unbounded `T`.
         unsafe { b.launch(self.config(grid_x)) }.map_err(|e| format!("{}: {e}", self.name))?;
         Ok(())
     }

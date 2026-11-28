@@ -142,6 +142,12 @@ mod linux {
             .arg(&mut s.y)
             .arg(&s.nblocks)
             .arg(&s.tail_w);
+        // SAFETY: the six arguments of `tv_nullk` (`nullk.cu`), in order; the buffers are a `Shape`'s, built by `build` from one
+        // (name, d_out, d_in): `x` holds `d_in` floats, `y` `d_out`, `tail`
+        // `d_out * tail_w`, `rscale` `d_out`, and `d_out % 8 == 0` is asserted there,
+        // so the grid of this launch is exact. The builder borrows them until `launch`
+        // returns and they live in `shapes` past the `cuda.sync()` that ends the
+        // round, on this bench's one stream.
         unsafe { b.launch(cfg) }.map_err(|e| format!("tv_nullk({}): {e}", s.name))?;
         Ok(())
     }

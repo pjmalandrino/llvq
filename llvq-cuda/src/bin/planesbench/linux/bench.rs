@@ -1734,6 +1734,13 @@ pub fn run() -> Result<(), String> {
         let (xp, _xg) = xh.device_ptr(cuda.stream());
         let (yp, _yg) = y.device_ptr_mut(cuda.stream());
         let (alpha, beta) = (1.0f32, 0.0f32);
+        // SAFETY: the raw cuBLAS call reads `d_out x d_in` halves at `wp`
+        // (`m.w16`, uploaded from the same matrix), `d_in` at `xp` (the
+        // binary16 copy of the activation of `XLEN` floats, which no `d_in`
+        // overruns) and writes `d_out` at `yp` (`d_yh`, `max_dout` long). The
+        // three guards keep the slices borrowed until the call returns, the
+        // handle is bound to this stream, so the frees are ordered after it,
+        // and `alpha`, `beta` outlive the call that reads them.
         unsafe {
             cbr::gemm_ex(
                 *blas.handle(),

@@ -83,7 +83,9 @@ pub fn e1v_tables(
     let n_words = std::mem::size_of_val(&recs[..]) / 4;
     // SAFETY: `GpuBlockRec` is `#[repr(C)]`, `Copy`, 108 bytes with alignment 4
     // (both asserted at build time), so the slice is exactly `n_words` aligned
-    // `u32`. This is the reinterpretation the upload performs; doing it field by
+    // `u32`. Every byte is initialised: the fields add up to 108 bytes (16
+    // `f32`, 36 `u8`, one `u32` at offset 100), so `repr(C)` inserts no
+    // padding, and `recs` is borrowed for the life of `words`. This is the reinterpretation the upload performs; doing it field by
     // field would be a second layout to keep in step with the kernel's.
     let words = unsafe { std::slice::from_raw_parts(recs.as_ptr() as *const u32, n_words) };
     (words.to_vec(), pay, binom)
