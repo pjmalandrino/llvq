@@ -1289,3 +1289,15 @@ O13, the number the long-context speed phase took on main the next day.
 - `docs/plan-runtime.md` said the engine was batch 1, batched decoding out of scope, and tool calls served for the
   qwen3 family only. `LLVQ_BATCH` has batched Qwen3 requests on CUDA since 2026-11-08, and the inkling2 family has
   served tool calls since 2026-11-24; the plan and `llvq-runtime/README.md` now say so.
+
+## 2026-11-28. A client that stops reading no longer holds the engine, $0
+
+- A client that stays connected and stops reading no longer holds the engine. Until today the engine waited on it
+  without limit once its 64-event channel was full, and under `LLVQ_BATCH` the whole pool waited with it (found by the
+  2026-11 runtime audit, not fixed then). The engine now gives such a client `LLVQ_SEND_TIMEOUT`, 60 s by default,
+  then treats it as gone; under `LLVQ_BATCH` a request whose channel is full sits the steps out and the others
+  decode. A client that reads within the timeout loses no event and gets them in order. Nothing ran on a card: the
+  batched engine ran on the CPU reference, and the CUDA and Metal halves were type-checked only.
+- Five route tests of `llvq-runtime/tests/server.rs` slept and timed the engine. They now wait on `/api/ps`, the
+  conversation cache or the reaper, and the file runs in about a minute, 52 to 62 s over eleven runs, against 141 to 170 s over ten
+  (*measured*, debug, shared machine).

@@ -55,7 +55,8 @@ removed. The text stream's fallback hid a stream that had stopped being incremen
 
 - **A client that stays connected and stops reading blocks the engine.** The engine blocks once the 64-event channel
   and the socket buffers are full, after a few thousand tokens. Every later request then queues behind it. `llvq run |
-  less` left unscrolled is one way to get there. The fix is a send deadline that treats the client as gone.
+  less` left unscrolled is one way to get there. The fix is a send deadline that treats the client as gone. Fixed on
+  2026-11-28: `LLVQ_SEND_TIMEOUT`, 60 s by default, and under `LLVQ_BATCH` no step waits on a client.
 - **A long prefill cannot be cancelled.** A client that leaves during it holds the engine until the prefill ends. The fix
   is a closed-channel check between the chunks of `Session::feed`, which needs a callback in `llvq-llm`.
 - **`Session::feed` failing between two layers would leave the caches longer than `ids`.** `truncate(n)` returns early
