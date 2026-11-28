@@ -70,7 +70,8 @@ impl Lut {
     #[inline(always)]
     fn flat(&self) -> &[[u64; 2]; 2 * ROWS] {
         // SAFETY: `[[T; ROWS]; 2]` and `[T; 2 · ROWS]` have the same size,
-        // alignment and element order.
+        // alignment and element order, so the cast pointer addresses the
+        // same initialised bytes, and the returned reference borrows `self`.
         unsafe { &*self.0.as_ptr().cast::<[[u64; 2]; 2 * ROWS]>() }
     }
 }
@@ -534,6 +535,12 @@ mod neon {
     /// registers: each table row loads as one `uint64x2` (both candidates),
     /// its mask as one `uint64x1`, and a bit select merges them. Same lanes,
     /// fewer scalar instructions and no general-to-vector move.
+    ///
+    /// # Safety
+    /// Nothing beyond NEON, which every aarch64 CPU has: both loads read
+    /// through references, `lut[rows[k]]` (a checked index, two `u64`) and
+    /// `t.mask[codes[k]]` (one `u64`). `unsafe` only because the intrinsics
+    /// are declared so.
     #[inline(always)]
     unsafe fn sections(t: &Tables, w: u64) -> ([int8x8_t; 3], usize) {
         let (p, rows, codes, g) = t.locate(w);
@@ -547,6 +554,9 @@ mod neon {
     }
 
     /// The 24 lanes of a block as three `int16x8`, and `‖y‖²`.
+    ///
+    /// # Safety
+    /// Nothing beyond NEON (aarch64 baseline): registers only, no memory.
     #[inline(always)]
     unsafe fn widen(s: [int8x8_t; 3]) -> (int16x8_t, int16x8_t, int16x8_t, u32) {
         let a0 = vmovl_s8(s[0]);
@@ -558,17 +568,24 @@ mod neon {
         (a0, a1, a2, vaddvq_s16(sq) as u16 as u32)
     }
 
+    /// # Safety
+    /// Nothing beyond NEON (aarch64 baseline): registers only, no memory.
     #[inline(always)]
     unsafe fn lo(a: int16x8_t) -> float32x4_t {
         vcvtq_f32_s32(vmovl_s16(vget_low_s16(a)))
     }
 
+    /// # Safety
+    /// Nothing beyond NEON (aarch64 baseline): registers only, no memory.
     #[inline(always)]
     unsafe fn hi(a: int16x8_t) -> float32x4_t {
         vcvtq_f32_s32(vmovl_high_s16(a))
     }
 
     /// `<y, x>` over one block, as four lanes still to be summed.
+    ///
+    /// # Safety
+    /// `x` points at 24 readable `f32` (six loads of four).
     #[inline(always)]
     unsafe fn dot(f: &[float32x4_t; 6], x: *const f32) -> float32x4_t {
         let mut d = vmulq_f32(f[0], vld1q_f32(x));
@@ -687,6 +704,11 @@ mod neon {
     /// `Σ q·x` over one int4 group of `half_g` bytes, `x` deinterleaved:
     /// `xe` the even elements (low nibbles), `xo` the odd ones (high
     /// nibbles). Four lanes still to be summed, from four accumulators.
+    ///
+    /// # Safety
+    /// `half_g` is a multiple of 16, since each step reads 16 bytes and 16
+    /// `f32` of each half from `c`; `bytes` points at `half_g` readable bytes
+    /// and `xe` and `xo` at `half_g` readable `f32` each.
     #[inline(always)]
     unsafe fn q4_group(bytes: *const u8, xe: *const f32, xo: *const f32, half_g: usize) -> float32x4_t {
         let m = vdupq_n_u8(0x0f);
@@ -762,6 +784,25 @@ mod avx2 {
     use super::{word_at, Tables, CLASS_ROWS, DIM, MAX_BATCH, N0_MIXED, PATHS, ROWS};
     use std::arch::x86_64::*;
 
+    // The AVX2 contract. Every `unsafe fn` here needs the CPU features its
+    // `#[target_feature]` names, or, for the `#[inline(always)]` helpers that
+    // carry none, the features of the public function they inline into
+    // (AVX2 implies the SSSE3 and SSE4.1 forms `norm2` and `lanes` use). A
+    // `Kind::Avx2` is built only by `Isa::detect`, after
+    // `is_x86_feature_detected!` reports AVX2, FMA and F16C, so every call
+    // from a `match isa.0` arm meets this. The public functions assert the
+    // lengths their raw-pointer reads need, so the CPU is the only obligation
+    // their `# Safety` sections put on the caller.
+    //
+    // SAFETY (open): those asserts are computed in `usize` without overflow
+    // checks in `release` and `dist`. `nblocks = 0x5555_5555_5555_5558` makes
+    // `nblocks * DIM` wrap to 64 and `3 * grouped / 2` in `each_block` wrap
+    // to 4, so a `TetraMatrix` built by safe code with that `nblocks` (the
+    // fields are public, `tetra_matvec` does not call `check`, and `check`
+    // wraps the same way) passes every assert and `prep8` and `dot` read past
+    // `row` and `x`. The loaders set `nblocks = d_in / DIM`, which cannot
+    // wrap, so no served path reaches it.
+    //
     // The Tetra rows. Per block the scalar path spends most of its
     // instructions forming addresses (`Tables::locate`): about 45 integer
     // operations a block, on a core with four integer ALUs, ahead of a long
@@ -877,6 +918,9 @@ mod avx2 {
     /// the scale it indexes is the same; it starts from the bytes, so it does
     /// not wait for the float conversion, and it needs no saturating
     /// float-to-int.
+    ///
+    /// # Safety
+    /// SSSE3 (`pshufb`, `pabsb`), which AVX2 implies: registers only.
     #[inline(always)]
     unsafe fn norm2(s: &[__m128i; 3]) -> u32 {
         let sq = _mm_setr_epi8(0, 1, 4, 9, 16, 25, 36, 49, 64, 81, 100, 121, 0, 0, 0, 0);
@@ -889,6 +933,9 @@ mod avx2 {
     }
 
     /// The eight `i8` lanes of a section as f32, exactly.
+    ///
+    /// # Safety
+    /// AVX2 (`vpmovsxbd`): registers only.
     #[inline(always)]
     unsafe fn lanes(s: __m128i) -> __m256 {
         _mm256_cvtepi32_ps(_mm256_cvtepi8_epi32(s))
@@ -933,7 +980,9 @@ mod avx2 {
     /// site, so that `f` inlines.
     ///
     /// # Safety
-    /// AVX2.
+    /// AVX2. Nothing about `row`'s length: the grouped blocks are asserted
+    /// below and the odd tail goes through `word_at`'s checked indexing, but
+    /// see the open note on the assert at the top of this module.
     #[inline(always)]
     unsafe fn each_block(
         t: &Tables,
@@ -966,6 +1015,8 @@ mod avx2 {
         }
     }
 
+    /// # Safety
+    /// AVX: registers only.
     #[inline(always)]
     unsafe fn hsum(v: __m256) -> f32 {
         let s = _mm_add_ps(_mm256_castps256_ps128(v), _mm256_extractf128_ps(v, 1));
@@ -973,6 +1024,9 @@ mod avx2 {
         _mm_cvtss_f32(_mm_add_ss(s, _mm_shuffle_ps(s, s, 1)))
     }
 
+    /// # Safety
+    /// AVX2 and FMA; `x` points at 24 readable `f32` (three unaligned loads
+    /// of eight).
     #[inline(always)]
     unsafe fn dot(f: &[__m256; 3], x: *const f32) -> __m256 {
         let d = _mm256_mul_ps(f[0], _mm256_loadu_ps(x));
@@ -1083,6 +1137,11 @@ mod avx2 {
 
     /// `Σ q·x` over one int4 group of `half_g` bytes, as in `neon`: eight
     /// lanes still to be summed, from four accumulators.
+    ///
+    /// # Safety
+    /// AVX2 and FMA; `half_g` is a multiple of 16, since each step reads 16
+    /// bytes and 16 `f32` of each half from `c`; `bytes` points at `half_g`
+    /// readable bytes and `xe` and `xo` at `half_g` readable `f32` each.
     #[inline(always)]
     unsafe fn q4_group(bytes: *const u8, xe: *const f32, xo: *const f32, half_g: usize) -> __m256 {
         let m = _mm_set1_epi8(0x0f);
@@ -1104,6 +1163,10 @@ mod avx2 {
     /// A binary16 value as f32, exactly, by `vcvtph2ps`. `half`'s own
     /// conversion is a runtime F16C check and an out-of-line call on x86_64,
     /// twice per int4 group; this is one instruction.
+    ///
+    /// # Safety
+    /// F16C (`vcvtph2ps`): registers only. Called from `q4_row` and `finish`,
+    /// the two functions that enable it.
     #[inline(always)]
     unsafe fn h2f(bits: u16) -> f32 {
         _mm_cvtss_f32(_mm_cvtph_ps(_mm_cvtsi32_si128(i32::from(bits))))
@@ -1179,7 +1242,10 @@ fn tetra_row(isa: Isa, t: &Tables, row: &[u32], nblocks: usize, sc: &[f32; 64], 
         #[cfg(target_arch = "aarch64")]
         Kind::Neon => neon::row(t, row, nblocks, sc, x),
         // SAFETY: an `Isa` naming AVX2 is only produced where the CPU reports
-        // AVX2, FMA and F16C (`Isa::detect`, the one constructor of a SIMD path).
+        // AVX2, FMA and F16C (`Isa::detect`, the one constructor of a SIMD path),
+        // which is the whole of `avx2::row`'s `# Safety`: it asserts the lengths
+        // it reads itself (the AVX2 contract, top of `mod avx2`, and its open
+        // note on wrapping arithmetic).
         #[cfg(target_arch = "x86_64")]
         Kind::Avx2 => unsafe { avx2::row(t, row, nblocks, sc, x) },
     }
