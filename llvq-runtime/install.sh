@@ -173,27 +173,40 @@ mkdir -p "$PREFIX/bin" "$PREFIX/lib" || die "cannot write under $PREFIX: set LLV
 rm -rf "$DEST.new"
 cp -R "$TMP/x/llvq" "$DEST.new"
 chmod 755 "$DEST.new/llvq"
+
+# The new binary must start BEFORE it replaces anything: a failed check removes $DEST.new and leaves $DEST as it was.
+if [ -e "$DEST" ]; then KEPT="the previous install in $DEST is untouched"; else KEPT="nothing was installed"; fi
+refuse() { rm -rf "$DEST.new"; die "$1; $KEPT"; }
+if [ "$OS" = Linux ] && command -v ldd > /dev/null 2>&1; then
+  MISSING=$(ldd "$DEST.new/llvq" 2> /dev/null | grep 'not found' || true)
+  if [ -n "$MISSING" ]; then
+    # glibc says "version `GLIBC_2.35' not found"; a missing library says "libssl.so.3 => not found".
+    OLDLIBC=$(printf '%s\n' "$MISSING" | grep 'version .GLIBC_' || true)
+    NOLIB=$(printf '%s\n' "$MISSING" | grep -v 'version .GLIBC_' || true)
+    if [ -n "$OLDLIBC" ]; then
+      say "this system's glibc is older than the archive needs (glibc 2.35 or newer: Ubuntu 22.04, Debian 12 and later):"
+      printf '%s\n' "$OLDLIBC" >&2
+    fi
+    if [ -n "$NOLIB" ]; then
+      case "$FLAVOR" in
+        *-cuda) say "libraries not found (libcuda.so.1 comes with the NVIDIA driver):" ;;
+        *) say "libraries not found (libssl.so.3 and libcrypto.so.3: the libssl3 package):" ;;
+      esac
+      printf '%s\n' "$NOLIB" >&2
+    fi
+    refuse "the new binary cannot load its libraries"
+  fi
+fi
+if [ "$FLAVOR" != linux-x86_64-cuda ] || [ "${LLVQ_SKIP_GPU_CHECK:-0}" != 1 ]; then
+  "$DEST.new/llvq" -v || refuse "the new binary does not start"
+fi
+
 rm -rf "$DEST.old"
 if [ -e "$DEST" ]; then mv "$DEST" "$DEST.old"; fi
 mv "$DEST.new" "$DEST"
 rm -rf "$DEST.old"
 ln -sf "$DEST/llvq" "$PREFIX/bin/llvq"
 say "installed $DEST, linked $PREFIX/bin/llvq"
-
-if [ "$OS" = Linux ] && command -v ldd > /dev/null 2>&1; then
-  MISSING=$(ldd "$DEST/llvq" 2> /dev/null | grep 'not found' || true)
-  if [ -n "$MISSING" ]; then
-    case "$FLAVOR" in
-      *-cuda) say "libraries not found (libcuda.so.1 comes with the NVIDIA driver):" ;;
-      *) say "libraries not found (libssl.so.3 and libcrypto.so.3: the libssl3 package):" ;;
-    esac
-    printf '%s\n' "$MISSING" >&2
-    exit 1
-  fi
-fi
-if [ "$FLAVOR" != linux-x86_64-cuda ] || [ "${LLVQ_SKIP_GPU_CHECK:-0}" != 1 ]; then
-  "$DEST/llvq" -v || die "the installed binary does not start"
-fi
 case ":$PATH:" in
   *":$PREFIX/bin:"*) ;;
   *) say "add $PREFIX/bin to PATH, e.g. echo 'export PATH=\"$PREFIX/bin:\$PATH\"' >> ~/.profile" ;;
